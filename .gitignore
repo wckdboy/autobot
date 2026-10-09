@@ -1,0 +1,56 @@
+# Gradle / Kotlin
+.gradle/
+build/
+.kotlin/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing material
+*.jks
+*.keystore
+keystore.properties
+
+# Proprietary SDKs (Qualcomm QAIRT / Genie) – obtain separately, never commit
+third_party/qairt/
+
+# Model weights and artifacts
+models/
+*.gguf
+*.bin
+*.safetensors
+*.onnx
+*.mnn
+*.dlc
+
+# Gradle wrapper jar must stay tracked even though it lives under gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ / Android Studio (per-user files)
+*.iml
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries/
+.idea/shelf/
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/modules/
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.idea/gradle.xml
+.idea/misc.xml
+.idea/deploymentTargetDropDown.xml
+.idea/deploymentTargetSelector.xml
+.idea/appInsightsSettings.xml
+.idea/studiobot.xml
+.idea/androidTestResultsUserPreferences.xml
+.idea/other.xml
+.idea/runConfigurations.xml
+.idea/*.local.xml
+
+# OS
+.DS_Store
+Thumbs.db
