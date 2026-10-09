@@ -81,9 +81,11 @@ import kotlinx.coroutines.launch
 fun GalleryRoute(
     onBack: (() -> Unit)?,
     onReuse: (galleryId: String, asInit: Boolean) -> Unit,
+    openId: String? = null,
     viewModel: GalleryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(openId) { openId?.let(viewModel::open) }
     GalleryScreen(state, viewModel, onBack, onReuse)
 }
 

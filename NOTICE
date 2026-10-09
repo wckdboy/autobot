@@ -15,3 +15,23 @@ Tool names, event names and the compaction summary sections follow that project.
 The image generation feature was designed after studying the behaviour of Local Dream
 (https://github.com/xororz/local-dream, CC BY-NC 4.0). No source code, assets, models or
 tooling from that project are included; the implementation is independent.
+
+Third-party software built into the app:
+
+  llama.cpp (https://github.com/ggml-org/llama.cpp), including ggml
+  Copyright (c) 2023-2026 The ggml authors
+  Licensed under the MIT License.
+
+  stable-diffusion.cpp (https://github.com/leejet/stable-diffusion.cpp), including its ggml
+  Copyright (c) 2023 leejet
+  Licensed under the MIT License.
+
+  Antonio (https://github.com/vernnobile/antonioFont)
+  JetBrains Mono (https://github.com/JetBrains/JetBrainsMono)
+  Licensed under the SIL Open Font License 1.1.
+
+The full licence texts ship inside the app (assets/licenses).
+
+Models are not bundled. Models downloaded through the app are licensed by their authors (the
+licence of every catalog entry is shown before download); you are responsible for complying
+with them.

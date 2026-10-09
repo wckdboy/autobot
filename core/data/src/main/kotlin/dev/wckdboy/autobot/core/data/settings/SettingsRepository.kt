@@ -30,6 +30,8 @@ data class AppSettings(
     val appLockEnabled: Boolean = true,
     val lockTimeoutMillis: Long = DEFAULT_LOCK_TIMEOUT_MILLIS,
     val incognitoByDefault: Boolean = false,
+    /** The first-run welcome has been dismissed. */
+    val onboarded: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_LOCK_TIMEOUT_MILLIS = 60_000L
@@ -53,6 +55,7 @@ class SettingsRepository @Inject constructor(
                 appLockEnabled = prefs[Keys.APP_LOCK] ?: true,
                 lockTimeoutMillis = prefs[Keys.LOCK_TIMEOUT] ?: AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS,
                 incognitoByDefault = prefs[Keys.INCOGNITO_DEFAULT] ?: false,
+                onboarded = prefs[Keys.ONBOARDED] ?: false,
             )
         }
         .distinctUntilChanged()
@@ -65,6 +68,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setAppLockEnabled(enabled: Boolean) = edit { it[Keys.APP_LOCK] = enabled }
     suspend fun setLockTimeoutMillis(millis: Long) = edit { it[Keys.LOCK_TIMEOUT] = millis.coerceAtLeast(0) }
     suspend fun setIncognitoByDefault(enabled: Boolean) = edit { it[Keys.INCOGNITO_DEFAULT] = enabled }
+    suspend fun setOnboarded() = edit { it[Keys.ONBOARDED] = true }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         dataStore.edit { block(it) }
@@ -79,5 +83,6 @@ class SettingsRepository @Inject constructor(
         val APP_LOCK = booleanPreferencesKey("app_lock_enabled")
         val LOCK_TIMEOUT = longPreferencesKey("lock_timeout_ms")
         val INCOGNITO_DEFAULT = booleanPreferencesKey("incognito_default")
+        val ONBOARDED = booleanPreferencesKey("onboarded")
     }
 }

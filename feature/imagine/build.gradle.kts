@@ -12,6 +12,7 @@ dependencies {
     implementation(projects.core.designsystem)
     implementation(projects.core.data)
     implementation(projects.core.diffusion)
+    implementation(projects.core.models)
     implementation(projects.core.network)
     implementation(projects.agent.runtime)
 

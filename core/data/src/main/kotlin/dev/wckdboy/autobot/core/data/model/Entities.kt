@@ -40,7 +40,8 @@ data class Message(
     val tokenCount: Int? = null,
 )
 
-enum class ProviderKind { DEEPSEEK, OPENAI_COMPATIBLE, OPENROUTER, OLLAMA }
+/** [LOCAL] runs on this phone (llama.cpp engine); its base URL is unused and never dialled. */
+enum class ProviderKind { DEEPSEEK, OPENAI_COMPATIBLE, OPENROUTER, OLLAMA, LOCAL }
 
 /** Per-provider network routing. [INHERIT] follows the global network mode. */
 enum class ProviderRouting { DIRECT, TOR, SOCKS5, INHERIT }
@@ -106,4 +107,29 @@ data class GalleryItem(
     val durationMs: Long,
     val paramsJson: String,
     val favorite: Boolean = false,
+)
+
+/**
+ * An installed (or installing) model. Queryable fields are columns; the file list and engine
+ * hints live in [manifestJson] (owned by `:core:models`).
+ */
+@Entity(tableName = "models", indices = [Index("kind"), Index("status")])
+data class ModelRow(
+    @PrimaryKey val id: String,
+    val kind: String,
+    val source: String,
+    val title: String,
+    val subtitle: String,
+    val format: String,
+    val engine: String,
+    val baseModel: String?,
+    val license: String?,
+    val nsfw: Boolean,
+    val totalBytes: Long,
+    val downloadedBytes: Long,
+    val status: String,
+    val error: String?,
+    val manifestJson: String,
+    val addedAt: Long,
+    val updatedAt: Long,
 )

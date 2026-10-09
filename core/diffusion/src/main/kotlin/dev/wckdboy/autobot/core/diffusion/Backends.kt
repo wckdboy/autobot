@@ -1,15 +1,24 @@
 package dev.wckdboy.autobot.core.diffusion
 
+import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.diffusion.engine.LocalSseEngine
+import dev.wckdboy.autobot.core.diffusion.engine.OnDeviceEngine
 import dev.wckdboy.autobot.core.diffusion.engine.SdApiEngine
+import dev.wckdboy.autobot.core.models.EngineKind
+import dev.wckdboy.autobot.core.models.ModelKind
+import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.network.RouteOverride
+import dev.wckdboy.autobot.engine.diffusion.LocalSd
+import dev.wckdboy.autobot.engine.llama.LocalLlm
+import java.io.File
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
@@ -19,12 +28,16 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 @Serializable
 enum class BackendKind(val label: String) {
+    /** stable-diffusion.cpp on this phone (models from the Models tab). */
+    ON_DEVICE("This phone"),
+
     /** AUTOMATIC1111 / Forge / SD.Next REST API. */
     SD_API("A1111 / Forge API"),
 
@@ -41,7 +54,7 @@ data class DiffusionBackend(
     val baseUrl: String,
     val routing: String = RouteOverride.INHERIT.name,
 ) {
-    val isLoopback: Boolean get() = Loopback.isLoopbackUrl(baseUrl)
+    val isLoopback: Boolean get() = kind == BackendKind.ON_DEVICE || Loopback.isLoopbackUrl(baseUrl)
 }
 
 /** Backends, the default selection and the last request, in the settings DataStore. */
@@ -114,7 +127,11 @@ class DiffusionBackendRepository @Inject constructor(
 /** Builds engines bound to the network policy (kill switch, route, audit tag per backend). */
 @Singleton
 class DiffusionEngineFactory @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val clients: HttpClientFactory,
+    private val library: ModelLibrary,
+    private val localSd: LocalSd,
+    private val localLlm: LocalLlm,
 ) {
     fun create(backend: DiffusionBackend): DiffusionEngine {
         val override = runCatching { RouteOverride.valueOf(backend.routing) }.getOrDefault(RouteOverride.INHERIT)
@@ -122,6 +139,36 @@ class DiffusionEngineFactory @Inject constructor(
         return when (backend.kind) {
             BackendKind.SD_API -> SdApiEngine(backend.baseUrl, clientFactory)
             BackendKind.LOCAL_SSE -> LocalSseEngine(backend.baseUrl, clientFactory)
+            BackendKind.ON_DEVICE -> OnDeviceEngine(library, localSd, localLlm, File(context.cacheDir, "sd-in"))
         }
+    }
+}
+
+/**
+ * Adds the built-in "This phone" backend when the first on-device image model is ready (and
+ * makes it the default if nothing else is configured); removes it when none are left.
+ */
+@Singleton
+class OnDeviceBackendSync @Inject constructor(
+    private val backends: DiffusionBackendRepository,
+    private val library: ModelLibrary,
+) {
+    fun start(scope: kotlinx.coroutines.CoroutineScope) {
+        scope.launch {
+            library.models
+                .map { list -> list.any { it.isReady && it.engine == EngineKind.DIFFUSION && it.kind == ModelKind.IMAGE } }
+                .distinctUntilChanged()
+                .collect { available ->
+                    val existing = backends.backends.first().firstOrNull { it.id == ON_DEVICE_ID }
+                    when {
+                        available && existing == null -> backends.save(DiffusionBackend(ON_DEVICE_ID, BackendKind.ON_DEVICE, "This phone", "local://this-phone"))
+                        !available && existing != null -> backends.delete(ON_DEVICE_ID)
+                    }
+                }
+        }
+    }
+
+    companion object {
+        const val ON_DEVICE_ID = "on-device"
     }
 }

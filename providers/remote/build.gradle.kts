@@ -11,6 +11,8 @@ android {
 dependencies {
     api(projects.core.data)
     api(projects.core.network)
+    implementation(projects.core.models)
+    implementation(projects.engine.llama)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)

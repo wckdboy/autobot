@@ -76,6 +76,14 @@ object ProviderPresets {
             requiresApiKey = false,
         ),
         ProviderPreset(
+            kind = ProviderKind.LOCAL,
+            displayName = "This phone",
+            baseUrl = LOCAL_BASE_URL,
+            defaultModel = "",
+            suggestedModels = emptyList(),
+            requiresApiKey = false,
+        ),
+        ProviderPreset(
             kind = ProviderKind.OPENAI_COMPATIBLE,
             displayName = "OpenAI-compatible",
             baseUrl = "https://",
@@ -86,4 +94,7 @@ object ProviderPresets {
     )
 
     fun forKind(kind: ProviderKind): ProviderPreset = all.first { it.kind == kind }
+
+    /** Placeholder base URL of the on-device provider; it is never dialled. */
+    const val LOCAL_BASE_URL = "local://this-phone"
 }

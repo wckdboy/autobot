@@ -17,45 +17,35 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import dev.wckdboy.autobot.core.designsystem.component.AutobotNavBar
 import dev.wckdboy.autobot.core.designsystem.component.NavItem
-import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
+import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
 import dev.wckdboy.autobot.feature.chat.conversation.ChatRoute
 import dev.wckdboy.autobot.feature.chat.list.ChatListRoute
+import dev.wckdboy.autobot.feature.home.RemoteRoute
+import dev.wckdboy.autobot.feature.home.RunRoute
 import dev.wckdboy.autobot.feature.imagine.backends.BackendsRoute
 import dev.wckdboy.autobot.feature.imagine.gallery.GalleryRoute
 import dev.wckdboy.autobot.feature.imagine.generate.GalleryHandoff
 import dev.wckdboy.autobot.feature.imagine.generate.ImagineRoute
+import dev.wckdboy.autobot.feature.models.AccountsRoute
+import dev.wckdboy.autobot.feature.models.ModelsRoute
 import dev.wckdboy.autobot.feature.settings.SettingsRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
 import dev.wckdboy.autobot.feature.settings.providers.ProvidersRoute
 
-/** Bottom-bar tabs, keyed by destination class so `Imagine(handoff)` still selects IMAGINE. */
-private enum class Tab(val label: String) { SESSIONS("sessions"), IMAGINE("imagine"), GALLERY("gallery"), SYSTEM("system") }
-
-private fun NavKey.tab(): Tab? = when (this) {
-    ChatList -> Tab.SESSIONS
-    is Imagine -> Tab.IMAGINE
-    Gallery -> Tab.GALLERY
-    Settings -> Tab.SYSTEM
-    else -> null
+private enum class Tab(val label: String, val root: TopLevel) {
+    RUN("run", Run),
+    MODELS("models", Models),
+    REMOTE("remote", Remote),
+    SETTINGS("settings", Settings),
 }
 
-private fun Tab.root(): TopLevel = when (this) {
-    Tab.SESSIONS -> ChatList
-    Tab.IMAGINE -> Imagine()
-    Tab.GALLERY -> Gallery
-    Tab.SYSTEM -> Settings
-}
+private fun NavKey.tab(): Tab? = Tab.entries.firstOrNull { it.root == this }
 
-private val TABS = listOf(
-    NavItem(Tab.SESSIONS, Tab.SESSIONS.label, AutobotIcons.Terminal),
-    NavItem(Tab.IMAGINE, Tab.IMAGINE.label, AutobotIcons.Spark),
-    NavItem(Tab.GALLERY, Tab.GALLERY.label, AutobotIcons.Image),
-    NavItem(Tab.SYSTEM, Tab.SYSTEM.label, AutobotIcons.Sliders),
-)
+private val TABS = Tab.entries.map { NavItem(it, it.label) }
 
 /**
- * Navigation 3 host: one back stack whose first entry is a top-level tab. Detail screens push
- * on top and hide the bottom bar. Each entry gets its own saveable state and ViewModelStore.
+ * Navigation 3 host: one back stack whose first entry is a tab root. Detail screens push on
+ * top and hide the bottom bar. The image studio is printed on paper (light) as in the mockups.
  */
 @Composable
 fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
@@ -73,10 +63,10 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     }
 
     val current = backStack.lastOrNull()
+    val tab = current?.tab()
+    val showBar = tab != null && backStack.size == 1
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            val tab = current?.tab()
-            val showBar = tab != null && backStack.size == 1
             NavDisplay(
                 backStack = backStack,
                 // The bar owns the navigation-bar inset while it is shown.
@@ -87,8 +77,35 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     rememberViewModelStoreNavEntryDecorator(),
                 ),
                 entryProvider = entryProvider {
+                    entry<Run> {
+                        RunRoute(
+                            onOpenSession = { navigate(Chat(it)) },
+                            onOpenImagine = { navigate(Imagine()) },
+                            onOpenAllRuns = { navigate(ChatList) },
+                            onOpenGalleryItem = { navigate(Gallery(it)) },
+                            onOpenModels = { switchTo(Models) },
+                        )
+                    }
+                    entry<Models> { ModelsRoute(onOpenAccounts = { navigate(Accounts) }) }
+                    entry<Remote> {
+                        RemoteRoute(
+                            onOpenProviders = { navigate(Providers) },
+                            onOpenBackends = { navigate(ImageBackends) },
+                            onOpenAccounts = { navigate(Accounts) },
+                            onOpenPrivacy = { navigate(PrivacyCenter) },
+                        )
+                    }
+                    entry<Settings> {
+                        SettingsRoute(
+                            onBack = null,
+                            onOpenProviders = { navigate(Providers) },
+                            onOpenPrivacyCenter = { navigate(PrivacyCenter) },
+                            onOpenImageBackends = { navigate(ImageBackends) },
+                        )
+                    }
                     entry<ChatList> {
                         ChatListRoute(
+                            onBack = ::back,
                             onOpenChat = { navigate(Chat(it)) },
                             onOpenProviders = { navigate(Providers) },
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
@@ -100,37 +117,35 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onBack = ::back,
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                             onOpenProviders = { navigate(Providers) },
-                            onOpenGallery = { switchTo(Gallery) },
+                            onOpenGallery = { navigate(Gallery()) },
                         )
                     }
                     entry<Imagine> { key ->
-                        ImagineRoute(
-                            onOpenGallery = { switchTo(Gallery) },
-                            onOpenBackends = { navigate(ImageBackends) },
-                            handoff = key.handoffId?.let { GalleryHandoff(it, key.asInit) },
-                        )
+                        PaperTheme {
+                            ImagineRoute(
+                                onBack = ::back,
+                                onOpenGallery = { navigate(Gallery()) },
+                                onOpenBackends = { navigate(ImageBackends) },
+                                onOpenModels = { switchTo(Models) },
+                                handoff = key.handoffId?.let { GalleryHandoff(it, key.asInit) },
+                            )
+                        }
                     }
-                    entry<Gallery> {
+                    entry<Gallery> { key ->
                         GalleryRoute(
-                            onBack = null,
-                            onReuse = { id, asInit -> switchTo(Imagine(id, asInit)) },
-                        )
-                    }
-                    entry<Settings> {
-                        SettingsRoute(
-                            onBack = null,
-                            onOpenProviders = { navigate(Providers) },
-                            onOpenPrivacyCenter = { navigate(PrivacyCenter) },
-                            onOpenImageBackends = { navigate(ImageBackends) },
+                            onBack = ::back,
+                            openId = key.openId,
+                            onReuse = { id, asInit -> navigate(Imagine(id, asInit)) },
                         )
                     }
                     entry<Providers> { ProvidersRoute(onBack = ::back) }
                     entry<PrivacyCenter> { PrivacyCenterRoute(onBack = ::back) }
                     entry<ImageBackends> { BackendsRoute(onBack = ::back) }
+                    entry<Accounts> { AccountsRoute(onBack = ::back) }
                 },
             )
             if (showBar && tab != null) {
-                AutobotNavBar(TABS, tab, { selected -> if (selected != tab) switchTo(selected.root()) })
+                AutobotNavBar(TABS, tab, { selected -> if (selected != tab) switchTo(selected.root) })
             }
         }
     }

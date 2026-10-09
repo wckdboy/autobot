@@ -10,6 +10,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.GalleryRepository
+import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackend
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackendRepository
 import dev.wckdboy.autobot.core.diffusion.DiffusionEngineFactory
@@ -20,6 +21,9 @@ import dev.wckdboy.autobot.core.diffusion.EngineCapabilities
 import dev.wckdboy.autobot.core.diffusion.EngineCatalog
 import dev.wckdboy.autobot.core.diffusion.LoraRef
 import dev.wckdboy.autobot.core.diffusion.PromptSyntax
+import dev.wckdboy.autobot.core.models.EngineKind
+import dev.wckdboy.autobot.core.models.ModelKind
+import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.feature.imagine.mask.MaskRasterizer
 import dev.wckdboy.autobot.feature.imagine.mask.MaskState
 import dev.wckdboy.autobot.feature.imagine.mask.MaskStroke
@@ -55,6 +59,10 @@ data class RunningUi(
     val byAgent: Boolean,
 )
 
+/** A model choice in the studio's chip row (backend + model). */
+@Immutable
+data class ModelChip(val backendId: String, val model: String?, val label: String, val onDevice: Boolean)
+
 @Immutable
 data class ResultUi(val galleryId: String, val bitmap: ImageBitmap, val seed: Long, val width: Int, val height: Int, val durationMs: Long)
 
@@ -77,7 +85,12 @@ data class ImagineUiState(
     val results: List<ResultUi> = emptyList(),
     val error: String? = null,
     val loaded: Boolean = false,
+    val chips: List<ModelChip> = emptyList(),
 ) {
+    val selectedChip: ModelChip?
+        get() = chips.firstOrNull { it.backendId == backend?.id && (it.model == request.model || (request.model == null && it.model == catalog.currentModel)) }
+            ?: chips.firstOrNull { it.backendId == backend?.id }
+
     val tokenEstimate: Int get() = PromptSyntax.estimateTokens(request.prompt)
     val canGenerate: Boolean
         get() = backend != null && running == null && request.prompt.isNotBlank() &&
@@ -97,6 +110,7 @@ class ImagineViewModel @Inject constructor(
     private val engines: DiffusionEngineFactory,
     private val generator: ImageGenerator,
     private val gallery: GalleryRepository,
+    private val library: ModelLibrary,
 ) : AndroidViewModel(application) {
 
     private data class Local(
@@ -142,8 +156,16 @@ class ImagineViewModel @Inject constructor(
         backendsRepo.defaultBackendId,
         local,
         combine(running, results, generator.lastError) { r, res, e -> Triple(r, res, e) },
-        backendsRepo.lastRequest,
-    ) { backends, defaultId, l, (run, res, genError), stored ->
+        combine(backendsRepo.lastRequest, library.models) { s, m -> s to m },
+    ) { backends, defaultId, l, (run, res, genError), (stored, models) ->
+        val onDeviceModels = models.filter { it.isReady && it.kind == ModelKind.IMAGE && it.engine == EngineKind.DIFFUSION }
+        val chips = backends.flatMap { b ->
+            when {
+                b.kind == BackendKind.ON_DEVICE -> onDeviceModels.map { ModelChip(b.id, it.id, it.title, onDevice = true) }
+                l.catalog[b.id]?.models.isNullOrEmpty() -> listOf(ModelChip(b.id, null, b.name, onDevice = false))
+                else -> l.catalog[b.id]!!.models.take(6).map { m -> ModelChip(b.id, m, shortModelName(m) + " · " + b.name, onDevice = false) }
+            }
+        }
         val backend = backends.firstOrNull { it.id == (l.selectedBackendId ?: defaultId) } ?: backends.firstOrNull()
         ImagineUiState(
             backends = backends,
@@ -160,8 +182,40 @@ class ImagineViewModel @Inject constructor(
             results = res,
             error = l.error ?: genError,
             loaded = true,
+            chips = chips,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImagineUiState())
+
+    /** Picks a backend + model; on-device models bring their recommended settings. */
+    fun selectChip(chip: ModelChip) {
+        if (uiState.value.backend?.id != chip.backendId) selectBackend(chip.backendId)
+        setModel(chip.model)
+        if (chip.onDevice && chip.model != null) {
+            viewModelScope.launch {
+                val rec = library.get(chip.model)?.manifest?.recommended ?: return@launch
+                edit { r ->
+                    r.copy(
+                        steps = rec.steps ?: r.steps,
+                        cfgScale = rec.cfg ?: r.cfgScale,
+                        sampler = rec.sampler ?: r.sampler,
+                        scheduler = rec.scheduler ?: if (rec.sampler != null) null else r.scheduler,
+                        width = rec.width ?: r.width,
+                        height = rec.height ?: r.height,
+                        negativePrompt = if (r.negativePrompt.isBlank()) rec.negativePrompt.orEmpty() else r.negativePrompt,
+                    )
+                }
+            }
+        }
+    }
+
+    /** Same settings again (a random seed stays random). */
+    fun runAgain() = generate()
+
+    /** Same settings, new random seed. */
+    fun variations() {
+        setRandomSeed()
+        generate()
+    }
 
     init {
         viewModelScope.launch {
@@ -336,3 +390,7 @@ class ImagineViewModel @Inject constructor(
         const val MAX_SEED = 4_294_967_295L
     }
 }
+
+/** `sd_xl_turbo_1.0_fp16.safetensors [abc]` → `sd xl turbo 1.0 fp16`. */
+internal fun shortModelName(name: String): String =
+    name.substringBefore(" [").substringAfterLast('/').substringBeforeLast('.').replace('_', ' ').take(28)

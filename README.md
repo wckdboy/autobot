@@ -3,11 +3,10 @@
 A privacy-first AI agent for Android. Autobot is built to run models **on the device** (NPU/GPU) and
 treats every network request as something the user has to opt into, can see, and can switch off.
 
-> Status: **Phase 3 (agent) + Phase 4 (image generation) landed.** On top of the Phase 1 skeleton,
-> security layer and encrypted storage, chats now run through an on-device port of the DeepSeek
-> Harness agent architecture (tools, permission gate, approvals, compaction), and the Imagine
-> tab drives Stable Diffusion backends (txt2img, img2img, inpainting, LoRA). On-device text
-> engines and the native diffusion sidecar are next.
+> Status: **1.1 — models run on the phone.** Chats, agent and code sessions run on-device through
+> llama.cpp, and images through stable-diffusion.cpp, each in its own sandboxed process. A model
+> manager downloads verified models from a curated catalog, Hugging Face or Civitai. Remote
+> providers and PC/LAN diffusion backends still work alongside, under the same network policy.
 
 ## Privacy stance
 
@@ -29,7 +28,8 @@ treats every network request as something the user has to opt into, can see, and
   - No Google Play Services, Firebase, analytics or crash reporting.
   - Requests carry no device identifiers.
   - The User-Agent is the constant `Autobot`.
-  - There is no HTTP cache, no cookies and no redirect following.
+  - There is no HTTP cache, no cookies and no automatic redirect following. Model downloads follow
+    redirects hop by hop, and every hop passes the kill switch and the audit log.
 - **Locked down.**
   - `FLAG_SECURE` is set and recents screenshots are disabled.
   - Optional app lock using biometrics or the device credential, with an auto-lock timeout.
@@ -39,14 +39,21 @@ treats every network request as something the user has to opt into, can see, and
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,
   secrets and caches. The process is then killed.
-- **Minimal permissions.** The app requests only `INTERNET` and `USE_BIOMETRIC`.
+- **Minimal permissions.** `INTERNET` and `USE_BIOMETRIC`, plus `FOREGROUND_SERVICE_DATA_SYNC` and
+  `POST_NOTIFICATIONS` so a model download can keep running with a progress notification. The
+  notification permission is asked for only when the first download starts.
 
 ## Module map
 
 | Module | Responsibility |
 | --- | --- |
-| `:app` | `AutobotApplication` (Hilt), `MainActivity` (FragmentActivity, edge-to-edge, FLAG_SECURE), Navigation 3 `NavDisplay` with the SESSIONS · IMAGINE · GALLERY · SYSTEM bar, lock screen, manifest and network security config |
-| `:core:designsystem` | "Underground" Material 3 theme (ink surfaces, hairlines, acid/ultraviolet accents, mono chrome labels, hard 2–6 dp corners), `Panel`, `MicroLabel`, `Readout`, `Tag`, `ValueSlider`, `Segmented`, `SelectField`, `Stepper`, `ConsoleTextField`, `TerminalBlock`, `AutobotNavBar`, custom stroke icons, `ChatBubble`, `ThinkingDisclosure` |
+| `:app` | `AutobotApplication` (Hilt), `MainActivity` (FragmentActivity, edge-to-edge, FLAG_SECURE), welcome screen, Navigation 3 `NavDisplay` with the RUN · MODELS · REMOTE · SETTINGS bar, lock screen, manifest and network security config |
+| `:core:designsystem` | Riso theme: one signal red on ink (dark) or paper (light), Antonio display + JetBrains Mono labels, halftone rendering (`HalftoneImage`, `HalftoneField`), `ModeCard`, `RouteTag`, `RunRow`, `BigReadout`, `Panel`, `Tag`, sliders, segmented controls, `AutobotNavBar`, stroke icons |
+| `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
+| `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
+| `:core:models` | Catalog, `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face and Civitai clients, resumable SHA-256-verified `FileFetcher`, `ModelDownloader` + foreground service, `ModelLibrary` |
+| `:engine:llama` | llama.cpp (MIT) via JNI in the `:llm` process: chat templates, tool-call parsing, KV prefix reuse, runtime CPU variant selection |
+| `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:agent:core` | Pure-Kotlin port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
@@ -54,10 +61,44 @@ treats every network request as something the user has to opt into, can see, and
 | `:core:security` | `KeyManager` (Keystore AES-GCM, StrongBox fallback, wrapped DB passphrase), `SecretStore`, `AppLockManager`, `PanicWipe`, pure-JVM `AesGcmEnvelope` |
 | `:core:network` | `NetworkPolicy`, `KillSwitchInterceptor`, `HeaderScrubInterceptor`, `AuditLog`, `RouteResolver`, `HttpClientFactory` |
 | `:core:data` | Room + SQLCipher (`Conversation`, `Message`, `Provider`), repositories, DataStore settings, `IncognitoSession`, settings→policy sync |
-| `:providers:remote` | `ChatProvider` SSE streaming: OpenAI-compatible, DeepSeek (`reasoning_content`), OpenRouter, Ollama; `ProviderFactory` |
+| `:providers:remote` | `ChatProvider` SSE streaming: OpenAI-compatible, DeepSeek (`reasoning_content`), OpenRouter, Ollama, and the on-device `LocalChatProvider`; `ProviderFactory` |
 | `:feature:chat` | Session list (live indicators, incognito) and agent session screen (streaming, reasoning, tool cards with inline approvals, plan/todos, questions, context gauge, slash commands, model switcher) |
 | `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection) |
 | `build-logic/` | Convention plugins: `autobot.android.application`, `autobot.android.library`, `autobot.android.compose`, `autobot.hilt` |
+
+## On-device models
+
+**Engines.** Two native engines are built from pinned git submodules in `third_party/`:
+
+- **llama.cpp** runs chat, agent and code sessions. It is built for every ARM feature level
+  (ARMv8.0 up to ARMv9.2 with i8mm/SVE2), and the best one for the phone is picked at runtime.
+- **stable-diffusion.cpp** runs images. It is built for ARMv8.2 with dot-product and fp16.
+
+Each engine runs in its own process (`:llm`, `:sd`) behind a Binder interface. A native crash or
+an out-of-memory kill ends that process, not the app. The engines never touch the network.
+Downloaded local models show up as the **This phone** provider and the **On-device** image
+backend.
+
+**Model manager.** The MODELS tab has three sources:
+
+- **For this phone** — a curated catalog with exact files and licences: Qwen3.5 0.8B–4B, Qwen3 4B
+  Instruct 2507, Gemma 4 E2B, Phi-4 mini, SmolLM3, Llama 3.2 3B, Qwen2.5 Coder, SD 1.5,
+  SDXL Turbo, Z-Image Turbo and FLUX.2 klein 4B. Each entry is checked against the phone's RAM,
+  free storage and CPU features and marked `FITS`, `TIGHT` or `TOO BIG`.
+- **Hugging Face** — search GGUF repositories and pick a file. Signing in with a read token
+  unlocks gated and private repositories.
+- **Civitai** — checkpoints and LoRAs, from `civitai.com` or `civitai.red` (same API). An API key
+  is optional. Mature content is hidden unless you opt in (18+). Models flagged as depicting
+  minors or real people are always filtered out.
+
+**Downloads.** Downloads run in a foreground service, resume with HTTP `Range`, and are verified
+against the SHA-256 published by the hub. A file that fails the check is deleted. Hub tokens are
+sent only to their own host (`huggingface.co`, `civitai.com` / `civitai.red`) and never to CDN
+redirects.
+
+Repositories in Local Dream's QNN/MNN formats (e.g. [xororz](https://huggingface.co/xororz)) can be
+downloaded and are labelled `LOCAL_DREAM`. They need Local Dream's own runtime: run Local Dream in
+backend host mode and add it as a PC/LAN image backend.
 
 ## Agent runtime (DeepSeek Harness port)
 
@@ -80,11 +121,12 @@ bridges, web search. The runtime is pure Kotlin and covered by JVM tests.
 
 ## Image generation
 
-The Imagine tab talks to diffusion **backends** through one `DiffusionEngine` interface:
+The Image screen talks to diffusion **backends** through one `DiffusionEngine` interface:
 
+- **On-device** — stable-diffusion.cpp in the `:sd` process, with any downloaded image model
+  and LoRAs. Works in Offline mode.
 - **Local SSE engine** — `GET /health`, `POST /generate` streaming `progress` / `complete` /
-  `error` events. This is the protocol of the planned on-device engine sidecar (loopback, so it
-  works in Offline mode) and it interoperates with Local Dream's backend host mode.
+  `error` events. It works with Local Dream's backend host mode.
 - **A1111 / Forge / SD.Next API** (`/sdapi/v1`) — runtime LoRA via `<lora:name:w>`, checkpoint
   switching, samplers/schedulers, inpainting, live previews, interrupt on cancel.
 
@@ -104,7 +146,16 @@ implementation is clean-room, from public API descriptions.
 Requirements:
 
 - JDK 17 or newer to run Gradle. Android Studio's bundled JBR works.
-- Android SDK with platform `android-37.0`.
+- Android SDK with platform `android-37.0`, NDK `30.0.16248370` and CMake `4.1.2`. Install them
+  with the SDK Manager or with
+  `sdkmanager "ndk;30.0.16248370" "cmake;4.1.2"`.
+- The engine sources, which are git submodules:
+
+  ```sh
+  git submodule update --init --recursive
+  ```
+
+The first build compiles llama.cpp and stable-diffusion.cpp, which takes a few minutes.
 
 Windows (PowerShell):
 
@@ -155,14 +206,14 @@ them in `third_party/qairt/`. That directory is git-ignored, as are model files 
 
 1. **Skeleton & security**: modules, encrypted storage, app lock, chat with remote providers and
    the network kill switch. *(done)*
-2. **On-device text engines**: a Genie NPU engine (QAIRT) and a llama.cpp GPU engine, plus a model
-   manager for downloads, checksums and storage.
+2. **On-device engines**: llama.cpp and stable-diffusion.cpp on CPU, plus a model manager with
+   catalog, Hugging Face and Civitai sources, resumable verified downloads. *(done)* Next: GPU
+   (OpenCL/Vulkan for Adreno) and a Genie NPU engine (QAIRT).
 3. **Agent runtime**, modeled on the DeepSeek Harness plugin architecture: tools, permission gate,
    approvals, compaction, skills, workspace. *(done)* Next: MCP (streamable HTTP), subagents.
 4. **Image generation**: Imagine UI, mask editor, LoRA, encrypted gallery, A1111 + SSE backends.
-   *(done)* Next: on-device engine sidecar speaking the SSE protocol — stable-diffusion.cpp (MIT)
-   for CPU/Vulkan/OpenCL with runtime LoRA, and ONNX Runtime + QNN EP for Snapdragon NPU. Needs the
-   NDK; no code is taken from `xororz/local-dream` (CC BY-NC).
+   *(done)* On-device stable-diffusion.cpp with LoRA. *(done)* Next: ONNX Runtime + QNN EP for
+   the Snapdragon NPU. No code is taken from `xororz/local-dream` (CC BY-NC).
 5. **Hardening**:
    - built-in Tor
    - audit log polish

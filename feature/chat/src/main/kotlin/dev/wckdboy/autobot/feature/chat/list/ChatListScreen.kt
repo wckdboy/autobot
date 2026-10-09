@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
@@ -57,6 +58,7 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 
 @Composable
 fun ChatListRoute(
+    onBack: (() -> Unit)? = null,
     onOpenChat: (String) -> Unit,
     onOpenProviders: () -> Unit,
     onOpenPrivacyCenter: () -> Unit,
@@ -72,6 +74,7 @@ fun ChatListRoute(
     }
     ChatListScreen(
         state = state,
+        onBack = onBack,
         onOpenChat = onOpenChat,
         onNewChat = viewModel::newChat,
         onIncognitoChange = viewModel::setIncognito,
@@ -84,6 +87,7 @@ fun ChatListRoute(
 @Composable
 fun ChatListScreen(
     state: ChatListUiState,
+    onBack: (() -> Unit)? = null,
     onOpenChat: (String) -> Unit,
     onNewChat: () -> Unit,
     onIncognitoChange: (Boolean) -> Unit,
@@ -100,8 +104,11 @@ fun ChatListScreen(
                         Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (onBack != null) {
+                            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        }
                         Column(Modifier.weight(1f)) {
-                            Text("AUTOBOT", style = MaterialTheme.typography.titleLarge)
+                            Text("SESSIONS", style = MaterialTheme.typography.titleLarge)
                             MicroLabel("${state.conversations.size} sessions · ${state.conversations.count { it.running }} live")
                         }
                         PrivacyStatusPill(state.privacyStatus, onClick = onOpenPrivacyCenter)

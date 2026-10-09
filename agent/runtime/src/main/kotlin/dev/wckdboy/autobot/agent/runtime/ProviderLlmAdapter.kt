@@ -76,10 +76,14 @@ class ProviderLlmAdapter(
     }
 
     companion object {
+        /** On-device context (KV cache memory is the limit on a phone). */
+        const val LOCAL_CONTEXT = 8192
+
         /** Best-effort context windows; unknown models get a conservative 64k. */
         fun modelInfo(kind: ProviderKind, model: String): ModelInfo {
             val m = model.lowercase(Locale.ROOT)
             return when {
+                kind == ProviderKind.LOCAL -> ModelInfo(LOCAL_CONTEXT, defaultMaxTokens = 2048)
                 "deepseek-v4" in m || "deepseek-flash" in m -> ModelInfo(1_000_000, supportsReasoning = true)
                 m == "deepseek-reasoner" || "-r1" in m -> ModelInfo(128_000, supportsReasoning = true)
                 m.startsWith("deepseek") || "/deepseek" in m -> ModelInfo(128_000)

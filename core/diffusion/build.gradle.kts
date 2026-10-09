@@ -13,6 +13,9 @@ android {
 dependencies {
     api(projects.core.network)
     implementation(projects.core.data)
+    api(projects.core.models)
+    implementation(projects.engine.diffusion)
+    implementation(projects.engine.llama)
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.core)

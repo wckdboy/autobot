@@ -14,23 +14,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -55,7 +49,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
@@ -66,22 +59,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.TodoStatus
-import dev.wckdboy.autobot.core.designsystem.component.BlockStatus
+import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
+import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
+import dev.wckdboy.autobot.core.designsystem.component.PaperButton
+import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
+import dev.wckdboy.autobot.core.designsystem.component.RouteTag
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.TerminalBlock
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
 import dev.wckdboy.autobot.core.designsystem.component.TokenRateLabel
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
-import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import java.util.Locale
@@ -109,6 +103,26 @@ private val COMMANDS = listOf(
     "/stop" to "cancel the running turn",
 )
 
+/** Human names for tool steps (mockup: "Read calendar / calendar.list"). */
+private fun stepTitle(name: String): String = when (name) {
+    "read" -> "Read file"
+    "write" -> "Write file"
+    "edit" -> "Edit file"
+    "delete" -> "Delete file"
+    "glob" -> "Find files"
+    "grep" -> "Search files"
+    "web_fetch" -> "Fetch page"
+    "generate_image" -> "Generate image"
+    "todo_write" -> "Update plan"
+    "ask_user_question" -> "Ask you"
+    "skill" -> "Load skill"
+    else -> name.replace('_', ' ').replaceFirstChar { it.titlecase(Locale.ROOT) }
+}
+
+/**
+ * An agent run (mockup 03): red run line, the task as a display title, numbered tool steps with
+ * timings, approvals as a full red block, and the active policy in the footer.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -122,45 +136,54 @@ fun ChatScreen(
     var showModels by rememberSaveable { mutableStateOf(false) }
     var showSession by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
-
     val newest = state.items.lastOrNull()?.key to (state.live != null)
     LaunchedEffect(newest) {
         if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }
+    // Step numbers in transcript order.
+    val stepNumbers = remember(state.items) {
+        var n = 0
+        state.items.filterIsInstance<SessionItem.Tool>().associate { it.key to ++n }
+    }
+    val firstPromptKey = state.items.firstOrNull { it is SessionItem.User }?.key
 
     Scaffold(
         topBar = {
-            SessionTopBar(
-                state = state,
-                onBack = onBack,
-                onOpenModels = { showModels = true },
-                onOpenSession = { showSession = true },
-                onOpenPrivacyCenter = onOpenPrivacyCenter,
+            AutobotTopBar(
+                title = if (state.toolsEnabled) "Agent run" else "Chat",
+                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                actions = {
+                    RouteTag(state.route, Modifier.clickable { showModels = true })
+                    IconButton(onClick = { showSession = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Session settings") }
+                },
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            if (state.showOfflineBanner) {
-                Banner("Offline mode: this provider is remote, so the kill switch blocks it.", "PRIVACY", onOpenPrivacyCenter, AutobotColors.Uv)
-            }
-            if (state.loaded && state.providers.isEmpty()) Banner("No model provider configured.", "ADD", onOpenProviders, AutobotColors.Amber)
-            state.notice?.let { Banner(it, "OK", actions::dismissNotice, AutobotColors.Cyan) }
+            if (state.showOfflineBanner) Banner("Offline mode: this provider is remote, so the kill switch blocks it.", "PRIVACY", onOpenPrivacyCenter)
+            if (state.loaded && state.providers.isEmpty()) Banner("No model yet — download one or add a provider.", "ADD", onOpenProviders)
+            state.notice?.let { Banner(it, "OK", actions::dismissNotice) }
 
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 reverseLayout = true,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                state.live?.let { live ->
-                    item(key = "live", contentType = "live") { LiveMessage(live) }
-                }
+                state.live?.let { live -> item(key = "live", contentType = "live") { LiveMessage(live) } }
                 items(state.items.asReversed(), key = { it.key }, contentType = { it::class }) { item ->
                     when (item) {
-                        is SessionItem.User -> ChatBubble(BubbleRole.USER, item.text)
+                        is SessionItem.User -> if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
                         is SessionItem.Assistant -> AssistantMessage(item)
-                        is SessionItem.Tool -> ToolCard(item, state.approvals[item.callId], actions, onOpenGallery)
+                        is SessionItem.Tool -> {
+                            val approval = state.approvals[item.callId]
+                            if (approval != null) {
+                                ApprovalCard(stepNumbers[item.key] ?: 0, item, approval, actions)
+                            } else {
+                                StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery)
+                            }
+                        }
                         is SessionItem.Notice -> NoticeRow(item)
                     }
                 }
@@ -171,6 +194,7 @@ fun ChatScreen(
 
             if (state.todos.isNotEmpty() && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
             state.question?.let { QuestionCard(it, actions::answer) }
+            PolicyLine(state)
             InputBar(state, actions::send, actions::stop)
         }
     }
@@ -205,112 +229,29 @@ fun ChatScreen(
 }
 
 // ---------------------------------------------------------------------------------------------
-// Chrome
+// Transcript
 
 @Composable
-private fun SessionTopBar(
-    state: ChatUiState,
-    onBack: () -> Unit,
-    onOpenModels: () -> Unit,
-    onOpenSession: () -> Unit,
-    onOpenPrivacyCenter: () -> Unit,
-) {
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.statusBarsPadding().hairlineEdge()) {
-            Row(Modifier.fillMaxWidth().padding(end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                Column(Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "Switch model", onClick = onOpenModels)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (state.isIncognito) {
-                            Icon(Icons.Filled.Lock, contentDescription = "Incognito", modifier = Modifier.size(14.dp), tint = AutobotColors.Uv)
-                            Spacer(Modifier.width(4.dp))
-                        }
-                        if (state.running) {
-                            StatusDot(AutobotColors.Acid, live = true)
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text(
-                            state.title.ifBlank { "Session" },
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        MicroLabel(
-                            listOfNotNull(state.selectedProviderName, state.selectedModel).joinToString(" · ").ifBlank { "no provider" },
-                            Modifier.weight(1f, fill = false),
-                        )
-                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                PrivacyStatusPill(state.privacyStatus, onClick = onOpenPrivacyCenter)
-                IconButton(onClick = onOpenSession) { Icon(Icons.Filled.MoreVert, contentDescription = "Session settings") }
-            }
-            ContextGauge(state)
-        }
-    }
-}
-
-/** One-line telemetry strip: tools, permission preset and context fill. */
-@Composable
-private fun ContextGauge(state: ChatUiState) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp).padding(bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Tag(if (state.toolsEnabled) "tools" else "chat", accent = if (state.toolsEnabled) AutobotColors.Acid else MaterialTheme.colorScheme.onSurfaceVariant)
-        Tag(
-            state.permission.label,
-            accent = when (state.permission) {
-                PermissionPreset.READ_ONLY -> AutobotColors.Cyan
-                PermissionPreset.WORKSPACE -> AutobotColors.Uv
-                PermissionPreset.FULL_ACCESS -> AutobotColors.Signal
-            },
+private fun RunHeader(state: ChatUiState, prompt: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+        SectionLabel(
+            listOfNotNull(
+                "run",
+                state.modelLabel ?: state.selectedModel,
+                state.contextUsed?.let { "${compact(it)} tok" },
+            ).joinToString(" · "),
         )
-        val used = state.contextUsed
-        val window = state.contextWindow
-        if (used != null && window != null && window > 0) {
-            val fraction = (used.toFloat() / window).coerceIn(0f, 1f)
-            Box(Modifier.weight(1f).height(3.dp).background(MaterialTheme.colorScheme.outlineVariant)) {
-                Box(
-                    Modifier.fillMaxWidth(fraction).height(3.dp)
-                        .background(if (fraction > 0.75f) AutobotColors.Amber else MaterialTheme.colorScheme.primary),
-                )
-            }
-            MicroLabel("${compact(used)}/${compact(window)}")
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
+        Text(prompt, style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
     }
-}
-
-private fun compact(n: Int): String = when {
-    n >= 1_000_000 -> String.format(Locale.ROOT, "%.1fM", n / 1e6)
-    n >= 1_000 -> "${n / 1000}k"
-    else -> n.toString()
 }
 
 @Composable
-private fun Banner(text: String, action: String, onAction: () -> Unit, accent: Color) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(accent.copy(alpha = 0.10f))
-            .hairlineEdge()
-            .padding(start = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        StatusDot(accent)
-        Spacer(Modifier.width(8.dp))
-        Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-        TextButton(onClick = onAction) { Text(action, color = accent) }
+private fun FollowUp(text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("›", style = AutobotTheme.styles.code, color = MaterialTheme.colorScheme.primary)
+        Text(text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Transcript rows
 
 @Composable
 private fun AssistantMessage(item: SessionItem.Assistant) {
@@ -347,54 +288,92 @@ private fun LiveMessage(live: LiveUi) {
                 footer = live.tokensPerSecond?.let { { TokenRateLabel(tokensPerSecond = it, totalTokens = null) } },
             )
         }
-        live.toolNames.forEach { name -> TerminalBlock(name, BlockStatus.PENDING, subtitle = "composing call…") }
+        live.toolNames.forEach { name ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatusDot(MaterialTheme.colorScheme.primary, live = true)
+                Text(stepTitle(name), style = MaterialTheme.typography.titleMedium)
+                MicroLabel("composing…")
+            }
+        }
     }
 }
 
+/** `01  Read file / read · notes.md   ✓ 0.4 s` */
 @Composable
-private fun ToolCard(item: SessionItem.Tool, approval: ApprovalUi?, actions: ChatViewModel, onOpenGallery: () -> Unit) {
+private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel, onOpenGallery: () -> Unit) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
-    val status = when (item.state) {
-        ToolState.STREAMING -> BlockStatus.PENDING
-        ToolState.WAITING_APPROVAL -> BlockStatus.PENDING
-        ToolState.RUNNING -> BlockStatus.RUNNING
-        ToolState.OK -> BlockStatus.OK
-        ToolState.ERROR -> BlockStatus.ERROR
-        ToolState.DENIED -> BlockStatus.DENIED
+    val (mark, markColor) = when (item.state) {
+        ToolState.OK -> "✓" to MaterialTheme.colorScheme.onSurfaceVariant
+        ToolState.ERROR -> "×" to MaterialTheme.colorScheme.error
+        ToolState.DENIED -> "denied" to MaterialTheme.colorScheme.onSurfaceVariant
+        ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "…" to MaterialTheme.colorScheme.primary
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        TerminalBlock(
-            title = item.name,
-            status = status,
-            subtitle = item.summary.ifBlank { null },
-            body = item.output,
-            expanded = expanded,
-            onToggle = if (item.output != null) ({ expanded = !expanded }) else null,
-            actions = if (approval != null) {
-                {
-                    MicroLabel(approval.reason ?: "approval needed", Modifier.weight(1f).padding(start = 6.dp), color = AutobotColors.Amber)
-                    TextButton(onClick = { actions.approve(item.callId, ApprovalOutcome.REJECTED) }) { Text("DENY", color = MaterialTheme.colorScheme.error) }
-                    TextButton(onClick = { actions.approve(item.callId, ApprovalOutcome.ALLOWED_FOR_SESSION) }) { Text("ALWAYS") }
-                    TextButton(onClick = { actions.approve(item.callId, ApprovalOutcome.ALLOWED_ONCE) }) { Text("ALLOW", color = MaterialTheme.colorScheme.primary) }
-                }
-            } else {
-                null
-            },
-        )
+    Column {
+        Row(
+            Modifier.fillMaxWidth().clickable(enabled = item.output != null, role = Role.Button) { expanded = !expanded }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(String.format(Locale.ROOT, "%02d", number), style = AutobotTheme.styles.readout, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stepTitle(item.name), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = AutobotTheme.styles.micro,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (item.state == ToolState.RUNNING) StatusDot(MaterialTheme.colorScheme.primary, live = true)
+            Text(
+                mark + (item.durationMs?.let { " ${String.format(Locale.ROOT, "%.1f", it / 1000f)} s" } ?: ""),
+                style = AutobotTheme.styles.readout,
+                color = markColor,
+            )
+        }
+        if (expanded && item.output != null) {
+            Text(
+                item.output.take(4000),
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(10.dp),
+                style = AutobotTheme.styles.codeBlock,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (item.galleryIds.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 item.galleryIds.forEach { id ->
                     val bitmap by produceState<ImageBitmap?>(null, id) { value = actions.thumbnail(id) }
-                    Box(
-                        Modifier
-                            .size(120.dp)
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.small)
-                            .clickable(onClick = onOpenGallery),
-                    ) {
+                    Box(Modifier.size(120.dp).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onOpenGallery)) {
                         bitmap?.let { Image(it, contentDescription = "Generated image", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                     }
                 }
             }
+        }
+        Hairline()
+    }
+}
+
+/** The red approval block: `04 · APPROVAL NEEDED · NETWORK ACCESS`, title, args, DENY / APPROVE. */
+@Composable
+private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatViewModel) {
+    Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = MaterialTheme.shapes.extraSmall) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row {
+                Text(String.format(Locale.ROOT, "%02d · APPROVAL NEEDED", number), style = AutobotTheme.styles.micro, modifier = Modifier.weight(1f))
+                Text((approval.reason ?: "").uppercase(Locale.ROOT), style = AutobotTheme.styles.micro)
+            }
+            Text(stepTitle(item.name), style = MaterialTheme.typography.headlineMedium)
+            Text("${item.name}(${approval.summary})", style = AutobotTheme.styles.codeBlock)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GhostButton("Deny", { actions.approve(item.callId, ApprovalOutcome.REJECTED) }, Modifier.weight(1f), accent = MaterialTheme.colorScheme.onPrimary)
+                PaperButton("Approve", { actions.approve(item.callId, ApprovalOutcome.ALLOWED_ONCE) }, Modifier.weight(1f))
+            }
+            Text(
+                "ALWAYS ALLOW ${item.name.uppercase(Locale.ROOT)} IN THIS RUN",
+                style = AutobotTheme.styles.micro,
+                modifier = Modifier.clickable { actions.approve(item.callId, ApprovalOutcome.ALLOWED_FOR_SESSION) }.padding(vertical = 4.dp),
+            )
         }
     }
 }
@@ -406,26 +385,55 @@ private fun NoticeRow(item: SessionItem.Notice) {
         NoticeKind.WARN -> AutobotColors.Amber
         NoticeKind.ERROR -> MaterialTheme.colorScheme.error
     }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Hairline(Modifier.weight(1f), color = color.copy(alpha = 0.35f))
-        Text(
-            item.text,
-            style = AutobotTheme.styles.micro,
-            color = color,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(3f, fill = false),
-        )
-        Hairline(Modifier.weight(1f), color = color.copy(alpha = 0.35f))
-    }
+    Text(
+        "// ${item.text.uppercase(Locale.ROOT)}",
+        style = AutobotTheme.styles.micro,
+        color = color,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable
 private fun EmptySession(state: ChatUiState) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(AutobotIcons.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(28.dp))
-        MicroLabel(if (state.toolsEnabled) "agent ready · workspace /workspace" else "plain chat")
+    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionLabel(if (state.toolsEnabled) "agent ready · workspace /workspace" else "chat")
+        Text(if (state.toolsEnabled) "What should\nit do?" else "Ask\nanything.", style = MaterialTheme.typography.displaySmall)
         MicroLabel("type / for commands", color = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/** `POLICY · READ: AUTO · WRITE: AUTO · DELETE: ASK · NETWORK: ASK` */
+@Composable
+private fun PolicyLine(state: ChatUiState) {
+    if (!state.toolsEnabled) return
+    val text = when (state.permission) {
+        PermissionPreset.READ_ONLY -> "policy · read: auto · write: deny · network: ask"
+        PermissionPreset.WORKSPACE -> "policy · read: auto · write: auto · delete: ask · network: ask"
+        PermissionPreset.FULL_ACCESS -> "policy · everything: auto · kill switch still applies"
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        MicroLabel(text, Modifier.weight(1f))
+        val used = state.contextUsed
+        val window = state.contextWindow
+        if (used != null && window != null && window > 0) MicroLabel("${compact(used)}/${compact(window)}")
+    }
+}
+
+private fun compact(n: Int): String = when {
+    n >= 1_000_000 -> String.format(Locale.ROOT, "%.1fM", n / 1e6)
+    n >= 1_000 -> "${n / 1000}k"
+    else -> n.toString()
+}
+
+@Composable
+private fun Banner(text: String, action: String, onAction: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).hairlineEdge().padding(start = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = onAction) { Text(action, color = MaterialTheme.colorScheme.primary) }
     }
 }
 
@@ -436,19 +444,17 @@ private fun EmptySession(state: ChatUiState) {
 private fun TodoPanel(state: ChatUiState) {
     var open by rememberSaveable { mutableStateOf(true) }
     val done = state.todos.count { it.status == TodoStatus.COMPLETED }
-    Panel(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
-        title = "Plan · $done/${state.todos.size}",
-        accent = AutobotColors.Acid,
-        trailing = { Tag(if (open) "hide" else "show", onClick = { open = !open }) },
-        contentPadding = 10.dp,
-    ) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("plan · $done/${state.todos.size}", Modifier.weight(1f))
+            Tag(if (open) "hide" else "show", onClick = { open = !open })
+        }
         if (open) {
             state.todos.forEach { todo ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val (glyph, color) = when (todo.status) {
                         TodoStatus.COMPLETED -> "■" to MaterialTheme.colorScheme.outline
-                        TodoStatus.IN_PROGRESS -> "▶" to AutobotColors.Acid
+                        TodoStatus.IN_PROGRESS -> "▶" to MaterialTheme.colorScheme.primary
                         TodoStatus.PENDING -> "□" to MaterialTheme.colorScheme.onSurfaceVariant
                     }
                     Text(glyph, style = AutobotTheme.styles.code, color = color)
@@ -470,13 +476,12 @@ private fun TodoPanel(state: ChatUiState) {
 private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?) -> Unit) {
     var free by rememberSaveable(question.callId) { mutableStateOf("") }
     var picked by remember(question.callId) { mutableStateOf(setOf<String>()) }
-    Panel(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
-        title = "Agent asks",
-        accent = AutobotColors.Uv,
-        trailing = { Tag("skip", onClick = { onAnswer(question.callId, null) }) },
-    ) {
-        Text(question.question.question, style = MaterialTheme.typography.bodyMedium)
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("agent asks", Modifier.weight(1f))
+            Tag("skip", onClick = { onAnswer(question.callId, null) })
+        }
+        Text(question.question.question, style = MaterialTheme.typography.titleMedium)
         if (question.question.options.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 question.question.options.forEach { option ->
@@ -486,11 +491,7 @@ private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?)
                         accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         filled = active,
                         onClick = {
-                            if (question.question.multiSelect) {
-                                picked = if (active) picked - option else picked + option
-                            } else {
-                                onAnswer(question.callId, listOf(option))
-                            }
+                            if (question.question.multiSelect) picked = if (active) picked - option else picked + option else onAnswer(question.callId, listOf(option))
                         },
                     )
                 }
@@ -498,11 +499,7 @@ private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ConsoleTextField(free, { free = it }, Modifier.weight(1f), placeholder = "or type an answer", singleLine = true)
-            Button(
-                onClick = { onAnswer(question.callId, (picked + listOfNotNull(free.trim().ifBlank { null })).toList()) },
-                enabled = free.isNotBlank() || picked.isNotEmpty(),
-                shape = MaterialTheme.shapes.small,
-            ) { Text("SEND") }
+            PrimaryButton("Send", { onAnswer(question.callId, (picked + listOfNotNull(free.trim().ifBlank { null })).toList()) }, enabled = free.isNotBlank() || picked.isNotEmpty())
         }
     }
 }
@@ -513,7 +510,7 @@ private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () ->
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(Modifier.hairlineEdge(top = true, bottom = false)) {
             if (text.startsWith("/")) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     COMMANDS.filter { it.first.startsWith(text.substringBefore(' ')) }.forEach { (cmd, help) ->
                         Row(Modifier.fillMaxWidth().clickable { text = cmd.substringBefore(' ') + " " }, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(cmd, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.primary)
@@ -524,7 +521,7 @@ private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () ->
                 Hairline()
             }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -538,15 +535,10 @@ private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () ->
                 if (state.running && text.isBlank()) {
                     FilledIconButton(
                         onClick = onStop,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                        ),
-                        shape = MaterialTheme.shapes.small,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.primary),
+                        shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier.size(52.dp),
-                    ) {
-                        Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.onErrorContainer, RoundedCornerShape(2.dp)))
-                    }
+                    ) { Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary)) }
                 } else {
                     FilledIconButton(
                         onClick = {
@@ -554,11 +546,9 @@ private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () ->
                             text = ""
                         },
                         enabled = text.isNotBlank(),
-                        shape = MaterialTheme.shapes.small,
+                        shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier.size(52.dp),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (state.running) "Queue" else "Send")
-                    }
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (state.running) "Queue" else "Send") }
                 }
             }
         }
@@ -581,23 +571,20 @@ private fun ModelSheet(
     val selected = state.providers.firstOrNull { it.id == state.selectedProviderId }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            MicroLabel("// provider", color = MaterialTheme.colorScheme.primary)
+            SectionLabel("route")
             if (state.providers.isEmpty()) TextButton(onClick = onOpenProviders) { Text("ADD A PROVIDER") }
             state.providers.forEach { option ->
-                Row(
-                    Modifier.fillMaxWidth().clickable(role = Role.RadioButton) { onSelectProvider(option.id) },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(Modifier.fillMaxWidth().clickable(role = Role.RadioButton) { onSelectProvider(option.id) }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = option.id == state.selectedProviderId, onClick = null)
                     Spacer(Modifier.width(10.dp))
                     Column {
-                        Text(option.name, style = MaterialTheme.typography.bodyLarge)
-                        Text(option.defaultModel, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(option.name, style = MaterialTheme.typography.titleMedium)
+                        Text(option.defaultModel, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             Hairline(Modifier.padding(vertical = 4.dp))
-            MicroLabel("// model", color = MaterialTheme.colorScheme.primary)
+            SectionLabel("model")
             selected?.suggestedModels?.takeIf { it.isNotEmpty() }?.let { suggestions ->
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     suggestions.forEach { s ->
@@ -606,12 +593,7 @@ private fun ModelSheet(
                 }
             }
             ConsoleTextField(model, { model = it }, Modifier.fillMaxWidth(), label = "Model id", singleLine = true, mono = true)
-            Button(
-                onClick = { onSelectModel(model) },
-                enabled = model.isNotBlank() && selected != null,
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier.align(Alignment.End),
-            ) { Text("USE MODEL") }
+            PrimaryButton("Use model", { onSelectModel(model) }, Modifier.fillMaxWidth(), enabled = model.isNotBlank() && selected != null)
         }
     }
 }
@@ -627,34 +609,21 @@ private fun SessionSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            MicroLabel("// session", color = MaterialTheme.colorScheme.primary)
+            SectionLabel("session")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Agent tools", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Files in /workspace, web fetch, image generation, skills, todos. Off = plain chat.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text("Agent tools", style = MaterialTheme.typography.titleMedium)
+                    Text("Files in /workspace, web fetch, image generation, skills, plans. Off = plain chat.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(checked = state.toolsEnabled, onCheckedChange = onTools)
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                MicroLabel("Permission preset")
+                MicroLabel("permission preset")
                 Segmented(PermissionPreset.entries, state.permission, onPermission, { it.label }, Modifier.fillMaxWidth())
-                Text(
-                    when (state.permission) {
-                        PermissionPreset.READ_ONLY -> "Reads only. Network fetches ask; writes are denied."
-                        PermissionPreset.WORKSPACE -> "Edits the workspace freely. Deletes and network fetches ask."
-                        PermissionPreset.FULL_ACCESS -> "Everything runs without asking. The kill switch still applies."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Compact context", style = MaterialTheme.typography.titleSmall)
+                    Text("Compact context", style = MaterialTheme.typography.titleMedium)
                     Text("Summarize older turns now (also automatic near the limit).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(onClick = onCompact, enabled = !state.running) { Text("COMPACT") }

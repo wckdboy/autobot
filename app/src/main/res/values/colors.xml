@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="graphite_950">#FF0B0C0F</color>
-    <color name="ic_launcher_background">#FF0B0C0F</color>
+    <color name="graphite_950">#FF0E0E0E</color>
+    <color name="ic_launcher_background">#FFE8401C</color>
     <color name="accent_cyan">#FF3FE0F0</color>
     <color name="accent_violet">#FFB69CFF</color>
 </resources>

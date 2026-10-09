@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -83,7 +84,7 @@ fun Modifier.hairlineEdge(top: Boolean = false, bottom: Boolean = true): Modifie
 }
 
 /**
- * Bordered instrument panel. Optional [title] row renders as a micro-label header with
+ * Filled print block (no border). Optional [title] row renders as a micro-label header with
  * [trailing] content (e.g. a readout or toggle) separated from the body by a hairline.
  */
 @Composable
@@ -97,9 +98,8 @@ fun Panel(
 ) {
     Surface(
         modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = MaterialTheme.shapes.extraSmall,
+        color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column {
             if (title != null || trailing != null) {
@@ -147,11 +147,12 @@ fun Tag(
 ) {
     val shape = MaterialTheme.shapes.extraSmall
     val base = modifier
-        .then(if (filled) Modifier.background(accent.copy(alpha = 0.14f), shape) else Modifier)
-        .border(1.dp, accent.copy(alpha = if (filled) 0.0f else 0.45f), shape)
+        .then(if (filled) Modifier.background(accent, shape) else Modifier.border(1.dp, accent.copy(alpha = 0.55f), shape))
         .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
         .padding(horizontal = 6.dp, vertical = 3.dp)
-    Text(text.uppercase(Locale.ROOT), modifier = base, style = AutobotTheme.styles.micro, color = accent, maxLines = 1)
+    // Filled tags are solid blocks; pick ink or bone text for contrast.
+    val textColor = if (!filled) accent else if (accent.luminance() > 0.45f) AutobotColors.PaperInk else AutobotColors.Bone100
+    Text(text.uppercase(Locale.ROOT), modifier = base, style = AutobotTheme.styles.micro, color = textColor, maxLines = 1)
 }
 
 /** Status dot; pulses while [live]. */

@@ -205,7 +205,7 @@ private fun BackendEditor(initial: DiffusionBackend, isNew: Boolean, onSave: (Di
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         MicroLabel(if (isNew) "// new backend" else "// edit backend", color = MaterialTheme.colorScheme.primary)
-        Segmented(BackendKind.entries, kind, { kind = it }, { if (it == BackendKind.SD_API) "A1111 API" else "Local SSE" }, Modifier.fillMaxWidth())
+        Segmented(listOf(BackendKind.SD_API, BackendKind.LOCAL_SSE), kind, { kind = it }, { if (it == BackendKind.SD_API) "A1111 API" else "Local SSE" }, Modifier.fillMaxWidth())
         ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
         ConsoleTextField(
             url,

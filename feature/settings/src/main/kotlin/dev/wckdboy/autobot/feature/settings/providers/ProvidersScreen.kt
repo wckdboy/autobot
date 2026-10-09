@@ -192,7 +192,7 @@ private fun ProviderEditorSheet(
 
                 Text("Type", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ProviderKind.entries.forEach { kind ->
+                    ProviderKind.entries.filter { it != ProviderKind.LOCAL }.forEach { kind ->
                         FilterChip(selected = draft.kind == kind, onClick = { onKind(kind) }, label = { Text(kind.label) })
                     }
                 }

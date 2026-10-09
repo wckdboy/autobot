@@ -16,7 +16,7 @@ keystore.properties
 third_party/qairt/
 
 # Model weights and artifacts
-models/
+/models/
 *.gguf
 *.bin
 *.safetensors

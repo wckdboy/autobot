@@ -8,6 +8,7 @@ import androidx.room.Upsert
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.Message
+import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
 import kotlinx.coroutines.flow.Flow
@@ -96,5 +97,26 @@ interface GalleryDao {
     suspend fun setFavorite(id: String, favorite: Boolean)
 
     @Query("DELETE FROM gallery_items WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface ModelDao {
+    @Query("SELECT * FROM models ORDER BY addedAt DESC")
+    fun observeAll(): Flow<List<ModelRow>>
+
+    @Query("SELECT * FROM models WHERE id = :id")
+    suspend fun get(id: String): ModelRow?
+
+    @Query("SELECT * FROM models")
+    suspend fun all(): List<ModelRow>
+
+    @Upsert
+    suspend fun upsert(row: ModelRow)
+
+    @Query("UPDATE models SET downloadedBytes = :downloaded, status = :status, error = :error, updatedAt = :now WHERE id = :id")
+    suspend fun updateProgress(id: String, downloaded: Long, status: String, error: String?, now: Long)
+
+    @Query("DELETE FROM models WHERE id = :id")
     suspend fun delete(id: String)
 }

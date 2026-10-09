@@ -9,11 +9,13 @@ plugins {
 
 android {
     namespace = "dev.wckdboy.autobot"
+    // Same NDK as the engines, so packaging can strip their debug symbols.
+    ndkVersion = libs.versions.ndk.get()
 
     defaultConfig {
         applicationId = "dev.wckdboy.autobot"
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the
@@ -30,6 +32,18 @@ android {
         }
     } else {
         null
+    }
+
+    // llama.cpp loads its CPU backend variants (libggml-cpu-*.so) by scanning nativeLibraryDir, so
+    // native libraries must be extracted on install rather than mapped from the APK.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
@@ -53,6 +67,11 @@ dependencies {
     implementation(projects.feature.chat)
     implementation(projects.feature.settings)
     implementation(projects.feature.imagine)
+    implementation(projects.feature.models)
+    implementation(projects.feature.home)
+    implementation(projects.core.models)
+    implementation(projects.engine.llama)
+    implementation(projects.engine.diffusion)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

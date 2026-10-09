@@ -39,6 +39,8 @@ sealed interface SessionItem {
         val output: String?,
         val code: String?,
         val galleryIds: List<String>,
+        /** Wall time from dispatch to result. */
+        val durationMs: Long? = null,
     ) : SessionItem
 
     data class Notice(override val key: String, val text: String, val kind: NoticeKind) : SessionItem
@@ -68,6 +70,7 @@ fun projectSession(
 ): SessionProjection {
     val items = mutableListOf<SessionItem>()
     val toolIndex = HashMap<String, Int>()
+    val callStarted = HashMap<String, Long>()
     var todos: List<TodoItem> = emptyList()
     var usage: TokenUsage? = null
     var window: Int? = null
@@ -103,6 +106,7 @@ fun projectSession(
                     )
                 }
             }
+            is SessionEvent.ToolCall -> callStarted[e.callId] = entry.time
             is SessionEvent.ToolResult -> {
                 val index = toolIndex[e.callId] ?: continue
                 val tool = items[index] as SessionItem.Tool
@@ -116,6 +120,7 @@ fun projectSession(
                     output = e.content,
                     code = e.code,
                     galleryIds = (e.meta?.get("gallery") as? JsonArray)?.map { it.jsonPrimitive.content }.orEmpty(),
+                    durationMs = callStarted[e.callId]?.let { entry.time - it }?.takeIf { it >= 0 },
                 )
             }
             is SessionEvent.TodoWrite -> todos = e.todos

@@ -24,7 +24,9 @@ import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.model.Provider
+import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
+import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
@@ -87,6 +89,8 @@ data class ChatUiState(
     val isIncognito: Boolean = false,
     val notice: String? = null,
     val loaded: Boolean = false,
+    val route: Route = Route.CLOUD_API,
+    val modelLabel: String? = null,
 )
 
 /**
@@ -149,6 +153,7 @@ class ChatViewModel @AssistedInject constructor(
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
         val effective = provider?.let { RouteResolver.effectiveMode(mode, it.routing.toOverride(), socks) } ?: mode
         val loopback = provider != null && Loopback.isLoopbackUrl(provider.baseUrl)
+        val isLocal = provider?.kind == ProviderKind.LOCAL
         val usage = snap.projection.lastUsage
         ChatUiState(
             title = conversation?.title.orEmpty(),
@@ -166,8 +171,13 @@ class ChatViewModel @AssistedInject constructor(
             permission = snap.permission,
             contextUsed = usage?.let { (it.inputTokens ?: 0) + (it.cacheReadTokens ?: 0) + (it.outputTokens ?: 0) },
             contextWindow = snap.projection.contextWindow,
-            privacyStatus = if (loopback) PrivacyStatus.OFFLINE else effective.toPrivacyStatus(),
-            showOfflineBanner = provider != null && mode == NetworkMode.Offline && !(loopback && allowLoopback),
+            privacyStatus = if (loopback || isLocal) PrivacyStatus.OFFLINE else effective.toPrivacyStatus(),
+            showOfflineBanner = provider != null && !isLocal && mode == NetworkMode.Offline && !(loopback && allowLoopback),
+            route = when {
+                isLocal || loopback -> Route.LOCAL_CPU
+                else -> Route.CLOUD_API
+            },
+            modelLabel = conversation?.model?.let { m -> if (isLocal) m.substringAfter("catalog:").substringAfterLast('/').substringBefore(".gguf") else m },
             isIncognito = conversations.isIncognito(conversationId),
             notice = n,
             loaded = true,
