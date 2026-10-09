@@ -13,7 +13,7 @@ android {
     defaultConfig {
         applicationId = "dev.wckdboy.autobot"
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
     }
 
     // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the
