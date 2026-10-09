@@ -1,0 +1,17 @@
+Autobot
+Copyright 2026 wckdboy
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The agent runtime (:agent:core, :agent:runtime) is a Kotlin re-implementation of the
+architecture of DeepSeek Harness (https://github.com/deepseek-ai/deepseek-harness):
+its plugin model, session log, agent loop, tool pipeline, permission presets and compaction.
+Tool names, event names and the compaction summary sections follow that project.
+
+  DeepSeek Harness
+  Copyright (c) 2026 DeepSeek
+  Licensed under the MIT License.
+
+The image generation feature was designed after studying the behaviour of Local Dream
+(https://github.com/xororz/local-dream, CC BY-NC 4.0). No source code, assets, models or
+tooling from that project are included; the implementation is independent.

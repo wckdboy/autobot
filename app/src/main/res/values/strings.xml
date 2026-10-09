@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Autobot</string>
+    <string name="unlock_title">Unlock Autobot</string>
+    <string name="unlock_subtitle">Your conversations are encrypted on this device</string>
+    <string name="locked_title">Autobot is locked</string>
+    <string name="unlock">Unlock</string>
+</resources>

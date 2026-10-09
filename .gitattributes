@@ -1,0 +1,4 @@
+# Keep the Unix wrapper runnable regardless of core.autocrlf.
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary
