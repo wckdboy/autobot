@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.autobot.android.application)
     alias(libs.plugins.autobot.android.compose)
@@ -14,9 +16,28 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the
+    // repository root, release builds are signed with it; otherwise they stay unsigned for the
+    // distributor (F-Droid / GitHub releases) to sign.
+    val keystoreFile = rootProject.file("keystore.properties")
+    val releaseSigning = if (keystoreFile.isFile) {
+        val props = Properties().apply { keystoreFile.inputStream().use(::load) }
+        signingConfigs.create("release") {
+            storeFile = file(props.getProperty("storeFile"))
+            storePassword = props.getProperty("storePassword")
+            keyAlias = props.getProperty("keyAlias")
+            keyPassword = props.getProperty("keyPassword")
+        }
+    } else {
+        null
+    }
+
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".debug"
+        }
+        getByName("release") {
+            signingConfig = releaseSigning
         }
     }
 }

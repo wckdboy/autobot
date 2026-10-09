@@ -132,7 +132,18 @@ Release builds are configured for reproducibility:
 - no build timestamps
 - `android.util.Log` calls stripped by R8
 
-Signing is left to the distributor (F-Droid / GitHub releases).
+Signing is left to the distributor (F-Droid / GitHub releases). For local signed builds, put a
+git-ignored `keystore.properties` at the repository root:
+
+```properties
+storeFile=C:/path/to/autobot-release.jks
+storePassword=…
+keyAlias=autobot
+keyPassword=…
+```
+
+When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; otherwise the output stays
+`app-release-unsigned.apk`.
 
 ### Qualcomm QAIRT / Genie (Phase 2)
 
