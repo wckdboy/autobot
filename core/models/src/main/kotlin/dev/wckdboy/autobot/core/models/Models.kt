@@ -22,23 +22,50 @@ enum class ModelFormat(val label: String) {
     SAFETENSORS("safetensors"),
     CKPT("ckpt"),
 
-    /** Local Dream packages (QNN context binaries / MNN graphs). Not runnable by Autobot engines. */
+    /** Precompiled Hexagon NPU package (QNN context binaries + MNN text encoders), Local Dream layout. */
+    QNN("QNN"),
+
+    /** MNN graphs for the GPU (OpenCL) or CPU, Local Dream layout. */
+    MNN("MNN"),
+
+    /** Local Dream package Autobot cannot run (e.g. an architecture it does not support yet). */
     LOCAL_DREAM("Local Dream"),
     OTHER("file"),
 }
 
 /** Which built-in engine runs the model, if any. */
 @Serializable
-enum class EngineKind(val label: String) { LLAMA("llama.cpp"), DIFFUSION("sd.cpp"), NONE("none") }
+enum class EngineKind(val label: String) { LLAMA("llama.cpp"), DIFFUSION("sd.cpp"), NPU("qnn · mnn"), NONE("none") }
 
 @Serializable
 enum class ModelSource(val label: String) { CATALOG("catalog"), HUGGING_FACE("hugging face"), CIVITAI("civitai") }
 
 enum class ModelStatus { QUEUED, DOWNLOADING, PAUSED, READY, FAILED }
 
+/** Where a model runs. [AUTO] lets the benchmark (or the engine: NPU → GPU → CPU) decide. */
+enum class Backend(val id: String, val label: String) {
+    AUTO("auto", "auto"),
+    CPU("cpu", "cpu"),
+    GPU("gpu", "gpu"),
+    NPU("npu", "npu"),
+    ;
+
+    companion object {
+        fun of(id: String?): Backend = entries.firstOrNull { it.id == id } ?: AUTO
+    }
+}
+
 /** Role of a file within a model bundle (maps onto stable-diffusion.cpp / llama.cpp inputs). */
 @Serializable
-enum class FileRole { MODEL, DIFFUSION_MODEL, LLM, CLIP_L, CLIP_G, T5XXL, VAE, TAESD, MMPROJ, OTHER }
+enum class FileRole {
+    MODEL, DIFFUSION_MODEL, LLM, CLIP_L, CLIP_G, T5XXL, VAE, TAESD, MMPROJ, OTHER,
+
+    // NPU / MNN packages (Local Dream layout)
+    TOKENIZER, TOKEN_EMB, POS_EMB, TEXT_ENCODER, TOKEN_EMB_2, POS_EMB_2, TEXT_ENCODER_2, UNET, VAE_DECODER, VAE_ENCODER,
+
+    /** Companion data of another file (an MNN `.weight` file), kept next to it under its own name. */
+    WEIGHTS,
+}
 
 /** Which account's credentials a download URL may receive. */
 @Serializable
@@ -54,6 +81,36 @@ data class ModelFile(
     /** Lower-case hex SHA-256 when known up front; otherwise adopted from the server. */
     val sha256: String? = null,
     val auth: AuthHost? = null,
+    /** Set when the file is one entry of a remote zip: it is fetched by byte range and inflated. */
+    val zipEntry: ZipEntryRef? = null,
+    /** Store under [name] itself instead of a role-prefixed name (MNN finds `.weight` files by name). */
+    val keepName: Boolean = false,
+)
+
+/**
+ * Where an entry lives inside a remote zip. [entry] is resolved against the central directory at
+ * download time; the other fields are filled in then.
+ */
+@Serializable
+data class ZipEntryRef(
+    val entry: String,
+    val dataOffset: Long = -1,
+    val compressedSize: Long = 0,
+    val method: Int = 0,
+    val crc32: Long = 0,
+)
+
+/** How the NPU engine runs a package. */
+@Serializable
+data class NpuPackage(
+    /** `sd15` or `sdxl`. */
+    val arch: String,
+    /** `qnn` (Hexagon NPU) or `mnn` (GPU / CPU). */
+    val runtime: String,
+    /** v-prediction model (e.g. NoobAI v-pred). */
+    val vpred: Boolean = false,
+    /** Hexagon generation the binaries were compiled for (`v69`…`v79`), when known. */
+    val htpArch: String? = null,
 )
 
 /** Engine defaults the model was made for (applied when it is selected). */
@@ -77,6 +134,8 @@ data class ModelManifest(
     val trainedWords: List<String> = emptyList(),
     val gated: Boolean = false,
     val notes: String? = null,
+    /** Set for NPU/MNN image packages. */
+    val npu: NpuPackage? = null,
 )
 
 /** Everything needed to install a model. */
@@ -116,6 +175,8 @@ data class InstalledModel(
     val addedAt: Long,
     /** Absolute paths of finished files by role (empty until READY). */
     val paths: Map<FileRole, String>,
+    /** The user's choice for this model ([Backend.AUTO] unless they picked one). */
+    val backend: Backend = Backend.AUTO,
 ) {
     val isReady: Boolean get() = status == ModelStatus.READY
     val fraction: Float get() = if (totalBytes <= 0) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
@@ -140,7 +201,9 @@ fun formatBytes(bytes: Long): String = when {
 fun formatOf(name: String, owner: String? = null): ModelFormat {
     val n = name.lowercase()
     return when {
-        owner.equals("xororz", ignoreCase = true) || "_qnn" in n || n.endsWith(".mnn") -> ModelFormat.LOCAL_DREAM
+        "_qnn" in n || n.endsWith(".bin") && owner.equals("xororz", ignoreCase = true) -> ModelFormat.QNN
+        n.endsWith(".mnn") || owner.equals("xororz", ignoreCase = true) && n.endsWith(".zip") -> ModelFormat.MNN
+        owner.equals("xororz", ignoreCase = true) -> ModelFormat.LOCAL_DREAM
         n.endsWith(".gguf") -> ModelFormat.GGUF
         n.endsWith(".safetensors") -> ModelFormat.SAFETENSORS
         n.endsWith(".ckpt") || n.endsWith(".pt") || n.endsWith(".pth") -> ModelFormat.CKPT
@@ -151,6 +214,7 @@ fun formatOf(name: String, owner: String? = null): ModelFormat {
 /** The built-in engine that can run [kind] in [format] (GGUF is used by both engines). */
 fun engineFor(kind: ModelKind, format: ModelFormat): EngineKind = when {
     format == ModelFormat.LOCAL_DREAM || format == ModelFormat.OTHER -> EngineKind.NONE
+    format == ModelFormat.QNN || format == ModelFormat.MNN -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.NPU else EngineKind.NONE
     kind == ModelKind.CHAT || kind == ModelKind.CODE -> if (format == ModelFormat.GGUF) EngineKind.LLAMA else EngineKind.NONE
     kind == ModelKind.IMAGE || kind == ModelKind.LORA || kind == ModelKind.VAE -> EngineKind.DIFFUSION
     else -> EngineKind.NONE

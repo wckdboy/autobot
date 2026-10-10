@@ -6,3 +6,15 @@
 	path = third_party/stable-diffusion.cpp
 	url = https://github.com/leejet/stable-diffusion.cpp.git
 	shallow = true
+[submodule "third_party/OpenCL-Headers"]
+	path = third_party/OpenCL-Headers
+	url = https://github.com/KhronosGroup/OpenCL-Headers.git
+	shallow = true
+[submodule "third_party/OpenCL-ICD-Loader"]
+	path = third_party/OpenCL-ICD-Loader
+	url = https://github.com/KhronosGroup/OpenCL-ICD-Loader.git
+	shallow = true
+[submodule "third_party/MNN"]
+	path = third_party/MNN
+	url = https://github.com/alibaba/MNN.git
+	shallow = true

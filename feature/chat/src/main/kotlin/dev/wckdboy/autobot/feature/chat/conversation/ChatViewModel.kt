@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import android.content.Context
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -10,6 +12,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
@@ -20,6 +23,7 @@ import dev.wckdboy.autobot.agent.core.tools.ToolExecutor
 import dev.wckdboy.autobot.agent.core.tools.UserQuestion
 import dev.wckdboy.autobot.agent.runtime.AgentHost
 import dev.wckdboy.autobot.agent.runtime.Interaction
+import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
@@ -91,6 +95,8 @@ data class ChatUiState(
     val loaded: Boolean = false,
     val route: Route = Route.CLOUD_API,
     val modelLabel: String? = null,
+    /** Images attached to the message being written (attachment ids). */
+    val pendingImages: List<String> = emptyList(),
 )
 
 /**
@@ -106,6 +112,8 @@ class ChatViewModel @AssistedInject constructor(
     private val conversations: ConversationRepository,
     private val providers: ProviderRepository,
     private val gallery: GalleryRepository,
+    private val attachments: AttachmentRepository,
+    @ApplicationContext private val appContext: Context,
     networkPolicy: NetworkPolicy,
 ) : ViewModel() {
 
@@ -116,6 +124,8 @@ class ChatViewModel @AssistedInject constructor(
 
     private val agent: Flow<Agent> = flow { emit(host.agent(conversationId)) }.shareIn(viewModelScope, SharingStarted.Eagerly, 1)
     private val notice = MutableStateFlow<String?>(null)
+    private val pending = MutableStateFlow<List<String>>(emptyList())
+    private val attachmentThumbs = ConcurrentHashMap<String, ImageBitmap>()
     private val thumbs = ConcurrentHashMap<String, ImageBitmap>()
 
     private val policy = combine(networkPolicy.mode, networkPolicy.allowLoopbackWhenOffline, networkPolicy.socksFallback) { m, l, s -> Triple(m, l, s) }
@@ -148,7 +158,7 @@ class ChatViewModel @AssistedInject constructor(
         val permission: PermissionPreset,
     )
 
-    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice) { snap, (conversation, providerList, p), n ->
+    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending) { snap, (conversation, providerList, p), n, images ->
         val (mode, allowLoopback, socks) = p
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
         val effective = provider?.let { RouteResolver.effectiveMode(mode, it.routing.toOverride(), socks) } ?: mode
@@ -180,6 +190,7 @@ class ChatViewModel @AssistedInject constructor(
             modelLabel = conversation?.model?.let { m -> if (isLocal) m.substringAfter("catalog:").substringAfterLast('/').substringBefore(".gguf") else m },
             isIncognito = conversations.isIncognito(conversationId),
             notice = n,
+            pendingImages = images,
             loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isIncognito = conversations.isIncognito(conversationId)))
@@ -204,12 +215,42 @@ class ChatViewModel @AssistedInject constructor(
     // -----------------------------------------------------------------------------------------
     // Intents
 
-    /** Sends a prompt or runs a slash command. */
+    /** Sends a prompt (with the attached images) or runs a slash command. */
     fun send(text: String) {
         val input = text.trim()
-        if (input.isEmpty()) return
+        if (input.isEmpty() && pending.value.isEmpty()) return
         if (input.startsWith("/") && runCommand(input)) return
-        viewModelScope.launch { host.send(conversationId, input) }
+        val images = pending.value
+        pending.value = emptyList()
+        viewModelScope.launch { host.send(conversationId, input, images) }
+    }
+
+    /** Attaches a picked image: downscaled and re-encoded (which also drops EXIF/GPS metadata). */
+    fun attach(uri: Uri) {
+        viewModelScope.launch {
+            val encoded = withContext(Dispatchers.Default) { runCatching { ImageInput.encode(appContext, uri) }.getOrNull() }
+            if (encoded == null) {
+                notice.value = "Could not read that image"
+                return@launch
+            }
+            val id = attachments.put(encoded)
+            pending.update { it + id }
+        }
+    }
+
+    fun removeAttachment(id: String) {
+        pending.update { it - id }
+        viewModelScope.launch { attachments.delete(id) }
+    }
+
+    /** Small preview of an attachment for the composer and the transcript. */
+    suspend fun attachmentThumbnail(id: String): ImageBitmap? {
+        attachmentThumbs[id]?.let { return it }
+        val bytes = attachments.bytes(id) ?: return null
+        return withContext(Dispatchers.Default) {
+            val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+        }?.also { attachmentThumbs[id] = it }
     }
 
     private fun runCommand(input: String): Boolean {

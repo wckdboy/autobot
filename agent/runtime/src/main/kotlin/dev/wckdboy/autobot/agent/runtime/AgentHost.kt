@@ -18,6 +18,7 @@ import dev.wckdboy.autobot.agent.core.tools.toolsPlugin
 import dev.wckdboy.autobot.agent.runtime.workspace.FileTools
 import dev.wckdboy.autobot.agent.runtime.workspace.Workspace
 import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
+import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
@@ -78,6 +79,7 @@ class AgentHost @Inject constructor(
     private val providerFactory: ProviderFactory,
     private val conversations: ConversationRepository,
     private val store: RoutingSessionStore,
+    private val attachments: AttachmentRepository,
     clients: HttpClientFactory,
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
@@ -99,7 +101,7 @@ class AgentHost @Inject constructor(
 
     init {
         harness.llm.setResolver { id ->
-            providers.getProvider(id)?.let { ProviderLlmAdapter(it.id, providerFactory.create(it), it.kind) }
+            providers.getProvider(id)?.let { ProviderLlmAdapter(it.id, providerFactory.create(it), it.kind, attachments) }
         }
         val root = harness.root
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
@@ -182,16 +184,20 @@ class AgentHost @Inject constructor(
         )
     }
 
-    /** Sends a prompt: a new turn, or queued behind the running one. Titles new conversations. */
-    suspend fun send(conversationId: String, text: String) {
+    /**
+     * Sends a prompt (with optional attached [images], attachment ids): a new turn, or queued
+     * behind the running one. Titles new conversations.
+     */
+    suspend fun send(conversationId: String, text: String, images: List<String> = emptyList()) {
         val prompt = text.trim()
-        if (prompt.isEmpty()) return
+        if (prompt.isEmpty() && images.isEmpty()) return
         val agent = agent(conversationId)
         conversations.getConversation(conversationId)?.let { c ->
-            val title = if (c.title == ConversationRepository.DEFAULT_TITLE) prompt.lineSequence().first().take(TITLE_LENGTH) else c.title
+            val first = prompt.lineSequence().first().ifBlank { "Image" }
+            val title = if (c.title == ConversationRepository.DEFAULT_TITLE) first.take(TITLE_LENGTH) else c.title
             conversations.updateConversation(c.copy(title = title, updatedAt = System.currentTimeMillis()))
         }
-        agent.followup(prompt)
+        agent.followup(prompt, images)
     }
 
     /** Switches provider/model for the conversation and its agent. */

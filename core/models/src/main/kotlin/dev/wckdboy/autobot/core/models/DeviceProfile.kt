@@ -25,6 +25,9 @@ data class DeviceProfile(
     val supportsImageEngine: Boolean get() = "asimddp" in cpuFeatures
     val supportsI8mm: Boolean get() = "i8mm" in cpuFeatures
 
+    /** Hexagon NPU generation (`v73`, `v79`, `v81`…) when this is a known Snapdragon. */
+    val htpArch: String? get() = LocalDream.archOfSoc(socModel)
+
     /** e.g. `SM8850 · Snapdragon 8 Elite Gen 5`. */
     val label: String get() = listOfNotNull(socModel.takeIf { it.isNotBlank() }, socName).joinToString(" · ").ifBlank { Build.MODEL }
 
@@ -32,6 +35,7 @@ data class DeviceProfile(
     fun fit(kind: ModelKind, bytes: Long, engine: EngineKind): Fit {
         if (engine == EngineKind.NONE) return Fit.UNSUPPORTED
         if (engine == EngineKind.DIFFUSION && !supportsImageEngine) return Fit.UNSUPPORTED
+        if (engine == EngineKind.NPU && kind == ModelKind.IMAGE && bytes > 3_000_000_000 && htpArch !in setOf("v75", "v79", "v81")) return Fit.UNSUPPORTED
         val working = when (kind) {
             ModelKind.CHAT, ModelKind.CODE -> bytes * 13 / 10
             ModelKind.IMAGE -> bytes * 14 / 10

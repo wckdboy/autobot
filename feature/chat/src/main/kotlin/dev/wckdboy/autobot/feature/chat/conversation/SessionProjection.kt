@@ -19,7 +19,7 @@ enum class NoticeKind { INFO, WARN, ERROR }
 sealed interface SessionItem {
     val key: String
 
-    data class User(override val key: String, val text: String) : SessionItem
+    data class User(override val key: String, val text: String, val images: List<String> = emptyList()) : SessionItem
 
     data class Assistant(
         override val key: String,
@@ -79,7 +79,7 @@ fun projectSession(
         val key = "e${entry.seq}"
         when (val e = entry.event) {
             is SessionEvent.UserMessage -> when (e.kind) {
-                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.text)
+                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.text, e.images)
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
                 UserMessageKind.CONTEXT -> Unit
             }

@@ -15,6 +15,7 @@ dependencies {
     implementation(projects.core.data)
     api(projects.core.models)
     implementation(projects.engine.diffusion)
+    implementation(projects.engine.npu)
     implementation(projects.engine.llama)
 
     implementation(libs.androidx.datastore.preferences)

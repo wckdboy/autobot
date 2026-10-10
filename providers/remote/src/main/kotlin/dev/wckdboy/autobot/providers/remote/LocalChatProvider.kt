@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.providers.remote
 
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
+import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.engine.llama.EngineDiedException
 import dev.wckdboy.autobot.engine.llama.LocalLlm
@@ -27,6 +28,7 @@ import kotlinx.serialization.json.put
 class LocalChatProvider(
     private val library: ModelLibrary,
     private val engine: LocalLlm,
+    private val compute: ComputeProfile,
     private val contextLength: Int = DEFAULT_CONTEXT,
 ) : ChatProvider {
 
@@ -38,7 +40,8 @@ class LocalChatProvider(
             return@flow
         }
         val nCtx = model.manifest.recommended?.contextLength?.coerceAtMost(MAX_CONTEXT) ?: contextLength
-        engine.chat(path, nCtx, encode(request).toString()).collect { event ->
+        val backend = compute.resolve(model).id
+        engine.chat(path, nCtx, backend, encode(request, model.paths[FileRole.MMPROJ]).toString()).collect { event ->
             when (event) {
                 is LocalLlmEvent.Content -> emit(ChatEvent.ContentDelta(event.text))
                 is LocalLlmEvent.Reasoning -> emit(ChatEvent.ReasoningDelta(event.text))
@@ -66,7 +69,7 @@ class LocalChatProvider(
         const val DEFAULT_CONTEXT = 8192
         private const val MAX_CONTEXT = 32768
 
-        internal fun encode(request: ChatRequest): JsonObject = buildJsonObject {
+        internal fun encode(request: ChatRequest, mmproj: String? = null): JsonObject = buildJsonObject {
             put(
                 "messages",
                 buildJsonArray {
@@ -74,7 +77,17 @@ class LocalChatProvider(
                         add(
                             buildJsonObject {
                                 put("role", m.role.name.lowercase())
-                                put("content", m.content)
+                                if (m.images.isEmpty()) {
+                                    put("content", m.content)
+                                } else {
+                                    put(
+                                        "content",
+                                        buildJsonArray {
+                                            add(buildJsonObject { put("type", "text"); put("text", m.content) })
+                                            m.images.forEach { path -> add(buildJsonObject { put("type", "image"); put("path", path) }) }
+                                        },
+                                    )
+                                }
                                 if (m.toolCalls.isNotEmpty()) {
                                     put(
                                         "tool_calls",
@@ -119,6 +132,7 @@ class LocalChatProvider(
                     },
                 )
             }
+            mmproj?.let { put("mmproj", it) }
             request.temperature?.let { put("temperature", it) }
             put("max_tokens", request.maxTokens ?: 2048)
         }

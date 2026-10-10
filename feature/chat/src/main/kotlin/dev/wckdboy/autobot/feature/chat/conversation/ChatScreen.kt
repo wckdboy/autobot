@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -49,6 +53,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
@@ -76,6 +81,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
 import dev.wckdboy.autobot.core.designsystem.component.TokenRateLabel
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
+import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import java.util.Locale
@@ -94,6 +100,8 @@ fun ChatRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ChatScreen(state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery)
 }
+
+private const val MAX_ATTACHMENTS = 4
 
 private val COMMANDS = listOf(
     "/compact" to "summarize older history to free context",
@@ -174,7 +182,10 @@ fun ChatScreen(
                 state.live?.let { live -> item(key = "live", contentType = "live") { LiveMessage(live) } }
                 items(state.items.asReversed(), key = { it.key }, contentType = { it::class }) { item ->
                     when (item) {
-                        is SessionItem.User -> if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
+                        is SessionItem.User -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
+                            if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
+                        }
                         is SessionItem.Assistant -> AssistantMessage(item)
                         is SessionItem.Tool -> {
                             val approval = state.approvals[item.callId]
@@ -195,7 +206,7 @@ fun ChatScreen(
             if (state.todos.isNotEmpty() && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
             state.question?.let { QuestionCard(it, actions::answer) }
             PolicyLine(state)
-            InputBar(state, actions::send, actions::stop)
+            InputBar(state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail)
         }
     }
 
@@ -505,10 +516,24 @@ private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?)
 }
 
 @Composable
-private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () -> Unit) {
+private fun InputBar(
+    state: ChatUiState,
+    onSend: (String) -> Unit,
+    onStop: () -> Unit,
+    onAttach: (Uri) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    thumbnail: suspend (String) -> ImageBitmap?,
+) {
     var text by rememberSaveable { mutableStateOf("") }
+    // System photo picker: no storage permission, the app only sees what the user picks.
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) { uris ->
+        uris.take(MAX_ATTACHMENTS - state.pendingImages.size).forEach(onAttach)
+    }
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(Modifier.hairlineEdge(top = true, bottom = false)) {
+            if (state.pendingImages.isNotEmpty()) {
+                AttachmentStrip(state.pendingImages, thumbnail, Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp), onRemove = onRemoveAttachment)
+            }
             if (text.startsWith("/")) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     COMMANDS.filter { it.first.startsWith(text.substringBefore(' ')) }.forEach { (cmd, help) ->
@@ -525,6 +550,11 @@ private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () ->
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                IconButton(
+                    onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    enabled = state.pendingImages.size < MAX_ATTACHMENTS,
+                    modifier = Modifier.size(52.dp),
+                ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
                 ConsoleTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -532,7 +562,7 @@ private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () ->
                     placeholder = if (state.running) "queue a follow-up…" else "message · / for commands",
                     maxLines = 8,
                 )
-                if (state.running && text.isBlank()) {
+                if (state.running && text.isBlank() && state.pendingImages.isEmpty()) {
                     FilledIconButton(
                         onClick = onStop,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.primary),
@@ -545,10 +575,45 @@ private fun InputBar(state: ChatUiState, onSend: (String) -> Unit, onStop: () ->
                             onSend(text)
                             text = ""
                         },
-                        enabled = text.isNotBlank(),
+                        enabled = text.isNotBlank() || state.pendingImages.isNotEmpty(),
                         shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier.size(52.dp),
                     ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (state.running) "Queue" else "Send") }
+                }
+            }
+        }
+    }
+}
+
+/** Square thumbnails of attached images; [onRemove] adds a remove button (composer only). */
+@Composable
+private fun AttachmentStrip(
+    ids: List<String>,
+    thumbnail: suspend (String) -> ImageBitmap?,
+    modifier: Modifier = Modifier,
+    onRemove: ((String) -> Unit)? = null,
+) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ids.forEach { id ->
+            val image by produceState<ImageBitmap?>(null, id) { value = thumbnail(id) }
+            Box(
+                Modifier
+                    .size(64.dp)
+                    .clip(MaterialTheme.shapes.extraSmall)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                image?.let { Image(it, contentDescription = "Attached image", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                if (onRemove != null) {
+                    Text(
+                        "×",
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .clickable { onRemove(id) }
+                            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.8f))
+                            .padding(horizontal = 6.dp),
+                        style = AutobotTheme.styles.code,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
                 }
             }
         }

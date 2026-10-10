@@ -43,3 +43,6 @@ data object ImageBackends : NavKey
 
 @Serializable
 data object Accounts : NavKey
+
+@Serializable
+data object Compute : NavKey

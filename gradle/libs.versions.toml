@@ -12,6 +12,9 @@ targetSdk = "37"
 minSdk = "34"
 ndk = "30.0.16248370"
 cmake = "4.1.2"
+qnn = "2.51.0"
+# Headers come from the public QAIRT SDK zip (fetched at build time, never committed).
+qairt = "2.47.0.260601"
 
 # AndroidX
 androidxCore = "1.19.1"
@@ -35,6 +38,7 @@ kotlinxCoroutines = "1.11.0"
 junit = "4.13.2"
 
 [libraries]
+qnn-runtime = { module = "com.qualcomm.qti:qnn-runtime", version.ref = "qnn" }
 # AndroidX
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "androidxActivity" }

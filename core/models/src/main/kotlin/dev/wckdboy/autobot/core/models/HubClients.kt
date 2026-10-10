@@ -88,14 +88,18 @@ class HuggingFaceClient @Inject constructor(
 ) {
     private val base = "https://huggingface.co".toHttpUrl()
 
-    /** Searches models. [gguf] limits to GGUF repos (chat/code); otherwise text-to-image. */
-    suspend fun search(query: String, gguf: Boolean, limit: Int = 30): List<HfModelSummary> {
+    /**
+     * Searches models. [gguf] limits to GGUF repos (chat/code); otherwise text-to-image. [author]
+     * lists one publisher's repos instead of filtering by type (e.g. NPU packages).
+     */
+    suspend fun search(query: String, gguf: Boolean, limit: Int = 30, author: String? = null): List<HfModelSummary> {
         val url = base.newBuilder().addPathSegments("api/models")
-            .addQueryParameter("search", query.trim())
+            .apply { if (query.isNotBlank()) addQueryParameter("search", query.trim()) }
+            .apply { if (author != null) addQueryParameter("author", author) }
             .addQueryParameter("sort", "downloads")
             .addQueryParameter("direction", "-1")
             .addQueryParameter("limit", limit.toString())
-            .apply { if (gguf) addQueryParameter("filter", "gguf") else addQueryParameter("filter", "text-to-image") }
+            .apply { if (author == null) addQueryParameter("filter", if (gguf) "gguf" else "text-to-image") }
             .addQueryParameter("expand[]", "downloads")
             .addQueryParameter("expand[]", "likes")
             .addQueryParameter("expand[]", "gated")
@@ -149,6 +153,69 @@ class HuggingFaceClient @Inject constructor(
         base.newBuilder().addPathSegments(repo).addPathSegment("resolve").addPathSegment(revision ?: "main")
             .addPathSegments(path).build().toString()
 
+    /**
+     * Install plan for a Local Dream–layout NPU/GPU package: a zip is listed remotely and only
+     * the entries Autobot needs are planned (fetched later by byte range).
+     */
+    suspend fun localDreamPlan(repo: HfRepo, file: HfFile): ModelPlan {
+        val url = resolveUrl(repo.id, repo.commit, file.path)
+        val token = accounts.huggingFaceToken()
+        val zip = RemoteZip(FileFetcher(clients))
+        val entries = try {
+            zip.list(url, token, AuthHost.HUGGING_FACE)
+        } catch (e: DownloadException) {
+            throw HubException(e.message ?: "Cannot read the package")
+        }
+        val wanted = entries.filter { e ->
+            !e.isDirectory && (e.compressedSize == 0L || e.baseName.endsWith(".json") || e.baseName.endsWith(".bin") ||
+                e.baseName.endsWith(".mnn") || e.baseName.endsWith(".weight")) && !e.baseName.endsWith(".patch")
+        }
+        val resolved = wanted.map { e ->
+            e to if (e.compressedSize == 0L) ZipEntryRef(e.name) else zip.resolve(url, e, token, AuthHost.HUGGING_FACE)
+        }
+        return LocalDream.planFromZip(repo.id, file.path, url, resolved)
+    }
+
+    /**
+     * Install plan for a file picked in the Hub browser: NPU/GPU packages (zips, per-chip files,
+     * upscalers) get a package plan, everything else a single-file plan.
+     */
+    suspend fun planForFile(repo: HfRepo, file: HfFile, kind: ModelKind): ModelPlan {
+        val name = file.path.lowercase()
+        val chip = Regex("_(8gen[1-4]|min)\\.bin$").find(name)?.groupValues?.get(1)
+        return when {
+            name.endsWith(".zip") && (repo.id.startsWith("xororz/", ignoreCase = true) || "_qnn" in name) -> localDreamPlan(repo, file)
+            chip != null && "upscaler_" in name -> {
+                val folder = file.path.substringBeforeLast('/', "")
+                LocalDream.upscalerPlans(repo, LocalDream.archOfChip(chip)) { resolveUrl(repo.id, repo.commit, it) }
+                    .firstOrNull { it.id.startsWith("hf:${repo.id}:$folder:") } ?: plan(repo, file, kind)
+            }
+            chip != null -> LocalDream.planFromRepo(repo, LocalDream.archOfChip(chip)) { resolveUrl(repo.id, repo.commit, it) } ?: plan(repo, file, kind)
+            else -> plan(repo, file, kind)
+        }
+    }
+
+    /** Resolves a curated NPU package for a phone with HTP [arch]. */
+    suspend fun npuOfferPlan(offer: NpuOffer, arch: String?): ModelPlan {
+        val path = offer.fileFor(arch) ?: throw HubException("No build of ${offer.title} for this phone's NPU", HubException.Code.NOT_FOUND)
+        val repo = repo(offer.repo)
+        val file = repo.files.firstOrNull { it.path == path } ?: throw HubException("${offer.title} is no longer available", HubException.Code.NOT_FOUND)
+        val plan = if (offer.kind == ModelKind.UPSCALER) planForFile(repo, file, ModelKind.UPSCALER) else localDreamPlan(repo, file)
+        return plan.copy(id = "${offer.id}:$path", title = offer.title)
+    }
+
+    /** NPU upscalers available for a phone with HTP [arch]. */
+    suspend fun upscalerPlans(arch: String?): List<ModelPlan> {
+        val repo = repo(NpuCatalog.UPSCALER_REPO)
+        return LocalDream.upscalerPlans(repo, arch) { resolveUrl(repo.id, repo.commit, it) }
+    }
+
+    /** Best vision projector in a repo (F16 preferred, then Q8_0, then any). */
+    private fun visionProjector(repo: HfRepo): HfFile? {
+        val projectors = repo.files.filter { it.path.substringAfterLast('/').lowercase().startsWith("mmproj") && it.path.endsWith(".gguf", ignoreCase = true) }
+        return projectors.firstOrNull { "f16" in it.path.lowercase() } ?: projectors.firstOrNull { "q8_0" in it.path.lowercase() } ?: projectors.firstOrNull()
+    }
+
     /** Builds an install plan for one file of [repo] (with known sibling components for bundles). */
     fun plan(repo: HfRepo, file: HfFile, kind: ModelKind): ModelPlan {
         val owner = repo.id.substringBefore('/')
@@ -163,8 +230,12 @@ class HuggingFaceClient @Inject constructor(
             engine = engineFor(kind, format),
             license = repo.license,
             manifest = ModelManifest(
-                files = listOf(
+                files = listOfNotNull(
                     ModelFile(FileRole.MODEL, file.path.substringAfterLast('/'), resolveUrl(repo.id, repo.commit, file.path), file.sizeBytes, file.sha256, AuthHost.HUGGING_FACE),
+                    // A vision projector in the same repo enables image input for chat models.
+                    visionProjector(repo).takeIf { format == ModelFormat.GGUF && (kind == ModelKind.CHAT || kind == ModelKind.CODE) }?.let { p ->
+                        ModelFile(FileRole.MMPROJ, p.path.substringAfterLast('/'), resolveUrl(repo.id, repo.commit, p.path), p.sizeBytes, p.sha256, AuthHost.HUGGING_FACE)
+                    },
                 ),
                 pageUrl = "https://huggingface.co/${repo.id}",
                 gated = repo.gated,

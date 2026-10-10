@@ -20,13 +20,13 @@ internal data class WireFunctionCall(val name: String, val arguments: String)
 internal data class WireToolCall(val id: String, val type: String = "function", val function: WireFunctionCall)
 
 /**
- * A request message. [content] is nullable because assistant messages that only carry
- * [toolCalls] are sent with `content: null` by convention.
+ * A request message. [content] is a string, an array of parts (text + `image_url`) when images
+ * are attached, or null for assistant messages that only carry [toolCalls] (by convention).
  */
 @Serializable
 internal data class WireMessage(
     val role: String,
-    val content: String?,
+    val content: JsonElement?,
     @SerialName("tool_calls") val toolCalls: List<WireToolCall>? = null,
     @SerialName("tool_call_id") val toolCallId: String? = null,
     @SerialName("reasoning_content") val reasoningContent: String? = null,

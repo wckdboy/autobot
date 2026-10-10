@@ -126,7 +126,7 @@ class Agent(
     val sessionGrants: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private val inboxLock = Any()
-    private val nextTurn = ArrayDeque<String>()
+    private val nextTurn = ArrayDeque<SessionEvent.UserMessage>()
     private val nextStep = ArrayDeque<SessionEvent.UserMessage>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var turnJob: Job? = null
@@ -150,9 +150,9 @@ class Agent(
     // -----------------------------------------------------------------------------------------
     // Public controls
 
-    /** Queues [text] as a new turn. */
-    fun followup(text: String) {
-        synchronized(inboxLock) { nextTurn.addLast(text) }
+    /** Queues [text] (with optional attached [images]) as a new turn. */
+    fun followup(text: String, images: List<String> = emptyList()) {
+        synchronized(inboxLock) { nextTurn.addLast(SessionEvent.UserMessage(text, images = images)) }
         wake.trySend(Unit)
     }
 
@@ -206,7 +206,7 @@ class Agent(
     private fun claimTurnInput(): List<SessionEvent.UserMessage> = synchronized(inboxLock) {
         val claimed = nextStep.toList()
         nextStep.clear()
-        claimed + listOfNotNull(nextTurn.removeFirstOrNull()?.let { SessionEvent.UserMessage(it) })
+        claimed + listOfNotNull(nextTurn.removeFirstOrNull())
     }
 
     private fun claimStepInput(): List<SessionEvent.UserMessage> = synchronized(inboxLock) {

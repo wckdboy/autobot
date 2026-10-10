@@ -26,7 +26,8 @@ class ModelLibrary @Inject constructor(
 
     fun dirOf(id: String): File = File(root, safeName(id))
 
-    fun fileOf(id: String, file: ModelFile): File = File(dirOf(id), "${file.role.name.lowercase()}-${safeName(file.name)}")
+    fun fileOf(id: String, file: ModelFile): File =
+        File(dirOf(id), if (file.keepName) safeFileName(file.name) else "${file.role.name.lowercase()}-${safeName(file.name)}")
 
     val models: Flow<List<InstalledModel>> = rows.observe().map { list -> list.mapNotNull { it.toModel() } }
 
@@ -56,6 +57,7 @@ class ModelLibrary @Inject constructor(
             manifestJson = ManifestJson.encodeToString(ModelManifest.serializer(), plan.manifest),
             addedAt = existing?.addedAt ?: now,
             updatedAt = now,
+            backend = existing?.backend ?: Backend.AUTO.id,
         )
         rows.upsert(row)
         return row.toModel()!!
@@ -106,6 +108,7 @@ class ModelLibrary @Inject constructor(
             manifest = manifest,
             addedAt = addedAt,
             paths = if (status == ModelStatus.READY) manifest.files.associate { it.role to fileOf(id, it).path } else emptyMap(),
+            backend = Backend.of(backend),
         )
     }
 
@@ -117,6 +120,12 @@ class ModelLibrary @Inject constructor(
             val cleaned = id.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
             val hash = Integer.toHexString(id.hashCode())
             return "${cleaned}_$hash"
+        }
+
+        /** A plain file name (no hash suffix), for files other files refer to by name. */
+        fun safeFileName(name: String): String {
+            val base = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
+            return base.trimStart('.').ifEmpty { "file" }
         }
     }
 }

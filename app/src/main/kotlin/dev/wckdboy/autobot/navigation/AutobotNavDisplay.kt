@@ -27,6 +27,7 @@ import dev.wckdboy.autobot.feature.imagine.gallery.GalleryRoute
 import dev.wckdboy.autobot.feature.imagine.generate.GalleryHandoff
 import dev.wckdboy.autobot.feature.imagine.generate.ImagineRoute
 import dev.wckdboy.autobot.feature.models.AccountsRoute
+import dev.wckdboy.autobot.feature.models.ComputeRoute
 import dev.wckdboy.autobot.feature.models.ModelsRoute
 import dev.wckdboy.autobot.feature.settings.SettingsRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
@@ -86,7 +87,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenModels = { switchTo(Models) },
                         )
                     }
-                    entry<Models> { ModelsRoute(onOpenAccounts = { navigate(Accounts) }) }
+                    entry<Models> { ModelsRoute(onOpenAccounts = { navigate(Accounts) }, onOpenCompute = { navigate(Compute) }) }
                     entry<Remote> {
                         RemoteRoute(
                             onOpenProviders = { navigate(Providers) },
@@ -142,6 +143,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     entry<PrivacyCenter> { PrivacyCenterRoute(onBack = ::back) }
                     entry<ImageBackends> { BackendsRoute(onBack = ::back) }
                     entry<Accounts> { AccountsRoute(onBack = ::back) }
+                    entry<Compute> { ComputeRoute(onBack = ::back) }
                 },
             )
             if (showBar && tab != null) {

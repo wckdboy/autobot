@@ -21,6 +21,8 @@
 #include "common.h"
 #include "json.h"
 #include "llama.h"
+#include "mtmd-helper.h"
+#include "mtmd.h"
 #include "sampling.h"
 
 #define TAG "autobot-llama"
@@ -41,8 +43,35 @@ struct Session {
     std::atomic<bool> cancel{false};
     int n_ctx = 0;
     int n_batch = 512;
+    std::string backend;  // "cpu", "gpu" or "npu": where the model actually loaded
+    mtmd_context * mtmd = nullptr;  // vision projector (mmproj), loaded on the first image
+    std::string mmproj;
+    bool kv_dirty = false;          // KV holds image embeddings that `cached` cannot describe
     std::mutex lock;
 };
+
+// "npu" = Hexagon HTP sessions, "gpu" = Adreno OpenCL (or another GPU), "cpu" = the rest.
+const char * device_kind(ggml_backend_dev_t dev) {
+    const std::string name = ggml_backend_dev_name(dev);
+    if (name.rfind("HTP", 0) == 0) return "npu";
+    switch (ggml_backend_dev_type(dev)) {
+        case GGML_BACKEND_DEVICE_TYPE_GPU:
+        case GGML_BACKEND_DEVICE_TYPE_IGPU: return "gpu";
+        case GGML_BACKEND_DEVICE_TYPE_ACCEL: return "npu";
+        default: return "cpu";
+    }
+}
+
+// Offload devices for a backend kind; empty for "cpu" (llama.cpp then keeps every layer on the CPU).
+std::vector<ggml_backend_dev_t> devices_of(const std::string & kind) {
+    std::vector<ggml_backend_dev_t> out;
+    if (kind == "cpu") return out;
+    for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (kind == device_kind(dev)) out.push_back(dev);
+    }
+    return out;
+}
 
 void log_callback(ggml_log_level level, const char * text, void *) {
     int prio = ANDROID_LOG_DEBUG;
@@ -149,34 +178,75 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_systemInfo(JNIEnv * env, jobje
     return env->NewStringUTF(llama_print_system_info());
 }
 
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_devices(JNIEnv * env, jobject) {
+    auto list = common_json::array();
+    for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        size_t free = 0, total = 0;
+        ggml_backend_dev_memory(dev, &free, &total);
+        auto d = common_json::object();
+        d["name"] = std::string(ggml_backend_dev_name(dev));
+        d["description"] = std::string(ggml_backend_dev_description(dev));
+        d["kind"] = std::string(device_kind(dev));
+        d["memory_free"] = (double) free;
+        d["memory_total"] = (double) total;
+        list.push_back(d);
+    }
+    return bytes(env, list.dump());
+}
+
+/**
+ * Loads a model on `backend` ("cpu", "gpu", "npu" or "auto" = npu → gpu → cpu). If the model or
+ * its context cannot be created on an accelerator, it falls back to the CPU; the session records
+ * where it actually runs.
+ */
 extern "C" JNIEXPORT jlong JNICALL
-Java_dev_wckdboy_autobot_engine_llama_NativeLlama_load(JNIEnv * env, jobject, jstring jpath, jint n_ctx, jint n_threads) {
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_load(
+        JNIEnv * env, jobject, jstring jpath, jint n_ctx, jint n_threads, jstring jbackend) {
     const std::string path = jstr(env, jpath);
-    auto mparams = llama_model_default_params();
-    mparams.load_mode = LLAMA_LOAD_MODE_MMAP;  // weights stay in the page cache, not the heap
-    llama_model * model = llama_model_load_from_file(path.c_str(), mparams);
-    if (!model) {
-        LOGE("failed to load %s", path.c_str());
-        return 0;
+    const std::string wanted = jstr(env, jbackend);
+    std::vector<std::string> order;
+    if (wanted == "auto") order = {"npu", "gpu", "cpu"};
+    else if (wanted == "gpu" || wanted == "npu") order = {wanted, "cpu"};
+    else order = {"cpu"};
+
+    for (const auto & kind : order) {
+        std::vector<ggml_backend_dev_t> devs = devices_of(kind);
+        if (kind != "cpu" && devs.empty()) continue;
+        devs.push_back(nullptr);
+        auto mparams = llama_model_default_params();
+        mparams.load_mode = LLAMA_LOAD_MODE_MMAP;  // weights stay in the page cache, not the heap
+        mparams.devices = devs.data();
+        mparams.n_gpu_layers = kind == "cpu" ? 0 : 999;
+        llama_model * model = llama_model_load_from_file(path.c_str(), mparams);
+        if (!model) {
+            LOGE("failed to load %s on %s", path.c_str(), kind.c_str());
+            continue;
+        }
+        auto cparams = llama_context_default_params();
+        const int trained = llama_model_n_ctx_train(model);
+        cparams.n_ctx = (uint32_t) std::max(512, std::min((int) n_ctx, trained > 0 ? trained : (int) n_ctx));
+        cparams.n_batch = 512;
+        cparams.n_ubatch = 512;
+        cparams.n_threads = n_threads;
+        cparams.n_threads_batch = n_threads;
+        llama_context * ctx = llama_init_from_model(model, cparams);
+        if (!ctx) {
+            LOGE("failed to create a context on %s", kind.c_str());
+            llama_model_free(model);
+            continue;
+        }
+        auto * s = new Session();
+        s->model = model;
+        s->ctx = ctx;
+        s->n_ctx = (int) llama_n_ctx(ctx);
+        s->backend = kind;
+        s->templates = common_chat_templates_init(model, "");
+        LOGI("loaded %s on %s", path.c_str(), kind.c_str());
+        return reinterpret_cast<jlong>(s);
     }
-    auto cparams = llama_context_default_params();
-    const int trained = llama_model_n_ctx_train(model);
-    cparams.n_ctx = (uint32_t) std::max(512, std::min((int) n_ctx, trained > 0 ? trained : (int) n_ctx));
-    cparams.n_batch = 512;
-    cparams.n_ubatch = 512;
-    cparams.n_threads = n_threads;
-    cparams.n_threads_batch = n_threads;
-    llama_context * ctx = llama_init_from_model(model, cparams);
-    if (!ctx) {
-        llama_model_free(model);
-        return 0;
-    }
-    auto * s = new Session();
-    s->model = model;
-    s->ctx = ctx;
-    s->n_ctx = (int) llama_n_ctx(ctx);
-    s->templates = common_chat_templates_init(model, "");
-    return reinterpret_cast<jlong>(s);
+    return 0;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
@@ -191,6 +261,7 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_modelInfo(JNIEnv * env, jobjec
     info["n_ctx"] = s->n_ctx;
     info["n_ctx_train"] = llama_model_n_ctx_train(s->model);
     info["chat_template"] = common_chat_templates_was_explicit(s->templates.get());
+    info["backend"] = s->backend;
     return bytes(env, info.dump());
 }
 
@@ -204,6 +275,7 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_free(JNIEnv *, jobject, jlong 
     auto * s = reinterpret_cast<Session *>(handle);
     std::lock_guard<std::mutex> guard(s->lock);
     s->templates.reset();
+    if (s->mtmd) mtmd_free(s->mtmd);
     llama_free(s->ctx);
     llama_model_free(s->model);
     delete s;
@@ -234,8 +306,20 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jl
     try {
         const common_json req = common_json::parse(request_text);
 
+        // Image parts {type:"image", path} become media markers; the files are tokenized by mtmd.
+        common_json messages = req.at("messages");
+        std::vector<std::string> images;
+        for (auto & m : messages) {
+            if (!m.contains("content") || !m.at("content").is_array()) continue;
+            for (auto & part : m["content"]) {
+                if (part.value("type", std::string()) != "image") continue;
+                images.push_back(part.value("path", std::string()));
+                part = common_json{{"type", "text"}, {"text", mtmd_default_marker()}};
+            }
+        }
+
         common_chat_templates_inputs inputs;
-        inputs.messages = common_chat_msgs_parse_oaicompat(req.at("messages"));
+        inputs.messages = common_chat_msgs_parse_oaicompat(messages);
         if (req.contains("tools") && req.at("tools").is_array() && !req.at("tools").empty()) {
             inputs.tools = common_chat_tools_parse_oaicompat(req.at("tools"));
             inputs.parallel_tool_calls = true;
@@ -247,27 +331,86 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jl
 
         const common_chat_params chat = common_chat_templates_apply(s->templates.get(), inputs);
 
-        // ---- prompt: reuse the longest cached prefix, decode the rest
-        std::vector<llama_token> prompt = common_tokenize(s->ctx, chat.prompt, true, true);
         const int max_tokens = req.value("max_tokens", 2048);
-        if ((int) prompt.size() + 16 >= s->n_ctx) {
-            return bytes(env, error_json("CONTEXT_WINDOW_EXCEEDED",
-                "prompt has " + std::to_string(prompt.size()) + " tokens; context is " + std::to_string(s->n_ctx)));
-        }
-        size_t keep = 0;
-        while (keep < prompt.size() && keep < s->cached.size() && prompt[keep] == s->cached[keep]) ++keep;
-        if (keep == prompt.size()) keep = prompt.size() - 1;  // always re-evaluate the last token for logits
         llama_memory_t mem = llama_get_memory(s->ctx);
-        llama_memory_seq_rm(mem, 0, (llama_pos) keep, -1);
-        s->cached.resize(keep);
-        const int rc = decode_tokens(*s, prompt, keep, true);
-        if (rc == -2) return bytes(env, error_json("CANCELLED", "cancelled"));
-        if (rc != 0) {
-            llama_memory_clear(mem, false);
+        llama_pos pos = 0;      // position of the next generated token
+        size_t keep = 0;
+        size_t prompt_tokens = 0;
+        int64_t prompt_us = 0;
+        if (s->kv_dirty) {
+            llama_memory_clear(mem, true);
             s->cached.clear();
-            return bytes(env, error_json("DECODE_FAILED", "prompt decode failed (" + std::to_string(rc) + ")"));
+            s->kv_dirty = false;
         }
-        s->cached = prompt;
+
+        if (!images.empty()) {
+            // ---- multimodal prompt: evaluated from scratch through the vision projector
+            const std::string mmproj = req.value("mmproj", std::string());
+            if (mmproj.empty()) return bytes(env, error_json("NO_VISION", "this model has no vision projector (mmproj)"));
+            if (!s->mtmd || s->mmproj != mmproj) {
+                if (s->mtmd) mtmd_free(s->mtmd);
+                auto mp = mtmd_context_params_default();
+                mp.use_gpu = s->backend != "cpu";
+                mp.print_timings = false;
+                mp.warmup = false;
+                mp.n_threads = std::max(2, (int) sysconf(_SC_NPROCESSORS_ONLN) - 2);
+                s->mtmd = mtmd_init_from_file(mmproj.c_str(), s->model, mp);
+                s->mmproj = s->mtmd ? mmproj : std::string();
+                if (!s->mtmd) return bytes(env, error_json("NO_VISION", "could not load the vision projector"));
+            }
+            std::vector<mtmd::bitmap> bitmaps;
+            for (const auto & path : images) {
+                auto wrapped = mtmd_helper_bitmap_init_from_file(s->mtmd, path.c_str(), false, mtmd_helper_init_opt_default());
+                if (!wrapped.bitmap) return bytes(env, error_json("BAD_IMAGE", "cannot read image " + path));
+                bitmaps.emplace_back(wrapped.bitmap);
+            }
+            std::vector<const mtmd_bitmap *> raw;
+            for (auto & b : bitmaps) raw.push_back(b.ptr.get());
+            mtmd::input_chunks chunks(mtmd_input_chunks_init());
+            mtmd_input_text text{chat.prompt.c_str(), chat.prompt.size(), true, true};
+            if (mtmd_tokenize(s->mtmd, chunks.ptr.get(), &text, raw.data(), raw.size()) != 0) {
+                return bytes(env, error_json("BAD_IMAGE", "could not tokenize the images"));
+            }
+            prompt_tokens = mtmd_helper_get_n_tokens(chunks.ptr.get());
+            if ((int) prompt_tokens + 16 >= s->n_ctx) {
+                return bytes(env, error_json("CONTEXT_WINDOW_EXCEEDED",
+                    "prompt has " + std::to_string(prompt_tokens) + " tokens; context is " + std::to_string(s->n_ctx)));
+            }
+            llama_memory_clear(mem, true);
+            s->cached.clear();
+            s->kv_dirty = true;
+            const int64_t t_prompt = ggml_time_us();
+            llama_pos n_past = 0;
+            if (mtmd_helper_eval_chunks(s->mtmd, s->ctx, chunks.ptr.get(), 0, 0, s->n_batch, true, &n_past) != 0) {
+                llama_memory_clear(mem, true);
+                return bytes(env, error_json("DECODE_FAILED", "image prompt decode failed"));
+            }
+            prompt_us = ggml_time_us() - t_prompt;
+            pos = n_past;
+        } else {
+            // ---- text prompt: reuse the longest cached prefix, decode the rest
+            std::vector<llama_token> prompt = common_tokenize(s->ctx, chat.prompt, true, true);
+            if ((int) prompt.size() + 16 >= s->n_ctx) {
+                return bytes(env, error_json("CONTEXT_WINDOW_EXCEEDED",
+                    "prompt has " + std::to_string(prompt.size()) + " tokens; context is " + std::to_string(s->n_ctx)));
+            }
+            while (keep < prompt.size() && keep < s->cached.size() && prompt[keep] == s->cached[keep]) ++keep;
+            if (keep == prompt.size()) keep = prompt.size() - 1;  // always re-evaluate the last token for logits
+            llama_memory_seq_rm(mem, 0, (llama_pos) keep, -1);
+            s->cached.resize(keep);
+            const int64_t t_prompt = ggml_time_us();
+            const int rc = decode_tokens(*s, prompt, keep, true);
+            prompt_us = ggml_time_us() - t_prompt;
+            if (rc == -2) return bytes(env, error_json("CANCELLED", "cancelled"));
+            if (rc != 0) {
+                llama_memory_clear(mem, false);
+                s->cached.clear();
+                return bytes(env, error_json("DECODE_FAILED", "prompt decode failed (" + std::to_string(rc) + ")"));
+            }
+            s->cached = prompt;
+            prompt_tokens = prompt.size();
+            pos = (llama_pos) prompt.size();
+        }
 
         // ---- sampler (with the template's lazy tool-call grammar when tools are present)
         common_params_sampling sp;
@@ -314,13 +457,14 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jl
         std::string emitted_reasoning;
         std::string finish = "length";
         int n_gen = 0;
+        const int64_t t_gen = ggml_time_us();
         common_batch batch(s->ctx);
         while (n_gen < max_tokens) {
             if (s->cancel.load()) {
                 finish = "cancelled";
                 break;
             }
-            if ((int) s->cached.size() + 1 >= s->n_ctx) {
+            if ((int) pos + 1 >= s->n_ctx) {
                 finish = "length";
                 break;
             }
@@ -347,12 +491,13 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jl
             }
 
             batch.clear();
-            batch.add(tok, (llama_pos) s->cached.size(), 0, true);
+            batch.add(tok, pos, 0, true);
             if (llama_process(s->ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
                 finish = "error";
                 break;
             }
             s->cached.push_back(tok);
+            ++pos;
 
             if (n_gen % PARSE_EVERY == 0) {
                 try {
@@ -397,9 +542,12 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jl
         result["tool_calls"] = calls;
         result["finish_reason"] = msg.tool_calls.empty() ? finish : std::string("tool_calls");
         auto usage = common_json::object();
-        usage["prompt_tokens"] = (int) prompt.size();
+        usage["prompt_tokens"] = (int) prompt_tokens;
         usage["cached_tokens"] = (int) keep;
         usage["completion_tokens"] = n_gen;
+        usage["backend"] = s->backend;
+        usage["prompt_ms"] = (double) prompt_us / 1000.0;
+        usage["generation_ms"] = (double) (ggml_time_us() - t_gen) / 1000.0;
         result["usage"] = usage;
         return bytes(env, result.dump());
     } catch (const std::exception & e) {

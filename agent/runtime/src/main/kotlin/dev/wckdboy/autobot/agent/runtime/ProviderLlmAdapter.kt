@@ -10,6 +10,7 @@ import dev.wckdboy.autobot.agent.core.llm.ModelMessage
 import dev.wckdboy.autobot.agent.core.llm.ModelRole
 import dev.wckdboy.autobot.agent.core.llm.StreamChunk
 import dev.wckdboy.autobot.agent.core.session.TokenUsage
+import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatEvent
 import dev.wckdboy.autobot.providers.remote.ChatMessage
@@ -19,6 +20,7 @@ import dev.wckdboy.autobot.providers.remote.ChatRole
 import dev.wckdboy.autobot.providers.remote.ErrorKind
 import dev.wckdboy.autobot.providers.remote.ToolCall
 import dev.wckdboy.autobot.providers.remote.ToolSpec
+import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -34,30 +36,46 @@ class ProviderLlmAdapter(
     override val provider: String,
     private val chat: ChatProvider,
     private val kind: ProviderKind,
+    private val attachments: AttachmentRepository? = null,
 ) : LlmAdapter {
 
     override fun stream(call: LlmCall): Flow<StreamChunk> = flow {
         val echo = kind == ProviderKind.DEEPSEEK
-        val request = ChatRequest(
-            model = call.config.model,
-            messages = call.messages.map { it.toChat(echo) },
-            temperature = call.config.temperature,
-            maxTokens = call.config.maxTokens,
-            tools = call.tools.map { ToolSpec(it.name, it.description, it.parameters.toString()) },
-            echoReasoning = echo,
-        )
-        chat.streamChat(request).collect { event ->
-            when (event) {
-                is ChatEvent.ContentDelta -> emit(StreamChunk.TextDelta(event.text))
-                is ChatEvent.ReasoningDelta -> emit(StreamChunk.ReasoningDelta(event.text))
-                is ChatEvent.ToolCallDelta -> emit(StreamChunk.ToolCallDelta(event.index, event.id, event.name, event.argumentsDelta))
-                is ChatEvent.Usage -> emit(
-                    StreamChunk.Usage(TokenUsage(event.promptTokens, event.completionTokens, event.totalTokens)),
-                )
-                is ChatEvent.Finish -> emit(StreamChunk.Finish(event.reason))
-                is ChatEvent.Error -> throw LlmException(event.toFailure())
-                ChatEvent.Done -> Unit
+        // Attachments are decrypted into short-lived files for this call only. Only the newest
+        // [MAX_IMAGES] images are sent; older ones are noted in the text instead.
+        val plain = mutableListOf<File>()
+        try {
+            val keep = call.messages.flatMap { it.images }.takeLast(MAX_IMAGES).toSet()
+            val messages = call.messages.map { m ->
+                if (m.images.isEmpty()) return@map m.toChat(echo)
+                val files = m.images.filter { it in keep }.mapNotNull { id -> attachments?.openPlain(id)?.also { plain += it } }
+                val dropped = m.images.size - files.size
+                val note = if (dropped > 0) "\n[$dropped earlier image(s) not shown]" else ""
+                m.toChat(echo).copy(content = m.text + note, images = files.map { it.path })
             }
+            val request = ChatRequest(
+                model = call.config.model,
+                messages = messages,
+                temperature = call.config.temperature,
+                maxTokens = call.config.maxTokens,
+                tools = call.tools.map { ToolSpec(it.name, it.description, it.parameters.toString()) },
+                echoReasoning = echo,
+            )
+            chat.streamChat(request).collect { event ->
+                when (event) {
+                    is ChatEvent.ContentDelta -> emit(StreamChunk.TextDelta(event.text))
+                    is ChatEvent.ReasoningDelta -> emit(StreamChunk.ReasoningDelta(event.text))
+                    is ChatEvent.ToolCallDelta -> emit(StreamChunk.ToolCallDelta(event.index, event.id, event.name, event.argumentsDelta))
+                    is ChatEvent.Usage -> emit(
+                        StreamChunk.Usage(TokenUsage(event.promptTokens, event.completionTokens, event.totalTokens)),
+                    )
+                    is ChatEvent.Finish -> emit(StreamChunk.Finish(event.reason))
+                    is ChatEvent.Error -> throw LlmException(event.toFailure())
+                    ChatEvent.Done -> Unit
+                }
+            }
+        } finally {
+            plain.forEach { it.delete() }
         }
     }
 
@@ -78,6 +96,9 @@ class ProviderLlmAdapter(
     companion object {
         /** On-device context (KV cache memory is the limit on a phone). */
         const val LOCAL_CONTEXT = 8192
+
+        /** Images sent per call; vision encoders are slow on a phone and cost context. */
+        const val MAX_IMAGES = 4
 
         /** Best-effort context windows; unknown models get a conservative 64k. */
         fun modelInfo(kind: ProviderKind, model: String): ModelInfo {

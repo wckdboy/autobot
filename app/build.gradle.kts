@@ -39,6 +39,11 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // Link-time OpenCL ICD loader: the phone's own vendor libOpenCL.so is used instead.
+            excludes += "**/libOpenCL.so"
+            // QNN runtime parts Autobot does not use: the on-device graph compiler (it only runs
+            // precompiled context binaries), the legacy DSP backend and the QNN GPU backend.
+            excludes += listOf("**/libQnnHtpPrepare.so", "**/libQnnDsp*.so", "**/libQnnGpu.so")
         }
     }
 
@@ -72,6 +77,7 @@ dependencies {
     implementation(projects.core.models)
     implementation(projects.engine.llama)
     implementation(projects.engine.diffusion)
+    implementation(projects.engine.npu)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

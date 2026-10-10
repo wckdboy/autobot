@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Upsert
+import dev.wckdboy.autobot.core.data.model.BenchmarkRow
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.Message
@@ -117,6 +118,24 @@ interface ModelDao {
     @Query("UPDATE models SET downloadedBytes = :downloaded, status = :status, error = :error, updatedAt = :now WHERE id = :id")
     suspend fun updateProgress(id: String, downloaded: Long, status: String, error: String?, now: Long)
 
+    @Query("UPDATE models SET backend = :backend, updatedAt = :now WHERE id = :id")
+    suspend fun setBackend(id: String, backend: String, now: Long)
+
     @Query("DELETE FROM models WHERE id = :id")
     suspend fun delete(id: String)
+}
+
+@Dao
+interface BenchmarkDao {
+    @Insert
+    suspend fun insert(row: BenchmarkRow): Long
+
+    @Query("SELECT * FROM benchmarks ORDER BY createdAt DESC")
+    fun observeAll(): Flow<List<BenchmarkRow>>
+
+    @Query("SELECT * FROM benchmarks WHERE modelId = :modelId ORDER BY createdAt DESC")
+    suspend fun forModel(modelId: String): List<BenchmarkRow>
+
+    @Query("DELETE FROM benchmarks WHERE modelId = :modelId")
+    suspend fun deleteForModel(modelId: String)
 }

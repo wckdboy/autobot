@@ -52,6 +52,7 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
                         UserMessageKind.CONTEXT -> "<system-reminder>\n${event.text}\n</system-reminder>"
                         UserMessageKind.SUMMARY -> summaryText(event.text)
                     },
+                    images = event.images,
                 )
             }
             is SessionEvent.AssistantMessage -> {

@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
+import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.RouteOverride
@@ -25,6 +26,7 @@ class ProviderFactory @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val modelLibrary: ModelLibrary,
     private val localLlm: LocalLlm,
+    private val computeProfile: ComputeProfile,
 ) {
     /** Creates a provider, decrypting its API key from the SecretStore. */
     suspend fun create(provider: Provider): ChatProvider = create(provider, providerRepository.apiKey(provider))
@@ -32,7 +34,7 @@ class ProviderFactory @Inject constructor(
     /** Creates a provider with an explicit [apiKey] (e.g. an unsaved key being tested). */
     fun create(provider: Provider, apiKey: Secret?): ChatProvider {
         // On-device: Binder IPC to the engine process, no HTTP client at all.
-        if (provider.kind == ProviderKind.LOCAL) return LocalChatProvider(modelLibrary, localLlm)
+        if (provider.kind == ProviderKind.LOCAL) return LocalChatProvider(modelLibrary, localLlm, computeProfile)
         val client = httpClientFactory.create(tag = provider.displayName, override = provider.routing.toOverride())
         val baseUrl = provider.baseUrl
         return when (provider.kind) {

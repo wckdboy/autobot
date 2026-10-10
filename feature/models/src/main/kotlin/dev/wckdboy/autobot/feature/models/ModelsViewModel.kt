@@ -24,6 +24,8 @@ import dev.wckdboy.autobot.core.models.ModelDownloader
 import dev.wckdboy.autobot.core.models.ModelKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.models.ModelPlan
+import dev.wckdboy.autobot.core.models.NpuCatalog
+import dev.wckdboy.autobot.core.models.NpuOffer
 import dev.wckdboy.autobot.core.models.PreviewImages
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -41,7 +43,14 @@ import kotlinx.coroutines.withContext
 enum class ModelsTab(val label: String) { RECOMMENDED("for this phone"), HUGGING_FACE("hugging face"), CIVITAI("civitai") }
 
 /** What the Hub search looks for. */
-enum class HfScope(val label: String, val kind: ModelKind) { CHAT("chat", ModelKind.CHAT), CODE("code", ModelKind.CODE), IMAGE("image", ModelKind.IMAGE) }
+enum class HfScope(val label: String, val kind: ModelKind) {
+    CHAT("chat", ModelKind.CHAT),
+    CODE("code", ModelKind.CODE),
+    IMAGE("image", ModelKind.IMAGE),
+
+    /** Precompiled NPU/GPU image packages (Local Dream layout). */
+    NPU("npu", ModelKind.IMAGE),
+}
 
 enum class CivitaiScope(val label: String, val types: List<String>) {
     CHECKPOINT("checkpoints", listOf("Checkpoint")),
@@ -119,6 +128,8 @@ class ModelsViewModel @Inject constructor(
     }
 
     val recommended: List<ModelPlan> get() = Catalog.all
+    val npuImages: List<NpuOffer> get() = NpuCatalog.image
+    val npuUpscalers: List<NpuOffer> get() = NpuCatalog.upscalers
 
     fun selectTab(tab: ModelsTab) = local.update { it.copy(tab = tab) }
 
@@ -146,7 +157,13 @@ class ModelsViewModel @Inject constructor(
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             local.update { it.copy(hf = it.hf.copy(loading = true)) }
-            val results = guarded { hub.search(hf.query.ifBlank { if (hf.scope == HfScope.IMAGE) "stable diffusion gguf" else "instruct" }, gguf = true) }
+            val results = guarded {
+                if (hf.scope == HfScope.NPU) {
+                    hub.search(hf.query, gguf = false, author = NPU_PUBLISHER)
+                } else {
+                    hub.search(hf.query.ifBlank { if (hf.scope == HfScope.IMAGE) "stable diffusion gguf" else "instruct" }, gguf = true)
+                }
+            }
             local.update { it.copy(hf = it.hf.copy(loading = false, results = results.orEmpty())) }
         }
     }
@@ -163,8 +180,19 @@ class ModelsViewModel @Inject constructor(
 
     fun installHfFile(repo: HfRepo, path: String) {
         val file = repo.files.firstOrNull { it.path == path } ?: return
-        install(hub.plan(repo, file, local.value.hf.scope.kind))
         closeRepo()
+        viewModelScope.launch {
+            local.update { it.copy(message = "Reading ${file.path.substringAfterLast('/')}…") }
+            guarded { hub.planForFile(repo, file, local.value.hf.scope.kind) }?.let(::install)
+        }
+    }
+
+    /** Installs a curated NPU/GPU package, choosing the build for this phone's NPU. */
+    fun installNpuOffer(offer: NpuOffer) {
+        viewModelScope.launch {
+            local.update { it.copy(message = "Preparing ${offer.title}…") }
+            guarded { hub.npuOfferPlan(offer, local.value.device?.htpArch) }?.let(::install)
+        }
     }
 
     // ---- Civitai
@@ -221,6 +249,9 @@ class ModelsViewModel @Inject constructor(
 
     companion object {
         /** Base models stable-diffusion.cpp runs well on a phone. */
+        /** Publisher of the NPU/GPU packages the NPU scope lists. */
+        const val NPU_PUBLISHER = "xororz"
+
         val SUPPORTED_BASES = listOf("SD 1.5", "SD 1.5 LCM", "SD 1.5 Hyper", "SDXL 1.0", "SDXL Turbo", "SDXL Lightning", "Pony", "Illustrious", "NoobAI")
     }
 }

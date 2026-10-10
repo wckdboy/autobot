@@ -17,6 +17,7 @@ import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.engine.diffusion.LocalSd
+import dev.wckdboy.autobot.engine.npu.LocalNpu
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import java.io.File
 import java.io.IOException
@@ -132,6 +133,7 @@ class DiffusionEngineFactory @Inject constructor(
     private val library: ModelLibrary,
     private val localSd: LocalSd,
     private val localLlm: LocalLlm,
+    private val localNpu: LocalNpu,
 ) {
     fun create(backend: DiffusionBackend): DiffusionEngine {
         val override = runCatching { RouteOverride.valueOf(backend.routing) }.getOrDefault(RouteOverride.INHERIT)
@@ -139,7 +141,7 @@ class DiffusionEngineFactory @Inject constructor(
         return when (backend.kind) {
             BackendKind.SD_API -> SdApiEngine(backend.baseUrl, clientFactory)
             BackendKind.LOCAL_SSE -> LocalSseEngine(backend.baseUrl, clientFactory)
-            BackendKind.ON_DEVICE -> OnDeviceEngine(library, localSd, localLlm, File(context.cacheDir, "sd-in"))
+            BackendKind.ON_DEVICE -> OnDeviceEngine(library, localSd, localLlm, File(context.cacheDir, "sd-in"), localNpu)
         }
     }
 }

@@ -13,7 +13,9 @@ import dev.wckdboy.autobot.providers.remote.internal.WireModelList
 import dev.wckdboy.autobot.providers.remote.internal.WireStreamOptions
 import dev.wckdboy.autobot.providers.remote.internal.WireTool
 import dev.wckdboy.autobot.providers.remote.internal.WireToolCall
+import java.io.File
 import java.io.IOException
+import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +25,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -193,13 +199,38 @@ open class OpenAICompatibleProvider(
 
         private fun ChatMessage.toWire(echoReasoning: Boolean): WireMessage = WireMessage(
             role = role.name.lowercase(),
-            content = if (role == ChatRole.ASSISTANT && toolCalls.isNotEmpty() && content.isEmpty()) null else content,
+            content = when {
+                role == ChatRole.ASSISTANT && toolCalls.isNotEmpty() && content.isEmpty() -> null
+                images.isNotEmpty() -> buildJsonArray {
+                    if (content.isNotEmpty()) add(buildJsonObject { put("type", "text"); put("text", content) })
+                    images.forEach { path ->
+                        add(
+                            buildJsonObject {
+                                put("type", "image_url")
+                                put("image_url", buildJsonObject { put("url", dataUrl(path)) })
+                            },
+                        )
+                    }
+                }
+                else -> JsonPrimitive(content)
+            },
             toolCalls = toolCalls.takeIf { it.isNotEmpty() }?.map {
                 WireToolCall(it.id, function = WireFunctionCall(it.name, it.arguments))
             },
             toolCallId = toolCallId,
             reasoningContent = if (echoReasoning && role == ChatRole.ASSISTANT) reasoning else null,
         )
+
+        /** An attached image as a `data:` URL (cloud vision models take images inline). */
+        private fun dataUrl(path: String): String {
+            val bytes = File(path).readBytes()
+            val mime = when {
+                bytes.size > 3 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
+                bytes.size > 3 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() -> "image/webp"
+                else -> "image/jpeg"
+            }
+            return "data:$mime;base64," + Base64.getEncoder().encodeToString(bytes)
+        }
 
         private val JSON = "application/json; charset=utf-8".toMediaType()
         private const val DONE = "[DONE]"

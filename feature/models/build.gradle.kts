@@ -11,6 +11,7 @@ android {
 dependencies {
     implementation(projects.core.designsystem)
     implementation(projects.core.models)
+    implementation(projects.core.diffusion)
     implementation(projects.core.security)
     implementation(projects.core.network)
 

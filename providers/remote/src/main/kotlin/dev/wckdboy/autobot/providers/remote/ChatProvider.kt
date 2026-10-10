@@ -21,6 +21,8 @@ data class ChatMessage(
     val toolCalls: List<ToolCall> = emptyList(),
     val toolCallId: String? = null,
     val reasoning: String? = null,
+    /** Plain image files to show the model (user messages only; vision models). */
+    val images: List<String> = emptyList(),
 )
 
 /** A function the model may call. [parametersJson] is a JSON Schema object, as text. */

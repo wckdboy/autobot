@@ -16,6 +16,8 @@ data class ModelMessage(
     val toolCalls: List<ToolCallRecord> = emptyList(),
     val toolCallId: String? = null,
     val toolName: String? = null,
+    /** Attached images of a user message (attachment ids). */
+    val images: List<String> = emptyList(),
     /** Assistant message after the latest user prompt (adapters may echo its reasoning). */
     val inCurrentTurn: Boolean = false,
 )

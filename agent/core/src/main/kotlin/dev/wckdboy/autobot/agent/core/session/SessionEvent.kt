@@ -42,6 +42,8 @@ sealed interface SessionEvent {
         val kind: UserMessageKind = UserMessageKind.PROMPT,
         /** Identifies the [UserMessageKind.CONTEXT] source so changes can be detected. */
         val contextId: String? = null,
+        /** Attached images (attachment ids, see the app's attachment store). */
+        val images: List<String> = emptyList(),
     ) : SessionEvent
 
     @Serializable

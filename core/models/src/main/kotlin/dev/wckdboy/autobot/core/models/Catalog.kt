@@ -14,6 +14,8 @@ object Catalog {
     private fun chat(
         id: String, title: String, subtitle: String, repo: String, file: String, mib: Long, license: String,
         kind: ModelKind = ModelKind.CHAT, context: Int = 8192, notes: String? = null,
+        /** Vision projector (image input) as file name and size in MiB. */
+        mmproj: Pair<String, Long>? = null,
     ) = ModelPlan(
         id = "catalog:$id",
         kind = kind,
@@ -24,7 +26,7 @@ object Catalog {
         engine = EngineKind.LLAMA,
         license = license,
         manifest = ModelManifest(
-            files = listOf(hf(repo, file, mib)),
+            files = listOfNotNull(hf(repo, file, mib), mmproj?.let { (name, size) -> hf(repo, name, size, FileRole.MMPROJ) }),
             pageUrl = "$HF/$repo",
             recommended = Recommended(contextLength = context),
             notes = notes,
@@ -54,6 +56,18 @@ object Catalog {
         chat(
             "qwen2.5-coder-7b-q4_k_m", "Qwen2.5 Coder 7B", "Q4_K_M · code · 16 GB+ RAM", "unsloth/Qwen2.5-Coder-7B-Instruct-GGUF",
             "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf", 4466, "apache-2.0", kind = ModelKind.CODE,
+        ),
+        chat(
+            "qwen3-vl-2b-q4_0", "Qwen3-VL 2B", "Q4_0 · vision · reads photos and screenshots", "unsloth/Qwen3-VL-2B-Instruct-GGUF",
+            "Qwen3-VL-2B-Instruct-Q4_0.gguf", 1008, "apache-2.0", mmproj = "mmproj-F16.gguf" to 781L,
+        ),
+        chat(
+            "qwen3-vl-4b-q4_0", "Qwen3-VL 4B", "Q4_0 · vision · stronger OCR and reasoning", "unsloth/Qwen3-VL-4B-Instruct-GGUF",
+            "Qwen3-VL-4B-Instruct-Q4_0.gguf", 2266, "apache-2.0", mmproj = "mmproj-F16.gguf" to 797L,
+        ),
+        chat(
+            "smolvlm2-2.2b-q4_k_m", "SmolVLM2 2.2B", "Q4_K_M · vision · Hugging Face", "ggml-org/SmolVLM2-2.2B-Instruct-GGUF",
+            "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf", 1061, "apache-2.0", mmproj = "mmproj-SmolVLM2-2.2B-Instruct-Q8_0.gguf" to 565L,
         ),
     )
 

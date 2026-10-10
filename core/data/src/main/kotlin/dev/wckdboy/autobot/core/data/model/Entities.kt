@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data.model
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -132,4 +133,23 @@ data class ModelRow(
     val manifestJson: String,
     val addedAt: Long,
     val updatedAt: Long,
+    /** Where to run it: `auto`, `cpu`, `gpu` or `npu` (set by the user or the benchmark). */
+    @ColumnInfo(defaultValue = "auto") val backend: String = "auto",
+)
+
+/** One benchmark run of a model on one backend; the newest successful run per backend wins. */
+@Entity(tableName = "benchmarks", indices = [Index("modelId")])
+data class BenchmarkRow(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val modelId: String,
+    /** `cpu`, `gpu` or `npu`: where it actually ran (an accelerator can fall back to the CPU). */
+    val backend: String,
+    /** Text models: prompt processing and generation speed in tokens per second. */
+    val promptTps: Double?,
+    val generationTps: Double?,
+    /** Image models: average time of one denoising step, in milliseconds. */
+    val stepMs: Double?,
+    val loadMs: Long?,
+    val error: String?,
+    val createdAt: Long,
 )

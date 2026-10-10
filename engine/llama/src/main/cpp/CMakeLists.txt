@@ -12,6 +12,8 @@ set(BUILD_SHARED_LIBS     ON  CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_COMMON    ON  CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TESTS     OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS     OFF CACHE BOOL "" FORCE)
+# libmtmd only (vision projectors for image input), not the rest of tools/.
+set(LLAMA_BUILD_MTMD      ON  CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES  OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER    OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_APP       OFF CACHE BOOL "" FORCE)
@@ -32,10 +34,25 @@ set(GGML_LLAMAFILE        OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP           OFF CACHE BOOL "" FORCE)
 set(GGML_CPU_KLEIDIAI     OFF CACHE BOOL "" FORCE)
 
+# GPU: the Adreno-tuned OpenCL backend (libggml-opencl.so), loaded at runtime like the CPU
+# variants. Kernels are embedded; the ICD loader is only built to link against (see
+# cmake/FindOpenCL.cmake), and cmake/FindPython3.cmake replaces the Python embedding step.
+set(THIRD_PARTY ${CMAKE_CURRENT_LIST_DIR}/../../../../../third_party)
+set(AUTOBOT_OPENCL_HEADERS ${THIRD_PARTY}/OpenCL-Headers)
+set(OPENCL_ICD_LOADER_HEADERS_DIR ${AUTOBOT_OPENCL_HEADERS} CACHE PATH "" FORCE)
+set(OPENCL_ICD_LOADER_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPENCL_LAYERS OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+add_subdirectory(${THIRD_PARTY}/OpenCL-ICD-Loader build-opencl-icd)
+list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
+set(GGML_OPENCL                    ON CACHE BOOL "" FORCE)
+set(GGML_OPENCL_EMBED_KERNELS      ON CACHE BOOL "" FORCE)
+set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "" FORCE)
+
 add_subdirectory(${LLAMA_SRC} build-llama)
 
 add_library(autobot_llama SHARED llama_jni.cpp)
-target_include_directories(autobot_llama PRIVATE ${LLAMA_SRC}/common ${LLAMA_SRC}/include)
-target_link_libraries(autobot_llama PRIVATE llama llama-common android log)
+target_include_directories(autobot_llama PRIVATE ${LLAMA_SRC}/common ${LLAMA_SRC}/include ${LLAMA_SRC}/tools/mtmd)
+target_link_libraries(autobot_llama PRIVATE llama llama-common mtmd android log)
 # Only the JNI entry points are exported.
 target_link_options(autobot_llama PRIVATE "-Wl,--exclude-libs,ALL")

@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.core.data
 
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
+import dev.wckdboy.autobot.core.data.model.BenchmarkRow
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,5 +31,18 @@ class ModelRowRepository @Inject constructor(
         database.get().modelDao().updateProgress(id, downloaded, status, error, System.currentTimeMillis())
     }
 
-    suspend fun delete(id: String) = withContext(io) { database.get().modelDao().delete(id) }
+    suspend fun setBackend(id: String, backend: String) = withContext(io) {
+        database.get().modelDao().setBackend(id, backend, System.currentTimeMillis())
+    }
+
+    suspend fun delete(id: String) = withContext(io) {
+        database.get().benchmarkDao().deleteForModel(id)
+        database.get().modelDao().delete(id)
+    }
+
+    fun observeBenchmarks(): Flow<List<BenchmarkRow>> = flow { emitAll(database.get().benchmarkDao().observeAll()) }.flowOn(io)
+
+    suspend fun benchmarks(modelId: String): List<BenchmarkRow> = withContext(io) { database.get().benchmarkDao().forModel(modelId) }
+
+    suspend fun addBenchmark(row: BenchmarkRow): Long = withContext(io) { database.get().benchmarkDao().insert(row) }
 }

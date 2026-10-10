@@ -68,18 +68,20 @@ import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelFormat
 import dev.wckdboy.autobot.core.models.ModelKind
 import dev.wckdboy.autobot.core.models.ModelPlan
+import dev.wckdboy.autobot.core.models.LocalDream
+import dev.wckdboy.autobot.core.models.NpuOffer
 import dev.wckdboy.autobot.core.models.ModelStatus
 import dev.wckdboy.autobot.core.models.formatBytes
 
 @Composable
-fun ModelsRoute(onOpenAccounts: () -> Unit, viewModel: ModelsViewModel = hiltViewModel()) {
+fun ModelsRoute(onOpenAccounts: () -> Unit, onOpenCompute: () -> Unit, viewModel: ModelsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    ModelsScreen(state, viewModel, onOpenAccounts)
+    ModelsScreen(state, viewModel, onOpenAccounts, onOpenCompute)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts: () -> Unit) {
+fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts: () -> Unit, onOpenCompute: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -90,16 +92,21 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
     // The download progress notification needs this on Android 13+; downloads work without it.
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
-    fun install(plan: ModelPlan) {
+    fun askNotifications() {
         if (!askedNotifications && Build.VERSION.SDK_INT >= 33) {
             askedNotifications = true
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+    fun install(plan: ModelPlan) {
+        askNotifications()
         actions.install(plan)
     }
 
     Scaffold(
-        topBar = { AutobotTopBar(title = "Models") },
+        topBar = {
+            AutobotTopBar(title = "Models", actions = { TextButton(onClick = onOpenCompute) { Text("COMPUTE", style = MaterialTheme.typography.labelMedium) } })
+        },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         LazyColumn(
@@ -155,6 +162,19 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
             when (state.tab) {
                 ModelsTab.RECOMMENDED -> {
                     val installed = state.installedIds()
+                    val arch = state.device?.htpArch
+                    listOf("image · npu / gpu" to actions.npuImages, "upscale · npu" to actions.npuUpscalers).forEach { (label, offers) ->
+                        item(key = "h-$label") {
+                            SectionLabel(label + (arch?.let { " · hexagon $it" } ?: ""), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        items(offers, key = { "n-${it.id}" }) { offer ->
+                            NpuOfferRow(offer, arch, installed = installed.any { it.startsWith(offer.id + ":") }) {
+                                askNotifications()
+                                actions.installNpuOffer(offer)
+                            }
+                        }
+                        item(key = "s-$label") { Spacer(Modifier.height(14.dp)) }
+                    }
                     listOf(
                         "chat" to actions.recommended.filter { it.kind == ModelKind.CHAT },
                         "code" to actions.recommended.filter { it.kind == ModelKind.CODE },
@@ -170,7 +190,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                         item(key = "s-$label") { Spacer(Modifier.height(14.dp)) }
                     }
                     item {
-                        MicroLabel("all models run on this phone's cpu · weights are verified with sha-256 after download")
+                        MicroLabel("npu packages run on the hexagon npu, gguf models on the cpu or adreno gpu · downloads are verified (sha-256 or zip crc) before use")
                         Spacer(Modifier.height(24.dp))
                     }
                 }
@@ -364,3 +384,22 @@ private fun CivitaiRow(model: CivitaiModel, actions: ModelsViewModel, installed:
     }
 }
 
+
+@Composable
+private fun NpuOfferRow(offer: NpuOffer, arch: String?, installed: Boolean, onGet: () -> Unit) {
+    val file = offer.fileFor(arch)
+    RunRow(
+        title = offer.title,
+        subtitle = listOfNotNull(
+            "≈" + formatBytes(offer.approxBytes),
+            offer.subtitle,
+            file?.let { LocalDream.chipOf(it) }?.let { "build $it" },
+        ).joinToString(" · "),
+    ) {
+        when {
+            installed -> Tag("added", accent = MaterialTheme.colorScheme.onSurfaceVariant)
+            file == null -> Tag("no build", accent = MaterialTheme.colorScheme.error)
+            else -> Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
+        }
+    }
+}

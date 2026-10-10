@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+
+        <!-- Isolated process: QNN/MNN crashes or OOM never take the app down. -->
+        <service
+            android:name=".NpuService"
+            android:exported="false"
+            android:process=":npu" />
+    </application>
+
+</manifest>

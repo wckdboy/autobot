@@ -2,6 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application>
+        <!-- Vendor GPU/NPU drivers the engine may use; optional, so phones without them still
+             install and fall back to the CPU. -->
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+
         <!-- Isolated process: a crash or OOM in native inference never takes the app down. -->
         <service
             android:name=".LlamaService"

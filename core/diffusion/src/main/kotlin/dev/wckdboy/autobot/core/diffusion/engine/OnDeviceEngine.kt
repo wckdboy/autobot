@@ -22,6 +22,7 @@ import dev.wckdboy.autobot.engine.diffusion.SdEngineException
 import dev.wckdboy.autobot.engine.diffusion.SdLora
 import dev.wckdboy.autobot.engine.diffusion.SdRequest
 import dev.wckdboy.autobot.engine.llama.LocalLlm
+import dev.wckdboy.autobot.engine.npu.LocalNpu
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -39,8 +40,12 @@ class OnDeviceEngine(
     private val sd: LocalSd,
     private val llm: LocalLlm,
     private val scratchDir: File,
+    private val npu: LocalNpu? = null,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : DiffusionEngine {
+    private val npuImages = npu?.let { NpuImages(it, File(scratchDir.parentFile, "npu-io"), clock) }
+
+    private fun runnable(m: InstalledModel) = m.isReady && (m.engine == EngineKind.DIFFUSION || (m.engine == EngineKind.NPU && npu != null))
 
     override val capabilities = EngineCapabilities(
         modes = DiffusionMode.entries.toSet(),
@@ -52,7 +57,7 @@ class OnDeviceEngine(
     )
 
     override suspend fun catalog(): EngineCatalog {
-        val ready = library.all().filter { it.isReady && it.engine == EngineKind.DIFFUSION }
+        val ready = library.all().filter(::runnable)
         val images = ready.filter { it.kind == ModelKind.IMAGE }
         return EngineCatalog(
             models = images.map { it.id },
@@ -64,10 +69,16 @@ class OnDeviceEngine(
     }
 
     override fun generate(request: DiffusionRequest, inputs: DiffusionInputs): Flow<DiffusionEvent> = flow {
-        val all = library.all().filter { it.isReady && it.engine == EngineKind.DIFFUSION }
+        val all = library.all().filter(::runnable)
         val model = all.firstOrNull { it.id == request.model && it.kind == ModelKind.IMAGE }
             ?: all.firstOrNull { it.kind == ModelKind.IMAGE }
             ?: throw DiffusionException("No image model installed — get one in the Models tab", DiffusionException.Code.UNSUPPORTED)
+        if (model.engine == EngineKind.NPU && npuImages != null) {
+            llm.unloadModel()
+            npuImages.generate(this, model, request, inputs)
+            return@flow
+        }
+        npu?.unloadModels()
         val loras = request.loras.mapNotNull { ref ->
             all.firstOrNull { it.kind == ModelKind.LORA && (it.title == ref.name || it.id == ref.name) }
                 ?.paths?.get(FileRole.MODEL)?.let { SdLora(it, ref.weight) }

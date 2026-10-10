@@ -74,8 +74,11 @@ class LocalLlm(context: Context, private val idleMillis: Long = 5 * 60_000L) {
 
     suspend fun systemInfo(): String = connect().systemInfo()
 
-    /** Streams one completion. Cancelling the collector cancels generation. */
-    fun chat(modelPath: String, nCtx: Int, requestJson: String): Flow<LocalLlmEvent> = callbackFlow {
+    /** Compute devices the engine can use (JSON array, see [ILlamaEngine.devices]). */
+    suspend fun devices(): String = connect().devices()
+
+    /** Streams one completion on [backend] (cpu, gpu, npu, auto). Cancelling the collector cancels generation. */
+    fun chat(modelPath: String, nCtx: Int, backend: String, requestJson: String): Flow<LocalLlmEvent> = callbackFlow {
         val e = connect()
         synchronized(this@LocalLlm) { active++ }
         val binder = e.asBinder()
@@ -95,7 +98,7 @@ class LocalLlm(context: Context, private val idleMillis: Long = 5 * 60_000L) {
                 close()
             }
         }
-        e.chat(modelPath, nCtx, requestJson.toByteArray(Charsets.UTF_8), callback)
+        e.chat(modelPath, nCtx, backend, requestJson.toByteArray(Charsets.UTF_8), callback)
         awaitClose {
             runCatching { binder.unlinkToDeath(death, 0) }
             runCatching { if (binder.isBinderAlive) e.cancel() }
