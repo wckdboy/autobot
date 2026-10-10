@@ -14,7 +14,9 @@ Tool names, event names and the compaction summary sections follow that project.
 
 The image generation feature was designed after studying the behaviour of Local Dream
 (https://github.com/xororz/local-dream, CC BY-NC 4.0). No source code, assets, models or
-tooling from that project are included; the implementation is independent.
+tooling from that project are included; the implementation is independent. Compatibility with
+packages in its model layout (e.g. huggingface.co/xororz) was derived from the model files
+themselves, not from its code.
 
 Third-party software built into the app:
 
@@ -25,6 +27,24 @@ Third-party software built into the app:
   stable-diffusion.cpp (https://github.com/leejet/stable-diffusion.cpp), including its ggml
   Copyright (c) 2023 leejet
   Licensed under the MIT License.
+
+  MNN (https://github.com/alibaba/MNN), including RapidJSON (MIT)
+  Copyright 2018 Alibaba Group
+  Licensed under the Apache License, Version 2.0.
+
+  whisper.cpp (https://github.com/ggml-org/whisper.cpp), including its ggml
+  Copyright (c) 2023-2026 The ggml authors
+  Licensed under the MIT License.
+
+  OpenCL-Headers and OpenCL-ICD-Loader (https://github.com/KhronosGroup), used at build time
+  Copyright (c) The Khronos Group Inc.
+  Licensed under the Apache License, Version 2.0.
+
+  Qualcomm AI Engine Direct (QNN) runtime, com.qualcomm.qti:qnn-runtime (object code only)
+  Copyright (c) Qualcomm Technologies, Inc. All rights reserved.
+  Distributed as part of this app under the Qualcomm "AI Stack" license; not covered by
+  Apache-2.0. Its notices ship in assets/licenses/qnn-runtime-NOTICE.txt. The QNN SDK headers
+  used to build Autobot are downloaded from Qualcomm at build time and are not in this repository.
 
   Antonio (https://github.com/vernnobile/antonioFont)
   JetBrains Mono (https://github.com/JetBrains/JetBrainsMono)

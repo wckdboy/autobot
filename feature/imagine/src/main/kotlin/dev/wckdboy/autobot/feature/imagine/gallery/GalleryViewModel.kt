@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.model.GalleryItem
+import dev.wckdboy.autobot.core.diffusion.Upscaler
 import dev.wckdboy.autobot.feature.imagine.generate.ImageCodec
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,7 @@ data class GalleryUiState(
 class GalleryViewModel @Inject constructor(
     application: Application,
     private val gallery: GalleryRepository,
+    private val upscaler: Upscaler,
 ) : AndroidViewModel(application) {
 
     private data class Local(
@@ -100,6 +102,38 @@ class GalleryViewModel @Inject constructor(
             gallery.delete(item.id)
             thumbs.remove(item.id)
             local.update { it.copy(openId = null, openImage = null, message = "Deleted") }
+        }
+    }
+
+    /** Upscales an image 4× on the NPU and stores the result as a new gallery item. */
+    fun upscale(item: GalleryItem) {
+        if (local.value.message?.startsWith("Upscaling") == true) return
+        viewModelScope.launch {
+            local.update { it.copy(message = "Upscaling 4× on the NPU…") }
+            val result = runCatching {
+                val bytes = gallery.image(item.id) ?: error("image unavailable")
+                val started = System.currentTimeMillis()
+                val png = upscaler.upscale(bytes)
+                val thumb = withContext(Dispatchers.Default) { ImageCodec.thumbnail(png) } ?: png
+                val copy = item.copy(
+                    id = gallery.newId(),
+                    createdAt = System.currentTimeMillis(),
+                    width = item.width * 4,
+                    height = item.height * 4,
+                    engine = item.engine + " · 4× npu",
+                    durationMs = System.currentTimeMillis() - started,
+                    favorite = false,
+                )
+                gallery.save(copy, png, thumb)
+                copy
+            }
+            local.update {
+                result.fold(
+                    { copy -> it.copy(openId = copy.id, openImage = null, message = "Upscaled to ${copy.width}×${copy.height}") },
+                    { e -> it.copy(message = "Upscale failed: ${e.message}") },
+                )
+            }
+            result.getOrNull()?.let { open(it.id) }
         }
     }
 

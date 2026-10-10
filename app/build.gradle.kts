@@ -78,6 +78,7 @@ dependencies {
     implementation(projects.engine.llama)
     implementation(projects.engine.diffusion)
     implementation(projects.engine.npu)
+    implementation(projects.engine.speech)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

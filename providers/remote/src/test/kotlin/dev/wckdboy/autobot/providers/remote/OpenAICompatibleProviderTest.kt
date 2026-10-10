@@ -302,4 +302,21 @@ class OpenAICompatibleProviderTest {
         dev.wckdboy.autobot.core.data.model.ProviderKind.entries.forEach { ProviderPresets.forKind(it) }
         assertEquals("http://127.0.0.1:11434/v1", ProviderPresets.forKind(dev.wckdboy.autobot.core.data.model.ProviderKind.OLLAMA).baseUrl)
     }
+
+    @Test
+    fun attachedImagesAreSentAsDataUrlParts() {
+        val png = java.io.File.createTempFile("img", ".png").apply {
+            writeBytes(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 1, 2, 3))
+            deleteOnExit()
+        }
+        val body = OpenAICompatibleProvider.encodeRequest(
+            ChatRequest(model = "gpt", messages = listOf(ChatMessage(ChatRole.USER, "describe", images = listOf(png.path)))),
+            includeUsage = false,
+        )
+        assertTrue(body.contains("\"type\":\"image_url\""))
+        assertTrue(body.contains("data:image/png;base64,"))
+        // Plain messages stay plain strings.
+        val plain = OpenAICompatibleProvider.encodeRequest(ChatRequest(model = "gpt", messages = listOf(ChatMessage(ChatRole.USER, "hi"))), false)
+        assertTrue(plain.contains("\"content\":\"hi\""))
+    }
 }

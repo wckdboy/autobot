@@ -45,6 +45,18 @@ class LocalChatProviderTest {
     }
 
     @Test
+    fun imagesBecomePartsAndMmprojIsSent() {
+        val json = LocalChatProvider.encode(
+            ChatRequest(model = "m", messages = listOf(ChatMessage(ChatRole.USER, "what is this?", images = listOf("/cache/a.img")))),
+            mmproj = "/models/mmproj.gguf",
+        )
+        val parts = ((json["messages"] as JsonArray)[0] as JsonObject)["content"] as JsonArray
+        assertEquals("text", (parts[0] as JsonObject)["type"]!!.jsonPrimitive.content)
+        assertEquals("/cache/a.img", (parts[1] as JsonObject)["path"]!!.jsonPrimitive.content)
+        assertEquals("/models/mmproj.gguf", json["mmproj"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun mapsEngineErrors() {
         val overflow = LocalChatProvider.decodeResult("""{"error":{"code":"CONTEXT_WINDOW_EXCEEDED","message":"prompt has 9000 tokens"}}""").single()
         assertTrue((overflow as ChatEvent.Error).message.contains("context length"))

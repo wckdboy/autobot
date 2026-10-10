@@ -7,6 +7,10 @@ treats every network request as something the user has to opt into, can see, and
 > llama.cpp, and images through stable-diffusion.cpp, each in its own sandboxed process. A model
 > manager downloads verified models from a curated catalog, Hugging Face or Civitai. Remote
 > providers and PC/LAN diffusion backends still work alongside, under the same network policy.
+>
+> **In development, not yet released:** images on the Snapdragon NPU (QNN) and GPU (MNN/OpenCL), llama.cpp
+> on the Adreno GPU (OpenCL), vision chat, on-device dictation, NPU upscaling and a Compute screen
+> that benchmarks CPU vs GPU vs NPU. These paths still need verification on real hardware.
 
 ## Privacy stance
 
@@ -41,7 +45,9 @@ treats every network request as something the user has to opt into, can see, and
   secrets and caches. The process is then killed.
 - **Minimal permissions.** `INTERNET` and `USE_BIOMETRIC`, plus `FOREGROUND_SERVICE_DATA_SYNC` and
   `POST_NOTIFICATIONS` so a model download can keep running with a progress notification. The
-  notification permission is asked for only when the first download starts.
+  notification permission is asked for only when the first download starts. `RECORD_AUDIO` is
+  asked for only when you first tap the microphone; audio is transcribed on the phone and never
+  stored or sent anywhere.
 
 ## Module map
 
@@ -54,6 +60,8 @@ treats every network request as something the user has to opt into, can see, and
 | `:core:models` | Catalog, `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face and Civitai clients, resumable SHA-256-verified `FileFetcher`, `ModelDownloader` + foreground service, `ModelLibrary` |
 | `:engine:llama` | llama.cpp (MIT) via JNI in the `:llm` process: chat templates, tool-call parsing, KV prefix reuse, runtime CPU variant selection |
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
+| `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
+| `:engine:speech` | whisper.cpp (MIT) in the `:asr` process: on-device dictation |
 | `:agent:core` | Pure-Kotlin port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
@@ -96,9 +104,40 @@ against the SHA-256 published by the hub. A file that fails the check is deleted
 sent only to their own host (`huggingface.co`, `civitai.com` / `civitai.red`) and never to CDN
 redirects.
 
-Repositories in Local Dream's QNN/MNN formats (e.g. [xororz](https://huggingface.co/xororz)) can be
-downloaded and are labelled `LOCAL_DREAM`. They need Local Dream's own runtime: run Local Dream in
-backend host mode and add it as a PC/LAN image backend.
+## NPU and GPU
+
+Phones are fast at inference only off the CPU, so Autobot uses every accelerator a Snapdragon has:
+
+- **Images on the Hexagon NPU.** Precompiled Stable Diffusion 1.5 and SDXL packages in the Local
+  Dream layout (for example [xororz](https://huggingface.co/xororz): `sd-qnn`, `sdxl-qnn`) run
+  through Qualcomm's QNN runtime. The UNet and VAE are QNN context binaries built per Hexagon
+  generation (`8gen1` = V69 … `8gen4` = V79). Autobot picks the build for your phone (an
+  8 Elite Gen 5, V81, uses the `8gen4`/`8gen3` builds). The text encoders run with MNN. Zip
+  packages are never downloaded whole: the needed entries are fetched by byte range, inflated
+  and checked against the zip's CRC-32. SDXL needs a Snapdragon 8 Gen 3 or newer. DMD2 packages
+  default to 8 LCM steps. Anima packages are not supported yet.
+- **Images on the GPU.** `sd-mnn` packages run on the Adreno GPU through MNN's OpenCL backend, at
+  any resolution.
+- **Upscaling on the NPU.** 4× UltraSharp and Real-ESRGAN models from the same publisher upscale
+  gallery images in 192 px tiles.
+- **Chat on the GPU.** llama.cpp's OpenCL backend (tuned by Qualcomm for Adreno) loads like the
+  CPU variants. If a model or context cannot be created on the GPU, it falls back to the CPU.
+- **Chat on the NPU.** llama.cpp's Hexagon backend needs kernels built with the Hexagon SDK. They
+  are not in this build yet.
+
+**Compute screen** (MODELS → COMPUTE) shows the CPU, GPU and NPU of the phone. For each model you
+can force CPU, GPU or NPU, or run a benchmark. `auto` then uses whichever backend was fastest.
+
+**Vision.** Chat models with a vision projector (`mmproj`), such as Qwen3-VL and SmolVLM2 from the
+catalog, read attached photos. Hub downloads pick up a repo's `mmproj` automatically. Images are
+picked with the system photo picker (no storage permission), re-encoded (dropping EXIF and GPS)
+and stored encrypted. Cloud vision models receive them inline.
+
+**Speech.** Dictation uses whisper.cpp on the phone (Models → speech). Answers can be read aloud
+with Android's text-to-speech.
+
+Qualcomm's QNN runtime (`com.qualcomm.qti:qnn-runtime` from Maven Central) is proprietary. It is
+redistributed in object code inside the app under Qualcomm's AI Stack license; see NOTICE.
 
 ## Agent runtime (DeepSeek Harness port)
 
@@ -155,7 +194,11 @@ Requirements:
   git submodule update --init --recursive
   ```
 
-The first build compiles llama.cpp and stable-diffusion.cpp, which takes a few minutes.
+The first build compiles llama.cpp, stable-diffusion.cpp, MNN and whisper.cpp, which takes a few
+minutes. It also needs network access once. `:engine:npu:fetchQairtHeaders` reads the QNN headers
+out of Qualcomm's public QAIRT SDK zip with HTTP range requests into the git-ignored
+`third_party/qairt/`. Those headers are marked confidential, so they are never committed. No Python
+is needed: the OpenCL kernel embedding runs as a CMake script.
 
 Windows (PowerShell):
 
@@ -196,24 +239,29 @@ keyPassword=…
 When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; otherwise the output stays
 `app-release-unsigned.apk`.
 
-### Qualcomm QAIRT / Genie (Phase 2)
+### Qualcomm QNN
 
-Proprietary Qualcomm AI Runtime libraries are **not** redistributed. Download them yourself and place
-them in `third_party/qairt/`. That directory is git-ignored, as are model files (`models/`, `*.gguf`,
-`*.bin`, `*.safetensors`, `*.onnx`, `*.mnn`, `*.dlc`).
+- The QNN **runtime** comes from Maven Central (`com.qualcomm.qti:qnn-runtime`). Only the HTP
+  backend, `libQnnSystem` and the V68–V81 DSP libraries are packaged. The on-device graph
+  compiler, DSP and GPU backends are excluded.
+- The QNN **headers** are fetched at build time into `third_party/qairt/<version>/` and git-ignored.
+- Model files (`/models/`, `*.gguf`, `*.bin`, `*.safetensors`, `*.onnx`, `*.mnn`, `*.dlc`) are
+  git-ignored as well.
 
 ## Roadmap
 
 1. **Skeleton & security**: modules, encrypted storage, app lock, chat with remote providers and
    the network kill switch. *(done)*
 2. **On-device engines**: llama.cpp and stable-diffusion.cpp on CPU, plus a model manager with
-   catalog, Hugging Face and Civitai sources, resumable verified downloads. *(done)* Next: GPU
-   (OpenCL/Vulkan for Adreno) and a Genie NPU engine (QAIRT).
+   catalog, Hugging Face and Civitai sources, resumable verified downloads. *(done)* Adreno GPU
+   via OpenCL, NPU/GPU image engine, vision, dictation, benchmarks. *(in development)* Next: llama.cpp
+   Hexagon NPU kernels.
 3. **Agent runtime**, modeled on the DeepSeek Harness plugin architecture: tools, permission gate,
    approvals, compaction, skills, workspace. *(done)* Next: MCP (streamable HTTP), subagents.
 4. **Image generation**: Imagine UI, mask editor, LoRA, encrypted gallery, A1111 + SSE backends.
-   *(done)* On-device stable-diffusion.cpp with LoRA. *(done)* Next: ONNX Runtime + QNN EP for
-   the Snapdragon NPU. No code is taken from `xororz/local-dream` (CC BY-NC).
+   *(done)* On-device stable-diffusion.cpp with LoRA. *(done)* SD 1.5 / SDXL on the Hexagon NPU
+   from precompiled packages. *(in development)* Next: resolution patches, Anima, LoRA on the NPU. No
+   code is taken from `xororz/local-dream` (CC BY-NC).
 5. **Hardening**:
    - built-in Tor
    - audit log polish

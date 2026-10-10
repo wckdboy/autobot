@@ -33,7 +33,10 @@ class ModelsTest {
     fun formatsAndEngines() {
         assertEquals(ModelFormat.GGUF, formatOf("Qwen3-4B-Q4_0.gguf"))
         assertEquals(ModelFormat.SAFETENSORS, formatOf("dreamshaper_8.safetensors"))
-        assertEquals(ModelFormat.LOCAL_DREAM, formatOf("AnythingV5_qnn2.28_8gen2.zip", "xororz"))
+        assertEquals(ModelFormat.QNN, formatOf("AnythingV5_qnn2.28_8gen2.zip", "xororz"))
+        assertEquals(ModelFormat.GGML, formatOf("ggml-base-q5_1.bin"))
+        assertEquals(EngineKind.WHISPER, engineFor(ModelKind.SPEECH, ModelFormat.GGML))
+        assertEquals(EngineKind.NPU, engineFor(ModelKind.IMAGE, ModelFormat.QNN))
         assertEquals(EngineKind.LLAMA, engineFor(ModelKind.CHAT, ModelFormat.GGUF))
         assertEquals(EngineKind.DIFFUSION, engineFor(ModelKind.IMAGE, ModelFormat.GGUF))
         assertEquals(EngineKind.NONE, engineFor(ModelKind.IMAGE, ModelFormat.LOCAL_DREAM))

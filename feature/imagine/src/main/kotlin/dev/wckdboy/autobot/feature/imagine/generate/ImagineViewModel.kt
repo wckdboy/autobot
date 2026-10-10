@@ -61,7 +61,14 @@ data class RunningUi(
 
 /** A model choice in the studio's chip row (backend + model). */
 @Immutable
-data class ModelChip(val backendId: String, val model: String?, val label: String, val onDevice: Boolean)
+data class ModelChip(
+    val backendId: String,
+    val model: String?,
+    val label: String,
+    val onDevice: Boolean,
+    /** Where an on-device model runs: "npu", "gpu" or null (CPU). */
+    val accelerator: String? = null,
+)
 
 @Immutable
 data class ResultUi(val galleryId: String, val bitmap: ImageBitmap, val seed: Long, val width: Int, val height: Int, val durationMs: Long)
@@ -158,10 +165,13 @@ class ImagineViewModel @Inject constructor(
         combine(running, results, generator.lastError) { r, res, e -> Triple(r, res, e) },
         combine(backendsRepo.lastRequest, library.models) { s, m -> s to m },
     ) { backends, defaultId, l, (run, res, genError), (stored, models) ->
-        val onDeviceModels = models.filter { it.isReady && it.kind == ModelKind.IMAGE && it.engine == EngineKind.DIFFUSION }
+        val onDeviceModels = models.filter { it.isReady && it.kind == ModelKind.IMAGE && (it.engine == EngineKind.DIFFUSION || it.engine == EngineKind.NPU) }
         val chips = backends.flatMap { b ->
             when {
-                b.kind == BackendKind.ON_DEVICE -> onDeviceModels.map { ModelChip(b.id, it.id, it.title, onDevice = true) }
+                b.kind == BackendKind.ON_DEVICE -> onDeviceModels.map { m ->
+                    val accel = when (m.manifest.npu?.runtime) { "qnn" -> "npu"; "mnn" -> "gpu"; else -> null }
+                    ModelChip(b.id, m.id, m.title + (accel?.let { " · $it" } ?: ""), onDevice = true, accelerator = accel)
+                }
                 l.catalog[b.id]?.models.isNullOrEmpty() -> listOf(ModelChip(b.id, null, b.name, onDevice = false))
                 else -> l.catalog[b.id]!!.models.take(6).map { m -> ModelChip(b.id, m, shortModelName(m) + " · " + b.name, onDevice = false) }
             }

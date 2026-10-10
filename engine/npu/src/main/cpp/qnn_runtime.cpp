@@ -280,7 +280,7 @@ bool QnnRuntime::init(const std::string & lib_dir, std::string * error) {
     Qnn_ErrorHandle_t e = api_.backendCreate(log_, nullptr, &backend_);
     if (e != QNN_SUCCESS) {
         backend_ = nullptr;
-        *error = err_text("backendCreate", e);
+        *error = QNN_GET_ERROR_CODE(e) == 4000 ? std::string("no Snapdragon Hexagon NPU found on this device") : err_text("opening the NPU", e);
         return false;
     }
 

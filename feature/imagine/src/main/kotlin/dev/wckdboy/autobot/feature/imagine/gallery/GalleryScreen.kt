@@ -161,6 +161,7 @@ fun GalleryScreen(
             onReuse = { actions.close(); onReuse(item.id, false) },
             onInit = { actions.close(); onReuse(item.id, true) },
             onExport = { actions.export(item) },
+            onUpscale = { actions.upscale(item) },
             onDelete = { actions.delete(item) },
         )
     }
@@ -193,6 +194,7 @@ private fun DetailDialog(
     onReuse: () -> Unit,
     onInit: () -> Unit,
     onExport: () -> Unit,
+    onUpscale: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var confirmDelete by rememberSaveable { mutableStateOf(false) }
@@ -236,6 +238,7 @@ private fun DetailDialog(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Tag("reuse params", accent = MaterialTheme.colorScheme.primary, onClick = onReuse)
                         Tag("→ img2img", accent = AutobotColors.Uv, onClick = onInit)
+                        Tag("upscale 4×", accent = MaterialTheme.colorScheme.primary, onClick = onUpscale)
                         Tag(
                             "copy params",
                             accent = MaterialTheme.colorScheme.onSurfaceVariant,

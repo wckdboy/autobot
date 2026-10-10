@@ -13,12 +13,16 @@ enum class ModelKind(val label: String) {
     VAE("vae"),
     EMBEDDING("embedding"),
     UPSCALER("upscaler"),
+    SPEECH("speech"),
     OTHER("other"),
 }
 
 @Serializable
 enum class ModelFormat(val label: String) {
     GGUF("GGUF"),
+
+    /** whisper.cpp model (`ggml-*.bin`). */
+    GGML("ggml"),
     SAFETENSORS("safetensors"),
     CKPT("ckpt"),
 
@@ -35,7 +39,7 @@ enum class ModelFormat(val label: String) {
 
 /** Which built-in engine runs the model, if any. */
 @Serializable
-enum class EngineKind(val label: String) { LLAMA("llama.cpp"), DIFFUSION("sd.cpp"), NPU("qnn · mnn"), NONE("none") }
+enum class EngineKind(val label: String) { LLAMA("llama.cpp"), DIFFUSION("sd.cpp"), NPU("qnn · mnn"), WHISPER("whisper.cpp"), NONE("none") }
 
 @Serializable
 enum class ModelSource(val label: String) { CATALOG("catalog"), HUGGING_FACE("hugging face"), CIVITAI("civitai") }
@@ -205,6 +209,7 @@ fun formatOf(name: String, owner: String? = null): ModelFormat {
         n.endsWith(".mnn") || owner.equals("xororz", ignoreCase = true) && n.endsWith(".zip") -> ModelFormat.MNN
         owner.equals("xororz", ignoreCase = true) -> ModelFormat.LOCAL_DREAM
         n.endsWith(".gguf") -> ModelFormat.GGUF
+        n.startsWith("ggml-") && n.endsWith(".bin") -> ModelFormat.GGML
         n.endsWith(".safetensors") -> ModelFormat.SAFETENSORS
         n.endsWith(".ckpt") || n.endsWith(".pt") || n.endsWith(".pth") -> ModelFormat.CKPT
         else -> ModelFormat.OTHER
@@ -213,6 +218,7 @@ fun formatOf(name: String, owner: String? = null): ModelFormat {
 
 /** The built-in engine that can run [kind] in [format] (GGUF is used by both engines). */
 fun engineFor(kind: ModelKind, format: ModelFormat): EngineKind = when {
+    kind == ModelKind.SPEECH -> if (format == ModelFormat.GGML) EngineKind.WHISPER else EngineKind.NONE
     format == ModelFormat.LOCAL_DREAM || format == ModelFormat.OTHER -> EngineKind.NONE
     format == ModelFormat.QNN || format == ModelFormat.MNN -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.NPU else EngineKind.NONE
     kind == ModelKind.CHAT || kind == ModelKind.CODE -> if (format == ModelFormat.GGUF) EngineKind.LLAMA else EngineKind.NONE

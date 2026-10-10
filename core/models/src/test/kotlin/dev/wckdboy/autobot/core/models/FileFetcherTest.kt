@@ -107,6 +107,38 @@ class FileFetcherTest {
     }
 
     @Test
+    fun zipEntryIsFetchedByRangeInflatedAndCrcChecked() = runBlocking {
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { z ->
+            z.putNextEntry(java.util.zip.ZipEntry("pkg/unet.bin"))
+            z.write(content)
+            z.closeEntry()
+        }
+        val zip = out.toByteArray()
+        val cd = RemoteZip.locateDirectory(zip, 0) { from, to -> zip.copyOfRange(from.toInt(), to.toInt() + 1) }
+        val entry = RemoteZip.parseCentralDirectory(zip.copyOfRange(cd.offset.toInt(), (cd.offset + cd.size).toInt()), cd.count).single()
+        val start = entry.localHeaderOffset + RemoteZip.dataStart(zip.copyOfRange(0, 30))
+        val compressed = zip.copyOfRange(start.toInt(), (start + entry.compressedSize).toInt())
+        // First attempt is cut short; the second resumes from where the part file ends.
+        val half = compressed.size / 2
+        server.enqueue(MockResponse.Builder().code(206).body(Buffer().write(compressed.copyOfRange(0, half))).build())
+        server.enqueue(MockResponse.Builder().code(206).body(Buffer().write(compressed.copyOfRange(half, compressed.size))).build())
+        val ref = ZipEntryRef(entry.name, start, entry.compressedSize, entry.method, entry.crc32)
+        val file = ModelFile(FileRole.UNET, "unet.bin", url("/pkg.zip"), entry.size, zipEntry = ref, keepName = true)
+        val target = File(dir, "unet.bin")
+
+        val first = runCatching { fetcher.fetch(file, target, null) { _, _ -> } }.exceptionOrNull()
+        assertTrue(first is DownloadException)
+        val result = fetcher.fetch(file, target, null) { _, _ -> }
+
+        assertEquals("bytes=$start-${start + entry.compressedSize - 1}", server.takeRequest().headers["Range"])
+        assertEquals("bytes=${start + half}-${start + entry.compressedSize - 1}", server.takeRequest().headers["Range"])
+        assertTrue(target.readBytes().contentEquals(content))
+        assertEquals(content.size.toLong(), result.sizeBytes)
+        assertFalse(File(target.path + ".z.part").exists())
+    }
+
+    @Test
     fun hubHostsAreExact() {
         assertTrue(FileFetcher.isHubHost("huggingface.co", AuthHost.HUGGING_FACE))
         assertFalse(FileFetcher.isHubHost("cdn-lfs.huggingface.co", AuthHost.HUGGING_FACE))

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Dictation only: asked for the first time the microphone button is used. Audio never
+         leaves the phone; it is transcribed by whisper.cpp in the ":asr" process. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <application>
+        <service
+            android:name=".SpeechService"
+            android:exported="false"
+            android:process=":asr" />
+    </application>
+
+</manifest>

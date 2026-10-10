@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -56,9 +58,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
@@ -186,7 +190,7 @@ fun ChatScreen(
                             if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
                             if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
                         }
-                        is SessionItem.Assistant -> AssistantMessage(item)
+                        is SessionItem.Assistant -> AssistantMessage(item, speaking = state.speakingKey == item.key) { actions.speak(item.key, item.text) }
                         is SessionItem.Tool -> {
                             val approval = state.approvals[item.callId]
                             if (approval != null) {
@@ -206,7 +210,7 @@ fun ChatScreen(
             if (state.todos.isNotEmpty() && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
             state.question?.let { QuestionCard(it, actions::answer) }
             PolicyLine(state)
-            InputBar(state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail)
+            InputBar(state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation, actions::consumeDictation)
         }
     }
 
@@ -265,22 +269,27 @@ private fun FollowUp(text: String) {
 }
 
 @Composable
-private fun AssistantMessage(item: SessionItem.Assistant) {
+private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onSpeak: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!item.reasoning.isNullOrEmpty()) ThinkingDisclosure(reasoning = item.reasoning)
         if (item.text.isNotEmpty()) {
             ChatBubble(
                 role = BubbleRole.ASSISTANT,
                 text = item.text,
-                footer = if (item.interrupted || item.outputTokens != null) {
-                    {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (item.interrupted) Tag("interrupted", accent = AutobotColors.Amber)
-                            TokenRateLabel(tokensPerSecond = null, totalTokens = item.outputTokens)
+                footer = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (item.interrupted) Tag("interrupted", accent = AutobotColors.Amber)
+                        if (item.outputTokens != null) TokenRateLabel(tokensPerSecond = null, totalTokens = item.outputTokens)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = onSpeak, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                AutobotIcons.Speaker,
+                                contentDescription = if (speaking) "Stop reading" else "Read aloud",
+                                tint = if (speaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
                     }
-                } else {
-                    null
                 },
             )
         }
@@ -523,8 +532,18 @@ private fun InputBar(
     onAttach: (Uri) -> Unit,
     onRemoveAttachment: (String) -> Unit,
     thumbnail: suspend (String) -> ImageBitmap?,
+    onDictate: () -> Unit,
+    onDictationConsumed: () -> Unit,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(state.dictated) {
+        state.dictated?.let { spoken ->
+            text = if (text.isBlank()) spoken else text.trimEnd() + " " + spoken
+            onDictationConsumed()
+        }
+    }
+    val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) onDictate() }
+    val context = LocalContext.current
     // System photo picker: no storage permission, the app only sees what the user picks.
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) { uris ->
         uris.take(MAX_ATTACHMENTS - state.pendingImages.size).forEach(onAttach)
@@ -555,6 +574,23 @@ private fun InputBar(
                     enabled = state.pendingImages.size < MAX_ATTACHMENTS,
                     modifier = Modifier.size(52.dp),
                 ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
+                IconButton(
+                    onClick = {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            onDictate()
+                        } else {
+                            microphone.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    enabled = state.dictation != Dictation.TRANSCRIBING,
+                    modifier = Modifier.size(52.dp),
+                ) {
+                    when (state.dictation) {
+                        Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
+                        Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary))
+                        Dictation.TRANSCRIBING -> Text("…", style = AutobotTheme.styles.code, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
                 ConsoleTextField(
                     value = text,
                     onValueChange = { text = it },

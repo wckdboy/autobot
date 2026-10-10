@@ -132,7 +132,15 @@ fun ImagineScreen(
     var selected by rememberSaveable { mutableIntStateOf(-1) }
     val request = state.request
     val onDevice = state.backend?.kind == BackendKind.ON_DEVICE
-    val route = state.backend?.let { if (onDevice || it.isLoopback) Route.LOCAL_CPU else Route.PC_LAN }
+    val accelerator = state.chips.firstOrNull { it.onDevice && it.model == request.model }?.accelerator
+    val route = state.backend?.let {
+        when {
+            onDevice && accelerator == "npu" -> Route.LOCAL_NPU
+            onDevice && accelerator == "gpu" -> Route.LOCAL_GPU
+            onDevice || it.isLoopback -> Route.LOCAL_CPU
+            else -> Route.PC_LAN
+        }
+    }
 
     Scaffold(
         topBar = {

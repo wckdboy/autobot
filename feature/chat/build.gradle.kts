@@ -14,6 +14,8 @@ dependencies {
     implementation(projects.core.network)
     implementation(projects.providers.remote)
     implementation(projects.agent.runtime)
+    implementation(projects.engine.speech)
+    implementation(projects.core.models)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

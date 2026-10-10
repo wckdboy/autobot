@@ -178,7 +178,8 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                     listOf(
                         "chat" to actions.recommended.filter { it.kind == ModelKind.CHAT },
                         "code" to actions.recommended.filter { it.kind == ModelKind.CODE },
-                        "image" to actions.recommended.filter { it.kind == ModelKind.IMAGE },
+                        "image · cpu" to actions.recommended.filter { it.kind == ModelKind.IMAGE },
+                        "speech · dictation" to actions.recommended.filter { it.kind == ModelKind.SPEECH },
                     ).forEach { (label, plans) ->
                         item(key = "h-$label") {
                             SectionLabel(label, color = MaterialTheme.colorScheme.onSurfaceVariant)

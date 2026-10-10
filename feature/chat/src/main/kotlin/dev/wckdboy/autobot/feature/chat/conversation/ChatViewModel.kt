@@ -3,6 +3,8 @@ package dev.wckdboy.autobot.feature.chat.conversation
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -31,14 +33,19 @@ import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.designsystem.component.Route
+import dev.wckdboy.autobot.core.models.EngineKind
+import dev.wckdboy.autobot.core.models.FileRole
+import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.core.network.RouteResolver
+import dev.wckdboy.autobot.engine.speech.LocalSpeech
 import dev.wckdboy.autobot.feature.chat.toPrivacyStatus
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.toOverride
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -71,6 +78,8 @@ data class ApprovalUi(val callId: String, val toolName: String, val summary: Str
 @Immutable
 data class QuestionUi(val callId: String, val question: UserQuestion)
 
+enum class Dictation { IDLE, RECORDING, TRANSCRIBING }
+
 @Immutable
 data class ChatUiState(
     val title: String = "",
@@ -97,6 +106,11 @@ data class ChatUiState(
     val modelLabel: String? = null,
     /** Images attached to the message being written (attachment ids). */
     val pendingImages: List<String> = emptyList(),
+    val dictation: Dictation = Dictation.IDLE,
+    /** Text dictated since the composer last took it (see [ChatViewModel.consumeDictation]). */
+    val dictated: String? = null,
+    /** Key of the assistant message being read aloud. */
+    val speakingKey: String? = null,
 )
 
 /**
@@ -113,6 +127,8 @@ class ChatViewModel @AssistedInject constructor(
     private val providers: ProviderRepository,
     private val gallery: GalleryRepository,
     private val attachments: AttachmentRepository,
+    private val speech: LocalSpeech,
+    private val library: ModelLibrary,
     @ApplicationContext private val appContext: Context,
     networkPolicy: NetworkPolicy,
 ) : ViewModel() {
@@ -125,6 +141,11 @@ class ChatViewModel @AssistedInject constructor(
     private val agent: Flow<Agent> = flow { emit(host.agent(conversationId)) }.shareIn(viewModelScope, SharingStarted.Eagerly, 1)
     private val notice = MutableStateFlow<String?>(null)
     private val pending = MutableStateFlow<List<String>>(emptyList())
+    private val dictation = MutableStateFlow(Dictation.IDLE)
+    private val dictated = MutableStateFlow<String?>(null)
+    private val stopRecording = AtomicBoolean(false)
+    private var tts: TextToSpeech? = null
+    private val speakingKey = MutableStateFlow<String?>(null)
     private val attachmentThumbs = ConcurrentHashMap<String, ImageBitmap>()
     private val thumbs = ConcurrentHashMap<String, ImageBitmap>()
 
@@ -158,7 +179,9 @@ class ChatViewModel @AssistedInject constructor(
         val permission: PermissionPreset,
     )
 
-    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending) { snap, (conversation, providerList, p), n, images ->
+    private val voice = combine(dictation, dictated, speakingKey) { d, t, s -> Triple(d, t, s) }
+
+    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, providerList, p), n, images, (dict, dictText, speaking) ->
         val (mode, allowLoopback, socks) = p
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
         val effective = provider?.let { RouteResolver.effectiveMode(mode, it.routing.toOverride(), socks) } ?: mode
@@ -191,6 +214,9 @@ class ChatViewModel @AssistedInject constructor(
             isIncognito = conversations.isIncognito(conversationId),
             notice = n,
             pendingImages = images,
+            dictation = dict,
+            dictated = dictText,
+            speakingKey = speaking,
             loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isIncognito = conversations.isIncognito(conversationId)))
@@ -236,6 +262,70 @@ class ChatViewModel @AssistedInject constructor(
             val id = attachments.put(encoded)
             pending.update { it + id }
         }
+    }
+
+    /** Starts dictation, or stops it and transcribes on the phone (whisper.cpp). */
+    fun toggleDictation() {
+        when (dictation.value) {
+            Dictation.RECORDING -> stopRecording.set(true)
+            Dictation.TRANSCRIBING -> Unit
+            Dictation.IDLE -> viewModelScope.launch {
+                val model = library.all().firstOrNull { it.isReady && it.engine == EngineKind.WHISPER }
+                val path = model?.paths?.get(FileRole.MODEL)
+                if (path == null) {
+                    notice.value = "Get a speech model in Models → speech to dictate"
+                    return@launch
+                }
+                stopRecording.set(false)
+                dictation.value = Dictation.RECORDING
+                try {
+                    val audio = speech.record(stopped = stopRecording::get)
+                    dictation.value = Dictation.TRANSCRIBING
+                    val text = speech.transcribe(path, audio)
+                    if (text.isNotBlank()) dictated.value = text
+                } catch (e: Exception) {
+                    notice.value = "Dictation failed: ${e.message ?: e.javaClass.simpleName}"
+                } finally {
+                    dictation.value = Dictation.IDLE
+                }
+            }
+        }
+    }
+
+    fun consumeDictation() {
+        dictated.value = null
+    }
+
+    /** Reads an answer aloud with the phone's text-to-speech; tapping again stops. */
+    fun speak(key: String, text: String) {
+        if (speakingKey.value == key) {
+            tts?.stop()
+            speakingKey.value = null
+            return
+        }
+        val plain = text.replace(Regex("```[\\s\\S]*?```"), " code block. ").replace(Regex("[*_#`>|]"), "")
+        val engine = tts
+        if (engine == null) {
+            tts = TextToSpeech(appContext) { status ->
+                if (status == TextToSpeech.SUCCESS) speak(key, text) else notice.value = "Text-to-speech is not available"
+            }.apply {
+                setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String) = Unit
+                    override fun onDone(utteranceId: String) { speakingKey.compareAndSet(utteranceId, null) }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String) { speakingKey.compareAndSet(utteranceId, null) }
+                })
+            }
+            return
+        }
+        speakingKey.value = key
+        engine.speak(plain, TextToSpeech.QUEUE_FLUSH, null, key)
+    }
+
+    override fun onCleared() {
+        tts?.shutdown()
+        stopRecording.set(true)
+        super.onCleared()
     }
 
     fun removeAttachment(id: String) {

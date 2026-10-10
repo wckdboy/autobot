@@ -106,6 +106,25 @@ object AutobotIcons {
         }
     }
 
+    /** Microphone: dictation. */
+    val Mic: ImageVector by lazy {
+        icon("Mic") {
+            moveTo(9f, 5f); curveTo(9f, 2.5f, 15f, 2.5f, 15f, 5f); lineTo(15f, 11f); curveTo(15f, 13.5f, 9f, 13.5f, 9f, 11f); close()
+            moveTo(5.5f, 10.5f); curveTo(5.5f, 18.5f, 18.5f, 18.5f, 18.5f, 10.5f)
+            moveTo(12f, 16.5f); lineTo(12f, 21f)
+            moveTo(8.5f, 21f); lineTo(15.5f, 21f)
+        }
+    }
+
+    /** Speaker: read aloud. */
+    val Speaker: ImageVector by lazy {
+        icon("Speaker") {
+            moveTo(4f, 9f); lineTo(8f, 9f); lineTo(13f, 4.5f); lineTo(13f, 19.5f); lineTo(8f, 15f); lineTo(4f, 15f); close()
+            moveTo(16.5f, 9f); curveTo(18f, 10.5f, 18f, 13.5f, 16.5f, 15f)
+            moveTo(19f, 6.5f); curveTo(22f, 9.5f, 22f, 14.5f, 19f, 17.5f)
+        }
+    }
+
     /** Wrench: tools. */
     val Wrench: ImageVector by lazy {
         icon("Wrench") {

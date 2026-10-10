@@ -147,5 +147,24 @@ object Catalog {
         ),
     )
 
-    val all: List<ModelPlan> get() = chatModels + imageModels
+    private fun speech(id: String, title: String, subtitle: String, file: String, mib: Long) = ModelPlan(
+        id = "catalog:$id",
+        kind = ModelKind.SPEECH,
+        source = ModelSource.CATALOG,
+        title = title,
+        subtitle = subtitle,
+        format = ModelFormat.GGML,
+        engine = EngineKind.WHISPER,
+        license = "mit",
+        manifest = ModelManifest(files = listOf(hf("ggerganov/whisper.cpp", file, mib)), pageUrl = "$HF/ggerganov/whisper.cpp"),
+    )
+
+    /** Dictation (whisper.cpp). Multilingual; the smaller ones are fast enough for live use. */
+    val speechModels: List<ModelPlan> = listOf(
+        speech("whisper-base-q5_1", "Whisper base", "57 MB · fast dictation · 99 languages", "ggml-base-q5_1.bin", 57),
+        speech("whisper-small-q5_1", "Whisper small", "181 MB · better accuracy", "ggml-small-q5_1.bin", 181),
+        speech("whisper-large-v3-turbo-q8_0", "Whisper large-v3 turbo", "834 MB · best accuracy · slower", "ggml-large-v3-turbo-q8_0.bin", 834),
+    )
+
+    val all: List<ModelPlan> get() = chatModels + imageModels + speechModels
 }
