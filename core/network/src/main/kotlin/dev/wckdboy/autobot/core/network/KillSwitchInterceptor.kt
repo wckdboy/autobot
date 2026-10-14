@@ -7,14 +7,9 @@ import okhttp3.Response
 
 /**
  * Application-level OkHttp interceptor that enforces [NetworkPolicy] *before* any DNS lookup or
- * socket is opened, and records every attempt in the [AuditLog].
- *
- * A request is refused with [NetworkBlockedException] when:
- * - the global mode is [NetworkMode.Offline] and the host is not loopback (or loopback is not
- *   allowed while offline);
- * - it uses cleartext HTTP to a non-loopback host;
- * - the effective route changed since the client was built (e.g. Direct → Tor). The client's
- *   proxy is fixed at build time, so continuing would silently use the old route.
+ * socket is opened, and records every attempt in the [AuditLog]. The decision itself is the
+ * shared [KillSwitch] (the iOS client uses the same one); refusals throw
+ * [NetworkBlockedException].
  *
  * @param expectedRoute the effective mode the owning client was built for; `null` skips the
  * route-change check (used by tests and loopback-only clients).
@@ -34,16 +29,14 @@ class KillSwitchInterceptor(
         val global = policy.mode.value
         val effective = RouteResolver.effectiveMode(global, override, policy.socksFallback.value)
         val requestTag = request.tag(AuditTag::class.java)?.value ?: tag
-
-        val blockReason: String? = when {
-            global == NetworkMode.Offline && !(loopback && policy.allowLoopbackWhenOffline.value) ->
-                "Offline mode: network access is disabled"
-            !request.url.isHttps && !loopback ->
-                "Cleartext HTTP is only allowed to loopback hosts"
-            !loopback && expectedRoute != null && expectedRoute != effective ->
-                "Network route changed; request dropped to avoid leaking outside the selected route"
-            else -> null
-        }
+        val blockReason = KillSwitch.blockReason(
+            global,
+            effective,
+            policy.allowLoopbackWhenOffline.value,
+            host,
+            request.url.isHttps,
+            expectedRoute,
+        )
 
         val routeLabel = if (loopback) "loopback" else routeLabel(effective)
         if (blockReason != null) {
@@ -92,12 +85,7 @@ class KillSwitchInterceptor(
     }
 
     companion object {
-        fun routeLabel(mode: NetworkMode): String = when (mode) {
-            NetworkMode.Offline -> "offline"
-            NetworkMode.Direct -> "direct"
-            is NetworkMode.Tor -> "tor"
-            is NetworkMode.Socks5 -> "socks5"
-        }
+        fun routeLabel(mode: NetworkMode): String = RouteResolver.label(mode)
     }
 }
 

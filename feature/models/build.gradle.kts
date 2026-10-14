@@ -14,6 +14,7 @@ dependencies {
     implementation(projects.core.diffusion)
     implementation(projects.core.security)
     implementation(projects.core.network)
+    implementation(projects.shared)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

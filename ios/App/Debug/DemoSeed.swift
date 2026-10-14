@@ -64,7 +64,11 @@ enum DemoSeed {
             .assistantMessage(.init(turn: 0, step: 1, text: "", toolCalls: [ToolCallRecord(id: "c2", name: "write", arguments: #"{"path":"plan.md"}"#)], model: "deepseek-chat")),
             .toolCall(callId: "c2", name: "write", arguments: #"{"path":"plan.md"}"#),
             .toolResult(.init(callId: "c2", name: "write", content: "wrote 412 bytes")),
-            .assistantMessage(.init(turn: 0, step: 2, text: "Done. `plan.md` has three milestones: ship the iOS port, verify the NPU path on hardware, then write the README.",
+            .assistantMessage(.init(turn: 0, step: 2, text: "", toolCalls: [ToolCallRecord(id: "c3", name: "generate_image", arguments: #"{"prompt":"isometric greenhouse, riso print"}"#)], model: "deepseek-chat")),
+            .toolCall(callId: "c3", name: "generate_image", arguments: #"{"prompt":"isometric greenhouse, riso print"}"#),
+            .toolResult(.init(callId: "c3", name: "generate_image", content: "1 image saved to the gallery",
+                              meta: .object(["gallery": .array([.string("demo-image-0")])]))),
+            .assistantMessage(.init(turn: 0, step: 3, text: "Done. `plan.md` has three milestones: ship the iOS port, verify the NPU path on hardware, then write the README.",
                                     usage: TokenUsage(inputTokens: 2_310, outputTokens: 64), model: "deepseek-chat")),
             .turnEnd(turn: 0, reason: .completed, detail: nil),
         ])
@@ -82,7 +86,7 @@ enum DemoSeed {
                 let request = DiffusionRequest()
                 let params = (try? JSONEncoder.store.encode(request)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
                 try? await app.gallery.save(GalleryItem(
-                    id: app.gallery.newId(), createdAt: now - Int64(i + 1) * 900_000, mode: "TXT2IMG", prompt: prompt, negativePrompt: "lowres, blurry",
+                    id: i == 0 ? "demo-image-0" : app.gallery.newId(), createdAt: now - Int64(i + 1) * 900_000, mode: "TXT2IMG", prompt: prompt, negativePrompt: "lowres, blurry",
                     width: 512, height: 512, seed: 4182 + Int64(i), steps: 20, cfgScale: 7, sampler: "DPM++ 2M · Karras",
                     engine: i == 0 ? "This phone" : "Forge · desktop", model: "sd 1.5", durationMs: 9_400 + Int64(i) * 1_300, paramsJson: params,
                 ), image: png, thumbnail: thumb)

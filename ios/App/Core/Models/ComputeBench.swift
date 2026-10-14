@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// What the phone can compute on: CPU always, plus the Metal GPU and the Apple Neural Engine.
 struct ComputeDevices: Equatable, Sendable {
@@ -119,14 +120,39 @@ final class ComputeBench {
             request.seed = 1
             request.width = info.width
             request.height = info.height
+            let ticks = Mutex<[(step: Int, at: Date)]>([])
             let started = Date()
-            try await diffusion.generate(info, request: request, inputs: DiffusionInputs(), backend: backend) { _ in }
-            let total = Date().timeIntervalSince(started) * 1000
+            try await diffusion.generate(info, request: request, inputs: DiffusionInputs(), backend: backend) { event in
+                if case .progress(_, let step, _, _) = event { ticks.withLock { $0.append((step, Date())) } }
+            }
             await diffusion.unload()
-            return Benchmark(modelId: model.id, backend: backend, stepMs: total / Double(steps))
+            let timing = ImageBenchTiming.measure(started: started, ticks: ticks.withLock { $0 })
+            return Benchmark(modelId: model.id, backend: backend, stepMs: timing.stepMs, loadMs: timing.loadMs,
+                             error: timing.stepMs == nil ? "no step progress reported" : nil)
         } catch {
             await diffusion.unload()
             return Benchmark(modelId: model.id, backend: backend, error: error.localizedDescription)
         }
+    }
+}
+
+/**
+ Image benchmark timing from the sampler's step callbacks: the step time is the mean interval
+ between consecutive steps (model load and the VAE decode never count), and the load time is
+ everything before the first step started — like Android's `Benchmark.stepMs` / `loadMs`.
+ */
+enum ImageBenchTiming {
+    static func measure(started: Date, ticks: [(step: Int, at: Date)]) -> (stepMs: Double?, loadMs: Int64?) {
+        let sorted = ticks.sorted { $0.at < $1.at }
+        guard let first = sorted.first else { return (nil, nil) }
+        let stepMs: Double
+        if let last = sorted.last, last.step > first.step {
+            stepMs = last.at.timeIntervalSince(first.at) * 1000 / Double(last.step - first.step)
+        } else {
+            // A single callback: the whole first step is all there is, load cannot be separated.
+            return (first.at.timeIntervalSince(started) * 1000, nil)
+        }
+        let beforeFirst = first.at.timeIntervalSince(started) * 1000 - stepMs * Double(max(first.step, 1))
+        return (stepMs, Int64(max(beforeFirst, 0)))
     }
 }

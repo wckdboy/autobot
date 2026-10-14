@@ -4,7 +4,8 @@
 # /third_party, each linked with the shared engine core from /engine/*/src/main/cpp/core.
 #
 # usage: scripts/build-xcframeworks.sh [llama|whisper ...]   (default: both)
-# Output: Frameworks/<Name>.xcframework with ios-arm64 and ios-arm64_x86_64-simulator slices.
+# Output: Frameworks/<Name>.xcframework with ios-arm64 and ios-arm64_x86_64-simulator slices,
+# each with its dSYM (built with -g, split by dsymutil, then stripped) so archives upload symbols.
 # Needs Xcode, cmake (>= 3.28) and ninja. Nothing is downloaded.
 set -euo pipefail
 
@@ -40,8 +41,8 @@ build_slice() {
         -DCMAKE_OSX_SYSROOT="$sdk" \
         -DCMAKE_OSX_ARCHITECTURES="$archs" \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN" \
-        -DCMAKE_C_FLAGS="-Wno-shorten-64-to-32 -Wno-macro-redefined" \
-        -DCMAKE_CXX_FLAGS="-Wno-shorten-64-to-32 -Wno-macro-redefined" \
+        -DCMAKE_C_FLAGS="-g -Wno-shorten-64-to-32 -Wno-macro-redefined" \
+        -DCMAKE_CXX_FLAGS="-g -Wno-shorten-64-to-32 -Wno-macro-redefined" \
         > "$dir.configure.log" 2>&1 || { tail -40 "$dir.configure.log"; exit 1; }
     cmake --build "$dir" --target "$name" -j "$JOBS" > "$dir.build.log" 2>&1 || { tail -60 "$dir.build.log"; exit 1; }
 }
@@ -53,6 +54,9 @@ make_framework() {
     rm -rf "$fw"
     mkdir -p "$fw/Headers" "$fw/Modules"
     cp "$BUILD/$engine-$slice/$name" "$fw/$name"
+    # Debug symbols leave the binary before it is stripped (same UUIDs, so crashes symbolicate).
+    rm -rf "$fw.dSYM"
+    xcrun dsymutil "$BUILD/$engine-$slice/$name" -o "$fw.dSYM"
     xcrun strip -x "$fw/$name"
     cp "$header" "$fw/Headers/"
     cat > "$fw/Modules/module.modulemap" <<EOF
@@ -93,7 +97,7 @@ build_engine() {
         IFS=: read -r slice sdk platform archs <<< "$spec"
         build_slice "$engine" "$name" "$slice" "$sdk" "$archs"
         make_framework "$engine" "$name" "$slice" "$platform" "$header"
-        args+=(-framework "$BUILD/frameworks/$slice/$name.framework")
+        args+=(-framework "$BUILD/frameworks/$slice/$name.framework" -debug-symbols "$BUILD/frameworks/$slice/$name.framework.dSYM")
     done
     mkdir -p "$OUT"
     rm -rf "$OUT/$name.xcframework"

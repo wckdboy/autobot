@@ -11,6 +11,7 @@ android {
 }
 
 dependencies {
+    api(projects.shared)
     api(projects.core.network)
     implementation(projects.core.data)
     api(projects.core.models)

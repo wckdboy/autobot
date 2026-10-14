@@ -1,8 +1,8 @@
 package dev.wckdboy.autobot.core.network
 
-import java.util.concurrent.atomic.AtomicLong
-import javax.inject.Inject
-import javax.inject.Singleton
+import dev.wckdboy.autobot.agent.core.currentTimeMillis
+import kotlin.concurrent.atomics.AtomicLong
+import kotlin.concurrent.atomics.incrementAndFetch
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,21 +42,19 @@ data class AuditEntry(
 
 /**
  * In-memory ring buffer of [AuditEntry]s, exposed as flows. Never persisted, so the log is gone
- * when the process dies (including after a panic wipe).
+ * when the process dies (including after a panic wipe). Shared so both apps record the same
+ * fields with the same redaction.
  */
-@Singleton
 class AuditLog(
-    private val capacity: Int,
-    private val clock: () -> Long,
+    private val capacity: Int = DEFAULT_CAPACITY,
+    private val clock: () -> Long = ::currentTimeMillis,
 ) {
-    @Inject
-    constructor() : this(DEFAULT_CAPACITY, System::currentTimeMillis)
 
     init {
         require(capacity > 0) { "capacity must be positive" }
     }
 
-    private val ids = AtomicLong(0)
+    private val ids = AtomicLong(0L)
     private val _entries = MutableStateFlow<List<AuditEntry>>(emptyList())
 
     /** Snapshot of the buffer, oldest first. */
@@ -83,7 +81,7 @@ class AuditLog(
         error: String? = null,
     ): AuditEntry {
         val entry = AuditEntry(
-            id = ids.incrementAndGet(),
+            id = ids.incrementAndFetch(),
             timeMillis = clock(),
             method = method,
             host = host,

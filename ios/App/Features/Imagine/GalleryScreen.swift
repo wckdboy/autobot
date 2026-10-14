@@ -63,7 +63,7 @@ struct GalleryScreen: View {
             }
         }
         .background(c.background)
-        .onAppear { if let openId { open = openId } }
+        .onAppear { if let openId, app.gallery.get(openId) != nil { open = openId } }
         .fullScreenCover(item: Binding(get: { open.map(OpenId.init) }, set: { open = $0?.id })) { target in
             if let item = app.gallery.get(target.id) {
                 DetailView(item: item, onClose: { open = nil }, onMessage: { message = $0 }) { asInit in

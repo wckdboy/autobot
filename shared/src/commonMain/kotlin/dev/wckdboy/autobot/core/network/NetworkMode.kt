@@ -60,5 +60,5 @@ sealed interface NetworkMode {
  */
 enum class RouteOverride { INHERIT, DIRECT, TOR, SOCKS5 }
 
-/** Thrown for any request the kill switch refuses. It is an [java.io.IOException] so OkHttp callers handle it naturally. */
-class NetworkBlockedException(message: String) : java.io.IOException(message)
+/** Thrown for any request the kill switch refuses. An `IOException` (on the JVM, `java.io.IOException`) so HTTP callers handle it naturally. */
+class NetworkBlockedException(message: String) : okio.IOException(message)

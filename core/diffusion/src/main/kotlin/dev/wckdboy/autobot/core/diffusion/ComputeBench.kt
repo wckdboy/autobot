@@ -17,6 +17,7 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import org.json.JSONArray
+import dev.wckdboy.autobot.shared.diagnostics.EngineDevice
 import org.json.JSONObject
 
 /** What the phone can compute on: CPU always, plus GPU (OpenCL) and NPU (Hexagon) when present. */
@@ -26,6 +27,8 @@ data class ComputeDevices(
     val npuArch: String? = null,
     val npuError: String? = null,
     val llmBackends: Set<Backend> = setOf(Backend.CPU),
+    /** Every device the llama.cpp engine registered, for the diagnostics report. */
+    val engineDevices: List<EngineDevice> = emptyList(),
 )
 
 /**
@@ -43,9 +46,11 @@ class ComputeBench @Inject constructor(
         val list = runCatching { JSONArray(llm.devices()) }.getOrNull()
         var gpu: String? = null
         val backends = mutableSetOf(Backend.CPU)
+        val engineDevices = mutableListOf<EngineDevice>()
         if (list != null) {
             for (i in 0 until list.length()) {
                 val d = list.getJSONObject(i)
+                engineDevices += EngineDevice(d.optString("name"), d.optString("description"), d.optString("kind"), d.optDouble("memory_total", 0.0).toLong())
                 when (d.optString("kind")) {
                     "gpu" -> {
                         gpu = gpu ?: d.optString("description").ifBlank { d.optString("name") }
@@ -64,6 +69,7 @@ class ComputeBench @Inject constructor(
             npuArch = arch,
             npuError = status?.optString("error")?.takeIf { !npuOk && it.isNotBlank() },
             llmBackends = backends,
+            engineDevices = engineDevices,
         )
     }
 

@@ -1,0 +1,15 @@
+import Testing
+@testable import Autobot
+
+@MainActor
+struct NavigationTests {
+    /// A chat tool card's image opens that exact item in the gallery detail.
+    @Test func toolImageDeepLinksToGalleryItem() {
+        let nav = Navigator()
+        nav.reset(.run, [.chat(conversationId: "c1")])
+        nav.push(.gallery(openId: "img-42"))
+        #expect(nav.path == [.chat(conversationId: "c1"), .gallery(openId: "img-42")])
+        nav.back()
+        #expect(nav.path.last == .chat(conversationId: "c1"))
+    }
+}

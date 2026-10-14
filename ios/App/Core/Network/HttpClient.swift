@@ -260,6 +260,24 @@ final class HttpClient: Sendable {
         return (a.request, RouteResolver.proxy(for: expectedRoute, host: request.url?.host() ?? "") ?? .none)
     }
 
+    /**
+     Vets a redirect hop of a transfer running in another session (background downloads): the
+     kill switch and route check run for the new URL exactly as for a fresh request, the hop is
+     audited, and the session's fixed [proxy] must still be the right one for the new host.
+     Returns the scrubbed request to follow.
+     */
+    func admitRedirect(_ request: URLRequest, sessionProxy proxy: Proxy, tag: String? = nil) throws -> URLRequest {
+        let a = try admit(request, tag: tag)
+        let needed = RouteResolver.proxy(for: expectedRoute, host: request.url?.host() ?? "") ?? .none
+        guard needed == proxy else {
+            let reason = "Redirect to a host that needs a different route"
+            audit(a.request, tag: a.tag, route: a.route, blocked: true, error: reason)
+            throw NetworkBlockedError(message: reason)
+        }
+        audit(a.request, tag: a.tag, route: a.route, blocked: false, error: "redirect hop (background transfer)")
+        return a.request
+    }
+
     static func headers(_ response: HTTPURLResponse?) -> [String: String] {
         var out: [String: String] = [:]
         response?.allHeaderFields.forEach { key, value in out["\(key)"] = "\(value)" }

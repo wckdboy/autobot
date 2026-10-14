@@ -163,7 +163,7 @@ struct ChatScreen: View {
                     app.agent.answerApproval(callId: tool.callId, outcome: outcome)
                 }
             } else {
-                StepRow(number: stepNumbers[tool.key] ?? 0, tool: tool, model: model) { nav.push(.gallery()) }
+                StepRow(number: stepNumbers[tool.key] ?? 0, tool: tool, model: model) { id in nav.push(.gallery(openId: id)) }
             }
         case .notice(_, let text, let kind):
             NoticeRow(text: text, kind: kind)
@@ -296,7 +296,8 @@ private struct StepRow: View {
     let number: Int
     let tool: SessionItem.Tool
     let model: ChatModel
-    let onOpenGallery: () -> Void
+    /// Opens that gallery item's detail.
+    let onOpenGallery: (String) -> Void
     @State private var expanded = false
     @Environment(\.scheme) private var c
 
@@ -340,7 +341,7 @@ private struct StepRow: View {
             if !tool.galleryIds.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(tool.galleryIds, id: \.self) { id in
-                        GalleryThumb(id: id, model: model).onTapGesture(perform: onOpenGallery)
+                        GalleryThumb(id: id, model: model).onTapGesture { onOpenGallery(id) }
                     }
                 }
                 .padding(.bottom, 6)

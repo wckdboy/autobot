@@ -9,6 +9,7 @@ android {
 
 dependencies {
     api(libs.okhttp)
+    api(projects.shared)
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.okhttp.mockwebserver)

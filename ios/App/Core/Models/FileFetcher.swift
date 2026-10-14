@@ -12,7 +12,26 @@ struct DownloadError: LocalizedError, Equatable, Sendable {
 /// Moves the body of an already admitted request somewhere other than the policy client's own
 /// session (the background URLSession). Returns a temporary file with the body.
 protocol BulkTransfer: Sendable {
-    func download(_ request: URLRequest, proxy: Proxy, progress: @escaping @Sendable (Int64) -> Void) async throws -> (URL, HTTPURLResponse)
+    /// [vetHop] checks every redirect the transfer meets (kill switch, route, audit, credentials)
+    /// and returns the request to follow; it throws to refuse the hop.
+    func download(
+        _ request: URLRequest,
+        proxy: Proxy,
+        vetHop: @escaping @Sendable (URLRequest) throws -> URLRequest,
+        progress: @escaping @Sendable (Int64) -> Void,
+    ) async throws -> (URL, HTTPURLResponse)
+}
+
+/// The redirect policy of a transfer handed to another session: the policy client admits the
+/// hop (kill switch, route, audit) and a hub credential only travels to the host it was issued
+/// for — never to a different host, even another hub host.
+func vetTransferHop(_ request: URLRequest, client: HttpClient, proxy: Proxy, original: URL, auth: AuthHost?) throws -> URLRequest {
+    var hop = request
+    let host = hop.url?.host()
+    if host == nil || host != original.host() || auth.map({ FileFetcher.isHubHost(host!, $0) }) != true {
+        hop.setValue(nil, forHTTPHeaderField: "Authorization")
+    }
+    return try client.admitRedirect(hop, sessionProxy: proxy)
 }
 
 /**
@@ -75,7 +94,10 @@ struct FileFetcher: Sendable {
                     let (admitted, proxy) = try client.admitForTransfer(request)
                     let base = append ? have : 0
                     let size = expectedSize
-                    let (tmp, result) = try await bulk.download(admitted, proxy: proxy) { written in
+                    let original = url, auth = file.auth
+                    let (tmp, result) = try await bulk.download(admitted, proxy: proxy, vetHop: { hop in
+                        try vetTransferHop(hop, client: client, proxy: proxy, original: original, auth: auth)
+                    }) { written in
                         onProgress(base + written, max(size, base + written))
                     }
                     guard result.statusCode == status else { throw DownloadError(message: "HTTP \(result.statusCode)") }
@@ -248,32 +270,65 @@ struct FileFetcher: Sendable {
  Bulk bodies in a background URLSession, so a multi-gigabyte model keeps downloading while the
  app is in the background. A session exists per route (its proxy is part of the configuration);
  requests reach it only after the kill switch admitted them. The session has no cookies, cache
- or credential storage. Background sessions follow redirects on their own, so only final URLs
- (already resolved hop by hop) are handed over.
+ or credential storage. Only final URLs (already resolved hop by hop) are handed over; should a
+ transfer still meet a redirect, the hop goes through the kill switch, the route check and the
+ audit log in [urlSession(_:task:willPerformHTTPRedirection:newRequest:)], and hub credentials
+ are dropped for any other host. Background sessions may follow redirects without asking their
+ delegate, so a transfer whose final URL differs from every vetted one is discarded (fail closed).
  */
 final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelegate, Sendable {
     static let identifier = "ai.wckd.autobot.models"
 
     private struct Pending {
         let continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>
+        let vetHop: @Sendable (URLRequest) throws -> URLRequest
         let progress: @Sendable (Int64) -> Void
         var file: URL?
+        /// URLs this transfer may end at: the original and every vetted hop.
+        var vetted: Set<URL>
+        var refused: Error?
     }
 
     private let sessions = Mutex<[String: URLSession]>([:])
     private let pending = Mutex<[String: Pending]>([:])
+    /// Session configuration per route; tests substitute an ephemeral one with a stub protocol.
+    private let makeConfiguration: @Sendable (String) -> URLSessionConfiguration
 
-    func download(_ request: URLRequest, proxy: Proxy, progress: @escaping @Sendable (Int64) -> Void) async throws -> (URL, HTTPURLResponse) {
+    init(makeConfiguration: @escaping @Sendable (String) -> URLSessionConfiguration = { URLSessionConfiguration.background(withIdentifier: $0) }) {
+        self.makeConfiguration = makeConfiguration
+    }
+
+    func download(
+        _ request: URLRequest,
+        proxy: Proxy,
+        vetHop: @escaping @Sendable (URLRequest) throws -> URLRequest,
+        progress: @escaping @Sendable (Int64) -> Void,
+    ) async throws -> (URL, HTTPURLResponse) {
         let session = session(for: proxy)
         let task = session.downloadTask(with: request)
-        let key = "\(session.configuration.identifier ?? ""):\(task.taskIdentifier)"
+        let key = key(session, task)
+        let start = Set([request.url].compactMap { $0 })
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                pending.withLock { $0[key] = Pending(continuation: continuation, progress: progress) }
+                pending.withLock { $0[key] = Pending(continuation: continuation, vetHop: vetHop, progress: progress, vetted: start) }
                 task.resume()
             }
         } onCancel: {
             task.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest) async -> URLRequest? {
+        let key = key(session, task)
+        guard let vet = pending.withLock({ $0[key]?.vetHop }) else { return nil }
+        do {
+            let hop = try vet(request)
+            pending.withLock { p in if let url = hop.url { p[key]?.vetted.insert(url) } }
+            return hop
+        } catch {
+            pending.withLock { $0[key]?.refused = error }
+            task.cancel()
+            return nil
         }
     }
 
@@ -290,7 +345,7 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
         }
         return sessions.withLock { s in
             if let existing = s[key] { return existing }
-            let config = URLSessionConfiguration.background(withIdentifier: "\(Self.identifier).\(key)")
+            let config = makeConfiguration("\(Self.identifier).\(key)")
             config.isDiscretionary = false
             config.sessionSendsLaunchEvents = false
             config.urlCache = nil
@@ -323,7 +378,15 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let entry = pending.withLock({ $0.removeValue(forKey: key(session, task)) }) else { return }
-        if let error {
+        let final = (task.response as? HTTPURLResponse)?.url ?? task.currentRequest?.url
+        if let refused = entry.refused {
+            if let file = entry.file { try? FileManager.default.removeItem(at: file) }
+            entry.continuation.resume(throwing: refused)
+        } else if error == nil, let final, !entry.vetted.contains(final) {
+            // Followed a redirect without asking: nothing vetted that hop, so its bytes are discarded.
+            if let file = entry.file { try? FileManager.default.removeItem(at: file) }
+            entry.continuation.resume(throwing: NetworkBlockedError(message: "Download was redirected to \(final.host() ?? "another host") without the kill switch; discarded"))
+        } else if let error {
             if let file = entry.file { try? FileManager.default.removeItem(at: file) }
             entry.continuation.resume(throwing: error)
         } else if let file = entry.file, let response = task.response as? HTTPURLResponse {

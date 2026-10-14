@@ -34,7 +34,7 @@ Get 1.2 into hands, prove the accelerator paths on real hardware, and close the 
 | ✅ | iOS app on the shared Kotlin runtime, Metal llama.cpp, Core ML SD, whisper.cpp | iOS |
 | ✅ | Same app id and version on both; `bump-version.sh` | both |
 | ✅ | TestFlight build live (`ai.wckd.autobot`) | iOS |
-| ⬜ | **Diagnostics report**: Compute → "copy report" with SoC, backends that loaded, per-backend benchmark and engine logs, no personal data. This makes hardware bug reports actionable | both |
+| 🟡 | **Diagnostics report**: Compute → "copy report" with SoC, backends that loaded, per-backend benchmark and engine logs, no personal data. This makes hardware bug reports actionable | both |
 | ⬜ | Hardware verification on the 8 Elite Gen 5: chat on NPU/GPU/CPU, SD 1.5 + SDXL on QNN, MNN on GPU, upscaler | Android |
 | ✅ | Design-token parity test: Android `Theme.kt` must match `tokens.json` | Android |
 | ✅ | iOS build fails loudly when the Kotlin framework build fails | iOS |
@@ -50,9 +50,9 @@ Gen 5 shows chat and images on the NPU.
 
 Move the remaining duplicated logic into `:shared`, so a fix lands on both platforms at once.
 
-- **Network policy in `:shared`.** `RouteResolver`, loopback rules, kill-switch decisions and the
-  audit-log record format, with one test suite. Android OkHttp and iOS URLSession become thin
-  adapters.
+- 🟡 **Network policy in `:shared`.** `RouteResolver`, loopback rules, kill-switch decisions and the
+  audit log, with one test suite. Android OkHttp and iOS URLSession become thin adapters.
+  *(Android done in 1.2.2; iOS in progress.)*
 - **Settings schema in `:shared`.** The same keys, defaults and validation; DataStore and the iOS
   store just persist it.
 - **Model management in `:shared`.** Fit rules (`FITS`/`TIGHT`/`TOO BIG`), Hugging Face and Civitai
