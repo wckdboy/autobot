@@ -51,8 +51,9 @@ set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "" FORCE)
 
 add_subdirectory(${LLAMA_SRC} build-llama)
 
-add_library(autobot_llama SHARED llama_jni.cpp)
-target_include_directories(autobot_llama PRIVATE ${LLAMA_SRC}/common ${LLAMA_SRC}/include ${LLAMA_SRC}/tools/mtmd)
+# core/ is the platform-neutral engine (also linked by the iOS app); llama_jni.cpp wraps it for JNI.
+add_library(autobot_llama SHARED llama_jni.cpp core/autobot_llama.cpp)
+target_include_directories(autobot_llama PRIVATE ${CMAKE_CURRENT_LIST_DIR} ${LLAMA_SRC}/common ${LLAMA_SRC}/include ${LLAMA_SRC}/tools/mtmd)
 target_link_libraries(autobot_llama PRIVATE llama llama-common mtmd android log)
 # Only the JNI entry points are exported.
 target_link_options(autobot_llama PRIVATE "-Wl,--exclude-libs,ALL")

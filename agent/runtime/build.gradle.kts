@@ -12,6 +12,7 @@ android {
 
 dependencies {
     api(projects.agent.core)
+    api(projects.shared)
     api(projects.providers.remote)
     implementation(projects.core.data)
     implementation(projects.core.network)

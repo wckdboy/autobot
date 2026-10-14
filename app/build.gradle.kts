@@ -14,8 +14,8 @@ android {
 
     defaultConfig {
         applicationId = "dev.wckdboy.autobot"
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
     }
 
     // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the
@@ -44,6 +44,9 @@ android {
             // QNN runtime parts Autobot does not use: the on-device graph compiler (it only runs
             // precompiled context binaries), the legacy DSP backend and the QNN GPU backend.
             excludes += listOf("**/libQnnHtpPrepare.so", "**/libQnnDsp*.so", "**/libQnnGpu.so")
+            // Hexagon DSP binaries (llama.cpp HTP ops) are not ARM ELF files; the NDK strip
+            // cannot handle them, and the DSP loader expects them unmodified.
+            keepDebugSymbols += "**/libggml-htp-v*.so"
         }
     }
 

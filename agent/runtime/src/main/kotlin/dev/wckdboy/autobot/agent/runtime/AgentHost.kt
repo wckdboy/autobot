@@ -26,6 +26,7 @@ import dev.wckdboy.autobot.core.data.model.MessageRole
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import java.io.File
+import okio.Path.Companion.toOkioPath
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CompletableDeferred
@@ -83,9 +84,18 @@ class AgentHost @Inject constructor(
     clients: HttpClientFactory,
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
-    val workspace = Workspace(File(context.filesDir, WORKSPACE_DIR))
+    val workspace = Workspace(File(context.filesDir, WORKSPACE_DIR).toOkioPath())
     val harness = Harness()
     private val contexts = WorkspaceContexts(workspace)
+
+    /** Attachments are decrypted into short-lived files for a single model call. */
+    private val images = object : ImageAttachments {
+        override suspend fun openPlain(id: String): String? = attachments.openPlain(id)?.path
+
+        override fun discard(path: String) {
+            File(path).delete()
+        }
+    }
 
     private val mutex = Mutex()
     private val agents = HashMap<String, Agent>()
@@ -101,11 +111,11 @@ class AgentHost @Inject constructor(
 
     init {
         harness.llm.setResolver { id ->
-            providers.getProvider(id)?.let { ProviderLlmAdapter(it.id, providerFactory.create(it), it.kind, attachments) }
+            providers.getProvider(id)?.let { ProviderLlmAdapter(it.id, providerFactory.create(it), it.kind, images) }
         }
         val root = harness.root
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
-        root.plugin(toolsPlugin("web", WebFetchTool(clients)))
+        root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))
         root.plugin(contexts.plugin)
         contributions.forEach { root.plugin(it.plugin()) }
 

@@ -33,6 +33,8 @@ sqlcipher = "4.19.1"
 okhttp = "5.5.0"
 kotlinxSerialization = "1.11.0"
 kotlinxCoroutines = "1.11.0"
+atomicfu = "0.33.0"
+okio = "3.18.2"
 
 # Test
 junit = "4.13.2"
@@ -80,6 +82,9 @@ okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver3"
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+atomicfu = { group = "org.jetbrains.kotlinx", name = "atomicfu", version.ref = "atomicfu" }
+okio = { group = "com.squareup.okio", name = "okio", version.ref = "okio" }
+okio-fakefilesystem = { group = "com.squareup.okio", name = "okio-fakefilesystem", version.ref = "okio" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 
 # Test

@@ -1,0 +1,205 @@
+package dev.wckdboy.autobot.shared
+
+import dev.wckdboy.autobot.agent.runtime.WebFetchException
+import dev.wckdboy.autobot.agent.runtime.WebFetcher
+import dev.wckdboy.autobot.agent.runtime.WebResponse
+import dev.wckdboy.autobot.providers.remote.ChatEvent
+import dev.wckdboy.autobot.providers.remote.ChatProvider
+import dev.wckdboy.autobot.providers.remote.ChatRequest
+import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
+import dev.wckdboy.autobot.providers.remote.ErrorKind
+import dev.wckdboy.autobot.providers.remote.OpenAiCodec
+import dev.wckdboy.autobot.providers.remote.SseDecoder
+import kotlin.coroutines.resume
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+/*
+ * The host side of networking for apps that bring their own HTTP stack (iOS: URLSession behind
+ * the kill switch, route resolver and audit log). The host only moves bytes; request encoding
+ * and SSE decoding stay in the shared codec.
+ */
+
+/** A running host operation. */
+fun interface Cancellable {
+    fun cancel()
+}
+
+/**
+ * One HTTP request for the host to send. [route] is the provider's routing override
+ * (`INHERIT`, `DIRECT`, `TOR`, `SOCKS5`); [tag] labels it in the audit log. The host must not
+ * follow redirects and reads at most [maxBytes] of the body.
+ */
+class HttpRequestSpec(
+    val method: String,
+    val url: String,
+    val headers: Map<String, String>,
+    val body: String?,
+    val tag: String,
+    val route: String = "INHERIT",
+    val maxBytes: Long = Long.MAX_VALUE,
+)
+
+/**
+ * Callbacks for one request, called serially. [onResponse] comes first with the status and
+ * headers (lower-case names); for a non-2xx status it carries up to 16 KiB of the body and no
+ * lines follow. A 2xx body is delivered line by line (without line terminators) and ends with
+ * [onComplete]. [onFailure] replaces all of these when no response arrived; [blocked] means the
+ * network policy refused the request before any I/O.
+ */
+interface HttpSink {
+    fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?)
+    fun onLine(line: String)
+    fun onComplete()
+    fun onFailure(blocked: Boolean, message: String)
+}
+
+interface HttpTransport {
+    fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable
+}
+
+/**
+ * Any OpenAI-compatible `/chat/completions` endpoint over a host [HttpTransport] (the iOS
+ * counterpart of the Android `OpenAICompatibleProvider`, with the same codec).
+ */
+class TransportChatProvider(
+    baseUrl: String,
+    private val apiKey: String?,
+    private val transport: HttpTransport,
+    private val tag: String,
+    private val route: String = "INHERIT",
+    private val includeUsage: Boolean = true,
+) : ChatProvider {
+    private val base: String? = baseUrl.trim().trimEnd('/').takeIf { BASE.matches(it) }
+
+    private fun headers(accept: String): Map<String, String> = buildMap {
+        put("Accept", accept)
+        put("Content-Type", "application/json; charset=utf-8")
+        apiKey?.takeIf { it.isNotBlank() }?.let { put("Authorization", "Bearer $it") }
+    }
+
+    override fun streamChat(request: ChatRequest): Flow<ChatEvent> = callbackFlow {
+        val body = when {
+            base == null -> null.also { trySend(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid base URL")) }
+            else -> try {
+                OpenAiCodec.encodeRequest(request, includeUsage)
+            } catch (e: IllegalArgumentException) {
+                null.also { trySend(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid tool schema: ${e.message}")) }
+            }
+        }
+        if (body == null) {
+            close()
+            awaitClose()
+            return@callbackFlow
+        }
+        val decoder = SseDecoder()
+        var failed = false
+        val call = transport.send(
+            HttpRequestSpec("POST", "$base/chat/completions", headers("text/event-stream"), body, tag, route),
+            object : HttpSink {
+                override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
+                    if (status in 200..299) return
+                    failed = true
+                    trySend(OpenAiCodec.httpError(status, errorBody.orEmpty()))
+                    close()
+                }
+
+                override fun onLine(line: String) {
+                    if (failed || decoder.done) return
+                    for (event in decoder.feed(line)) {
+                        trySend(event)
+                        if (event is ChatEvent.Error) {
+                            failed = true
+                            close()
+                            return
+                        }
+                    }
+                }
+
+                override fun onComplete() {
+                    if (!failed) trySend(ChatEvent.Done)
+                    close()
+                }
+
+                override fun onFailure(blocked: Boolean, message: String) {
+                    trySend(ChatEvent.Error(if (blocked) ErrorKind.BLOCKED else ErrorKind.NETWORK, message))
+                    close()
+                }
+            },
+        )
+        awaitClose { call.cancel() }
+    }.buffer(Channel.UNLIMITED)
+
+    override suspend fun testConnection(): ConnectionTestResult {
+        val url = base?.let { "$it/models" } ?: return ConnectionTestResult.Failure(ErrorKind.BAD_REQUEST, "Invalid base URL")
+        val response = fetchAll(transport, HttpRequestSpec("GET", url, headers("application/json"), null, tag, route, MAX_MODELS_BYTES))
+        return when {
+            response.blocked -> ConnectionTestResult.Failure(ErrorKind.BLOCKED, response.failure ?: "Blocked by network policy")
+            response.failure != null -> ConnectionTestResult.Failure(ErrorKind.NETWORK, response.failure)
+            response.status !in 200..299 -> OpenAiCodec.httpError(response.status, response.body).let { ConnectionTestResult.Failure(it.kind, it.message) }
+            else -> ConnectionTestResult.Success(OpenAiCodec.modelCount(response.body))
+        }
+    }
+
+    private companion object {
+        val BASE = Regex("(?i)https?://[^\\s/?#]+[^\\s?#]*")
+        const val MAX_MODELS_BYTES = 4L * 1024 * 1024
+    }
+}
+
+/** A whole (small) response collected from a [HttpTransport]. */
+internal class CollectedResponse(
+    val status: Int,
+    val headers: Map<String, String>,
+    val body: String,
+    val failure: String? = null,
+    val blocked: Boolean = false,
+)
+
+internal suspend fun fetchAll(transport: HttpTransport, request: HttpRequestSpec): CollectedResponse =
+    suspendCancellableCoroutine { cont ->
+        val sink = object : HttpSink {
+            private var status = 0
+            private var headers = emptyMap<String, String>()
+            private val body = StringBuilder()
+            private var done = false
+
+            private fun finish(response: CollectedResponse) {
+                if (done) return
+                done = true
+                cont.resume(response)
+            }
+
+            override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
+                this.status = status
+                this.headers = headers
+                if (status !in 200..299) finish(CollectedResponse(status, headers, errorBody.orEmpty()))
+            }
+
+            override fun onLine(line: String) {
+                if (body.isNotEmpty()) body.append('\n')
+                body.append(line)
+            }
+
+            override fun onComplete() = finish(CollectedResponse(status, headers, body.toString()))
+
+            override fun onFailure(blocked: Boolean, message: String) =
+                finish(CollectedResponse(0, emptyMap(), "", failure = message, blocked = blocked))
+        }
+        val call = transport.send(request, sink)
+        cont.invokeOnCancellation { call.cancel() }
+    }
+
+/** `web_fetch` over a host [HttpTransport]. */
+class TransportWebFetcher(private val transport: HttpTransport) : WebFetcher {
+    override suspend fun get(url: String, accept: String, maxBytes: Long): WebResponse {
+        val response = fetchAll(transport, HttpRequestSpec("GET", url, mapOf("Accept" to accept), null, "agent:web_fetch", maxBytes = maxBytes))
+        if (response.failure != null) throw WebFetchException(if (response.blocked) "BLOCKED" else "TRANSPORT", response.failure)
+        val body = if (response.status in 200..299) response.body else ""
+        return WebResponse(response.status, response.headers["location"], response.headers["content-type"], body)
+    }
+}

@@ -41,9 +41,6 @@ data class Message(
     val tokenCount: Int? = null,
 )
 
-/** [LOCAL] runs on this phone (llama.cpp engine); its base URL is unused and never dialled. */
-enum class ProviderKind { DEEPSEEK, OPENAI_COMPATIBLE, OPENROUTER, OLLAMA, LOCAL }
-
 /** Per-provider network routing. [INHERIT] follows the global network mode. */
 enum class ProviderRouting { DIRECT, TOR, SOCKS5, INHERIT }
 

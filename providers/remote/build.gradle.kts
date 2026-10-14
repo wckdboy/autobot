@@ -10,6 +10,7 @@ android {
 
 dependencies {
     api(projects.core.data)
+    api(projects.shared)
     api(projects.core.network)
     implementation(projects.core.models)
     implementation(projects.engine.llama)

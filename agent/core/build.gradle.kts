@@ -1,16 +1,32 @@
 // Port of the DeepSeek Harness (MIT) agent architecture: a plugin context, an append-only session
 // log, the step/turn loop, the tool execution pipeline, approvals, retry and compaction.
-// Pure Kotlin: no Android APIs, so the whole runtime is covered by JVM unit tests.
+// Kotlin Multiplatform with no platform APIs: Android consumes the JVM target, iOS gets it
+// through :shared's AutobotShared.xcframework, and the whole runtime is covered by JVM tests.
 plugins {
-    alias(libs.plugins.autobot.android.library)
+    id("org.jetbrains.kotlin.multiplatform")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-android {
-    namespace = "dev.wckdboy.autobot.agent.core"
-}
+kotlin {
+    jvm()
+    iosArm64()
+    iosSimulatorArm64()
 
-dependencies {
-    api(libs.kotlinx.coroutines.core)
-    api(libs.kotlinx.serialization.json)
+    jvmToolchain(17)
+
+    compilerOptions {
+        optIn.add("kotlin.concurrent.atomics.ExperimentalAtomicApi")
+    }
+
+    sourceSets {
+        commonMain.dependencies {
+            api(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.serialization.json)
+            implementation(libs.atomicfu)
+        }
+        jvmTest.dependencies {
+            implementation(libs.junit)
+            implementation(libs.kotlinx.coroutines.test)
+        }
+    }
 }

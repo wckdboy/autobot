@@ -1,16 +1,17 @@
 # Autobot
 
-A privacy-first AI agent for Android. Autobot is built to run models **on the device** (NPU/GPU) and
+A privacy-first AI agent for Android and iOS. Autobot is built to run models **on the device** (NPU/GPU) and
 treats every network request as something the user has to opt into, can see, and can switch off.
 
-> Status: **1.1 — models run on the phone.** Chats, agent and code sessions run on-device through
-> llama.cpp, and images through stable-diffusion.cpp, each in its own sandboxed process. A model
-> manager downloads verified models from a curated catalog, Hugging Face or Civitai. Remote
-> providers and PC/LAN diffusion backends still work alongside, under the same network policy.
+> Status: **1.2 — every accelerator, and an iPhone app.** Chats, agent and code sessions run
+> on-device through llama.cpp on the CPU, the Adreno GPU (OpenCL) or the Hexagon NPU; images run
+> through stable-diffusion.cpp, QNN on the NPU or MNN on the GPU, each engine in its own sandboxed
+> process. The iOS app ([ios/](ios/README.md)) runs the same agent runtime (Kotlin Multiplatform)
+> with llama.cpp on Metal and Stable Diffusion on the Apple Neural Engine.
 >
-> **In development, not yet released:** images on the Snapdragon NPU (QNN) and GPU (MNN/OpenCL), llama.cpp
-> on the Adreno GPU (OpenCL), vision chat, on-device dictation, NPU upscaling and a Compute screen
-> that benchmarks CPU vs GPU vs NPU. These paths still need verification on real hardware.
+> **Needs verification on real hardware:** the accelerator paths were built and wired against the
+> Snapdragon 8 Elite Gen 5 (Hexagon V81, Adreno 840) but have not yet been run on one. The Compute
+> screen benchmarks CPU vs GPU vs NPU per model and falls back to the CPU when an accelerator fails.
 
 ## Privacy stance
 
@@ -62,7 +63,8 @@ treats every network request as something the user has to opt into, can see, and
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
 | `:engine:speech` | whisper.cpp (MIT) in the `:asr` process: on-device dictation |
-| `:agent:core` | Pure-Kotlin port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
+| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
+| `:agent:core` | Kotlin Multiplatform (JVM + iOS) port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
 | `:feature:imagine` | Imagine screen (txt2img / img2img / inpaint, LoRA stack, sampler, canvas, seed, batch), mask editor, encrypted gallery, backends manager, `generate_image` agent tool |
@@ -122,8 +124,13 @@ Phones are fast at inference only off the CPU, so Autobot uses every accelerator
   gallery images in 192 px tiles.
 - **Chat on the GPU.** llama.cpp's OpenCL backend (tuned by Qualcomm for Adreno) loads like the
   CPU variants. If a model or context cannot be created on the GPU, it falls back to the CPU.
-- **Chat on the NPU.** llama.cpp's Hexagon backend needs kernels built with the Hexagon SDK. They
-  are not in this build yet.
+- **Chat on the NPU.** llama.cpp's Hexagon backend (`libggml-hexagon.so` plus HTP op libraries for
+  V73, V75, V79 and V81) offloads matmuls in Q4_0, Q8_0, MXFP4 and the K-quants to the NPU. The
+  Hexagon SDK only runs on Linux, so `.github/workflows/hexagon.yml` builds the libraries from the
+  pinned llama.cpp commit and publishes them as a release; `:engine:llama` downloads that release
+  and checks every file against SHA-256 hashes pinned in `engine/llama/build.gradle.kts`. The DSP
+  loads its half through FastRPC from the app's library directory (`ADSP_LIBRARY_PATH`).
+  `auto` tries NPU → GPU → CPU.
 
 **Compute screen** (MODELS → COMPUTE) shows the CPU, GPU and NPU of the phone. For each model you
 can force CPU, GPU or NPU, or run a benchmark. `auto` then uses whichever backend was fastest.
@@ -239,6 +246,14 @@ keyPassword=…
 When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; otherwise the output stays
 `app-release-unsigned.apk`.
 
+### iOS
+
+See [ios/README.md](ios/README.md). In short: `./gradlew :shared:assembleAutobotSharedReleaseXCFramework`
+builds the shared Kotlin runtime, `ios/Packages/AutobotEngines/scripts/build-xcframeworks.sh` builds
+llama.cpp and whisper.cpp for iOS, and `cd ios && xcodegen generate` creates the Xcode project.
+Design tokens (`shared/design/tokens.json`) and the curated catalog (`shared/catalog/catalog.json`,
+kept in sync with `Catalog.kt` by `SharedCatalogTest`) are shared by both apps.
+
 ### Qualcomm QNN
 
 - The QNN **runtime** comes from Maven Central (`com.qualcomm.qti:qnn-runtime`). Only the HTP
@@ -254,8 +269,8 @@ When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; othe
    the network kill switch. *(done)*
 2. **On-device engines**: llama.cpp and stable-diffusion.cpp on CPU, plus a model manager with
    catalog, Hugging Face and Civitai sources, resumable verified downloads. *(done)* Adreno GPU
-   via OpenCL, NPU/GPU image engine, vision, dictation, benchmarks. *(in development)* Next: llama.cpp
-   Hexagon NPU kernels.
+   via OpenCL, NPU/GPU image engine, vision, dictation, benchmarks, llama.cpp on the Hexagon NPU.
+   *(built, awaiting on-device verification)*
 3. **Agent runtime**, modeled on the DeepSeek Harness plugin architecture: tools, permission gate,
    approvals, compaction, skills, workspace. *(done)* Next: MCP (streamable HTTP), subagents.
 4. **Image generation**: Imagine UI, mask editor, LoRA, encrypted gallery, A1111 + SSE backends.
@@ -271,6 +286,8 @@ When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; othe
    - video
    - `dsh` sidecar
    - baseline profiles
+7. **iOS**: SwiftUI app on the shared Kotlin Multiplatform runtime, llama.cpp on Metal, Core ML
+   Stable Diffusion on the Neural Engine, whisper.cpp dictation. *(1.2)*
 
 ## License
 

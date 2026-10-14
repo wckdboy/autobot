@@ -15,6 +15,7 @@ room {
 dependencies {
     api(projects.core.security)
     api(projects.core.network)
+    api(projects.shared)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.room.runtime)

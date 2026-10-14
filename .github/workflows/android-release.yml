@@ -1,0 +1,78 @@
+# Builds the signed release APK for a version tag (v1.2.0, …) and attaches it to that tag's
+# GitHub release. Signing material comes from repository secrets:
+#   ANDROID_KEYSTORE_BASE64  base64 of the release .jks
+#   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# Without them the job only builds and tests; nothing is attached (releases are then signed
+# and uploaded locally).
+name: android-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and attach to
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: SDK packages
+        shell: bash
+        run: |
+          ndk=$(grep -E '^ndk *=' gradle/libs.versions.toml | cut -d'"' -f2)
+          cmake=$(grep -E '^cmake *=' gradle/libs.versions.toml | cut -d'"' -f2)
+          sdk=$(grep -E '^compileSdk *=' gradle/libs.versions.toml | cut -d'"' -f2)
+          sdkmanager --install "platforms;android-$sdk.0" "ndk;$ndk" "cmake;$cmake" > /dev/null
+
+      - name: Signing
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [ -n "$KEYSTORE" ] || { echo "No signing secrets: the APK stays unsigned"; exit 0; }
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: Test and build
+        run: ./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest :app:assembleRelease --no-configuration-cache
+
+      - name: Attach to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apk=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          [[ "$apk" == *unsigned* ]] && { echo "Unsigned build: not attaching"; exit 0; }
+          out="autobot-${TAG#v}.apk"
+          cp "$apk" "$out"
+          sha256sum "$out" > "$out.sha256"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Autobot ${TAG#v}" --generate-notes
+          gh release upload "$TAG" "$out" "$out.sha256" --clobber

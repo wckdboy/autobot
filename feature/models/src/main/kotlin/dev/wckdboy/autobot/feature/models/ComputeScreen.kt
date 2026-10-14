@@ -157,7 +157,7 @@ fun ComputeRoute(onBack: () -> Unit, viewModel: ComputeViewModel = hiltViewModel
                 }
                 state.devices?.npuError?.let { MicroLabel("npu: $it", Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.error) }
                 if (state.devices?.npu != null && Backend.NPU !in state.devices!!.llmBackends) {
-                    MicroLabel("chat on the npu needs this build's hexagon kernels (not included yet) · images run on the npu", Modifier.padding(top = 6.dp))
+                    MicroLabel("chat on the npu: the hexagon backend did not start on this phone · images still run on the npu", Modifier.padding(top = 6.dp))
                 }
             }
             item {

@@ -49,6 +49,10 @@ class LlamaService : Service() {
         super.onCreate()
         // Compiled OpenCL kernels are cached across launches (the first GPU load compiles them).
         Os.setenv("GGML_OPENCL_KERNEL_CACHE_DIR", File(codeCacheDir, "opencl").path, true)
+        // The Hexagon backend's DSP side (libggml-htp-v73…v81.so) is loaded by FastRPC from
+        // ADSP_LIBRARY_PATH; the vendor directories keep the system's own DSP libraries reachable.
+        val dsp = listOf(applicationInfo.nativeLibraryDir, "/vendor/dsp/cdsp", "/vendor/lib/rfsa/adsp", "/system/lib/rfsa/adsp", "/vendor/dsp/dsp", "/vendor/dsp")
+        Os.setenv("ADSP_LIBRARY_PATH", dsp.joinToString(";"), true)
         devices = NativeLlama.init(applicationInfo.nativeLibraryDir)
     }
 

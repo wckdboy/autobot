@@ -142,7 +142,8 @@ data class ModelManifest(
     val npu: NpuPackage? = null,
 )
 
-/** Everything needed to install a model. */
+/** Everything needed to install a model. Serialized into `shared/catalog/catalog.json` for the iOS app. */
+@Serializable
 data class ModelPlan(
     val id: String,
     val kind: ModelKind,

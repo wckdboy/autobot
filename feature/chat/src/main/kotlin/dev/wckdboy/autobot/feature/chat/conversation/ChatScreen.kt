@@ -88,6 +88,9 @@ import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.shared.session.NoticeKind
+import dev.wckdboy.autobot.shared.session.SessionItem
+import dev.wckdboy.autobot.shared.session.ToolState
 import java.util.Locale
 
 @Composable
@@ -271,7 +274,7 @@ private fun FollowUp(text: String) {
 @Composable
 private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onSpeak: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (!item.reasoning.isNullOrEmpty()) ThinkingDisclosure(reasoning = item.reasoning)
+        item.reasoning?.takeIf { it.isNotEmpty() }?.let { ThinkingDisclosure(reasoning = it) }
         if (item.text.isNotEmpty()) {
             ChatBubble(
                 role = BubbleRole.ASSISTANT,
@@ -352,9 +355,10 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
                 color = markColor,
             )
         }
-        if (expanded && item.output != null) {
+        val output = item.output
+        if (expanded && output != null) {
             Text(
-                item.output.take(4000),
+                output.take(4000),
                 modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(10.dp),
                 style = AutobotTheme.styles.codeBlock,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

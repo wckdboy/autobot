@@ -19,6 +19,7 @@ import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.loop.LiveStream
+import dev.wckdboy.autobot.agent.core.monotonicNanos
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.TodoItem
 import dev.wckdboy.autobot.agent.core.tools.ToolExecutor
@@ -44,6 +45,9 @@ import dev.wckdboy.autobot.engine.speech.LocalSpeech
 import dev.wckdboy.autobot.feature.chat.toPrivacyStatus
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.toOverride
+import dev.wckdboy.autobot.shared.session.SessionItem
+import dev.wckdboy.autobot.shared.session.SessionProjection
+import dev.wckdboy.autobot.shared.session.projectSession
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
@@ -228,7 +232,7 @@ class ChatViewModel @AssistedInject constructor(
     }
 
     private fun LiveStream.toUi(): LiveUi {
-        val seconds = (System.nanoTime() - startedAtNanos) / 1e9f
+        val seconds = (monotonicNanos() - startedAtNanos) / 1e9f
         val approxTokens = (text.length + reasoning.length) / 4f
         return LiveUi(
             text = text,

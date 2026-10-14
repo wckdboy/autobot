@@ -21,7 +21,9 @@ set(GGML_CPU_ARM_ARCH      "armv8.2-a+dotprod+fp16" CACHE STRING "" FORCE)
 
 add_subdirectory(${WHISPER_SRC} build-whisper)
 
-add_library(autobot_whisper SHARED whisper_jni.cpp)
+# core/ is the platform-neutral engine (also linked by the iOS app); whisper_jni.cpp wraps it for JNI.
+add_library(autobot_whisper SHARED whisper_jni.cpp core/autobot_whisper.cpp)
+target_include_directories(autobot_whisper PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 target_link_libraries(autobot_whisper PRIVATE whisper android log)
 target_compile_options(autobot_whisper PRIVATE -O3 -fvisibility=hidden)
 target_link_options(autobot_whisper PRIVATE "-Wl,--exclude-libs,ALL")
