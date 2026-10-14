@@ -30,7 +30,7 @@ struct Secret: Equatable, Sendable, CustomStringConvertible, CustomDebugStringCo
  secrets in bulk.
  */
 final class SecretStore: Sendable {
-    static let service = "dev.wckdboy.autobot.secrets"
+    static let service = "ai.wckd.autobot.secrets"
     private static let refPattern = try! NSRegularExpression(pattern: "^[A-Za-z0-9_-]{1,64}$")
 
     init() {}

@@ -12,7 +12,7 @@ struct KeychainError: LocalizedError {
 /// Minimal generic-password Keychain access. Every item is `WhenUnlockedThisDeviceOnly`: never
 /// synced to iCloud Keychain, never in backups, unreadable while the device is locked.
 enum Keychain {
-    static let service = "dev.wckdboy.autobot"
+    static let service = "ai.wckd.autobot"
 
     static func read(_ account: String, service: String = Keychain.service) throws -> Data? {
         var query = base(account, service)

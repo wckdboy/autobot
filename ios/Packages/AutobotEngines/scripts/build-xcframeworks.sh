@@ -68,7 +68,7 @@ EOF
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleExecutable</key><string>$name</string>
-    <key>CFBundleIdentifier</key><string>dev.wckdboy.autobot.$name</string>
+    <key>CFBundleIdentifier</key><string>ai.wckd.autobot.$name</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>$name</string>
     <key>CFBundlePackageType</key><string>FMWK</string>

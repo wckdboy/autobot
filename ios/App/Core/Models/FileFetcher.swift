@@ -252,7 +252,7 @@ struct FileFetcher: Sendable {
  (already resolved hop by hop) are handed over.
  */
 final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelegate, Sendable {
-    static let identifier = "dev.wckdboy.autobot.models"
+    static let identifier = "ai.wckd.autobot.models"
 
     private struct Pending {
         let continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>

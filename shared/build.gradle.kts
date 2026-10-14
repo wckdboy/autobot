@@ -18,7 +18,7 @@ kotlin {
             baseName = "AutobotShared"
             isStatic = true
             export(projects.agent.core)
-            binaryOption("bundleId", "dev.wckdboy.autobot.shared")
+            binaryOption("bundleId", "ai.wckd.autobot.shared")
             xcf.add(this)
         }
     }

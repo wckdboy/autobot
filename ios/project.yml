@@ -3,7 +3,7 @@
 name: Autobot
 
 options:
-  bundleIdPrefix: dev.wckdboy
+  bundleIdPrefix: ai.wckd
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -100,7 +100,7 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.wckdboy.autobot
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wckd.autobot
         PRODUCT_NAME: Autobot
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -118,7 +118,7 @@ targets:
       - target: Autobot
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.wckdboy.autobot.tests
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wckd.autobot.tests
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:

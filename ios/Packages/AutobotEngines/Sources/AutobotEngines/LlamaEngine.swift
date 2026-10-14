@@ -174,7 +174,7 @@ private final class Session: @unchecked Sendable {
     private var loadedCtx = 0
     private var loadedBackend: String?
 
-    private static let log = Logger(subsystem: "dev.wckdboy.autobot", category: "llama")
+    private static let log = Logger(subsystem: "ai.wckd.autobot", category: "llama")
 
     func initialize() {
         if initialized { return }

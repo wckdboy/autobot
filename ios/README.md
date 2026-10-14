@@ -41,7 +41,7 @@ The app ships `App/Resources/PrivacyInfo.xcprivacy` (no tracking, nothing collec
 required-reason APIs: user defaults, disk space, boot time, file attributes) and declares
 `ITSAppUsesNonExemptEncryption = NO` (standard crypto for data at rest and HTTPS only).
 
-**Signing.** Bundle id `dev.wckdboy.autobot`, team `XKA8CGC2AB`, automatic signing. Open
+**Signing.** Bundle id `ai.wckd.autobot`, team `XKA8CGC2AB`, automatic signing. Open
 `Autobot.xcodeproj`, pick your device, Run. The app uses the Data Protection entitlement
 (`NSFileProtectionComplete`); Xcode adds the capability to the App ID automatically.
 
@@ -58,7 +58,7 @@ empty install with sample sessions, providers, gallery images and audit entries;
 remote, settings, privacy, providers, backends, licenses) starts on that screen.
 
 ```sh
-xcrun simctl launch booted dev.wckdboy.autobot -AutobotScreenshots -AutobotDemo
+xcrun simctl launch booted ai.wckd.autobot -AutobotScreenshots -AutobotDemo
 ```
 
 ## Design tokens
