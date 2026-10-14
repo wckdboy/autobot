@@ -169,17 +169,11 @@ final class HttpClient: Sendable {
         let global = policy.mode
         let effective = RouteResolver.effectiveMode(global, override, socksFallback: policy.socksFallback)
         let label = requestTag ?? tag
-        let scheme = url?.scheme?.lowercased()
 
-        let blockReason: String? = if global == .offline && !(loopback && policy.allowLoopbackWhenOffline) {
-            "Offline mode: network access is disabled"
-        } else if scheme != "https" && !(scheme == "http" && loopback) {
-            "Cleartext HTTP is only allowed to loopback hosts"
-        } else if !loopback && expectedRoute != effective {
-            "Network route changed; request dropped to avoid leaking outside the selected route"
-        } else {
-            nil
-        }
+        let blockReason = RouteResolver.blockReason(
+            global: global, effective: effective, allowLoopbackWhenOffline: policy.allowLoopbackWhenOffline,
+            url: url, expectedRoute: expectedRoute,
+        )
 
         let route = loopback ? "loopback" : RouteResolver.routeLabel(effective)
         if let blockReason {

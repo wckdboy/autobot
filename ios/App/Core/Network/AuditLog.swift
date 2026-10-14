@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Synchronization
 
@@ -29,42 +30,35 @@ struct AuditEntry: Identifiable, Equatable, Sendable {
 }
 
 /**
- In-memory ring buffer of [AuditEntry]s. Never persisted, so the log is gone when the process
- dies (including after a panic wipe).
+ In-memory ring buffer of [AuditEntry]s: the shared Kotlin `AuditLog` (same capacity, fields and
+ path redaction as Android), with change notifications for SwiftUI. Never persisted, so the log is
+ gone when the process dies (including after a panic wipe).
  */
 final class AuditLog: Sendable {
     static let defaultCapacity = 500
 
-    private struct State {
-        var nextId: Int64 = 0
-        var entries: [AuditEntry] = []
-        var observers: [UUID: AsyncStream<[AuditEntry]>.Continuation] = [:]
-    }
-
-    private let capacity: Int
-    private let clock: @Sendable () -> Int64
-    private let state = Mutex(State())
+    /// Thread-safe on the Kotlin side (atomic ids, `MutableStateFlow.update`).
+    nonisolated(unsafe) private let log: AutobotShared.AuditLog
+    private let observers = Mutex<[UUID: AsyncStream<[AuditEntry]>.Continuation]>([:])
 
     init(capacity: Int = AuditLog.defaultCapacity, clock: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
         precondition(capacity > 0, "capacity must be positive")
-        self.capacity = capacity
-        self.clock = clock
+        log = AutobotShared.AuditLog(capacity: Int32(capacity), clock: { KotlinLong(value: clock()) })
     }
 
     /// Snapshot of the buffer, oldest first.
-    var entries: [AuditEntry] { state.withLock { $0.entries } }
+    var entries: [AuditEntry] {
+        ((log.entries.value as? [AutobotShared.AuditEntry]) ?? []).map(AuditEntry.init)
+    }
 
     /// Emits the current snapshot, then every change.
     func updates() -> AsyncStream<[AuditEntry]> {
         let (stream, continuation) = AsyncStream<[AuditEntry]>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let id = UUID()
-        let snapshot = state.withLock { s in
-            s.observers[id] = continuation
-            return s.entries
-        }
-        continuation.yield(snapshot)
+        observers.withLock { $0[id] = continuation }
+        continuation.yield(entries)
         continuation.onTermination = { [weak self] _ in
-            _ = self?.state.withLock { $0.observers.removeValue(forKey: id) }
+            _ = self?.observers.withLock { $0.removeValue(forKey: id) }
         }
         return stream
     }
@@ -82,38 +76,48 @@ final class AuditLog: Sendable {
         blocked: Bool,
         error: String? = nil,
     ) -> AuditEntry {
-        let cleanPath = String(path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")
-            .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
-        let now = clock()
-        let (entry, snapshot, observers) = state.withLock { s in
-            s.nextId += 1
-            let entry = AuditEntry(
-                id: s.nextId,
-                timeMillis: now,
-                method: method,
-                host: host,
-                path: cleanPath,
-                bytesSent: bytesSent.flatMap { $0 >= 0 ? $0 : nil },
-                bytesReceived: bytesReceived.flatMap { $0 >= 0 ? $0 : nil },
-                status: status,
-                tag: tag,
-                route: route,
-                blocked: blocked,
-                error: error,
-            )
-            if s.entries.count >= capacity { s.entries.removeFirst(s.entries.count - capacity + 1) }
-            s.entries.append(entry)
-            return (entry, s.entries, Array(s.observers.values))
-        }
-        observers.forEach { $0.yield(snapshot) }
+        let entry = AuditEntry(log.record(
+            method: method,
+            host: host,
+            path: path,
+            bytesSent: bytesSent.map { KotlinLong(value: $0) },
+            bytesReceived: bytesReceived.map { KotlinLong(value: $0) },
+            status: status.map { KotlinInt(value: Int32(clamping: $0)) },
+            tag: tag,
+            route: route,
+            blocked: blocked,
+            error: error,
+        ))
+        notify()
         return entry
     }
 
     func clear() {
-        let observers = state.withLock { s in
-            s.entries = []
-            return Array(s.observers.values)
-        }
-        observers.forEach { $0.yield([]) }
+        log.clear()
+        notify()
+    }
+
+    private func notify() {
+        let snapshot = entries
+        observers.withLock { Array($0.values) }.forEach { $0.yield(snapshot) }
+    }
+}
+
+extension AuditEntry {
+    init(_ e: AutobotShared.AuditEntry) {
+        self.init(
+            id: e.id,
+            timeMillis: e.timeMillis,
+            method: e.method,
+            host: e.host,
+            path: e.path,
+            bytesSent: e.bytesSent?.int64Value,
+            bytesReceived: e.bytesReceived?.int64Value,
+            status: e.status.map { Int($0.int32Value) },
+            tag: e.tag,
+            route: e.route,
+            blocked: e.blocked,
+            error: e.error,
+        )
     }
 }

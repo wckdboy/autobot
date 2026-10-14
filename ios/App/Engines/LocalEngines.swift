@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 #if canImport(AutobotEngines)
 import AutobotEngines
 #endif
@@ -31,8 +32,12 @@ enum Engines {
 
     static func map(_ error: Error) -> Error {
         #if canImport(AutobotEngines)
-        if let e = error as? EngineError { return LocalEngineError(code: e.code, message: e.message) }
+        if let e = error as? EngineError {
+            if e.code != "CANCELLED" { EngineErrors.record(e.message) }
+            return LocalEngineError(code: e.code, message: e.message)
+        }
         #endif
+        EngineErrors.record(error.localizedDescription)
         return error
     }
 }
@@ -66,6 +71,21 @@ struct LocalDevice: Sendable, Hashable {
     let description: String
     /// "cpu", "gpu" or "npu".
     let kind: String
+    var memoryTotalBytes: Int64 = 0
+}
+
+/// Recent engine failures for the diagnostics report: messages only, in memory, newest first.
+enum EngineErrors {
+    private static let log = Mutex<[String]>([])
+
+    static func record(_ message: String) {
+        log.withLock { list in
+            list.insert(message, at: 0)
+            if list.count > 10 { list.removeLast(list.count - 10) }
+        }
+    }
+
+    static var recent: [String] { log.withLock { $0 } }
 }
 
 /// llama.cpp on this device (Metal GPU or CPU); one resident model, requests run serially.
@@ -152,7 +172,7 @@ final class LocalLlm: Sendable {
     func devices() async -> [LocalDevice] {
         #if canImport(AutobotEngines)
         let list = (try? await LlamaEngine.shared.devices()) ?? []
-        return list.map { LocalDevice(name: $0.name, description: $0.description, kind: $0.kind) }
+        return list.map { LocalDevice(name: $0.name, description: $0.description, kind: $0.kind, memoryTotalBytes: Int64($0.memoryTotal)) }
         #else
         return []
         #endif

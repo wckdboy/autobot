@@ -1,7 +1,10 @@
+import AutobotShared
 import Foundation
 
 /**
- Global egress policy of the app.
+ Global egress policy of the app. The rules behind it (codec, routing, kill switch, audit) are the
+ shared Kotlin ones in `:shared` (`dev.wckdboy.autobot.core.network`), so both apps decide alike;
+ this enum is the Swift-friendly face of `NetworkMode`.
 
  `.offline` is the default: nothing leaves the device (loopback endpoints such as a local Ollama
  server may be allowed, see [NetworkPolicy.allowLoopbackWhenOffline]).
@@ -19,34 +22,33 @@ enum NetworkMode: Equatable, Hashable, Sendable {
     static let defaultTorHost = "127.0.0.1"
     static let defaultTorPort = 9050
 
-    /// Serializes a mode to a stable string for persistence (e.g. `tor:127.0.0.1:9050`).
+    /// Serializes a mode for persistence (e.g. `tor:127.0.0.1:9050`), with the shared codec, so
+    /// the stored value reads the same on Android.
     static func encode(_ mode: NetworkMode) -> String {
-        switch mode {
-        case .offline: "offline"
-        case .direct: "direct"
-        case .tor(let host, let port): "tor:\(host):\(port)"
-        case .socks5(let host, let port): "socks5:\(host):\(port)"
+        NetworkModeCompanion.shared.encode(mode: mode.shared)
+    }
+
+    /// Parses [encode]'s output (shared codec). Anything unknown or malformed falls back to `.offline`.
+    static func decode(_ value: String?) -> NetworkMode {
+        NetworkMode(shared: NetworkModeCompanion.shared.decode(value: value))
+    }
+
+    /// The shared Kotlin value the routing rules take.
+    var shared: any AutobotShared.NetworkMode {
+        switch self {
+        case .offline: NetworkModeOffline.shared
+        case .direct: NetworkModeDirect.shared
+        case .tor(let host, let port): NetworkModeTor(host: host, port: Int32(clamping: port))
+        case .socks5(let host, let port): NetworkModeSocks5(host: host, port: Int32(clamping: port))
         }
     }
 
-    /// Parses [encode]'s output. Anything unknown or malformed falls back to `.offline`.
-    static func decode(_ value: String?) -> NetworkMode {
-        guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty else { return .offline }
-        let kind = value.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
-        let rest = value.firstIndex(of: ":").map { String(value[value.index(after: $0)...]) } ?? ""
-        func endpoint() -> (String, Int)? {
-            guard let colon = rest.lastIndex(of: ":") else { return nil }
-            let host = String(rest[..<colon])
-            guard !host.trimmingCharacters(in: .whitespaces).isEmpty,
-                  let port = Int(rest[rest.index(after: colon)...]), (1 ... 65535).contains(port) else { return nil }
-            return (host, port)
-        }
-        switch kind {
-        case "offline": return .offline
-        case "direct": return .direct
-        case "tor": return endpoint().map { .tor(host: $0.0, port: $0.1) } ?? .offline
-        case "socks5": return endpoint().map { .socks5(host: $0.0, port: $0.1) } ?? .offline
-        default: return .offline
+    init(shared mode: any AutobotShared.NetworkMode) {
+        switch mode {
+        case let tor as NetworkModeTor: self = .tor(host: tor.host, port: Int(tor.port))
+        case let socks as NetworkModeSocks5: self = .socks5(host: socks.host, port: Int(socks.port))
+        case is NetworkModeDirect: self = .direct
+        default: self = .offline
         }
     }
 
@@ -61,6 +63,15 @@ enum NetworkMode: Equatable, Hashable, Sendable {
 /// Per-client routing override (mirrors a provider's routing choice). Resolved by [RouteResolver].
 enum RouteOverride: String, CaseIterable, Codable, Sendable {
     case inherit = "INHERIT", direct = "DIRECT", tor = "TOR", socks5 = "SOCKS5"
+
+    var shared: AutobotShared.RouteOverride {
+        switch self {
+        case .inherit: .inherit
+        case .direct: .direct
+        case .tor: .tor
+        case .socks5: .socks5
+        }
+    }
 }
 
 /// Thrown for any request the kill switch refuses, before any I/O.

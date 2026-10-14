@@ -33,9 +33,11 @@ Kotlin framework. Xcode resolves Swift packages before pre-actions run, so on a 
 (the native and Kotlin frameworks ship arm64 simulator slices). In the Simulator llama.cpp and
 whisper.cpp run on the CPU, and the Neural Engine is unavailable.
 
-If the Kotlin framework is not linked (the source keeps `#if canImport(AutobotShared)`), agent
-sessions fall back to `InterimAgentRuntime`: plain streaming chat over the Swift
-OpenAI-compatible client in `Providers/`, without tools.
+`AutobotShared` is required: besides the agent runtime it holds the network rules both apps run
+(`NetworkMode` codec, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`). `Core/Network`
+only adapts them to URLSession; the Swift network tests double as cross-platform conformance
+tests. (`InterimAgentRuntime`, plain streaming chat without tools, remains as an agent-runtime
+fallback in the source.)
 
 The app ships `App/Resources/PrivacyInfo.xcprivacy` (no tracking, nothing collected,
 required-reason APIs: user defaults, disk space, boot time, file attributes) and declares
@@ -101,7 +103,7 @@ the kill switch), the on-device engine (`LocalEngineHost` over `LlamaEngine`), e
 logs, decrypted attachments and the provider list, and renders the `SessionState` JSON. The
 session log is the same `SessionEvent` JSON lines on both platforms.
 
-**Network.** Every request goes through `HttpClientFactory.create(tag:override:)`: an ephemeral
+**Network.** The rules are the shared Kotlin ones (see above). Every request goes through `HttpClientFactory.create(tag:override:)`: an ephemeral
 `URLSession` (no cache, cookies or credential storage), the kill switch before any I/O (Offline
 blocks everything but loopback; cleartext only to loopback; a route change after the client was
 built drops the request), header scrub (`User-Agent: Autobot`, fixed `Accept-Language`, no

@@ -9,6 +9,8 @@ struct ComputeDevices: Equatable, Sendable {
     var npuError: String? = nil
     /// Backends llama.cpp can run chat models on (it has no Neural Engine backend).
     var llmBackends: Set<Backend> = [.cpu]
+    /// Every device llama.cpp registered (for the diagnostics report).
+    var engineDevices: [LocalDevice] = []
 }
 
 /**
@@ -51,7 +53,8 @@ final class ComputeBench {
     func devices() async -> ComputeDevices {
         var result = Self.quickDevices()
         guard Engines.linked else { return result }
-        for d in await llm.devices() where d.kind == "gpu" {
+        result.engineDevices = await llm.devices()
+        for d in result.engineDevices where d.kind == "gpu" {
             result.gpu = d.description.isEmpty ? d.name : d.description
             result.llmBackends.insert(.gpu)
         }

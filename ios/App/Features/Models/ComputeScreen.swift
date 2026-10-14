@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// MODELS → COMPUTE (port of `ComputeScreen.kt`): the phone's CPU, GPU and Neural Engine; per
 /// model, force a backend or benchmark them; `auto` then uses the fastest measured one.
@@ -9,11 +10,17 @@ struct ComputeScreen: View {
     @State private var devices: ComputeDevices?
     @State private var running: String?
     @State private var device: DeviceProfile?
+    @State private var report: String?
 
     var body: some View {
         let models = app.library.models.filter { $0.isReady && ($0.engine == .llama || $0.engine == .coreML) }
         VStack(spacing: 0) {
-            AutobotTopBar(title: "Compute", onBack: { nav.back() })
+            AutobotTopBar(title: "Compute", onBack: { nav.back() }) {
+                if DiagnosticsReportBuilder.available {
+                    Tag("report") { report = DiagnosticsReportBuilder.render(app: app, devices: devices) }
+                        .padding(.trailing, 4)
+                }
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -40,8 +47,17 @@ struct ComputeScreen: View {
             }
         }
         .background(c.background)
+        .sheet(item: Binding(get: { report.map(ReportText.init) }, set: { report = $0?.text })) { r in
+            ReportSheet(text: r.text) { report = nil }
+        }
         .task {
             device = DeviceProfile.current()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-AutobotReport") {
+                try? await Task.sleep(for: .milliseconds(800))
+                report = DiagnosticsReportBuilder.render(app: app, devices: devices)
+            }
+            #endif
             devices = ComputeBench.quickDevices()
             devices = await ComputeBench(library: app.library, profile: app.compute, llm: app.llm).devices()
         }
@@ -125,4 +141,43 @@ private struct ModelCompute: View {
     }
 
     private func fmt(_ v: Double) -> String { String(format: v >= 100 ? "%.0f" : "%.1f", v) }
+}
+
+private struct ReportText: Identifiable {
+    let text: String
+    var id: String { text }
+}
+
+/// Shows the report before it is copied: the user sees exactly what they are about to share.
+private struct ReportSheet: View {
+    let text: String
+    let onClose: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Diagnostics report").textStyle(.headlineSmall).foregroundStyle(c.onSurface)
+            MicroLabel("no prompts, file paths or identifiers · nothing is sent", lines: 2)
+            ScrollView {
+                Text(text)
+                    .textStyle(.codeBlock)
+                    .foregroundStyle(c.onSurfaceVariant)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(c.surfaceContainerLowest))
+            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
+            HStack(spacing: 8) {
+                GhostButton("Close", action: onClose)
+                PrimaryButton("Copy") {
+                    UIPasteboard.general.string = text
+                    onClose()
+                }
+            }
+        }
+        .padding(16)
+        .background(c.background.ignoresSafeArea())
+        .presentationDetents([.large])
+    }
 }
