@@ -265,29 +265,7 @@ kept in sync with `Catalog.kt` by `SharedCatalogTest`) are shared by both apps.
 
 ## Roadmap
 
-1. **Skeleton & security**: modules, encrypted storage, app lock, chat with remote providers and
-   the network kill switch. *(done)*
-2. **On-device engines**: llama.cpp and stable-diffusion.cpp on CPU, plus a model manager with
-   catalog, Hugging Face and Civitai sources, resumable verified downloads. *(done)* Adreno GPU
-   via OpenCL, NPU/GPU image engine, vision, dictation, benchmarks, llama.cpp on the Hexagon NPU.
-   *(built, awaiting on-device verification)*
-3. **Agent runtime**, modeled on the DeepSeek Harness plugin architecture: tools, permission gate,
-   approvals, compaction, skills, workspace. *(done)* Next: MCP (streamable HTTP), subagents.
-4. **Image generation**: Imagine UI, mask editor, LoRA, encrypted gallery, A1111 + SSE backends.
-   *(done)* On-device stable-diffusion.cpp with LoRA. *(done)* SD 1.5 / SDXL on the Hexagon NPU
-   from precompiled packages. *(in development)* Next: resolution patches, Anima, LoRA on the NPU. No
-   code is taken from `xororz/local-dream` (CC BY-NC).
-5. **Hardening**:
-   - built-in Tor
-   - audit log polish
-   - panic wipe triggers
-   - incognito improvements
-6. **Experimental**:
-   - video
-   - `dsh` sidecar
-   - baseline profiles
-7. **iOS**: SwiftUI app on the shared Kotlin Multiplatform runtime, llama.cpp on Metal, Core ML
-   Stable Diffusion on the Neural Engine, whisper.cpp dictation. *(1.2)*
+See [ROADMAP.md](ROADMAP.md): goals, release rules and the phased plan for both platforms.
 
 ## License
 

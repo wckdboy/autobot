@@ -22,8 +22,8 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: XKA8CGC2AB
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.2.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "1.2.1"
+    CURRENT_PROJECT_VERSION: "4"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     ENABLE_BITCODE: NO
     DEAD_CODE_STRIPPING: YES
@@ -62,6 +62,17 @@ targets:
       - framework: Frameworks/AutobotShared.xcframework
         embed: false
         link: true
+    preBuildScripts:
+      - name: Verify AutobotShared
+        basedOnDependencyAnalysis: false
+        script: |
+          [ "${AUTOBOT_SKIP_SHARED_BUILD:-}" = "1" ] && exit 0
+          status="$(cat "$PROJECT_DIR/Frameworks/build-shared.status" 2>/dev/null || echo missing)"
+          if [ "$status" != "ok $CONFIGURATION" ]; then
+            echo "error: the Kotlin :shared build did not succeed for $CONFIGURATION ($status). See ios/Frameworks/build-shared.log, or set AUTOBOT_SKIP_SHARED_BUILD=1 to link the existing framework."
+            tail -20 "$PROJECT_DIR/Frameworks/build-shared.log" 2>/dev/null || true
+            exit 1
+          fi
     entitlements:
       path: App/Autobot.entitlements
       properties:
@@ -130,7 +141,13 @@ schemes:
           script: |
             mkdir -p "$PROJECT_DIR/Frameworks"
             "$PROJECT_DIR/scripts/bootstrap-engines.sh" > "$PROJECT_DIR/Frameworks/bootstrap-engines.log" 2>&1 || true
-            "$PROJECT_DIR/scripts/build-shared.sh" "$CONFIGURATION" > "$PROJECT_DIR/Frameworks/build-shared.log" 2>&1 || true
+            # Pre-actions cannot fail a build; the target's "Verify AutobotShared" phase does,
+            # from the status written here.
+            if "$PROJECT_DIR/scripts/build-shared.sh" "$CONFIGURATION" > "$PROJECT_DIR/Frameworks/build-shared.log" 2>&1; then
+              echo "ok $CONFIGURATION" > "$PROJECT_DIR/Frameworks/build-shared.status"
+            else
+              echo "failed $CONFIGURATION" > "$PROJECT_DIR/Frameworks/build-shared.status"
+            fi
       targets:
         Autobot: all
         AutobotTests: [test]

@@ -13,9 +13,9 @@ android {
     ndkVersion = libs.versions.ndk.get()
 
     defaultConfig {
-        applicationId = "dev.wckdboy.autobot"
-        versionCode = 3
-        versionName = "1.2.0"
+        applicationId = "ai.wckd.autobot"
+        versionCode = 4
+        versionName = "1.2.1"
     }
 
     // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the

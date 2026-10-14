@@ -162,7 +162,7 @@ enum Tokens {
 
     enum Typography {
         static let bodyLarge = TypeStyle(font: .sans, size: 15.0, lineHeight: 23.0, weight: 400.0, letterSpacing: 0.1, trim: false, tabular: false)
-        static let bodyMedium = TypeStyle(font: .sans, size: 14.0, lineHeight: 20.0, weight: 400.0, letterSpacing: 0.25, trim: false, tabular: false)
+        static let bodyMedium = TypeStyle(font: .sans, size: 14.0, lineHeight: 20.0, weight: 400.0, letterSpacing: 0.2, trim: false, tabular: false)
         static let bodySmall = TypeStyle(font: .sans, size: 12.5, lineHeight: 17.0, weight: 400.0, letterSpacing: 0.4, trim: false, tabular: false)
         static let code = TypeStyle(font: .mono, size: 13.0, lineHeight: 18.0, weight: 400.0, letterSpacing: 0.0, trim: false, tabular: false)
         static let codeBlock = TypeStyle(font: .mono, size: 12.0, lineHeight: 17.0, weight: 400.0, letterSpacing: 0.0, trim: false, tabular: false)

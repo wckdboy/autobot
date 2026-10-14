@@ -9,4 +9,6 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+
+    testImplementation(libs.kotlinx.serialization.json)
 }
