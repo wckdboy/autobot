@@ -1,0 +1,144 @@
+import Observation
+import SwiftUI
+import UIKit
+
+/// Bottom-bar destinations (RUN · MODELS · REMOTE · SETTINGS). Selecting one resets the stack.
+enum Tab: String, CaseIterable, Hashable {
+    case run, models, remote, settings
+
+    var label: String { rawValue }
+}
+
+/// Detail screens pushed on top of a tab root (they hide the bottom bar).
+enum Destination: Hashable {
+    /// All sessions.
+    case chatList
+    case chat(conversationId: String)
+    /// [handoffId]: gallery item to load ([asInit] = as img2img input, else reuse its params).
+    case imagine(handoffId: String? = nil, asInit: Bool = false)
+    case gallery(openId: String? = nil)
+    case providers
+    case privacyCenter
+    case imageBackends
+    case accounts
+    case compute
+    case licenses
+}
+
+/// One back stack whose root is a tab (Android's Navigation 3 `NavDisplay`).
+@MainActor
+@Observable
+final class Navigator {
+    var tab: Tab = .run
+    var path: [Destination] = []
+
+    init() {
+        #if DEBUG
+        // UI work: `-AutobotOpen <screen>` starts on that screen.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count {
+            switch args[i + 1] {
+            case "imagine": path = [.imagine()]
+            case "gallery": path = [.gallery()]
+            case "backends": path = [.imageBackends]
+            case "models": tab = .models
+            case "compute": tab = .models; path = [.compute]
+            case "accounts": tab = .models; path = [.accounts]
+            case "remote": tab = .remote
+            case "settings": tab = .settings
+            case "sessions": path = [.chatList]
+            case "privacy": tab = .settings; path = [.privacyCenter]
+            case "providers": tab = .settings; path = [.providers]
+            case "licenses": tab = .settings; path = [.licenses]
+            default: break
+            }
+        }
+        #endif
+    }
+
+    func push(_ destination: Destination) {
+        if path.last != destination { path.append(destination) }
+    }
+
+    func back() {
+        if !path.isEmpty { path.removeLast() }
+    }
+
+    func switchTo(_ tab: Tab) {
+        path = []
+        self.tab = tab
+    }
+
+    /// Replaces the whole stack (welcome screen shortcuts).
+    func reset(_ tab: Tab, _ destinations: [Destination] = []) {
+        self.tab = tab
+        path = destinations
+    }
+}
+
+/**
+ Navigation host: the tab root with pushed details on top. The image studio is printed on paper
+ (light) as in the mockups. Screens draw their own riso top bars, so the system navigation bar is
+ hidden (the edge-swipe back gesture stays enabled).
+ */
+struct AutobotNavHost: View {
+    @Environment(Navigator.self) private var nav
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        @Bindable var nav = nav
+        VStack(spacing: 0) {
+            NavigationStack(path: $nav.path) {
+                root
+                    .toolbar(.hidden, for: .navigationBar)
+                    .navigationDestination(for: Destination.self) { destination in
+                        screen(destination)
+                            .toolbar(.hidden, for: .navigationBar)
+                            .background(c.background.ignoresSafeArea())
+                    }
+            }
+            if nav.path.isEmpty {
+                AutobotNavBar(items: Tab.allCases.map { NavItem(key: $0, label: $0.label) }, selected: nav.tab) { selected in
+                    if selected != nav.tab { nav.switchTo(selected) }
+                }
+            }
+        }
+        .background(c.background.ignoresSafeArea())
+    }
+
+    @ViewBuilder private var root: some View {
+        switch nav.tab {
+        case .run: RunScreen()
+        case .models: ModelsScreen()
+        case .remote: RemoteScreen()
+        case .settings: SettingsScreen()
+        }
+    }
+
+    @ViewBuilder private func screen(_ destination: Destination) -> some View {
+        switch destination {
+        case .chatList: ChatListScreen()
+        case .chat(let id): ChatScreen(conversationId: id).id(id)
+        case .imagine(let handoff, let asInit): ImagineScreen(handoffId: handoff, asInit: asInit).paperTheme()
+        case .gallery(let openId): GalleryScreen(openId: openId)
+        case .providers: ProvidersScreen()
+        case .privacyCenter: PrivacyCenterScreen()
+        case .imageBackends: BackendsScreen()
+        case .accounts: AccountsScreen()
+        case .compute: ComputeScreen()
+        case .licenses: LicensesScreen()
+        }
+    }
+}
+
+/// Keeps the interactive pop gesture working while the navigation bar is hidden.
+extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.delegate = self
+    }
+
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        viewControllers.count > 1
+    }
+}

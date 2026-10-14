@@ -1,0 +1,8 @@
+{
+  "colors" : [
+    { "color" : { "color-space" : "srgb", "components" : { "red" : "0xEF", "green" : "0xEA", "blue" : "0xE2", "alpha" : "1.000" } }, "idiom" : "universal" },
+    { "appearances" : [ { "appearance" : "luminosity", "value" : "dark" } ],
+      "color" : { "color-space" : "srgb", "components" : { "red" : "0x0E", "green" : "0x0E", "blue" : "0x0E", "alpha" : "1.000" } }, "idiom" : "universal" }
+  ],
+  "info" : { "author" : "gen-icons", "version" : 1 }
+}

@@ -1,0 +1,51 @@
+import Foundation
+import Observation
+
+/**
+ Observable state of one agent session, as the chat screen renders it (the bridge's
+ `SessionState`: projected transcript, live frame, approvals, question, settings).
+ */
+@MainActor
+@Observable
+final class AgentSession {
+    let id: String
+    var state: ChatSessionState
+
+    init(id: String) {
+        self.id = id
+        state = ChatSessionState(sessionId: id)
+    }
+}
+
+/**
+ Everything the UI needs from the agent runtime. Android runs every chat / agent / code session
+ through `:agent:runtime`'s `AgentHost` (the Kotlin port of DeepSeek Harness). On iOS the same
+ Kotlin runtime runs from `AutobotShared.xcframework` ([SharedAgentRuntime], JSON over callbacks);
+ [InterimAgentRuntime] (plain streaming chat) is the fallback for builds without the framework.
+ */
+@MainActor
+protocol AgentRuntime: AnyObject {
+    /// Sessions with a turn in progress (for list indicators).
+    var running: Set<String> { get }
+    /// Whether this runtime executes tools (the interim one does not).
+    var supportsTools: Bool { get }
+
+    /// The session for [conversationId], opening it on first use with the conversation's
+    /// provider and model.
+    func session(_ conversationId: String) -> AgentSession
+    /// Sends a prompt (with attached image ids): a new turn, or queued behind the running one.
+    func send(_ conversationId: String, text: String, images: [String]) async
+    func cancel(_ conversationId: String)
+    func answerApproval(callId: String, outcome: ApprovalOutcome)
+    func answerQuestion(callId: String, answers: [String]?)
+    func setToolsEnabled(_ conversationId: String, _ enabled: Bool)
+    func setPermission(_ conversationId: String, _ preset: PermissionPreset)
+    /// Switches the session's provider / model.
+    func setRoute(_ conversationId: String, providerId: String, model: String)
+    /// Manual `/compact`.
+    func compact(_ conversationId: String)
+    /// Stops and forgets the agent (before deleting its conversation).
+    func discard(_ conversationId: String)
+    /// Panic wipe: stop everything and drop in-memory logs.
+    func shutdown()
+}

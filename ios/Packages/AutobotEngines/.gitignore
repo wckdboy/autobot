@@ -1,0 +1,5 @@
+# Built by scripts/build-xcframeworks.sh
+/Frameworks/*.xcframework
+/.build-native/
+/.build/
+/.swiftpm/

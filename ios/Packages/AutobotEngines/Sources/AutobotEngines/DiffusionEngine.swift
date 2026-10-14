@@ -1,0 +1,382 @@
+import CoreGraphics
+import CoreImage
+import CoreML
+import Foundation
+import ImageIO
+@preconcurrency import StableDiffusion
+import Synchronization
+import UniformTypeIdentifiers
+
+public enum DiffusionMode: String, Sendable, Codable, CaseIterable {
+    case txt2img, img2img, inpaint
+}
+
+/// Generation parameters, shaped like Android's `DiffusionRequest`. Pixel inputs travel
+/// separately in [DiffusionInputs].
+public struct DiffusionRequest: Sendable, Codable, Hashable {
+    public var mode: DiffusionMode = .txt2img
+    public var prompt: String = ""
+    public var negativePrompt: String = ""
+    /// Core ML models are compiled for one resolution; these are ignored when they differ.
+    public var width: Int = 512
+    public var height: Int = 512
+    public var steps: Int = 20
+    public var cfgScale: Float = 7
+    /// `-1` for random.
+    public var seed: Int64 = -1
+    public var sampler: String = "DPM++ 2M"
+    public var scheduler: String? = "Karras"
+    public var batchCount: Int = 1
+    public var denoiseStrength: Float = 0.6
+    /// Feather radius (px) of the inpaint mask edge.
+    public var maskBlur: Int = 4
+    public var model: String?
+
+    public init(
+        mode: DiffusionMode = .txt2img, prompt: String = "", negativePrompt: String = "", width: Int = 512, height: Int = 512,
+        steps: Int = 20, cfgScale: Float = 7, seed: Int64 = -1, sampler: String = "DPM++ 2M", scheduler: String? = "Karras",
+        batchCount: Int = 1, denoiseStrength: Float = 0.6, maskBlur: Int = 4, model: String? = nil,
+    ) {
+        self.mode = mode
+        self.prompt = prompt
+        self.negativePrompt = negativePrompt
+        self.width = width
+        self.height = height
+        self.steps = steps
+        self.cfgScale = cfgScale
+        self.seed = seed
+        self.sampler = sampler
+        self.scheduler = scheduler
+        self.batchCount = batchCount
+        self.denoiseStrength = denoiseStrength
+        self.maskBlur = maskBlur
+        self.model = model
+    }
+}
+
+/// Encoded images (PNG/JPEG) for img2img and inpaint. Mask: white = repaint, black = keep.
+public struct DiffusionInputs: Sendable {
+    public var initImage: Data?
+    public var mask: Data?
+
+    public init(initImage: Data? = nil, mask: Data? = nil) {
+        self.initImage = initImage
+        self.mask = mask
+    }
+}
+
+public enum DiffusionEvent: Sendable {
+    /// Sampling progress of image [image]; [preview] is a JPEG when previews are on.
+    case progress(image: Int, step: Int, totalSteps: Int, preview: Data?)
+    /// One finished image.
+    case result(DiffusionImage)
+}
+
+public struct DiffusionImage: Sendable, Hashable {
+    public let index: Int
+    /// PNG bytes.
+    public let image: Data
+    public let seed: Int64
+    public let width: Int
+    public let height: Int
+    public let durationMs: Int64
+    public let info: String?
+}
+
+/// A Core ML Stable Diffusion model folder (compiled `.mlmodelc` resources, as produced by
+/// `python_coreml_stable_diffusion.torch2coreml --bundle-resources-for-swift-cli`).
+public struct CoreMLDiffusionModel: Sendable, Hashable {
+    public enum Arch: String, Sendable { case sd, sdxl }
+
+    /// `split_einsum` runs well on the Neural Engine, `original` on the GPU.
+    public enum Attention: String, Sendable { case splitEinsum = "split_einsum", original }
+
+    public let folder: URL
+    public let arch: Arch
+    public let width: Int
+    public let height: Int
+    /// A VAE encoder is bundled (needed for img2img and inpaint).
+    public let supportsImageToImage: Bool
+    public let attention: Attention?
+
+    /// Where [ComputeBackend.auto] runs this model.
+    public var preferredBackend: ComputeBackend {
+        attention == .original ? .gpu : .npu
+    }
+
+    public static func inspect(_ folder: URL) throws -> CoreMLDiffusionModel {
+        func has(_ name: String) -> Bool { FileManager.default.fileExists(atPath: folder.appending(path: name).path) }
+        guard has("VAEDecoder.mlmodelc"), has("vocab.json"), has("merges.txt"),
+              has("Unet.mlmodelc") || (has("UnetChunk1.mlmodelc") && has("UnetChunk2.mlmodelc"))
+        else {
+            if has("MultiModalDiffusionTransformer.mlmodelc") {
+                throw EngineError("UNSUPPORTED", "Stable Diffusion 3 models are not supported")
+            }
+            throw EngineError("UNSUPPORTED", "\(folder.lastPathComponent) is not a Core ML Stable Diffusion model")
+        }
+        let arch: Arch = has("TextEncoder2.mlmodelc") ? .sdxl : .sd
+        let native = arch == .sdxl ? 1024 : 512
+        let size = (try? Data(contentsOf: folder.appending(path: "VAEDecoder.mlmodelc/metadata.json")))
+            .flatMap(Self.latentSize(metadata:))
+        let name = folder.path.lowercased()
+        let attention: Attention? = name.contains("split_einsum") || name.contains("split-einsum") ? .splitEinsum
+            : name.contains("original") ? .original : nil
+        return CoreMLDiffusionModel(
+            folder: folder,
+            arch: arch,
+            width: size.map { $0.width * 8 } ?? native,
+            height: size.map { $0.height * 8 } ?? native,
+            supportsImageToImage: has("VAEEncoder.mlmodelc"),
+            attention: attention,
+        )
+    }
+
+    /// Latent size from a compiled VAE decoder's `metadata.json` (input `z`, shape `[1, 4, H, W]`).
+    static func latentSize(metadata: Data) -> (width: Int, height: Int)? {
+        guard let root = try? JSONSerialization.jsonObject(with: metadata) as? [[String: Any]],
+              let inputs = root.first?["inputSchema"] as? [[String: Any]]
+        else { return nil }
+        let z = inputs.first { $0["name"] as? String == "z" } ?? inputs.first
+        guard let shape = z?["shape"] as? String else { return nil }
+        let dims = shape.split { !"0123456789".contains($0) }.compactMap { Int($0) }
+        guard dims.count == 4, dims[2] > 0, dims[3] > 0 else { return nil }
+        return (dims[3], dims[2])
+    }
+}
+
+/**
+ * On-device image generation with Core ML (Apple's ml-stable-diffusion): the Neural Engine for
+ * `split_einsum` models, Metal for `original` ones. The iOS counterpart of Android's QNN NPU
+ * path. Supports SD 1.5/2.x and SDXL, txt2img, img2img and inpaint (masked img2img: the result
+ * is blended back into the init image through the feathered mask). Nothing is fetched or sent.
+ * Callers should unload the chat model first so both never compete for RAM, as Android does.
+ */
+public actor DiffusionEngine {
+    public static let shared = DiffusionEngine()
+
+    /// Samplers the Core ML pipeline offers; other names map to the closest one (see [schedulerFor]).
+    public static let samplers = ["DPM++ 2M", "PNDM"]
+    public static let schedulers = ["Karras", "Leading", "Linspace"]
+
+    private let worker = NativeWorker("autobot.diffusion")
+    private let state = PipelineState()
+
+    public init() {}
+
+    /**
+     * Generates `request.batchCount` images (seeds seed, seed+1, …). [backend] picks the Core ML
+     * compute units (`.npu` = CPU + Neural Engine, `.gpu` = CPU + GPU, `.auto` = the model's
+     * preferred one). With [previewEvery] > 0 a JPEG preview is decoded every N steps (slower).
+     * Cancelling the calling task (or [cancel]) stops after the current step.
+     */
+    public func generate(
+        model: CoreMLDiffusionModel,
+        request: DiffusionRequest,
+        inputs: DiffusionInputs = DiffusionInputs(),
+        backend: ComputeBackend = .auto,
+        previewEvery: Int = 0,
+        onEvent: @escaping @Sendable (DiffusionEvent) -> Void = { _ in },
+    ) async throws -> [DiffusionImage] {
+        try Task.checkCancellation()
+        let state = state
+        let units = (backend == .auto ? model.preferredBackend : backend).computeUnits
+        return try await worker.run({
+            try state.generate(model: model, units: units, request: request, inputs: inputs, previewEvery: previewEvery, onEvent: onEvent)
+        }, onCancel: {
+            state.cancel()
+        })
+    }
+
+    public nonisolated func cancel() {
+        state.cancel()
+    }
+
+    /// Frees the loaded pipeline.
+    public func unload() async {
+        let state = state
+        _ = try? await worker.run { state.unload() }
+    }
+
+    /// A1111-style sampler/scheduler names → what the Core ML pipeline offers.
+    static func schedulerFor(sampler: String, scheduler: String?) -> (StableDiffusionScheduler, TimeStepSpacing, label: String) {
+        let s = sampler.lowercased()
+        if s.contains("pndm") || s.contains("plms") { return (.pndmScheduler, .linspace, "PNDM") }
+        let n = (scheduler ?? "").lowercased()
+        if n.contains("karras") || s.contains("karras") { return (.dpmSolverMultistepScheduler, .karras, "DPM++ 2M Karras") }
+        if n.contains("linspace") { return (.dpmSolverMultistepScheduler, .linspace, "DPM++ 2M") }
+        return (.dpmSolverMultistepScheduler, .leading, "DPM++ 2M")
+    }
+}
+
+/// The loaded pipeline, confined to the diffusion thread except for the cancel flag.
+private final class PipelineState: @unchecked Sendable {
+    private var pipeline: (any StableDiffusionPipelineProtocol)?
+    private var key: (URL, MLComputeUnits)?
+    private let cancelled = Atomic<Bool>(false)
+
+    func cancel() {
+        cancelled.store(true, ordering: .relaxed)
+    }
+
+    func unload() {
+        pipeline?.unloadResources()
+        pipeline = nil
+        key = nil
+    }
+
+    private func load(_ model: CoreMLDiffusionModel, units: MLComputeUnits) throws -> any StableDiffusionPipelineProtocol {
+        if let pipeline, let key, key.0 == model.folder, key.1 == units { return pipeline }
+        unload()
+        let config = MLModelConfiguration()
+        config.computeUnits = units
+        // Load lazily and drop each stage after use on phones; SDXL always needs it.
+        let reduceMemory = model.arch == .sdxl || ProcessInfo.processInfo.physicalMemory < 12 << 30
+        let loaded: any StableDiffusionPipelineProtocol
+        switch model.arch {
+        case .sd:
+            loaded = try StableDiffusionPipeline(
+                resourcesAt: model.folder, controlNet: [], configuration: config, disableSafety: true, reduceMemory: reduceMemory)
+        case .sdxl:
+            loaded = try StableDiffusionXLPipeline(resourcesAt: model.folder, configuration: config, reduceMemory: reduceMemory)
+        }
+        try loaded.loadResources()
+        pipeline = loaded
+        key = (model.folder, units)
+        return loaded
+    }
+
+    func generate(
+        model: CoreMLDiffusionModel,
+        units: MLComputeUnits,
+        request: DiffusionRequest,
+        inputs: DiffusionInputs,
+        previewEvery: Int,
+        onEvent: @Sendable (DiffusionEvent) -> Void,
+    ) throws -> [DiffusionImage] {
+        cancelled.store(false, ordering: .relaxed)
+        let pipeline = try load(model, units: units)
+        let w = model.width, h = model.height
+
+        var initImage: CGImage?
+        var mask: CIImage?
+        if request.mode != .txt2img, let data = inputs.initImage {
+            guard model.supportsImageToImage else {
+                throw EngineError("UNSUPPORTED", "this model has no VAE encoder, so it cannot do img2img")
+            }
+            guard let decoded = Images.decode(data) else { throw EngineError("UNSUPPORTED", "unreadable init image") }
+            initImage = Images.scaled(decoded, w, h)
+            if request.mode == .inpaint, let maskData = inputs.mask {
+                guard let decodedMask = Images.decode(maskData) else { throw EngineError("UNSUPPORTED", "unreadable mask") }
+                mask = Images.featheredMask(decodedMask, w, h, blur: request.maskBlur)
+            }
+        }
+
+        let (schedulerType, spacing, samplerLabel) = DiffusionEngine.schedulerFor(sampler: request.sampler, scheduler: request.scheduler)
+        let baseSeed = request.seed < 0 ? UInt32.random(in: 0..<UInt32(Int32.max)) : UInt32(truncatingIfNeeded: request.seed)
+        let units = units == .cpuAndNeuralEngine ? "npu" : units == .cpuAndGPU ? "gpu" : units == .cpuOnly ? "cpu" : "auto"
+        let info = [model.folder.lastPathComponent, units, samplerLabel].joined(separator: " · ")
+        let scale: Float32 = model.arch == .sdxl ? 0.13025 : 0.18215
+
+        var out: [DiffusionImage] = []
+        for index in 0..<max(1, min(request.batchCount, 8)) {
+            let started = DispatchTime.now()
+            var config = PipelineConfiguration(prompt: request.prompt)
+            config.negativePrompt = request.negativePrompt
+            config.stepCount = max(1, request.steps)
+            config.guidanceScale = request.cfgScale
+            config.seed = baseSeed &+ UInt32(index)
+            config.imageCount = 1
+            config.disableSafety = true
+            config.schedulerType = schedulerType
+            config.schedulerTimestepSpacing = spacing
+            config.rngType = .torchRNG
+            config.encoderScaleFactor = scale
+            config.decoderScaleFactor = scale
+            config.useDenoisedIntermediates = previewEvery > 0
+            if model.arch == .sdxl {
+                config.originalSize = Float32(max(w, h))
+                config.targetSize = Float32(max(w, h))
+            }
+            if let initImage {
+                config.startingImage = initImage
+                config.strength = min(max(request.denoiseStrength, 0.01), 0.99)
+            }
+
+            let images = try pipeline.generateImages(configuration: config) { progress in
+                var preview: Data?
+                if previewEvery > 0, progress.step % previewEvery == 0,
+                   let image = (try? pipeline.decodeToImages(progress.currentLatentSamples, configuration: progress.configuration))?.first ?? nil {
+                    preview = Images.encode(image, type: .jpeg)
+                }
+                onEvent(.progress(image: index, step: progress.step + 1, totalSteps: progress.stepCount, preview: preview))
+                return !cancelled.load(ordering: .relaxed)
+            }
+            if cancelled.load(ordering: .relaxed) { throw EngineError.cancelled }
+            guard var image = images.first ?? nil else { throw EngineError("BACKEND", "the model produced no image") }
+            if let initImage, let mask, let blended = Images.blend(image, over: initImage, mask: mask) {
+                image = blended
+            }
+            guard let png = Images.encode(image, type: .png) else { throw EngineError("BACKEND", "could not encode the image") }
+            let result = DiffusionImage(
+                index: index,
+                image: png,
+                seed: Int64(config.seed),
+                width: image.width,
+                height: image.height,
+                durationMs: Int64((DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000),
+                info: info,
+            )
+            onEvent(.result(result))
+            out.append(result)
+        }
+        return out
+    }
+}
+
+enum Images {
+    static let context = CIContext(options: [.cacheIntermediates: false])
+
+    static func decode(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    static func scaled(_ image: CGImage, _ w: Int, _ h: Int) -> CGImage? {
+        if image.width == w, image.height == h { return image }
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()
+    }
+
+    /// White (painted) = repaint, black = keep; the edge is feathered by [blur] px.
+    static func featheredMask(_ mask: CGImage, _ w: Int, _ h: Int, blur: Int) -> CIImage? {
+        guard let scaled = scaled(mask, w, h) else { return nil }
+        let extent = CGRect(x: 0, y: 0, width: w, height: h)
+        var image = CIImage(cgImage: scaled).applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
+        if blur > 0 {
+            image = image.clampedToExtent().applyingGaussianBlur(sigma: Double(blur) / 2).cropped(to: extent)
+        }
+        return image
+    }
+
+    static func blend(_ generated: CGImage, over original: CGImage, mask: CIImage) -> CGImage? {
+        let top = CIImage(cgImage: generated)
+        let blended = top.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: CIImage(cgImage: original),
+            kCIInputMaskImageKey: mask,
+        ])
+        return context.createCGImage(blended, from: top.extent)
+    }
+
+    static func encode(_ image: CGImage, type: UTType) -> Data? {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else { return nil }
+        let options: [CFString: Any] = type == .jpeg ? [kCGImageDestinationLossyCompressionQuality: 0.7] : [:]
+        CGImageDestinationAddImage(dest, image, options as CFDictionary)
+        return CGImageDestinationFinalize(dest) ? data as Data : nil
+    }
+}

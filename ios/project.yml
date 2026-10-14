@@ -1,0 +1,144 @@
+# XcodeGen spec for the Autobot iOS app. Generate the project with `xcodegen generate` (in ios/).
+# The .xcodeproj is not committed. See ios/README.md.
+name: Autobot
+
+options:
+  bundleIdPrefix: dev.wckdboy
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  groupSortPosition: top
+
+packages:
+  # On-device engines (llama.cpp on Metal, whisper.cpp, Core ML Stable Diffusion). Its native
+  # xcframeworks must exist before Xcode resolves it: scripts/bootstrap-engines.sh (once).
+  AutobotEngines:
+    path: Packages/AutobotEngines
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: XKA8CGC2AB
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "3"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    ENABLE_BITCODE: NO
+    DEAD_CODE_STRIPPING: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    # The native engines and the Kotlin framework ship arm64 simulator slices only.
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+
+targets:
+  Autobot:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - "**/.DS_Store"
+      # Fonts are referenced from the Android design system (single source, not copied).
+      - path: ../core/designsystem/src/main/res/font/antonio.ttf
+        group: App/Resources/Fonts
+        buildPhase: resources
+      - path: ../core/designsystem/src/main/res/font/jetbrains_mono.ttf
+        group: App/Resources/Fonts
+        buildPhase: resources
+    postCompileScripts:
+      # Model catalog exported from the Android catalog (shared chat / speech entries), when present.
+      - name: Bundle shared catalog
+        basedOnDependencyAnalysis: false
+        script: |
+          SRC="$PROJECT_DIR/../shared/catalog/catalog.json"
+          DST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/catalog.json"
+          if [ -f "$SRC" ]; then cp "$SRC" "$DST"; else rm -f "$DST"; fi
+    dependencies:
+      - package: AutobotEngines
+        product: AutobotEngines
+      # The shared Kotlin agent runtime (`:shared`), linked statically. The scheme pre-action
+      # builds it with Gradle for the active configuration (Release → release framework).
+      - framework: Frameworks/AutobotShared.xcframework
+        embed: false
+        link: true
+    entitlements:
+      path: App/Autobot.entitlements
+      properties:
+        com.apple.developer.default-data-protection: NSFileProtectionComplete
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Autobot
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        UIAppFonts:
+          - antonio.ttf
+          - jetbrains_mono.ttf
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSupportsIndirectInputEvents: true
+        UIFileSharingEnabled: false
+        LSSupportsOpeningDocumentsInPlace: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSFaceIDUsageDescription: Unlock Autobot with Face ID. Your conversations are encrypted on this device.
+        NSMicrophoneUsageDescription: Dictation is transcribed on this phone. Audio is never stored or sent anywhere.
+        NSPhotoLibraryAddUsageDescription: Export saves an unencrypted copy of an image you choose to your photo library.
+        NSLocalNetworkUsageDescription: Reach image backends and model servers you configure on your own network.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.wckdboy.autobot
+        PRODUCT_NAME: Autobot
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+
+  AutobotTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Autobot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.wckdboy.autobot.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Autobot:
+    build:
+      preActions:
+        - name: Build engine frameworks (if missing) and AutobotShared
+          settingsTarget: Autobot
+          script: |
+            mkdir -p "$PROJECT_DIR/Frameworks"
+            "$PROJECT_DIR/scripts/bootstrap-engines.sh" > "$PROJECT_DIR/Frameworks/bootstrap-engines.log" 2>&1 || true
+            "$PROJECT_DIR/scripts/build-shared.sh" "$CONFIGURATION" > "$PROJECT_DIR/Frameworks/build-shared.log" 2>&1 || true
+      targets:
+        Autobot: all
+        AutobotTests: [test]
+    test:
+      config: Debug
+      targets:
+        - AutobotTests
+    run:
+      config: Debug
+    archive:
+      config: Release
