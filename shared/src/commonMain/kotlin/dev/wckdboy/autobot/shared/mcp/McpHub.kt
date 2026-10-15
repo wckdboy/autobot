@@ -71,7 +71,14 @@ class McpTestResult(val toolCount: Int, val protocolVersion: String) {
  * and the model is told why. A server that announced `tools/list_changed` is re-listed at the
  * next turn; a failed one is retried after [RETRY_MS], doubling up to [MAX_RETRY_MS]. Connecting
  * runs in the background: a turn waits for it at most [FIRST_WAIT_MS] (a server's first attempt)
- * or [RETRY_WAIT_MS] (a retry), so an unreachable server never holds up the conversation.
+ * or [RETRY_WAIT_MS] (a retry), a few hundred milliseconds, so an unreachable server never holds
+ * up the conversation; the turn's notice says "not connected yet" and the tools join as soon as
+ * the connection is up (at the next step).
+ *
+ * App lifecycle: the host calls [setForeground] (`false` when the app goes to the background,
+ * `true` when it returns). In the background no `subscriptions/listen` stream stays open or
+ * reconnects; servers that had one are re-listed at the next [prepare] after returning, so a list
+ * change missed meanwhile is picked up.
  */
 class McpHub(
     private val transport: HttpTransport,
@@ -86,6 +93,9 @@ class McpHub(
     /** Failed attempts per configuration (a saved change starts over). */
     private val failures = HashMap<McpServerSpec, Failures>()
     private var registry: ToolRegistry? = null
+
+    @kotlin.concurrent.Volatile
+    private var foreground = true
 
     private val _status = MutableStateFlow<List<McpServerStatus>>(emptyList())
     val status: StateFlow<List<McpServerStatus>> = _status.asStateFlow()
@@ -117,6 +127,22 @@ class McpHub(
     }
 
     fun spec(id: String): McpServerSpec? = lock.withLock { servers.firstOrNull { it.id == id } }
+
+    /**
+     * App lifecycle hook (both apps call it): `false` stops every server's `subscriptions/listen`
+     * stream (no background network, no reconnect loop); `true` allows them again, and each server
+     * that was listening is re-listed (and resubscribed) at the next [prepare].
+     */
+    fun setForeground(foreground: Boolean) {
+        val clients = lock.withLock {
+            if (this.foreground == foreground) return
+            this.foreground = foreground
+            links.values.map { it.client }
+        }
+        clients.forEach { if (foreground) it.resumeListening() else it.pauseListening() }
+    }
+
+    val isForeground: Boolean get() = foreground
 
     /**
      * Starts connecting (or re-listing) every enabled server that is due, and waits for them a
@@ -221,7 +247,9 @@ class McpHub(
             val existing = lock.withLock { links[spec.id]?.takeIf { it.spec == spec } }
             // The host's secret store can fail (e.g. locked): that is this server's failure, not the turn's.
             val link = existing ?: runCatchingMcp {
-                Link(spec, endpoint, McpClient(endpoint, transport, withContext(IoDispatcher) { tokens(spec.id) }, spec.route, tag(spec), scope))
+                Link(spec, endpoint, McpClient(endpoint, transport, withContext(IoDispatcher) { tokens(spec.id) }, spec.route, tag(spec), scope)).also {
+                    if (!foreground) it.client.pauseListening()
+                }
             }.getOrElse {
                 record(spec, null, Result.failure(it))
                 return
@@ -348,11 +376,11 @@ class McpHub(
         const val RETRY_MS = 15_000L
         const val MAX_RETRY_MS = 10 * 60_000L
 
-        /** How long a turn waits for a server's first connection attempt. */
-        const val FIRST_WAIT_MS = 10_000L
+        /** How long a turn waits for a server's first connection attempt (it goes on in the background). */
+        const val FIRST_WAIT_MS = 300L
 
         /** How long a turn waits for a server that failed before to come back. */
-        const val RETRY_WAIT_MS = 2_000L
+        const val RETRY_WAIT_MS = 300L
 
         /** Back-off after [count] failed attempts in a row. */
         fun retryDelay(count: Int): Long = (RETRY_MS shl (count - 1).coerceIn(0, 10)).coerceAtMost(MAX_RETRY_MS)

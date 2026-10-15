@@ -39,6 +39,24 @@ class WorkspaceContexts(private val workspace: Workspace) {
     private val Path.isFile get() = fs.metadataOrNull(this)?.isRegularFile == true
     private fun Path.readText() = fs.read(this) { readUtf8() }
 
+    /** A parsed value and the (path, size, modified) of the files it was read from. */
+    private class Cached<T>(val key: List<Triple<String, Long?, Long?>>, val value: T)
+
+    @kotlin.concurrent.Volatile
+    private var skillCache: Cached<List<Skill>>? = null
+
+    @kotlin.concurrent.Volatile
+    private var instructionsCache: Cached<String?>? = null
+
+    private fun stamp(file: Path): Triple<String, Long?, Long?> {
+        val meta = fs.metadataOrNull(file)
+        return Triple(file.toString(), meta?.size, meta?.lastModifiedAtMillis)
+    }
+
+    /**
+     * The skills under `.agents/skills`. Each turn's catalog lists the directory and stats the
+     * files; they are read and parsed again only when one was added, removed or changed.
+     */
     fun skills(): List<Skill> {
         val dir = workspace.root / ".agents" / "skills"
         if (!dir.isDirectory) return emptyList()
@@ -49,13 +67,30 @@ class WorkspaceContexts(private val workspace: Workspace) {
                 else -> null
             }
         }
-        return files.mapNotNull { parseSkill(it) }.sortedBy { it.name }
+        val key = files.map(::stamp)
+        skillCache?.takeIf { it.key == key }?.let { return it.value }
+        return files.mapNotNull { parseSkill(it) }.sortedBy { it.name }.also { skillCache = Cached(key, it) }
+    }
+
+    /** `AGENTS.md` (at most [MAX_INSTRUCTION_BYTES]), re-read only when the file changed. */
+    internal fun instructions(): String? {
+        val file = workspace.root / "AGENTS.md"
+        val key = listOf(stamp(file))
+        instructionsCache?.takeIf { it.key == key }?.let { return it.value }
+        val text = if (!file.isFile) {
+            null
+        } else {
+            val bytes = fs.read(file) { readByteArray() }
+            bytes.decodeToString(0, minOf(bytes.size, MAX_INSTRUCTION_BYTES))
+        }
+        instructionsCache = Cached(key, text)
+        return text
     }
 
     private fun parseSkill(file: Path): Skill? {
         val text = runCatching { file.readText() }.getOrNull() ?: return null
         val front = FRONTMATTER.find(text)?.groupValues?.get(1).orEmpty()
-        fun field(key: String) = Regex("(?m)^$key:\\s*(.+)$").find(front)?.groupValues?.get(1)?.trim()?.trim('"', '\'')
+        fun field(key: String) = FIELDS.getValue(key).find(front)?.groupValues?.get(1)?.trim()?.trim('"', '\'')
         val fallback = if (file.name == "SKILL.md") file.parent!!.name else file.name.substringBeforeLast('.')
         val name = field("name") ?: fallback
         if (field("disable-model-invocation") == "true") return null
@@ -77,11 +112,7 @@ class WorkspaceContexts(private val workspace: Workspace) {
         ctx.effect {
             prompts.context(
                 PromptContext("instructions", ContextOrder.INSTRUCTIONS) {
-                    withContext(IoDispatcher) {
-                        val file = workspace.root / "AGENTS.md"
-                        if (!file.isFile) return@withContext null
-                        val bytes = fs.read(file) { readByteArray() }
-                        val text = bytes.decodeToString(0, minOf(bytes.size, MAX_INSTRUCTION_BYTES))
+                    withContext(IoDispatcher) { instructions() }?.let { text ->
                         "Instructions from ${Workspace.VIRTUAL_ROOT}/AGENTS.md (follow them):\n\n$text"
                     }
                 },
@@ -156,5 +187,6 @@ class WorkspaceContexts(private val workspace: Workspace) {
     companion object {
         const val MAX_INSTRUCTION_BYTES = 65_536
         private val FRONTMATTER = Regex("(?s)^---\\s*\\n(.*?)\\n---\\s*\\n?")
+        private val FIELDS = listOf("name", "description", "disable-model-invocation").associateWith { Regex("(?m)^$it:\\s*(.+)$") }
     }
 }

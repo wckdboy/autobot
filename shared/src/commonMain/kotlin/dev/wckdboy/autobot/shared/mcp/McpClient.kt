@@ -107,6 +107,8 @@ class McpClient(
     private val changed = AtomicBoolean(false)
     private val listening = AtomicBoolean(false)
     private var listenJob: Job? = null
+    /** False while the app is in the background ([pauseListening]): no listen stream is opened. */
+    private val listenAllowed = AtomicBoolean(true)
 
     @kotlin.concurrent.Volatile
     var era: McpEra? = era
@@ -158,7 +160,7 @@ class McpClient(
             cursor = result.str("nextCursor")?.takeIf { it.isNotEmpty() && seen.add(it) } ?: break
         }
         headerParams = tools.associate { it.name to it.headerParams }
-        if (subscribe && era == McpEra.MODERN && info?.toolsListChanged == true) listen()
+        if (subscribe && listenAllowed.load() && era == McpEra.MODERN && info?.toolsListChanged == true) listen()
         return tools
     }
 
@@ -374,6 +376,30 @@ class McpClient(
     private fun authorization(): String? =
         if (!token.isNullOrBlank() && McpEndpoint.hostOf(endpoint.url) == endpoint.host) "Bearer $token" else null
 
+    /**
+     * App went to the background: closes the `subscriptions/listen` stream (its reconnect loop
+     * ends too) and opens none until [resumeListening].
+     */
+    fun pauseListening() {
+        listenAllowed.store(false)
+        val job = listenJob
+        listenJob = null
+        job?.cancel()
+    }
+
+    /**
+     * App is back in the foreground: a server that offers list-change subscriptions is marked
+     * [toolsChanged], so its next turn re-lists it (catching changes missed meanwhile) and
+     * subscribes again.
+     */
+    fun resumeListening() {
+        listenAllowed.store(true)
+        if (subscribe && era == McpEra.MODERN && info?.toolsListChanged == true && !listening.load()) changed.store(true)
+    }
+
+    /** Whether a `subscriptions/listen` stream is open (or reconnecting). */
+    val isListening: Boolean get() = listening.load()
+
     // ---------------------------------------------------------------------------------------
     // subscriptions/listen (2026-07-28)
 
@@ -387,7 +413,7 @@ class McpClient(
         listenJob = scope.launch {
             try {
                 var failures = 0
-                while (isActive && failures < MAX_LISTEN_FAILURES) {
+                while (isActive && listenAllowed.load() && failures < MAX_LISTEN_FAILURES) {
                     val started = TimeSource.Monotonic.markNow()
                     val id = ids.incrementAndFetch()
                     val params = buildJsonObject { putJsonObject("notifications") { put("toolsListChanged", true) } }

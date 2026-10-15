@@ -110,7 +110,9 @@ class FileTools(private val workspace: Workspace, private val journal: Workspace
             diff = hunks?.lines.orEmpty(),
             truncated = hunks?.truncated ?: false,
             undoable = kept?.kept == true,
-            note = kept?.note ?: "binary content, no diff".takeIf { !textual && op != ChangeOp.DELETED },
+            note = kept?.note
+                ?: "binary content, no diff".takeIf { !textual && op != ChangeOp.DELETED }
+                ?: "file rewritten · too many changed lines to show a diff".takeIf { hunks?.rewritten == true },
         )
         return JsonObject(mapOf(FileChange.META_KEY to FileChange.toJson(change)))
     }

@@ -139,6 +139,13 @@ class AgentHost @Inject constructor(
     /** Connection state per configured MCP server. */
     val mcpStatus: StateFlow<List<McpServerStatus>> get() = mcp.status
 
+    /**
+     * App lifecycle hook: `false` when the app goes to the background (MCP list-change streams
+     * close and stop reconnecting), `true` when it returns (they are re-listed at the next turn).
+     * Call it from a process-lifecycle observer (ON_STOP / ON_START).
+     */
+    fun setForeground(foreground: Boolean) = mcp.setForeground(foreground)
+
     /** Attachments are decrypted into short-lived files for a single model call. */
     private val images = object : ImageAttachments {
         override suspend fun openPlain(id: String): String? = attachments.openPlain(id)?.path

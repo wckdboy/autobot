@@ -73,8 +73,22 @@ data class AgentConfig(
     }
 }
 
-/** A tool call being streamed. */
-data class PartialToolCall(val index: Int, val id: String?, val name: String?, val arguments: String)
+/**
+ * A tool call being streamed. [arguments] is only the tail of what streamed so far (at most
+ * [LIVE_ARGUMENTS_TAIL] characters, for a progress hint); [argumentsLength] is the full length.
+ * The complete arguments exist only once the call is committed to the log.
+ */
+data class PartialToolCall(
+    val index: Int,
+    val id: String?,
+    val name: String?,
+    val arguments: String,
+    val argumentsLength: Int = arguments.length,
+) {
+    companion object {
+        const val LIVE_ARGUMENTS_TAIL = 256
+    }
+}
 
 /** The assistant message currently being streamed (DSH `agent/assistant-stream`). */
 data class LiveStream(
@@ -541,17 +555,31 @@ class Agent(
 
     internal fun entries(): List<LogEntry> = log.entries.value
 
-    private class StreamAccumulator(val turn: Int, val step: Int, val startedAt: Long) {
+    /**
+     * Accumulates one streamed step. Tool-call arguments grow in a [StringBuilder] per call index
+     * (appending is amortised O(1); a 1 MB `write` streams in O(n), not O(n²)), and [snapshot]
+     * reuses the strings of the previous snapshot while nothing new arrived.
+     */
+    internal class StreamAccumulator(val turn: Int, val step: Int, val startedAt: Long) {
         val text = StringBuilder()
         val reasoning = StringBuilder()
-        /** Streamed tool calls by index, iterated in index order. */
-        val calls = HashMap<Int, PartialToolCall>()
-        private val ordered: List<PartialToolCall> get() = calls.entries.sortedBy { it.key }.map { it.value }
+
+        private class Call(val index: Int) {
+            var id: String? = null
+            var name: String? = null
+            val arguments = StringBuilder()
+        }
+
+        /** Streamed tool calls by index. */
+        private val calls = HashMap<Int, Call>()
+        private val ordered: List<Call> get() = calls.values.sortedBy { it.index }
         var usage: TokenUsage? = null
         var finishReason: String? = null
         var servedBy: String? = null
         var fallback: String? = null
         var chunks = 0
+        private var textSnapshot = ""
+        private var reasoningSnapshot = ""
 
         fun accept(chunk: StreamChunk) {
             chunks++
@@ -559,12 +587,10 @@ class Agent(
                 is StreamChunk.TextDelta -> text.append(chunk.text)
                 is StreamChunk.ReasoningDelta -> reasoning.append(chunk.text)
                 is StreamChunk.ToolCallDelta -> {
-                    val prev = calls[chunk.index] ?: PartialToolCall(chunk.index, null, null, "")
-                    calls[chunk.index] = prev.copy(
-                        id = prev.id ?: chunk.id,
-                        name = prev.name ?: chunk.name,
-                        arguments = prev.arguments + chunk.argumentsDelta,
-                    )
+                    val call = calls.getOrPut(chunk.index) { Call(chunk.index) }
+                    if (call.id == null) call.id = chunk.id
+                    if (call.name == null) call.name = chunk.name
+                    call.arguments.append(chunk.argumentsDelta)
                 }
                 is StreamChunk.Usage -> usage = chunk.usage
                 is StreamChunk.Finish -> finishReason = chunk.reason
@@ -577,13 +603,22 @@ class Agent(
 
         fun isEmpty() = text.isBlank() && calls.isEmpty() && reasoning.isBlank()
 
-        fun snapshot() = LiveStream(turn, step, text.toString(), reasoning.toString(), ordered, startedAt, chunks)
+        fun snapshot(): LiveStream {
+            if (textSnapshot.length != text.length) textSnapshot = text.toString()
+            if (reasoningSnapshot.length != reasoning.length) reasoningSnapshot = reasoning.toString()
+            val partial = ordered.map { c ->
+                val n = c.arguments.length
+                val tail = c.arguments.substring((n - PartialToolCall.LIVE_ARGUMENTS_TAIL).coerceAtLeast(0), n)
+                PartialToolCall(c.index, c.id, c.name, tail, n)
+            }
+            return LiveStream(turn, step, textSnapshot, reasoningSnapshot, partial, startedAt, chunks)
+        }
 
         fun completedCalls(step: Int): List<ToolCallRecord> = ordered.map { c ->
             ToolCallRecord(
                 id = c.id?.takeIf { it.isNotBlank() } ?: "call_${turn}_${step}_${c.index}",
                 name = c.name.orEmpty(),
-                arguments = c.arguments.ifBlank { "{}" },
+                arguments = c.arguments.toString().ifBlank { "{}" },
             )
         }
     }

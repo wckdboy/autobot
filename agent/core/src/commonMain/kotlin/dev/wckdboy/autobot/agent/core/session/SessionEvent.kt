@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.agent.core.session
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -85,9 +87,20 @@ sealed interface SessionEvent {
     @SerialName("assistant/attempt")
     data class AssistantAttempt(val turn: Int, val step: Int, val code: String, val message: String) : SessionEvent
 
+    /**
+     * A call dispatched to its tool. The arguments live in the [AssistantMessage.toolCalls] entry
+     * with the same id; new logs write [arguments] as `""` (the key stays, so older readers still
+     * decode the line). Logs written before carry the full arguments here too.
+     */
     @Serializable
     @SerialName("tool/call")
-    data class ToolCall(val callId: String, val name: String, val arguments: String) : SessionEvent
+    data class ToolCall(
+        val callId: String,
+        val name: String,
+        @OptIn(ExperimentalSerializationApi::class)
+        @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+        val arguments: String = "",
+    ) : SessionEvent
 
     @Serializable
     @SerialName("tool/result")

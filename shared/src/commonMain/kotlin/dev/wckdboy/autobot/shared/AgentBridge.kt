@@ -53,7 +53,7 @@ import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.receiptsPlugin
-import dev.wckdboy.autobot.shared.session.projectSession
+import dev.wckdboy.autobot.shared.session.SessionProjector
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.concurrent.atomics.AtomicBoolean
@@ -69,6 +69,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -132,6 +133,24 @@ fun interface SessionListener {
     fun onState(json: String)
 }
 
+/**
+ * The efficient session stream ([AgentBridge.openStream]); both methods are called on one
+ * background coroutine, in order, never concurrently.
+ *
+ * - [onTranscript] gets a [TranscriptState] JSON — `{"sessionId","revision","projection"}` — only
+ *   when the projected transcript changed (log appended, a tool started or finished, an approval
+ *   or question came or went). `revision` starts at 1 and grows by one per transcript sent.
+ * - [onFrame] gets a [LiveFrame] JSON at most ~30 times a second while something changes: the
+ *   streamed answer (as a text delta, see [LiveFrameStream]), running flag, approvals, question,
+ *   settings. It is small (no tool outputs); `revision` names the transcript it goes with, which
+ *   was always delivered before it.
+ */
+interface SessionStreamListener {
+    fun onTranscript(json: String)
+
+    fun onFrame(json: String)
+}
+
 /** The host's MCP bearer tokens (Keychain), read on a background thread when a server connects. */
 fun interface McpTokenSource {
     fun token(serverId: String): String?
@@ -162,6 +181,61 @@ class ApprovalState(
 
 @Serializable
 class QuestionState(val callId: String, val question: String, val options: List<String>, val multiSelect: Boolean)
+
+/**
+ * [SessionStreamListener.onTranscript]: the transcript ([projection]) as of [revision].
+ */
+@Serializable
+class TranscriptState(val sessionId: String, val revision: Long, val projection: SessionProjection)
+
+/** A streamed call in a [LiveFrameStream]: its arguments are not sent, only how long they are so far. */
+@Serializable
+class LiveToolCall(val index: Int, val id: String?, val name: String?, val argumentsLength: Int)
+
+/**
+ * The answer being streamed, in a [LiveFrame]. [turn] / [step] identify the stream. Text and
+ * reasoning come as deltas: [text] is the streamed text from offset [textFrom] on, [textLength]
+ * the full length so far (likewise [reasoning] / [reasoningFrom] / [reasoningLength]).
+ *
+ * Client rule: [textFrom] `== 0` → replace; `== local length` → append; anything else (a frame
+ * was lost) → call [AgentBridge.resync], whose next frame starts at 0. A client that coalesces
+ * frames must concatenate the deltas of consecutive frames of the same stream (or keep the
+ * first frame's offsets and append the later texts). With `textDeltas = false`
+ * ([AgentBridge.openStream] overload) every frame carries the full text and `textFrom` is 0.
+ */
+@Serializable
+class LiveFrameStream(
+    val turn: Int,
+    val step: Int,
+    val textFrom: Int,
+    val text: String,
+    val textLength: Int,
+    val reasoningFrom: Int,
+    val reasoning: String,
+    val reasoningLength: Int,
+    val toolCalls: List<LiveToolCall>,
+    val toolNames: List<String>,
+    val tokensPerSecond: Float?,
+)
+
+/**
+ * [SessionStreamListener.onFrame]: everything on the chat screen except the transcript.
+ * [revision] is the transcript revision in effect; [frame] counts frames from 1.
+ */
+@Serializable
+class LiveFrame(
+    val sessionId: String,
+    val revision: Long,
+    val frame: Long,
+    val live: LiveFrameStream?,
+    val running: Boolean,
+    val approvals: List<ApprovalState>,
+    val question: QuestionState?,
+    val toolsEnabled: Boolean,
+    val permission: String,
+    val provider: String,
+    val model: String,
+)
 
 /** A [SessionState] without its projection, which [AgentBridge.open] encodes only when it changes. */
 @Serializable
@@ -202,6 +276,18 @@ class SessionState(
  *
  * [journalDir] holds the undo journal (copies of files the agent replaced); keep it next to the
  * workspace with the same file protection. Null turns undo off.
+ *
+ * Memory: at most [MAX_OPEN_AGENTS] idle agents stay open (each holds its whole log); the least
+ * recently used idle one beyond that is closed and reopened from the store on its next use.
+ * Agents that run a turn, wait on the user, have an open state stream ([open] / [openStream])
+ * or are [retain]ed are never closed.
+ *
+ * Lifecycle: call [setForeground] when the app enters the background (`false`) and returns
+ * (`true`); MCP list-change streams pause meanwhile.
+ *
+ * Providers: model adapters are built once per provider and reused across steps; call
+ * [invalidateProviders] whenever the provider list, a provider's key or its cached model list
+ * changes (they also expire after [ADAPTER_TTL_MS]).
  */
 class AgentBridge(
     workspaceDir: String,
@@ -236,8 +322,23 @@ class AgentBridge(
     private val mutex = Mutex()
     /** Agents as they are created, for calls that arrive while [open] is still creating one. */
     private val created = MutableStateFlow<Map<String, Agent>>(emptyMap())
-    private val agents = HashMap<String, Agent>()
+    /** Open agents, least recently used first ([used] moves one to the end). Guarded by [mutex]. */
+    private val agents = LinkedHashMap<String, Agent>()
+
+    /** [sessionId]'s open agent, now the most recently used. Call under [mutex]. */
+    private fun used(sessionId: String): Agent? = agents.remove(sessionId)?.also { agents[sessionId] = it }
     private val watchers = HashMap<String, Job>()
+    /** The route each session was opened with (or switched to), to reopen an evicted agent. */
+    private val routes = HashMap<String, Pair<String, String>>()
+    /** Hold counts: [retain] calls and open state streams. Held agents are never evicted. */
+    private val holds = HashMap<String, Int>()
+    private val holdLock = dev.wckdboy.autobot.agent.core.Lock()
+
+    private class CachedAdapter(val at: Long, val adapter: dev.wckdboy.autobot.agent.core.llm.LlmAdapter)
+
+    private val adapterLock = dev.wckdboy.autobot.agent.core.Lock()
+    private val adapterCache = HashMap<String, CachedAdapter>()
+    private var adapterBuilds = 0
     private val running = MutableStateFlow<Set<String>>(emptySet())
     private val interactions = MutableStateFlow<List<Pending>>(emptyList())
 
@@ -261,14 +362,7 @@ class AgentBridge(
     }
 
     init {
-        harness.llm.setResolver { id ->
-            providers.provider(id)?.let {
-                ProviderLlmAdapter(
-                    it.id, chatProvider(it), it.kind, attachments, it.preset::echoesReasoning, ModelCache.decode(it.modelsJson),
-                    helperModel = it.helperModel?.takeIf { m -> m.isNotBlank() },
-                )
-            }
-        }
+        harness.llm.setResolver { id -> adapter(id) }
         val root = harness.root
         root.plugin(
             quotaFallbackPlugin(
@@ -302,6 +396,43 @@ class AgentBridge(
             await(pending) { pending.answer.await() }
         }
     }
+
+    /**
+     * The model adapter for provider [id], built once (directory lookup, Keychain key, model list
+     * decode) and reused by every step until [invalidateProviders] or [ADAPTER_TTL_MS].
+     */
+    private fun adapter(id: String): dev.wckdboy.autobot.agent.core.llm.LlmAdapter? {
+        val now = monotonicNanos()
+        adapterLock.withLock { adapterCache[id] }?.takeIf { now - it.at < ADAPTER_TTL_MS * 1_000_000 }?.let { return it.adapter }
+        val spec = providers.provider(id) ?: return null
+        val built = ProviderLlmAdapter(
+            spec.id, chatProvider(spec), spec.kind, attachments, spec.preset::echoesReasoning, ModelCache.decode(spec.modelsJson),
+            helperModel = spec.helperModel?.takeIf { m -> m.isNotBlank() },
+        )
+        adapterLock.withLock {
+            adapterBuilds++
+            adapterCache[id] = CachedAdapter(now, built)
+        }
+        return built
+    }
+
+    /**
+     * Drops the cached model adapters: call it when providers were added, edited (key, URL, route,
+     * helper model) or removed, when their cached model lists changed, or when the network policy
+     * changed. Cheap; the next step rebuilds what it needs.
+     */
+    fun invalidateProviders() {
+        adapterLock.withLock { adapterCache.clear() }
+    }
+
+    /** Model adapters built so far (diagnostics and tests). */
+    internal val adapterBuildCount: Int get() = adapterLock.withLock { adapterBuilds }
+
+    /**
+     * App lifecycle: `false` when the app goes to the background, `true` when it is back. In the
+     * background no MCP `subscriptions/listen` stream stays open or reconnects.
+     */
+    fun setForeground(foreground: Boolean) = mcp.setForeground(foreground)
 
     private suspend fun <T> await(pending: Pending, answer: suspend () -> T): T {
         interactions.update { it + pending }
@@ -384,7 +515,8 @@ class AgentBridge(
         models.takeIf { it.isNotEmpty() && spec.kind != ProviderKind.LOCAL }?.let { ModelCache(Clock.System.now().toEpochMilliseconds(), it).encode() }
 
     private suspend fun agent(sessionId: String, providerId: String, model: String): Agent = mutex.withLock {
-        agents[sessionId]?.let { return it }
+        used(sessionId)?.let { return it }
+        routes.getOrPut(sessionId) { providerId to model }
         val agent = harness.openAgent(
             sessionId = sessionId,
             store = sessions,
@@ -402,61 +534,211 @@ class AgentBridge(
         }
         agents[sessionId] = agent
         created.update { it + (sessionId to agent) }
+        evictIdle()
         agent
     }
 
     /**
-     * Opens [sessionId] (with [providerId] / [model] for a new session) and streams its
-     * [SessionState] to [listener] until the returned handle is cancelled.
+     * Keeps [sessionId]'s agent open (never evicted) until a matching [release]. An open state
+     * stream ([open] / [openStream]) holds its session the same way while it runs.
      */
-    fun open(sessionId: String, providerId: String, model: String, listener: SessionListener): Cancellable {
-        val job = scope.launch {
-            val a = agent(sessionId, providerId, model)
-            // Tool summaries parse the call's arguments: once per call, not once per frame.
-            val summaries = HashMap<String, String>()
-            var last = EncodedProjection(SessionProjection(emptyList(), emptyList(), null, null))
-            // The transcript is re-projected (and re-encoded) only when the log, the running tools
-            // or the pending interactions change; streamed chunks reuse it.
-            val transcript = combine(a.log.entries, a.runningTools, interactions) { entries, runningTools, pending ->
-                val mine = pending.filter { it.sessionId == sessionId }
-                val approvals = mine.filterIsInstance<Pending.Approval>().map { it.state }
-                val question = mine.filterIsInstance<Pending.Question>().firstOrNull()?.let {
-                    QuestionState(it.callId, it.question.question, it.question.options, it.question.multiSelect)
-                }
-                last = try {
-                    EncodedProjection(
-                        projectSession(entries, approvals.map { it.callId }.toSet(), runningTools) { name, args ->
-                            summaries.getOrPut("$name\u0000$args") { describe(a, name, args) }
-                        },
-                    )
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (t: Throwable) {
-                    // Never lose the screen over one row: keep showing the last good transcript.
-                    last
-                }
-                Triple(last, approvals, question)
+    fun retain(sessionId: String) = holdLock.withLock {
+        holds[sessionId] = (holds[sessionId] ?: 0) + 1
+    }
+
+    /** Undoes one [retain]; the agent may then be closed once it is idle and others are newer. */
+    fun release(sessionId: String) {
+        val released = holdLock.withLock {
+            val n = (holds[sessionId] ?: return) - 1
+            if (n <= 0) holds.remove(sessionId) else holds[sessionId] = n
+            n <= 0
+        }
+        if (released) scope.launch { mutex.withLock { evictIdle() } }
+    }
+
+    /** Session ids of the agents currently open (diagnostics and tests). */
+    fun openSessions(): List<String> = created.value.keys.toList()
+
+    /** Closes the least recently used idle agents beyond [MAX_OPEN_AGENTS]. Call under [mutex]. */
+    private fun evictIdle() {
+        val waiting = interactions.value.mapTo(HashSet()) { it.sessionId }
+        val held = holdLock.withLock { holds.keys.toSet() }
+        val busy = agents.filterValues { it.status.value != AgentStatus.IDLE }.keys + waiting + held
+        var excess = agents.size - MAX_OPEN_AGENTS
+        if (excess <= 0) return
+        val idle = mutableListOf<String>()
+        for (id in agents.keys) {
+            if (excess == 0) break
+            if (id in busy) continue
+            idle += id
+            excess--
+        }
+        for (id in idle) {
+            val agent = agents.remove(id) ?: continue
+            watchers.remove(id)?.cancel()
+            created.update { it - id }
+            running.update { it - id }
+            scope.launch { agent.dispose() }
+        }
+    }
+
+    /** The transcript inputs of one session: projected incrementally, re-projected only on change. */
+    private class Transcript(val projection: SessionProjection, val approvals: List<ApprovalState>, val question: QuestionState?)
+
+    private fun transcript(sessionId: String, a: Agent): kotlinx.coroutines.flow.Flow<Transcript> {
+        val projector = SessionProjector { name, args -> describe(a, name, args) }
+        var last: SessionProjection? = null
+        // Only this session's approvals and questions: another chat's prompt doesn't re-project this one.
+        val mine = interactions.map { list -> list.filter { it.sessionId == sessionId } }.distinctUntilChanged()
+        return combine(a.log.entries, a.runningTools, mine) { entries, runningTools, pending ->
+            val approvals = pending.filterIsInstance<Pending.Approval>().map { it.state }
+            val question = pending.filterIsInstance<Pending.Question>().firstOrNull()?.let {
+                QuestionState(it.callId, it.question.question, it.question.options, it.question.multiSelect)
             }
-            combine(transcript, a.live, a.status, a.config, a.permission) { (projection, approvals, question), live, status, config, permission ->
-                projection.splice(
-                    SessionFrame(
+            val projection = try {
+                projector.project(entries, approvals.mapTo(HashSet()) { it.callId }, runningTools)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                // Never lose the screen over one row: keep showing the last good transcript.
+                last ?: SessionProjection(emptyList(), emptyList(), null, null)
+            }
+            last = projection
+            Transcript(projection, approvals, question)
+        }
+    }
+
+    /** Runs [block] with [sessionId] held (not evictable) on the bridge scope; the handle cancels it. */
+    private fun holding(sessionId: String, block: suspend () -> Unit): Cancellable {
+        retain(sessionId)
+        val job = scope.launch { block() }
+        job.invokeOnCompletion { release(sessionId) }
+        return Cancellable { job.cancel() }
+    }
+
+    /**
+     * Opens [sessionId] (with [providerId] / [model] for a new session) and streams its
+     * [SessionState] to [listener] until the returned handle is cancelled. Every state carries the
+     * whole transcript; prefer [openStream], which sends it only when it changes.
+     */
+    fun open(sessionId: String, providerId: String, model: String, listener: SessionListener): Cancellable = holding(sessionId) {
+        val a = agent(sessionId, providerId, model)
+        var encoded: Pair<SessionProjection, EncodedProjection>? = null
+        combine(transcript(sessionId, a), a.live, a.status, a.config, a.permission) { t, live, status, config, permission ->
+            val projection = encoded?.takeIf { it.first === t.projection }?.second
+                ?: EncodedProjection(t.projection).also { encoded = t.projection to it }
+            projection.splice(
+                SessionFrame(
+                    sessionId = sessionId,
+                    live = live?.toState(),
+                    running = status == AgentStatus.RUNNING,
+                    approvals = t.approvals,
+                    question = t.question,
+                    toolsEnabled = config.toolsEnabled,
+                    permission = permission.label,
+                    provider = config.llm.provider,
+                    model = config.llm.model,
+                ),
+            )
+        }.conflate().collect { json ->
+            listener.onState(json)
+            delay(FRAME_MS)
+        }
+    }
+
+    /**
+     * Opens [sessionId] like [open], streaming the transcript and live frames separately to
+     * [listener] (see [SessionStreamListener], [TranscriptState], [LiveFrame]): the transcript
+     * (which can hold megabytes of tool output) is encoded and sent only when it changes, the
+     * live frame (text deltas) at most ~30 times a second. Until the handle is cancelled the
+     * session is held open (never evicted).
+     */
+    fun openStream(sessionId: String, providerId: String, model: String, listener: SessionStreamListener): Cancellable =
+        openStream(sessionId, providerId, model, listener, true)
+
+    /** [openStream]; with [textDeltas] false every frame carries the full streamed text. */
+    fun openStream(sessionId: String, providerId: String, model: String, listener: SessionStreamListener, textDeltas: Boolean): Cancellable =
+        holding(sessionId) {
+            val a = agent(sessionId, providerId, model)
+            val resyncs = resyncFlow(sessionId)
+            var sentProjection: SessionProjection? = null
+            var revision = 0L
+            var frames = 0L
+            var lastFrame: String? = null
+            // Delivered text/reasoning length of the current stream (turn, step).
+            var stream: Pair<Int, Int>? = null
+            var textSent = 0
+            var reasoningSent = 0
+            var seenResync = resyncs.value
+            combine(transcript(sessionId, a), a.live, a.status, a.config, a.permission, resyncs) { values -> values }
+                .conflate()
+                .collect { values ->
+                    val t = values[0] as Transcript
+                    val live = values[1] as LiveStream?
+                    val status = values[2] as AgentStatus
+                    val config = values[3] as AgentConfig
+                    val permission = values[4] as PermissionPreset
+                    val resync = values[5] as Int
+                    val full = resync != seenResync
+                    seenResync = resync
+                    // A new projection instance with the same rows (e.g. a step/start event) is not sent again.
+                    if (full || (t.projection !== sentProjection && t.projection != sentProjection)) {
+                        revision++
+                        sentProjection = t.projection
+                        listener.onTranscript(BridgeJson.encodeToString(TranscriptState.serializer(), TranscriptState(sessionId, revision, t.projection)))
+                    }
+                    val liveFrame = live?.let { l ->
+                        val key = l.turn to l.step
+                        if (full || !textDeltas || key != stream || l.text.length < textSent || l.reasoning.length < reasoningSent) {
+                            stream = key
+                            textSent = 0
+                            reasoningSent = 0
+                        }
+                        l.toFrame(textSent, reasoningSent).also {
+                            textSent = l.text.length
+                            reasoningSent = l.reasoning.length
+                        }
+                    }
+                    if (live == null) stream = null
+                    frames++
+                    val frame = LiveFrame(
                         sessionId = sessionId,
-                        live = live?.toState(),
+                        revision = revision,
+                        frame = frames,
+                        live = liveFrame,
                         running = status == AgentStatus.RUNNING,
-                        approvals = approvals,
-                        question = question,
+                        approvals = t.approvals,
+                        question = t.question,
                         toolsEnabled = config.toolsEnabled,
                         permission = permission.label,
                         provider = config.llm.provider,
                         model = config.llm.model,
-                    ),
-                )
-            }.conflate().collect { json ->
-                listener.onState(json)
-                delay(FRAME_MS)
-            }
+                    )
+                    // Nothing new (e.g. a tick with an empty delta): no frame.
+                    val signature = BridgeJson.encodeToString(LiveFrame.serializer(), frame.withFrame(0))
+                    if (signature == lastFrame && !full) {
+                        frames--
+                    } else {
+                        lastFrame = signature
+                        listener.onFrame(BridgeJson.encodeToString(LiveFrame.serializer(), frame))
+                    }
+                    delay(FRAME_MS)
+                }
         }
-        return Cancellable { job.cancel() }
+
+    private fun LiveFrame.withFrame(n: Long) =
+        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model)
+
+    private val resyncs = HashMap<String, MutableStateFlow<Int>>()
+
+    private fun resyncFlow(sessionId: String): MutableStateFlow<Int> = holdLock.withLock { resyncs.getOrPut(sessionId) { MutableStateFlow(0) } }
+
+    /**
+     * Asks every [openStream] of [sessionId] to send the transcript again (new revision) and a
+     * frame with the full streamed text (`textFrom` 0): for a client that lost a frame.
+     */
+    fun resync(sessionId: String) {
+        resyncFlow(sessionId).update { it + 1 }
     }
 
     /** A projection encoded once and spliced into every frame until the transcript changes. */
@@ -486,16 +768,36 @@ class AgentBridge(
 
     fun cancel(sessionId: String) = withAgent(sessionId) { it.cancel() }
 
+    /** Answers the approval [callId]. Prefer the overload with the session: call ids repeat across chats. */
     fun answerApproval(callId: String, outcome: ApprovalOutcome) {
         interactions.value.filterIsInstance<Pending.Approval>().firstOrNull { it.callId == callId }?.answer?.complete(outcome)
     }
 
+    /** Answers [sessionId]'s approval [callId]. */
+    fun answerApproval(sessionId: String, callId: String, outcome: ApprovalOutcome) {
+        interactions.value.filterIsInstance<Pending.Approval>().firstOrNull { it.sessionId == sessionId && it.callId == callId }
+            ?.answer?.complete(outcome)
+    }
+
+    /** Answers the question [callId]. Prefer the overload with the session: call ids repeat across chats. */
     fun answerQuestion(callId: String, answers: List<String>?) {
         interactions.value.filterIsInstance<Pending.Question>().firstOrNull { it.callId == callId }?.answer?.complete(answers)
     }
 
-    fun setRoute(sessionId: String, providerId: String, model: String) =
+    /** Answers [sessionId]'s question [callId]. */
+    fun answerQuestion(sessionId: String, callId: String, answers: List<String>?) {
+        interactions.value.filterIsInstance<Pending.Question>().firstOrNull { it.sessionId == sessionId && it.callId == callId }
+            ?.answer?.complete(answers)
+    }
+
+    fun setRoute(sessionId: String, providerId: String, model: String) {
+        rememberRoute(sessionId, providerId, model)
         withAgent(sessionId) { a -> a.updateConfig { it.copy(llm = it.llm.copy(provider = providerId, model = model)) } }
+    }
+
+    private fun rememberRoute(sessionId: String, providerId: String, model: String) {
+        scope.launch { mutex.withLock { routes[sessionId] = providerId to model } }
+    }
 
     fun setToolsEnabled(sessionId: String, enabled: Boolean) = withAgent(sessionId) { a ->
         if (a.config.value.toolsEnabled != enabled) {
@@ -528,6 +830,7 @@ class AgentBridge(
             val agent = mutex.withLock {
                 watchers.remove(sessionId)?.cancel()
                 created.update { it - sessionId }
+                routes.remove(sessionId)
                 agents.remove(sessionId)
             } ?: return@launch
             running.update { it - sessionId }
@@ -546,6 +849,7 @@ class AgentBridge(
                 agents.values.toList().also { agents.clear() }
             }
             all.forEach { runCatching { it.dispose() } }
+            invalidateProviders()
             runCatching { mcp.close() }
         }.invokeOnCompletion {
             if (finished.compareAndSet(expectedValue = false, newValue = true)) done()
@@ -617,7 +921,9 @@ class AgentBridge(
      */
     private fun withAgent(sessionId: String, block: suspend (Agent) -> Unit) {
         scope.launch {
-            val agent = mutex.withLock { agents[sessionId] }
+            val agent = mutex.withLock { used(sessionId) }
+                // Closed to save memory ([evictIdle]): reopen it from the store.
+                ?: mutex.withLock { routes[sessionId] }?.let { (provider, model) -> agent(sessionId, provider, model) }
                 ?: withTimeoutOrNull(OPEN_WAIT_MS) { created.map { it[sessionId] }.filterNotNull().first() }
                 ?: return@launch
             try {
@@ -637,6 +943,24 @@ class AgentBridge(
         return runCatching { tool.describeCall(args) }.getOrDefault("")
     }
 
+    private fun LiveStream.toFrame(textFrom: Int, reasoningFrom: Int): LiveFrameStream {
+        val seconds = (monotonicNanos() - startedAtNanos) / 1e9f
+        val approxTokens = (text.length + reasoning.length) / 4f
+        return LiveFrameStream(
+            turn = turn,
+            step = step,
+            textFrom = textFrom,
+            text = text.substring(textFrom.coerceIn(0, text.length)),
+            textLength = text.length,
+            reasoningFrom = reasoningFrom,
+            reasoning = reasoning.substring(reasoningFrom.coerceIn(0, reasoning.length)),
+            reasoningLength = reasoning.length,
+            toolCalls = toolCalls.map { LiveToolCall(it.index, it.id, it.name, it.argumentsLength) },
+            toolNames = toolCalls.mapNotNull { it.name },
+            tokensPerSecond = if (seconds > 0.5f && approxTokens > 0) approxTokens / seconds else null,
+        )
+    }
+
     private fun LiveStream.toState(): LiveState {
         val seconds = (monotonicNanos() - startedAtNanos) / 1e9f
         val approxTokens = (text.length + reasoning.length) / 4f
@@ -648,11 +972,16 @@ class AgentBridge(
         )
     }
 
-    private companion object {
-        const val OPEN_WAIT_MS = 10_000L
+    companion object {
+        /** Idle agents kept open beyond the ones running, waiting on the user, streaming or retained. */
+        const val MAX_OPEN_AGENTS = 4
+
+        /** Cached model adapters are rebuilt after this long even without [invalidateProviders]. */
+        const val ADAPTER_TTL_MS = 60_000L
+        private const val OPEN_WAIT_MS = 10_000L
         /** UI frames are coalesced to at most ~30 per second while streaming. */
-        const val FRAME_MS = 33L
-        val BridgeJson = Json { encodeDefaults = true }
+        private const val FRAME_MS = 33L
+        private val BridgeJson = Json { encodeDefaults = true }
     }
 }
 
