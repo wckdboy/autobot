@@ -53,6 +53,8 @@ import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
+import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 
@@ -96,6 +98,7 @@ fun ChatListScreen(
     onOpenPrivacyCenter: () -> Unit,
 ) {
     var pendingDelete by rememberSaveable { mutableStateOf<String?>(null) }
+    val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
             Surface(color = MaterialTheme.colorScheme.background) {
@@ -161,8 +164,10 @@ fun ChatListScreen(
             } else {
                 LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                     items(state.conversations, key = { it.id }, contentType = { "conversation" }) { item ->
-                        ConversationRow(item, onClick = { onOpenChat(item.id) }, onDelete = { pendingDelete = item.id })
-                        Hairline(Modifier.padding(start = 16.dp))
+                        Column(Modifier.inkDissolve(dissolve, item.id)) {
+                            ConversationRow(item, onClick = { onOpenChat(item.id) }, onDelete = { pendingDelete = item.id })
+                            Hairline(Modifier.padding(start = 16.dp))
+                        }
                     }
                 }
             }
@@ -175,7 +180,7 @@ fun ChatListScreen(
             title = { Text("Delete session?") },
             text = { Text("Its encrypted history, tool calls and approvals are removed. Workspace files stay.") },
             confirmButton = {
-                TextButton(onClick = { onDelete(id); pendingDelete = null }) { Text("DELETE", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { dissolve.dissolve(id) { onDelete(id) }; pendingDelete = null }) { Text("DELETE", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("CANCEL") } },
         )

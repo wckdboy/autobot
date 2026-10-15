@@ -52,7 +52,7 @@ internal fun DownloadsPanel(state: DownloadsState, actions: ModelsViewModel) {
                 Text(p.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 TextButton(onClick = { actions.pause(p.id) }) { Text("PAUSE") }
             }
-            InkProgressBar(p.fraction, Modifier.fillMaxWidth().height(3.dp))
+            InkProgressBar(p.fraction.takeIf { p.total > 0 }, Modifier.fillMaxWidth().height(3.dp))
             MicroLabel(
                 listOfNotNull(
                     "${formatBytes(p.downloaded)} / ${formatBytes(p.total)}",

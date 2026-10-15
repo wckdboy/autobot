@@ -118,6 +118,10 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var hfToken by rememberSaveable { mutableStateOf("") }
     var civitaiKey by rememberSaveable { mutableStateOf("") }
+    // Which "Verify & save" shows the ink loader while the token is checked.
+    var verifying by rememberSaveable { mutableStateOf<String?>(null) }
+    val hfBusy = state.busy && verifying == "hf"
+    val civitaiBusy = state.busy && verifying == "civitai"
     var confirmMature by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
@@ -159,7 +163,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
                         keyboardOptions = SecretKeyboardOptions,
                         visualTransformation = PasswordVisualTransformation(),
                     )
-                    PrimaryButton("Verify & save", { viewModel.saveHuggingFace(hfToken); hfToken = "" }, Modifier.fillMaxWidth(), enabled = hfToken.isNotBlank() && !state.busy)
+                    PrimaryButton("Verify & save", { verifying = "hf"; viewModel.saveHuggingFace(hfToken); hfToken = "" }, Modifier.fillMaxWidth(), enabled = (hfToken.isNotBlank() && !state.busy) || hfBusy, busy = hfBusy)
                 } else {
                     GhostButton("Sign out", viewModel::signOutHuggingFace)
                 }
@@ -183,7 +187,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
                         keyboardOptions = SecretKeyboardOptions,
                         visualTransformation = PasswordVisualTransformation(),
                     )
-                    PrimaryButton("Verify & save", { viewModel.saveCivitai(civitaiKey); civitaiKey = "" }, Modifier.fillMaxWidth(), enabled = civitaiKey.isNotBlank() && !state.busy)
+                    PrimaryButton("Verify & save", { verifying = "civitai"; viewModel.saveCivitai(civitaiKey); civitaiKey = "" }, Modifier.fillMaxWidth(), enabled = (civitaiKey.isNotBlank() && !state.busy) || civitaiBusy, busy = civitaiBusy)
                 } else {
                     GhostButton("Remove key", viewModel::signOutCivitai)
                 }

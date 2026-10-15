@@ -96,11 +96,11 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = Mat
     )
 }
 
-/** Full-width red block button with a mono caps label. */
+/** Full-width red block button with a mono caps label; an inline ink loader replaces it while [busy]. */
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, busy: Boolean = false) {
     Button(
-        onClick = onClick,
+        onClick = { if (!busy) onClick() },
         enabled = enabled,
         modifier = modifier.heightIn(min = 52.dp),
         shape = MaterialTheme.shapes.extraSmall,
@@ -109,10 +109,10 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
         contentPadding = PaddingValues(horizontal = 20.dp),
-    ) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) }
+    ) { InkBusyLabel(busy) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) } }
 }
 
-/** Outlined block button; [accent] tints border and label (e.g. red for DENY). */
+/** Outlined block button; [accent] tints border and label (e.g. red for DENY); ink loader while [busy]. */
 @Composable
 fun GhostButton(
     text: String,
@@ -120,16 +120,17 @@ fun GhostButton(
     modifier: Modifier = Modifier,
     accent: Color = MaterialTheme.colorScheme.onSurface,
     enabled: Boolean = true,
+    busy: Boolean = false,
 ) {
     OutlinedButton(
-        onClick = onClick,
+        onClick = { if (!busy) onClick() },
         enabled = enabled,
         modifier = modifier.heightIn(min = 48.dp),
         shape = MaterialTheme.shapes.extraSmall,
         border = BorderStroke(1.dp, if (enabled) accent else MaterialTheme.colorScheme.outlineVariant),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
         contentPadding = PaddingValues(horizontal = 16.dp),
-    ) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) }
+    ) { InkBusyLabel(busy) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) } }
 }
 
 /** Cream block button (APPROVE on red cards). */
@@ -318,7 +319,8 @@ fun HalftoneImage(
  * Procedural halftone field (hero art): dots swell along a soft diagonal wave. While [flowing]
  * the wave's phase advances (ink moving over a drum) at [speed] × `flowCyclesPerSecond`, on the
  * throttled, lifecycle-aware ink clock; [fill] scales the dots and eases to new values. Static
- * (as before) when not flowing or with reduced motion.
+ * (as before) when not flowing or with reduced motion. With an [ambient] clock the hero drifts
+ * at the ambient tier's pace instead (one cycle per `ambientCycleSeconds`, ≤10 fps).
  */
 @Composable
 fun HalftoneField(
@@ -329,6 +331,7 @@ fun HalftoneField(
     flowing: Boolean = false,
     fill: Float = 1f,
     speed: Float = 1f,
+    ambient: InkAmbient? = null,
 ) {
     val reduced = LocalInkMotion.current.reduced
     val clock = rememberInkClock(flowing)
@@ -340,7 +343,7 @@ fun HalftoneField(
     val batch = remember { DotBatch() }
     Canvas(modifier.clipToBounds()) {
         val t = clock.time
-        val p = phase + flow.at(t, speed)
+        val p = phase + flow.at(t, speed) + (ambient?.let { InkMath.ambientPhase(it.time) } ?: 0f)
         val f = if (flowing) fillTween.value(t) else fill
         val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
         val cols = (size.width / c).toInt() + 1

@@ -35,6 +35,8 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
+import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 
 @Composable
 fun RunRoute(
@@ -62,9 +64,11 @@ fun RunScreen(
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
 ) {
+    // The image card's empty hero drifts as ambient paper; still while the phone's CPU works.
+    val ambient = rememberInkAmbient(heavyWork = state.busy)
     Scaffold(topBar = { AutobotTopBar(actions = { if (state.live > 0) CountBadge("${state.live} LIVE") }) }) { padding ->
         LazyColumn(
-            Modifier.padding(padding).fillMaxSize(),
+            Modifier.padding(padding).fillMaxSize().ambientTouch(ambient),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
             item {
@@ -88,7 +92,7 @@ fun RunScreen(
                             if (image != null) {
                                 HalftoneImage(image, Modifier.fillMaxSize(), cell = 7.dp)
                             } else {
-                                HalftoneField(Modifier.fillMaxSize(), cell = 8.dp)
+                                HalftoneField(Modifier.fillMaxSize(), cell = 8.dp, ambient = ambient)
                             }
                         },
                     )
