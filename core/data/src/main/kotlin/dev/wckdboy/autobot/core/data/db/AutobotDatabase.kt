@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
+import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
 import dev.wckdboy.autobot.core.security.KeyManager
 import javax.inject.Inject
@@ -19,15 +20,23 @@ import javax.inject.Singleton
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
-    entities = [Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class, BenchmarkRow::class],
-    version = 4,
+    entities = [
+        Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class, BenchmarkRow::class,
+        ProviderModelsRow::class,
+    ],
+    version = 5,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
+        // 1.4: providers.presetId + provider_models (fetched model lists).
+        AutoMigration(from = 4, to = 5),
+    ],
 )
 abstract class AutobotDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun providerDao(): ProviderDao
+    abstract fun providerModelsDao(): ProviderModelsDao
     abstract fun sessionEventDao(): SessionEventDao
     abstract fun galleryDao(): GalleryDao
     abstract fun modelDao(): ModelDao

@@ -5,6 +5,8 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import dev.wckdboy.autobot.providers.remote.ProviderPreset
+import dev.wckdboy.autobot.providers.remote.ProviderPresets
 
 /** A chat thread. [providerId]/[model] record the last selection for this conversation. */
 @Entity(tableName = "conversations", indices = [Index("updatedAt")])
@@ -46,7 +48,8 @@ enum class ProviderRouting { DIRECT, TOR, SOCKS5, INHERIT }
 
 /**
  * A configured remote model provider. The API key itself is never stored here; [apiKeyRef] is
- * an opaque reference into the encrypted SecretStore.
+ * an opaque reference into the encrypted SecretStore. [presetId] names its `ProviderPresets`
+ * entry; rows from before 1.4 have none and are matched by kind and host.
  */
 @Entity(tableName = "providers")
 data class Provider(
@@ -57,6 +60,23 @@ data class Provider(
     val defaultModel: String,
     val routing: ProviderRouting = ProviderRouting.INHERIT,
     val apiKeyRef: String? = null,
+    @ColumnInfo(defaultValue = "NULL") val presetId: String? = null,
+) {
+    /** Its preset (by id, else by kind and host for older rows). */
+    fun preset(): ProviderPreset = ProviderPresets.resolve(presetId, kind, baseUrl)
+}
+
+/** A provider's fetched model list ([json] is a shared `ModelCache`), deleted with the provider. */
+@Entity(
+    tableName = "provider_models",
+    foreignKeys = [
+        ForeignKey(entity = Provider::class, parentColumns = ["id"], childColumns = ["providerId"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class ProviderModelsRow(
+    @PrimaryKey val providerId: String,
+    val fetchedAt: Long,
+    val json: String,
 )
 
 /**

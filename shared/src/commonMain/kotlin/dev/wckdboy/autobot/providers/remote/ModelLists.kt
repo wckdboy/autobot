@@ -31,7 +31,33 @@ data class RemoteModel(
     val inputPerMTok: Double? = null,
     val outputPerMTok: Double? = null,
     val detail: String? = null,
-)
+) {
+    /** Picker caption: `1M ctx · $2.00 / $8.00 per M · 8.0B · Q4_K_M` (empty when nothing is known). */
+    fun caption(): String = listOfNotNull(
+        contextWindow?.let { "${tokens(it)} ctx" },
+        if (inputPerMTok != null && outputPerMTok != null) {
+            if (inputPerMTok == 0.0 && outputPerMTok == 0.0) "free" else "$${money(inputPerMTok)} / $${money(outputPerMTok)} per M"
+        } else {
+            null
+        },
+        detail,
+    ).joinToString(" · ")
+
+    private companion object {
+        fun tokens(n: Int): String = when {
+            n >= 1_000_000 -> trim(n / 1_000_000.0) + "M"
+            n >= 1_000 -> "${n / 1_000}k"
+            else -> n.toString()
+        }
+
+        fun trim(v: Double): String = ((v * 10).toLong() / 10.0).let { if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString() }
+
+        fun money(v: Double): String {
+            val cents = kotlin.math.round(v * 100).toLong()
+            return "${cents / 100}.${(cents % 100).toString().padStart(2, '0')}"
+        }
+    }
+}
 
 /** The shape of a provider's model list (`ProviderPreset.modelsApi`). */
 enum class ModelsApi {
@@ -120,6 +146,15 @@ object ModelLists {
         val url = (preset.modelsPath ?: "{base}/models").replace("{base}", base).replace("{origin}", origin)
         val headers = mapOf("Accept" to "application/json") + ProviderAuth.scopedHeaders(preset.modelsAuth, apiKey, url, base)
         return ModelsRequest(url, headers)
+    }
+
+    /** Up to [limit] models whose id or name contains [query] (the picker's search), in list order. */
+    fun filter(models: List<RemoteModel>, query: String, limit: Int = 40): List<RemoteModel> {
+        val q = query.trim().lowercase()
+        return models.asSequence()
+            .filter { q.isEmpty() || q in it.id.lowercase() || it.name?.lowercase()?.contains(q) == true }
+            .take(limit)
+            .toList()
     }
 
     /** A models-endpoint response as a [ModelListResult]. */

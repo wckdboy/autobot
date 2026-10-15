@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.providers.remote
 
+import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.network.NetworkBlockedException
 import dev.wckdboy.autobot.core.security.Secret
 import java.io.IOException
@@ -19,40 +20,44 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 /**
- * Streaming client for any OpenAI-compatible `/chat/completions` endpoint using Server-Sent
- * Events (`stream=true`). The wire format and stream decoding live in the shared [OpenAiCodec] /
- * [SseDecoder] (the iOS app uses the same code); `data: [DONE]` or end of stream →
+ * Streaming client for a remote chat endpoint over OkHttp, in the dialect of its [preset]: any
+ * OpenAI-compatible `/chat/completions` endpoint (Server-Sent Events, `stream=true`) or
+ * Anthropic's native `/messages`. Encoding, stream decoding, model lists and error mapping live
+ * in the shared [ChatWire] / [ModelLists] (the iOS app runs the same code); end of stream →
  * [ChatEvent.Done].
  *
  * HTTP and transport failures are mapped to [ChatEvent.Error]; kill-switch refusals become
- * [ErrorKind.BLOCKED]. Only `Authorization`, `Accept` and `Content-Type` headers are sent; the
- * shared client replaces the User-Agent and strips identifying headers.
+ * [ErrorKind.BLOCKED]. Only the wire's auth headers, `Accept` and `Content-Type` are sent; the
+ * shared client replaces the User-Agent and strips identifying headers. The key goes to the
+ * provider's own origin only.
  *
  * @param baseUrl e.g. `https://api.deepseek.com` or `http://127.0.0.1:11434/v1`.
- * @param includeUsage whether to request a final usage chunk; disable for servers that reject it.
  */
 open class OpenAICompatibleProvider(
     baseUrl: String,
     private val apiKey: Secret?,
     private val client: OkHttpClient,
-    private val includeUsage: Boolean = true,
+    private val preset: ProviderPreset = ProviderPresets.forKind(ProviderKind.OPENAI_COMPATIBLE),
 ) : ChatProvider {
 
-    private val base: HttpUrl? = baseUrl.trim().trimEnd('/').toHttpUrlOrNull()
+    private val baseText: String = baseUrl.trim().trimEnd('/')
+    private val base: HttpUrl? = baseText.toHttpUrlOrNull()
+    private val wire: ChatWire = preset.wire()
 
     override fun streamChat(request: ChatRequest): Flow<ChatEvent> = channelFlow {
-        val url = endpoint("chat/completions")
+        val url = endpoint(wire.chatPath)
         if (url == null) {
             send(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid base URL"))
             return@channelFlow
         }
         val body = try {
-            encodeRequest(request, includeUsage)
+            wire.encode(request)
         } catch (e: IllegalArgumentException) {
             send(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid tool schema: ${e.message}"))
             return@channelFlow
         }
-        val httpRequest = authorized(Request.Builder().url(url))
+        val httpRequest = Request.Builder().url(url)
+            .apply { wire.headers(apiKey?.takeUnless { it.isBlank }?.reveal()).forEach { (k, v) -> header(k, v) } }
             .header("Accept", "text/event-stream")
             .post(body.toRequestBody(JSON))
             .build()
@@ -62,7 +67,7 @@ open class OpenAICompatibleProvider(
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
-                        send(httpError(response))
+                        send(wire.httpError(response.code, errorBody(response)))
                     } else {
                         readStream(response) { send(it) }
                     }
@@ -79,39 +84,32 @@ open class OpenAICompatibleProvider(
         awaitClose { call.cancel() }
     }
 
-    override suspend fun testConnection(): ConnectionTestResult = withContext(Dispatchers.IO) {
-        val url = endpoint("models") ?: return@withContext ConnectionTestResult.Failure(
-            ErrorKind.BAD_REQUEST,
-            "Invalid base URL",
-        )
-        val request = authorized(Request.Builder().url(url)).get().build()
+    override suspend fun testConnection(): ConnectionTestResult =
+        ConnectionTestResult.of(listModels(), hasEndpoint = preset.modelsApi != ModelsApi.NONE)
+
+    override suspend fun listModels(): ModelListResult = withContext(Dispatchers.IO) {
+        if (base == null) return@withContext ModelListResult.Failure(ErrorKind.BAD_REQUEST, "Invalid base URL")
+        val spec = ModelLists.request(preset, baseText, apiKey?.takeUnless { it.isBlank }?.reveal())
+            ?: return@withContext ModelLists.documented(preset)
+        val url = spec.url.toHttpUrlOrNull() ?: return@withContext ModelListResult.Failure(ErrorKind.BAD_REQUEST, "Invalid models URL")
+        val request = Request.Builder().url(url).apply { spec.headers.forEach { (k, v) -> header(k, v) } }.get().build()
         try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val error = httpError(response)
-                    return@use ConnectionTestResult.Failure(error.kind, error.message)
-                }
-                val count = OpenAiCodec.modelCount(response.body.string())
-                ConnectionTestResult.Success(count)
+                val body = if (response.isSuccessful) response.body.source().let { it.request(MAX_MODELS_BYTES); it.buffer.readUtf8() } else errorBody(response)
+                ModelLists.result(preset, response.code, body)
             }
         } catch (e: NetworkBlockedException) {
-            ConnectionTestResult.Failure(ErrorKind.BLOCKED, e.message ?: "Blocked by network policy")
+            ModelListResult.Failure(ErrorKind.BLOCKED, e.message ?: "Blocked by network policy")
         } catch (e: IOException) {
-            ConnectionTestResult.Failure(ErrorKind.NETWORK, e.message ?: e.javaClass.simpleName)
+            ModelListResult.Failure(ErrorKind.NETWORK, e.message ?: e.javaClass.simpleName)
         }
     }
 
     private fun endpoint(path: String): HttpUrl? = base?.newBuilder()?.addPathSegments(path)?.build()
 
-    private fun authorized(builder: Request.Builder): Request.Builder {
-        val key = apiKey?.takeUnless { it.isBlank }
-        if (key != null) builder.header("Authorization", "Bearer ${key.reveal()}")
-        return builder
-    }
-
     private suspend fun readStream(response: Response, emit: suspend (ChatEvent) -> Unit) {
         val source = response.body.source()
-        val decoder = SseDecoder()
+        val decoder = wire.decoder()
         while (!decoder.done) {
             val line = source.readUtf8Line() ?: break
             for (event in decoder.feed(line)) {
@@ -128,7 +126,11 @@ open class OpenAICompatibleProvider(
 
         private val JSON = "application/json; charset=utf-8".toMediaType()
 
-        internal fun httpError(response: Response): ChatEvent.Error =
-            OpenAiCodec.httpError(response.code, runCatching { response.peekBody(16_384).string() }.getOrDefault(""))
+        /** Model lists are small; OpenRouter's (the largest) is well under 1 MiB. */
+        private const val MAX_MODELS_BYTES = 8L * 1024 * 1024
+
+        private fun errorBody(response: Response): String = runCatching { response.peekBody(16_384).string() }.getOrDefault("")
+
+        internal fun httpError(response: Response): ChatEvent.Error = OpenAiCodec.httpError(response.code, errorBody(response))
     }
 }

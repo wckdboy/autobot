@@ -217,8 +217,56 @@ class OpenAICompatibleProviderTest {
     fun testConnectionCountsModels() = runTest {
         server.enqueue(MockResponse.Builder().code(200).body("""{"object":"list","data":[{"id":"a"},{"id":"b"}]}""").build())
         val result = provider().testConnection()
-        assertEquals(ConnectionTestResult.Success(2), result)
-        assertEquals("/v1/models", server.takeRequest().url.encodedPath)
+        assertEquals(ConnectionTestResult.Success(2, listOf(RemoteModel("a"), RemoteModel("b"))), result)
+        val sent = server.takeRequest()
+        assertEquals("/v1/models", sent.url.encodedPath)
+        assertEquals("Bearer sk-test-123", sent.headers["Authorization"])
+    }
+
+    @Test
+    fun listsOllamaModelsFromApiTagsWithoutAKey() = runTest {
+        server.enqueue(
+            MockResponse.Builder().code(200).body(
+                """{"models":[{"name":"qwen3:8b","modified_at":"2026-01-02T03:04:05Z","details":{"parameter_size":"8.2B","quantization_level":"Q4_K_M"}},""" +
+                    """{"name":"nomic-embed-text:latest","details":{"family":"nomic-bert"}}]}""",
+            ).build(),
+        )
+        val ollama = OllamaProvider(null, clients.create("ollama"), baseUrl())
+        val result = ollama.listModels() as ModelListResult.Success
+        assertEquals(listOf("qwen3:8b"), result.models.map { it.id })
+        assertEquals("8.2B · Q4_K_M", result.models.single().detail)
+        val sent = server.takeRequest()
+        assertEquals("/api/tags", sent.url.encodedPath)
+        assertNull(sent.headers["Authorization"])
+        // Loopback while Offline: allowed, and in the audit log.
+        assertEquals("/api/tags", auditLog.entries.value.single().path)
+    }
+
+    @Test
+    fun anthropicStreamsFromMessagesWithNativeHeaders() = runTest {
+        policy.setMode(NetworkMode.Direct)
+        server.enqueue(
+            MockResponse.Builder().code(200).setHeader("Content-Type", "text/event-stream").body(
+                "event: content_block_delta\n" +
+                    """data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}""" + "\n\n" +
+                    """data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}""" + "\n\n" +
+                    """data: {"type":"message_stop"}""" + "\n\n",
+            ).build(),
+        )
+        val anthropic = OpenAICompatibleProvider(baseUrl(), Secret("ak"), clients.create("anthropic"), ProviderPresets.byId("anthropic")!!)
+        val events = anthropic.streamChat(ChatRequest("claude-opus-5-5", listOf(ChatMessage(ChatRole.USER, "hi")))).toList()
+        assertEquals(listOf(ChatEvent.ContentDelta("Hi"), ChatEvent.Finish("stop"), ChatEvent.Usage(null, 3, null), ChatEvent.Done), events)
+        val sent = server.takeRequest()
+        assertEquals("/v1/messages", sent.url.encodedPath)
+        assertEquals("ak", sent.headers["x-api-key"])
+        assertEquals("2023-06-01", sent.headers["anthropic-version"])
+        assertNull(sent.headers["Authorization"])
+    }
+
+    @Test
+    fun modelListHttpErrorsAreMapped() = runTest {
+        server.enqueue(MockResponse.Builder().code(401).body("""{"error":{"message":"bad key"}}""").build())
+        assertEquals(ModelListResult.Failure(ErrorKind.UNAUTHORIZED, "HTTP 401: bad key"), provider().listModels())
     }
 
     @Test

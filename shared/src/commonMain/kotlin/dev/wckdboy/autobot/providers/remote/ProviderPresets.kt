@@ -499,13 +499,17 @@ object ProviderPresets {
 
     /** Presets the user can add, filtered by [query] (name, id or host), by group in display order. */
     fun search(query: String): List<Pair<PresetGroup, List<ProviderPreset>>> {
-        val q = query.trim().lowercase()
         return PresetGroup.entries.mapNotNull { group ->
-            all.filter { it.group == group }
-                .filter { q.isEmpty() || q in it.displayName.lowercase() || q in it.id || q in it.host.lowercase() }
+            all.filter { it.group == group && matches(it, query) }
                 .takeIf { it.isNotEmpty() }
                 ?.let { group to it }
         }
+    }
+
+    /** Whether [preset] matches a search [query] (name, id or host, ignoring case). */
+    fun matches(preset: ProviderPreset, query: String): Boolean {
+        val q = query.trim().lowercase()
+        return q.isEmpty() || q in preset.displayName.lowercase() || q in preset.id || q in preset.host.lowercase()
     }
 
     /**

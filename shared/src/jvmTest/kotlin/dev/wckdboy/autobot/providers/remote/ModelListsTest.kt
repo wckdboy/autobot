@@ -172,6 +172,18 @@ class ModelListsTest {
     }
 
     @Test
+    fun captionsAndSearch() {
+        assertEquals("1M ctx · $2.00 / $8.00 per M", RemoteModel("a", contextWindow = 1_000_000, inputPerMTok = 2.0, outputPerMTok = 8.0).caption())
+        assertEquals("1.5M ctx · free", RemoteModel("a", contextWindow = 1_500_000, inputPerMTok = 0.0, outputPerMTok = 0.0).caption())
+        assertEquals("131k ctx · 8.0B · Q4_K_M", RemoteModel("a", contextWindow = 131_072, detail = "8.0B · Q4_K_M").caption())
+        assertEquals("", RemoteModel("a").caption())
+        val list = listOf(RemoteModel("gpt-6-luna"), RemoteModel("claude", name = "Claude Opus"), RemoteModel("gpt-6-sol"))
+        assertEquals(listOf("gpt-6-luna", "gpt-6-sol"), ModelLists.filter(list, " GPT ").map { it.id })
+        assertEquals(listOf("claude"), ModelLists.filter(list, "opus").map { it.id })
+        assertEquals(2, ModelLists.filter(list, "", limit = 2).size)
+    }
+
+    @Test
     fun cacheRoundTripsAndLabelsItsAge() {
         val cache = ModelCache(1_000_000L, listOf(RemoteModel("m1", contextWindow = 32_000), RemoteModel("M2")))
         val back = ModelCache.decode(cache.encode())

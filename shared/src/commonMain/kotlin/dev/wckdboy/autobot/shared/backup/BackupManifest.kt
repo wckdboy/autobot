@@ -32,7 +32,10 @@ class BackupManifest(
     }
 }
 
-/** A provider without its API key. [kind] is a `ProviderKind` name, [routing] `INHERIT`/`DIRECT`/`TOR`/`SOCKS5`. */
+/**
+ * A provider without its API key. [kind] is a `ProviderKind` name, [routing]
+ * `INHERIT`/`DIRECT`/`TOR`/`SOCKS5`, [presetId] a `ProviderPresets` id (absent in older files).
+ */
 @Serializable
 class BackupProvider(
     val id: String,
@@ -41,6 +44,7 @@ class BackupProvider(
     val baseUrl: String,
     val defaultModel: String,
     val routing: String = "INHERIT",
+    val presetId: String? = null,
 )
 
 @Serializable

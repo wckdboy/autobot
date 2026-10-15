@@ -11,6 +11,7 @@ import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
+import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
 import kotlinx.coroutines.flow.Flow
 
@@ -138,4 +139,19 @@ interface BenchmarkDao {
 
     @Query("DELETE FROM benchmarks WHERE modelId = :modelId")
     suspend fun deleteForModel(modelId: String)
+}
+
+@Dao
+interface ProviderModelsDao {
+    @Query("SELECT * FROM provider_models")
+    fun observeAll(): Flow<List<ProviderModelsRow>>
+
+    @Query("SELECT * FROM provider_models WHERE providerId = :providerId")
+    suspend fun get(providerId: String): ProviderModelsRow?
+
+    @Upsert
+    suspend fun upsert(row: ProviderModelsRow)
+
+    @Query("DELETE FROM provider_models WHERE providerId = :providerId")
+    suspend fun delete(providerId: String)
 }
