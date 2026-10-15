@@ -94,5 +94,6 @@ jobs:
           cd ios && xcodegen generate
           sim=$(xcrun simctl list devices available | grep -E "iPhone [0-9]+( Pro)? \(" | grep -oE "[0-9A-F-]{36}" | tail -1)
           echo "simulator: $sim"
-          xcodebuild -project Autobot.xcodeproj -scheme Autobot -destination "id=$sim" test CODE_SIGNING_ALLOWED=NO
+          # Ad-hoc signing: the simulator Keychain refuses unsigned apps (errSecMissingEntitlement).
+          xcodebuild -project Autobot.xcodeproj -scheme Autobot -destination "id=$sim" test CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
           cd Packages/AutobotEngines && xcodebuild -scheme AutobotEngines -destination "id=$sim" test
