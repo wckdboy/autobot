@@ -89,8 +89,9 @@ data class SessionProjection(
 )
 
 /**
- * Projects the append-only session log into transcript rows. Pure, so it is unit tested and
- * cheap to recompute on every log change.
+ * Projects the append-only session log into transcript rows. Pure, so it is unit tested; a
+ * screen that re-projects on every log change should keep a [SessionProjector] instead, which
+ * only looks at the entries appended since its last call.
  *
  * @param pendingApprovals call ids currently waiting for the user.
  * @param running call ids currently executing.
@@ -101,23 +102,87 @@ fun projectSession(
     pendingApprovals: Set<String>,
     running: Set<String>,
     describe: (name: String, arguments: String) -> String,
-): SessionProjection {
-    val items = mutableListOf<SessionItem>()
-    val toolIndex = HashMap<String, Int>()
-    val callStarted = HashMap<String, Long>()
-    var todos: List<TodoItem> = emptyList()
-    var usage: TokenUsage? = null
-    var window: Int? = null
-    // The current turn's latest answer, which carries the turn's receipt.
-    var lastAnswer: Int? = null
-    // Undo state: turn of each call, the revert in effect per call and per turn, pruned turns.
-    val callTurn = HashMap<String, Int>()
-    val undoneBy = HashMap<String, String>()
-    val turnRevert = HashMap<Int, String>()
-    val prunedTurns = HashSet<Int>()
-    val turnAnswer = HashMap<Int, Int>()
+): SessionProjection = SessionProjector(describe).project(entries, pendingApprovals, running)
 
-    for (entry in entries) {
+/**
+ * Incremental [projectSession]: each log entry is folded in once (tool summaries, subagent steps,
+ * file changes and receipts are computed once per event, not on every pass), and a call with
+ * nothing new returns the previous [SessionProjection] instance, so `distinctUntilChanged` or an
+ * identity check skips re-encoding and re-rendering it. Undo state, approval and running flags are
+ * applied to a copy on output. When [entries] is not an extension of what was projected before
+ * (another log, or a log replaced under it), it starts over. Not thread-safe: one per screen.
+ */
+class SessionProjector(private val describe: (name: String, arguments: String) -> String) {
+    private val items = ArrayList<SessionItem>()
+    private val toolIndex = HashMap<String, Int>()
+    private val callStarted = HashMap<String, Long>()
+    private var todos: List<TodoItem> = emptyList()
+    private var usage: TokenUsage? = null
+    private var window: Int? = null
+    // The current turn's latest answer, which carries the turn's receipt.
+    private var lastAnswer: Int? = null
+    // Undo state: turn of each call, the revert in effect per call and per turn, pruned turns.
+    private val undoneBy = HashMap<String, String>()
+    private val turnRevert = HashMap<Int, String>()
+    private val prunedTurns = HashSet<Int>()
+    private val turnAnswer = HashMap<Int, Int>()
+    /** Calls without a result yet (their state follows approvals and running). */
+    private val open = LinkedHashMap<Int, String>()
+
+    private var consumed = 0
+    private var lastSeq = Long.MIN_VALUE
+    private var lastPending: Set<String>? = null
+    private var lastRunning: Set<String>? = null
+    private var last: SessionProjection? = null
+
+    /** Entries folded in so far (for tests and diagnostics). */
+    val size: Int get() = consumed
+
+    fun project(entries: List<LogEntry>, pendingApprovals: Set<String>, running: Set<String>): SessionProjection {
+        val extends = entries.size >= consumed && (consumed == 0 || entries[consumed - 1].seq == lastSeq)
+        if (!extends) reset()
+        val grew = entries.size > consumed
+        for (i in consumed until entries.size) accept(entries[i])
+        consumed = entries.size
+        lastSeq = entries.lastOrNull()?.seq ?: Long.MIN_VALUE
+        last?.let { previous ->
+            if (!grew && pendingApprovals == lastPending && running == lastRunning) return previous
+        }
+        lastPending = pendingApprovals
+        lastRunning = running
+        val out = ArrayList<SessionItem>(items)
+        for ((index, callId) in open) {
+            val tool = out[index] as? SessionItem.Tool ?: continue
+            val state = when (callId) {
+                in pendingApprovals -> ToolState.WAITING_APPROVAL
+                in running -> ToolState.RUNNING
+                else -> ToolState.STREAMING
+            }
+            if (state != tool.state) out[index] = tool.copy(state = state)
+        }
+        val changes = applyUndo(out, undoneBy, turnRevert, prunedTurns, turnAnswer)
+        return SessionProjection(out, todos, usage, window, changes).also { last = it }
+    }
+
+    private fun reset() {
+        items.clear()
+        toolIndex.clear()
+        callStarted.clear()
+        todos = emptyList()
+        usage = null
+        window = null
+        lastAnswer = null
+        undoneBy.clear()
+        turnRevert.clear()
+        prunedTurns.clear()
+        turnAnswer.clear()
+        open.clear()
+        consumed = 0
+        lastSeq = Long.MIN_VALUE
+        last = null
+    }
+
+    private fun accept(entry: LogEntry) {
         val key = "e${entry.seq}"
         when (val e = entry.event) {
             is SessionEvent.UserMessage -> when (e.kind) {
@@ -133,19 +198,15 @@ fun projectSession(
                 }
                 e.usage?.let { usage = it }
                 e.toolCalls.forEachIndexed { i, call ->
-                    callTurn[call.id] = e.turn
                     toolIndex[call.id] = items.size
+                    open[items.size] = call.id
                     items += SessionItem.Tool(
                         // Keyed by position, not call id: logs written before ids were unique repeat them.
                         key = "t${entry.seq}_$i",
                         callId = call.id,
                         name = call.name,
                         summary = runCatching { describe(call.name, call.arguments) }.getOrDefault(""),
-                        state = when (call.id) {
-                            in pendingApprovals -> ToolState.WAITING_APPROVAL
-                            in running -> ToolState.RUNNING
-                            else -> ToolState.STREAMING
-                        },
+                        state = ToolState.STREAMING,
                         output = null,
                         code = null,
                         galleryIds = emptyList(),
@@ -155,9 +216,10 @@ fun projectSession(
             }
             is SessionEvent.ToolCall -> callStarted[e.callId] = entry.time
             is SessionEvent.ToolResult -> {
-                val index = toolIndex[e.callId] ?: continue
-                val tool = items[index] as? SessionItem.Tool ?: continue
-                val denied = e.code in setOf("PERMISSION_DENIED", "USER_REJECTED", "APPROVAL_UNAVAILABLE", "APPROVAL_CANCELLED")
+                val index = toolIndex[e.callId] ?: return
+                val tool = items[index] as? SessionItem.Tool ?: return
+                open -= index
+                val denied = e.code in DENIED_CODES
                 items[index] = tool.copy(
                     state = when {
                         denied -> ToolState.DENIED
@@ -209,8 +271,10 @@ fun projectSession(
             else -> Unit
         }
     }
-    val changes = applyUndo(items, undoneBy, turnRevert, prunedTurns, turnAnswer)
-    return SessionProjection(items, todos, usage, window, changes)
+
+    private companion object {
+        val DENIED_CODES = setOf("PERMISSION_DENIED", "USER_REJECTED", "APPROVAL_UNAVAILABLE", "APPROVAL_CANCELLED")
+    }
 }
 
 private fun endNotice(key: String, e: SessionEvent.TurnEnd): SessionItem.Notice? = when (e.reason) {

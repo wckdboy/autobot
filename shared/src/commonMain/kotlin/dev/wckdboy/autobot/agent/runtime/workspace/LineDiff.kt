@@ -12,10 +12,18 @@ object LineDiff {
 
     data class Edit(val op: Op, val line: String)
 
-    /** A rendered diff: `@@ -1,3 +1,4 @@`, ` context`, `-removed`, `+added` lines. */
-    data class Hunks(val lines: List<String>, val added: Int, val removed: Int, val truncated: Boolean)
+    /**
+     * A rendered diff: `@@ -1,3 +1,4 @@`, ` context`, `-removed`, `+added` lines. [rewritten]: the
+     * changed part was too large to diff ([MAX_DIFF_LINES]); [lines] is empty and [added] /
+     * [removed] count the changed region's lines.
+     */
+    data class Hunks(val lines: List<String>, val added: Int, val removed: Int, val truncated: Boolean, val rewritten: Boolean = false)
 
-    const val MAX_EDITS = 2000
+    /** Edit distance searched before falling back to "replace the middle" (the trace is O(D²) memory). */
+    const val MAX_EDITS = 1000
+
+    /** Changed lines (both sides, after the common prefix and suffix) above which no diff is computed. */
+    const val MAX_DIFF_LINES = 3000
     const val CONTEXT = 2
     const val MAX_LINES = 160
     const val MAX_LINE_CHARS = 300
@@ -55,8 +63,24 @@ object LineDiff {
     }
 
     /** Unified hunks of [before] → [after] (null = the file did not exist). */
-    fun hunks(before: String?, after: String?, context: Int = CONTEXT, maxLines: Int = MAX_LINES): Hunks =
-        render(diff(lines(before.orEmpty()), lines(after.orEmpty())), context, maxLines)
+    fun hunks(before: String?, after: String?, context: Int = CONTEXT, maxLines: Int = MAX_LINES): Hunks {
+        val a = lines(before.orEmpty())
+        val b = lines(after.orEmpty())
+        val (changedA, changedB) = changedRegion(a, b)
+        // A (near) full rewrite of a big file: no edit script (megabytes of objects for a diff
+        // nobody reads in full), just the counts and "file rewritten".
+        if (changedA + changedB > MAX_DIFF_LINES) return Hunks(emptyList(), changedB, changedA, truncated = true, rewritten = true)
+        return render(diff(a, b), context, maxLines)
+    }
+
+    /** Lines of [a] and [b] between their common prefix and suffix. */
+    private fun changedRegion(a: List<String>, b: List<String>): Pair<Int, Int> {
+        var prefix = 0
+        while (prefix < a.size && prefix < b.size && a[prefix] == b[prefix]) prefix++
+        var suffix = 0
+        while (suffix < a.size - prefix && suffix < b.size - prefix && a[a.size - 1 - suffix] == b[b.size - 1 - suffix]) suffix++
+        return (a.size - prefix - suffix) to (b.size - prefix - suffix)
+    }
 
     fun render(edits: List<Edit>, context: Int = CONTEXT, maxLines: Int = MAX_LINES): Hunks {
         val added = edits.count { it.op == Op.INSERT }

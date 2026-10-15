@@ -119,7 +119,8 @@ class ToolExecutor(private val agent: Agent) {
     }
 
     private suspend fun executeOne(call: ToolCallRecord): ToolOutput {
-        agent.log.append(SessionEvent.ToolCall(call.id, call.name, call.arguments))
+        // The arguments are already in the assistant message that made the call.
+        agent.log.append(SessionEvent.ToolCall(call.id, call.name))
         val registry = agent.ctx.require(ToolRegistry.Key)
         val tool = registry.get(call.name)?.takeIf { agent.config.value.restriction.permits(call.name) }
             ?: return ToolOutput.error("unknown tool '${call.name}'", "UNKNOWN_TOOL")

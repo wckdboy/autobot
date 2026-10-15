@@ -10,6 +10,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okio.IOException
 import okio.Path
+import okio.buffer
+import okio.use
 
 /**
  * Copy-on-write undo journal for the agent's workspace ("undo for agents").
@@ -19,7 +21,9 @@ import okio.Path
  * step or a whole turn puts the files back in reverse order; the revert first keeps the state it
  * replaces, so it can be redone.
  *
- * Layout: `<rootDir>/<session>/index.json` plus one blob per kept copy in `blobs/`. The journal
+ * Layout: `<rootDir>/<session>/index.json` (a snapshot), `journal.log` (one JSON line per change
+ * since that snapshot, so a write appends a line instead of rewriting the whole index; folded
+ * into a new snapshot every [COMPACT_EVERY] lines) plus one blob per kept copy in `blobs/`. The journal
  * lives next to the workspace (never inside it, where the agent could read or edit it), so it is
  * protected the way the workspace is: app-private storage on Android, Application Support with
  * `NSFileProtectionComplete` on iOS. Copies are capped per session ([maxSessionBytes], oldest
@@ -51,7 +55,34 @@ class WorkspaceJournal(
     internal data class Revert(val id: String, val groups: List<String>, val turn: Int? = null, val redone: Boolean = false)
 
     @Serializable
-    internal data class Index(val next: Long = 1, val records: List<Record> = emptyList(), val reverts: List<Revert> = emptyList())
+    internal data class Index(
+        val next: Long = 1,
+        val records: List<Record> = emptyList(),
+        val reverts: List<Revert> = emptyList(),
+        /** Snapshot generation: only `journal.log` lines of the same generation apply to it. */
+        val gen: Long = 0,
+    )
+
+    /** One `journal.log` line: what a change added to the snapshot of generation [gen]. */
+    @Serializable
+    internal data class Op(
+        val gen: Long,
+        val next: Long,
+        val records: List<Record> = emptyList(),
+        val reverts: List<Revert> = emptyList(),
+        val redone: String? = null,
+    )
+
+    private fun Index.apply(op: Op): Index = copy(
+        next = maxOf(next, op.next),
+        records = if (op.records.isEmpty()) records else records + op.records,
+        reverts = (if (op.reverts.isEmpty()) reverts else reverts + op.reverts).let { list ->
+            op.redone?.let { id -> list.map { if (it.id == id) it.copy(redone = true) else it } } ?: list
+        },
+    )
+
+    /** `journal.log` lines per session since its snapshot. */
+    private val logLines = HashMap<String, Int>()
 
     /**
      * Outcome of [record]: whether a copy was [kept] (the step can be undone), why not ([note]),
@@ -99,7 +130,9 @@ class WorkspaceJournal(
             fs.createDirectories(blobs(sessionId))
             fs.copy(file, blob(sessionId, record.seq))
         }
-        save(sessionId, index.copy(next = index.next + 1, records = index.records + record))
+        val op = Op(index.gen, index.next + 1, records = listOf(record))
+        // Pruning rewrote the index (dropped turns): that needs a snapshot; a plain record is one line.
+        if (pruned.isEmpty()) append(sessionId, index, op) else save(sessionId, index.apply(op))
         Recorded(kind != Kind.SKIPPED, note, pruned)
     }
 
@@ -152,7 +185,7 @@ class WorkspaceJournal(
             }
         }
         val id = "$REVERT_PREFIX${index.next}"
-        save(sessionId, index.copy(next = index.next + 1, reverts = index.reverts.map { if (it.id == revertId) it.copy(redone = true) else it }))
+        append(sessionId, index, Op(index.gen, index.next + 1, redone = revertId))
         Result(id, revert.groups, revert.turn, revertId, restored, deleted, missing)
     }
 
@@ -192,10 +225,7 @@ class WorkspaceJournal(
             }
         }
         val ordered = groups.sortedBy { g -> targets.filter { it.group == g }.minOf { it.seq } }
-        save(
-            sessionId,
-            index.copy(next = next, records = index.records + captured, reverts = index.reverts + Revert(id, ordered, turn)),
-        )
+        append(sessionId, index, Op(index.gen, next, records = captured, reverts = listOf(Revert(id, ordered, turn))))
         return Result(id, ordered, turn, null, restored.sorted(), deleted.sorted(), missing.sorted())
     }
 
@@ -268,6 +298,7 @@ class WorkspaceJournal(
     /** Forgets [sessionId]'s journal (the conversation was deleted). */
     fun drop(sessionId: String) = lock.withLock {
         cache.remove(sessionId)
+        logLines.remove(sessionId)
         runCatching { fs.deleteRecursively(dir(sessionId)) }
         Unit
     }
@@ -281,22 +312,61 @@ class WorkspaceJournal(
 
     private fun blob(sessionId: String, seq: Long): Path = blobs(sessionId) / seq.toString()
 
+    /** The snapshot plus the `journal.log` lines of its generation (a torn last line is skipped). */
     private fun load(sessionId: String): Index = cache.getOrPut(sessionId) {
         val file = dir(sessionId) / INDEX
-        try {
+        var index = try {
             if (fs.exists(file)) json.decodeFromString(Index.serializer(), fs.read(file) { readUtf8() }) else Index()
         } catch (_: Exception) {
             Index()
         }
+        var lines = 0
+        val log = dir(sessionId) / LOG
+        if (fs.exists(log)) {
+            runCatching {
+                fs.read(log) {
+                    while (true) {
+                        val line = readUtf8Line() ?: break
+                        if (line.isBlank()) continue
+                        val op = runCatching { json.decodeFromString(Op.serializer(), line) }.getOrNull() ?: continue
+                        if (op.gen != index.gen) continue
+                        index = index.apply(op)
+                        lines++
+                    }
+                }
+            }
+        }
+        logLines[sessionId] = lines
+        index
     }
 
+    /** Applies [op] to [index] and appends it to `journal.log`; folds the log into a snapshot now and then. */
+    private fun append(sessionId: String, index: Index, op: Op) {
+        val updated = index.apply(op)
+        val lines = (logLines[sessionId] ?: 0) + 1
+        if (lines >= COMPACT_EVERY) {
+            save(sessionId, updated)
+            return
+        }
+        val dir = dir(sessionId)
+        fs.createDirectories(dir)
+        fs.appendingSink(dir / LOG).buffer().use { it.writeUtf8(json.encodeToString(Op.serializer(), op)).writeUtf8("\n") }
+        logLines[sessionId] = lines
+        cache[sessionId] = updated
+    }
+
+    /** Writes a new snapshot (next generation), then drops the folded log. */
     private fun save(sessionId: String, index: Index) {
         val dir = dir(sessionId)
         fs.createDirectories(dir)
+        val snapshot = index.copy(gen = index.gen + 1)
         val tmp = dir / "$INDEX.tmp"
-        fs.write(tmp) { writeUtf8(json.encodeToString(Index.serializer(), index)) }
+        fs.write(tmp) { writeUtf8(json.encodeToString(Index.serializer(), snapshot)) }
         fs.atomicMove(tmp, dir / INDEX)
-        cache[sessionId] = index
+        // Lines of the old generation no longer apply even if this delete is lost.
+        runCatching { fs.delete(dir / LOG) }
+        logLines[sessionId] = 0
+        cache[sessionId] = snapshot
     }
 
     companion object {
@@ -305,6 +375,10 @@ class WorkspaceJournal(
         const val MAX_FILE_BYTES = 10 * MB
         const val REVERT_PREFIX = "revert-"
         private const val INDEX = "index.json"
+        private const val LOG = "journal.log"
+
+        /** `journal.log` lines after which the index is snapshotted again. */
+        const val COMPACT_EVERY = 256
         private val json = Json { ignoreUnknownKeys = true }
 
         private fun isRevert(group: String) = group.startsWith(REVERT_PREFIX)

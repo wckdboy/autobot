@@ -64,6 +64,7 @@ import dev.wckdboy.autobot.providers.remote.toOverride
 import dev.wckdboy.autobot.shared.session.ChangeGroup
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.SessionProjection
+import dev.wckdboy.autobot.shared.session.SessionProjector
 import dev.wckdboy.autobot.shared.session.projectSession
 import dev.wckdboy.autobot.shared.voice.EndOfSpeech
 import dev.wckdboy.autobot.shared.voice.SpeechVerdict
@@ -268,11 +269,13 @@ class ChatViewModel @AssistedInject constructor(
      */
     private val agentState = agent.flatMapLatest { a ->
         if (a == null) return@flatMapLatest flowOf(AgentSnapshot())
+        // Incremental: each log entry is projected once (shared SessionProjector).
+        val projector = SessionProjector { name, args -> describe(a, name, args) }
         val transcript = combine(a.log.entries, a.runningTools, host.interactions) { entries, running, interactions ->
             val mine = interactions.filter { it.sessionId == conversationId }
             val approvals = mine.filterIsInstance<Interaction.Approval>().associate { it.callId to ApprovalUi(it.callId, it.toolName, it.summary, it.reason, it.privateData) }
             val question = mine.filterIsInstance<Interaction.Question>().firstOrNull()?.let { QuestionUi(it.callId, it.question) }
-            val projection = projectSession(entries, approvals.keys, running) { name, args -> describe(a, name, args) }
+            val projection = projector.project(entries, approvals.keys, running)
             var n = 0
             val steps = projection.items.filterIsInstance<SessionItem.Tool>().associate { it.key to ++n }
             // Parse the latest answers' markdown here, off the main thread: their bubbles then

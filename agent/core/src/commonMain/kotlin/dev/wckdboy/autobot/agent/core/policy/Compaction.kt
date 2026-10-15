@@ -73,10 +73,7 @@ class Compactor(private val retainRatio: Double = 0.16) {
             (e is SessionEvent.UserMessage && e.kind == UserMessageKind.PROMPT) || e is SessionEvent.AssistantMessage
         }
         if (boundaries.size < 2) return false
-        val total = visible.sumOf { entryTokens(it) }.coerceAtLeast(1)
-        val target = (total * retainRatio).toInt()
-        val boundary = boundaries.drop(1).lastOrNull { b -> visible.filter { it.seq >= b.seq }.sumOf { entryTokens(it) } >= target }
-            ?: boundaries.last()
+        val boundary = cutPoint(visible, boundaries) ?: boundaries.last()
         val firstSeq = entries.first().seq
         val endSeq = boundary.seq - 1
         if (endSeq < firstSeq) return false
@@ -97,6 +94,21 @@ class Compactor(private val retainRatio: Double = 0.16) {
         agent.log.append(SessionEvent.UserMessage(summary, UserMessageKind.SUMMARY), SurfaceOp.Replace(firstSeq, endSeq))
         agent.log.append(SessionEvent.CompactionEnd(entries.count { it.seq in firstSeq..endSeq }, summary.length))
         return true
+    }
+
+    /**
+     * The latest boundary (after the first) from which at least [retainRatio] of [visible]'s
+     * tokens remain: one reverse pass with a running suffix sum (not a re-sum per candidate).
+     */
+    internal fun cutPoint(visible: List<LogEntry>, boundaries: List<LogEntry>): LogEntry? {
+        val suffix = HashMap<Long, Int>(visible.size * 2)
+        var running = 0
+        for (i in visible.indices.reversed()) {
+            running += entryTokens(visible[i])
+            suffix[visible[i].seq] = running
+        }
+        val target = (running.coerceAtLeast(1) * retainRatio).toInt()
+        return boundaries.drop(1).lastOrNull { b -> (suffix[b.seq] ?: 0) >= target }
     }
 
     /** Re-sends the current history (prefix-cache friendly) with the instruction appended last. */

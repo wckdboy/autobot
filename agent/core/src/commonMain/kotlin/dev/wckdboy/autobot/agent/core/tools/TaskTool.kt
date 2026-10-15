@@ -130,9 +130,13 @@ object TaskTool : ToolDefinition {
         val text = entries.filterIsInstance<SessionEvent.AssistantMessage>().lastOrNull { it.text.isNotBlank() && !it.interrupted }?.text?.trim()
         val results = entries.filterIsInstance<SessionEvent.ToolResult>().associateBy { it.callId }
         val registry = child.ctx[ToolRegistry.Key]
+        // ToolCall events of current logs carry no arguments: they are in the assistant message.
+        val arguments = HashMap<String, String>()
+        entries.filterIsInstance<SessionEvent.AssistantMessage>().forEach { m -> m.toolCalls.forEach { arguments[it.id] = it.arguments } }
         val steps = buildJsonArray {
             entries.filterIsInstance<SessionEvent.ToolCall>().forEach { call ->
-                val args = ToolExecutor.parseArgs(call.arguments) ?: JsonObject(emptyMap())
+                val raw = call.arguments.ifEmpty { arguments[call.callId].orEmpty() }
+                val args = ToolExecutor.parseArgs(raw) ?: JsonObject(emptyMap())
                 val result = results[call.callId]
                 add(
                     buildJsonObject {

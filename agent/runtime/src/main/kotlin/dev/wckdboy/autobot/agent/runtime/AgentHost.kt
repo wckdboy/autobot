@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.agent.runtime
 
+import kotlinx.coroutines.Dispatchers
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.DefaultLifecycleObserver
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.agent.core.Disposable
@@ -139,6 +143,13 @@ class AgentHost @Inject constructor(
     /** Connection state per configured MCP server. */
     val mcpStatus: StateFlow<List<McpServerStatus>> get() = mcp.status
 
+    /**
+     * App lifecycle hook: `false` when the app goes to the background (MCP list-change streams
+     * close and stop reconnecting), `true` when it returns (they are re-listed at the next turn).
+     * Call it from a process-lifecycle observer (ON_STOP / ON_START).
+     */
+    fun setForeground(foreground: Boolean) = mcp.setForeground(foreground)
+
     /** Attachments are decrypted into short-lived files for a single model call. */
     private val images = object : ImageAttachments {
         override suspend fun openPlain(id: String): String? = attachments.openPlain(id)?.path
@@ -176,6 +187,13 @@ class AgentHost @Inject constructor(
     val running: StateFlow<Set<String>> = _running.asStateFlow()
 
     init {
+        // MCP list-change streams close while the app is in the background (battery).
+        scope.launch(Dispatchers.Main) {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) = setForeground(true)
+                override fun onStop(owner: LifecycleOwner) = setForeground(false)
+            })
+        }
         harness.llm.setResolver { id -> adapters.get(id) }
         // A cached adapter's client is bound to the route at build time (the kill switch rejects
         // it after a change), its key and settings to the provider row, its context windows to

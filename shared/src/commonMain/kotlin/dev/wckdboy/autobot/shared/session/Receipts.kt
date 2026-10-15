@@ -76,10 +76,10 @@ object Receipts {
             ReceiptHost(
                 host = key.first,
                 route = key.second,
-                requests = list.size,
+                requests = list.sumOf { it.count },
                 bytesSent = list.filterNot { it.blocked }.sumOf { it.bytesSent ?: 0 },
                 bytesReceived = list.sumOf { it.bytesReceived ?: 0 },
-                blocked = list.count { it.blocked },
+                blocked = list.filter { it.blocked }.sumOf { it.count },
                 tags = list.mapNotNull { it.tag }.distinct(),
             )
         }
@@ -164,9 +164,12 @@ object Receipts {
 fun receiptsPlugin(audit: AuditLog?, provider: suspend (id: String) -> ReceiptProvider?): Plugin = plugin("privacy-receipts") { ctx ->
     ctx.intercept(Hooks.TurnReceipt) { input, next ->
         val base = next(input)
-        base.copy(
+        val receipt = base.copy(
             models = base.models.map { Receipts.describe(it, runCatching { provider(it.provider) }.getOrNull()) },
             network = audit?.let { Receipts.network(it.forTurn(input.agent.id, input.turn)) },
         )
+        // The turn's entries were kept apart from the ring until now.
+        audit?.release(input.agent.id, input.turn)
+        receipt
     }
 }

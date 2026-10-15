@@ -19,6 +19,7 @@ dependencies {
     implementation(projects.core.security)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.okhttp.mockwebserver)

@@ -77,6 +77,24 @@ class TaintTracker {
         var images = false
         val cursors = HashMap<String, Long>()
         val pending = HashMap<String, List<String>>()
+        /** Private texts already indexed (label + content hash): a file read twice is indexed once. */
+        val indexed = HashSet<Long>()
+        /** `agentId:callId` of results [record] indexed already; [ingest] skips them once. */
+        val recorded = HashSet<String>()
+        /** The root agent and its subagents seen so far: a network call ingests all of them. */
+        val agents = LinkedHashMap<String, Agent>()
+    }
+
+    /**
+     * What one log entry adds to the index, extracted outside the lock (regex passes over at most
+     * [MAX_SOURCE_CHARS] per text) and merged under it.
+     */
+    private sealed interface Delta {
+        class Prompt(val keys: Set<String>, val strict: Set<String>, val images: Boolean) : Delta
+        class Private(val id: Long, val fragments: List<Pair<String, String>>, val phrases: List<Long>, val label: String, val strict: Set<String>) : Delta
+        class Seen(val strict: Set<String>) : Delta
+        class Decided(val callId: String, val allowed: Boolean) : Delta
+        class Skip(val recorded: String, val strict: Set<String>) : Delta
     }
 
     private val lock = Lock()
@@ -84,55 +102,98 @@ class TaintTracker {
 
     private fun index(agent: Agent): Index = indexes.getOrPut(rootId(agent.id)) { Index() }
 
+    /** Remembers [agent] (a root session or one of its subagents) for [ingestAll]. Cheap. */
+    fun track(agent: Agent) {
+        lock.withLock { index(agent).agents.getOrPut(agent.id) { agent } }
+    }
+
+    /** Stops tracking a disposed subagent, after indexing what it read last. */
+    fun untrack(agent: Agent) {
+        ingest(agent)
+        lock.withLock { indexes[rootId(agent.id)]?.agents?.remove(agent.id) }
+    }
+
+    /**
+     * Brings the shared index of [agent]'s root session up to date with every tracked agent of
+     * that session (the root and its running subagents). Run before a network tool only: other
+     * tools never need it, and private results are already indexed by [record] as they arrive.
+     */
+    fun ingestAll(agent: Agent) {
+        track(agent)
+        lock.withLock { ingestAllCalls++ }
+        val all = lock.withLock { index(agent).agents.values.toList() }
+        all.forEach { ingest(it) }
+    }
+
     /** Indexes the log entries of [agent] not seen yet. */
     fun ingest(agent: Agent) {
         val entries = agent.log.entries.value
+        val last = entries.lastOrNull()?.seq ?: return
+        val prefix = agent.id + ":"
+        val (cursor, recorded) = lock.withLock {
+            val index = index(agent)
+            (index.cursors[agent.id] ?: 0L) to index.recorded.filterTo(HashSet()) { it.startsWith(prefix) }
+        }
+        if (last <= cursor) return
         val tools = agent.ctx[ToolRegistry.Key]
         val prompts = agent.ctx[SystemPromptService.Key]
         val root = !TaskTool.isSubagent(agent.id)
-        lock.withLock {
-            val index = index(agent)
-            val cursor = index.cursors[agent.id] ?: 0L
-            for (entry in entries) {
-                if (entry.seq <= cursor) continue
-                when (val e = entry.event) {
-                    is SessionEvent.UserMessage -> when (e.kind) {
-                        // A subagent's prompt was written by the parent model, not by the user.
-                        UserMessageKind.PROMPT -> if (root) {
-                            index.declassified += Fragments.keys(e.text)
-                            index.seen += Fragments.strictKeys(e.text)
-                            if (e.images.isNotEmpty()) index.images = true
-                        }
-                        UserMessageKind.CONTEXT -> {
-                            e.contextId?.let { prompts?.privateSource(it) }?.let { index.add(it.clean(e.text), it.label, it.names) }
-                            index.seen += Fragments.strictKeys(e.text)
-                        }
-                        UserMessageKind.SUMMARY -> index.seen += Fragments.strictKeys(e.text)
+        // Extraction (the expensive part) runs outside the lock, so parallel tools don't queue on it.
+        val deltas = ArrayList<Pair<Long, Delta>>()
+        for (entry in entries) {
+            if (entry.seq <= cursor) continue
+            val delta: Delta = when (val e = entry.event) {
+                is SessionEvent.UserMessage -> when (e.kind) {
+                    // A subagent's prompt was written by the parent model, not by the user.
+                    UserMessageKind.PROMPT -> if (root) Delta.Prompt(Fragments.keys(e.text), strictKeys(e.text), e.images.isNotEmpty()) else null
+                    UserMessageKind.CONTEXT -> {
+                        val source = e.contextId?.let { prompts?.privateSource(it) }
+                        source?.let { private(e.text, it) } ?: Delta.Seen(strictKeys(e.text))
                     }
-                    is SessionEvent.ToolResult -> if (!e.isError) {
+                    UserMessageKind.SUMMARY -> Delta.Seen(strictKeys(e.text))
+                }
+                is SessionEvent.ToolResult -> when {
+                    e.isError -> null
+                    prefix + e.callId in recorded -> Delta.Skip(prefix + e.callId, strictKeys(e.content))
+                    else -> {
                         val live = tools?.get(e.name)?.privateSource
                         val stamped = e.meta?.get(META_KEY) as? JsonObject
                         val label = live?.label ?: (stamped?.get("label") as? JsonPrimitive)?.content
                         if (label != null) {
                             val names = live?.names ?: ((stamped?.get("names") as? JsonPrimitive)?.booleanOrNull == true)
-                            index.add(live?.clean?.invoke(e.content) ?: e.content, label, names)
+                            private(e.content, PrivateSource(label, names, live?.clean ?: { it }))
+                        } else {
+                            Delta.Seen(strictKeys(e.content))
                         }
-                        index.seen += Fragments.strictKeys(e.content)
                     }
-                    is SessionEvent.ApprovalDecided -> {
-                        val keys = index.pending.remove(e.callId)
-                        if (keys != null && e.outcome == ApprovalOutcome.ALLOWED_FOR_SESSION) index.declassified += keys
-                    }
-                    else -> Unit
                 }
-            }
-            entries.lastOrNull()?.let { index.cursors[agent.id] = maxOf(cursor, it.seq) }
+                is SessionEvent.ApprovalDecided -> Delta.Decided(e.callId, e.outcome == ApprovalOutcome.ALLOWED_FOR_SESSION)
+                else -> null
+            } ?: continue
+            deltas += entry.seq to delta
+        }
+        lock.withLock {
+            val index = index(agent)
+            val now = index.cursors[agent.id] ?: 0L
+            for ((seq, delta) in deltas) if (seq > now) index.merge(delta)
+            index.cursors[agent.id] = maxOf(now, last)
         }
     }
 
     /** Indexes a private tool result right away (a subagent may end its turn without another call). */
     fun record(agent: Agent, text: String, source: PrivateSource) {
-        lock.withLock { index(agent).add(source.clean(text), source.label, source.names) }
+        val delta = private(text, source)
+        lock.withLock { index(agent).merge(delta) }
+    }
+
+    /** [record] for [callId]'s result, which [ingest] then does not index again. */
+    fun record(agent: Agent, callId: String, text: String, source: PrivateSource) {
+        val delta = private(text, source)
+        lock.withLock {
+            val index = index(agent)
+            index.merge(delta)
+            if (index.recorded.size < MAX_RECORDED) index.recorded += "${agent.id}:$callId"
+        }
     }
 
     /** Private fragments in [args] (a network tool's arguments), in the order they occur. */
@@ -151,18 +212,61 @@ class TaintTracker {
         lock.withLock { index(agent).pending[callId] = hits.flatMap { it.keys } }
     }
 
+    /** [ingestAll] calls so far (tests: only network tools bring the index up to date). */
+    internal var ingestAllCalls = 0
+        private set
+
+    /** Sizes of [sessionId]'s index (tests: the sets stay bounded, texts are indexed once). */
+    internal fun sizes(sessionId: String): Map<String, Int> = lock.withLock {
+        val index = indexes[rootId(sessionId)] ?: return@withLock emptyMap()
+        mapOf(
+            "fragments" to index.fragments.size,
+            "phrases" to index.phrases.size,
+            "seen" to index.seen.size,
+            "declassified" to index.declassified.size,
+            "indexed" to index.indexed.size,
+            "recorded" to index.recorded.size,
+        )
+    }
+
     fun forget(sessionId: String) {
         lock.withLock { indexes.remove(rootId(sessionId)) }
     }
 
-    private fun Index.add(text: String, label: String, names: Boolean) {
-        val clean = Fragments.stripUrls(text.take(MAX_SOURCE_CHARS))
-        for ((key, display) in Fragments.extract(clean, names)) {
-            if (key !in fragments) fragments[key] = TaintHit(display, label, listOf(key))
+    private fun Index.merge(delta: Delta) {
+        when (delta) {
+            is Delta.Prompt -> {
+                if (declassified.size < MAX_KEYS) declassified += delta.keys
+                addSeen(delta.strict)
+                if (delta.images) images = true
+            }
+            is Delta.Private -> {
+                addSeen(delta.strict)
+                if (!indexed.add(delta.id)) return
+                if (indexed.size > MAX_INDEXED) indexed.clear()
+                for ((key, display) in delta.fragments) {
+                    if (fragments.size >= MAX_KEYS) break
+                    if (key !in fragments) fragments[key] = TaintHit(display, delta.label, listOf(key))
+                }
+                for (hash in delta.phrases) {
+                    if (phrases.size >= MAX_PHRASES) break
+                    phrases.getOrPut(hash) { delta.label }
+                }
+            }
+            is Delta.Seen -> addSeen(delta.strict)
+            is Delta.Decided -> {
+                val keys = pending.remove(delta.callId)
+                if (keys != null && delta.allowed && declassified.size < MAX_KEYS) declassified += keys
+            }
+            is Delta.Skip -> {
+                recorded -= delta.recorded
+                addSeen(delta.strict)
+            }
         }
-        if (phrases.size < MAX_PHRASES) {
-            for (hash in Fragments.shingles(Fragments.words(clean.lowercase())).map { it.third }) phrases.getOrPut(hash) { label }
-        }
+    }
+
+    private fun Index.addSeen(keys: Set<String>) {
+        if (seen.size < MAX_KEYS) seen += keys
     }
 
     private fun Index.match(text: String, hits: LinkedHashMap<String, TaintHit>) {
@@ -220,8 +324,28 @@ class TaintTracker {
         const val PHRASE_CHARS = 24
         private const val LONG_NUMBER = 7
         private const val MAX_NUMBER = 20
-        private const val MAX_SOURCE_CHARS = 64_000
+        /** Characters of one text that are indexed (or scanned for strict keys). */
+        const val MAX_SOURCE_CHARS = 64_000
         private const val MAX_PHRASES = 200_000
+        /** Bound of each key set (fragments, seen, declassified) per root session. */
+        const val MAX_KEYS = 100_000
+        private const val MAX_INDEXED = 10_000
+        private const val MAX_RECORDED = 10_000
+
+        private fun strictKeys(text: String): Set<String> = Fragments.strictKeys(text.take(MAX_SOURCE_CHARS))
+
+        private fun private(text: String, source: PrivateSource): Delta.Private {
+            val clean = Fragments.stripUrls(source.clean(text).take(MAX_SOURCE_CHARS))
+            val id = (source.label.hashCode().toLong() shl 32) xor (clean.hashCode().toLong() and 0xffffffffL) xor
+                (if (source.names) 1L shl 63 else 0L) xor (clean.length.toLong() shl 20)
+            return Delta.Private(
+                id = id,
+                fragments = Fragments.extract(clean, source.names),
+                phrases = Fragments.shingles(Fragments.words(clean.lowercase())).map { it.third },
+                label = source.label,
+                strict = strictKeys(text),
+            )
+        }
 
         /** The session whose taint a (sub)agent shares. */
         fun rootId(sessionId: String): String = TaskTool.rootId(sessionId)
@@ -239,12 +363,17 @@ class TaintTracker {
  * Applies [TaintTracker] in `tools/pre-execute` and stamps private tool results in
  * `tools/post-execute` (so the log keeps their source after a restart, even if the tool is gone).
  */
-val TaintTrackingPlugin: Plugin = plugin("taint-tracking") { ctx ->
-    val tracker = TaintTracker()
-    ctx.intercept(Hooks.ToolPreExecute, priority = TaintTracker.PRIORITY) { input, next ->
+val TaintTrackingPlugin: Plugin = taintTrackingPlugin { TaintTracker() }
+
+/** [TaintTrackingPlugin] with the tracker from [tracker] (one per install; tests inspect it). */
+internal fun taintTrackingPlugin(priority: Int = TaintTracker.PRIORITY, tracker: () -> TaintTracker): Plugin = plugin("taint-tracking") { ctx ->
+    val tracker = tracker()
+    ctx.intercept(Hooks.ToolPreExecute, priority = priority) { input, next ->
         val agent: Agent = input.agent
-        tracker.ingest(agent)
+        tracker.track(agent)
+        // Only a network tool can carry private data off the phone: other calls skip the index.
         if (input.tool.kind != ToolKind.FETCH) return@intercept next(input)
+        tracker.ingestAll(agent)
         val hits = tracker.check(agent, input.args)
         if (hits.isEmpty()) return@intercept next(input)
         val reason = TaintTracker.reason(hits)
@@ -260,10 +389,10 @@ val TaintTrackingPlugin: Plugin = plugin("taint-tracking") { ctx ->
             put("label", source.label)
             put("names", source.names)
         }
-        tracker.record(input.call.agent, output.content, source)
+        tracker.record(input.call.agent, input.call.callId, output.content, source)
         output.copy(meta = JsonObject((output.meta ?: JsonObject(emptyMap())) + (TaintTracker.META_KEY to stamp)))
     }
-    ctx.on(Hooks.AgentDisposed) { agent -> if (!TaskTool.isSubagent(agent.id)) tracker.forget(agent.id) }
+    ctx.on(Hooks.AgentDisposed) { agent -> if (TaskTool.isSubagent(agent.id)) tracker.untrack(agent) else tracker.forget(agent.id) }
 }
 
 /** Fragment extraction and normalisation (pure; shared by sources and sinks). */

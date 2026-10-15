@@ -75,6 +75,19 @@ class Vault(
 
     suspend fun documents(): List<VaultDocument> = withContext(IoDispatcher) { store.documents().sortedByDescending { it.updatedAt } }
 
+    @kotlin.concurrent.Volatile
+    private var listed: Pair<Long, List<VaultDocument>>? = null
+
+    /**
+     * [documents] for the per-turn `vault` context: cached until a write through this vault (or
+     * after [LIST_TTL_MS], for changes made around it), so a turn doesn't re-read the store.
+     */
+    suspend fun cachedDocuments(): List<VaultDocument> {
+        val now = clock()
+        listed?.takeIf { now - it.first in 0 until LIST_TTL_MS }?.let { return it.second }
+        return documents().also { listed = now to it }
+    }
+
     suspend fun chunks(docId: String): List<VaultChunk> = withContext(IoDispatcher) { store.chunks(docId) }
 
     suspend fun status(): VaultStatus {
@@ -229,13 +242,19 @@ class Vault(
         built
     }
 
-    private suspend fun invalidate() = indexLock.withLock { cached = null }
+    private suspend fun invalidate() {
+        listed = null
+        indexLock.withLock { cached = null }
+    }
 
     companion object {
         const val SEARCH_DEFAULT = 5
         const val SEARCH_MAX = 10
         const val SNIPPET_CHARS = 700
         const val NO_MODEL = "No embedding model is installed. Download one in Models (embedding)."
+        const val NO_MATCH = "No passages in the vault match"
+        const val LIST_TTL_MS = 5 * 60_000L
+        const val EMPTY = "The vault is empty"
 
         /** Taint source of vault results and the `vault` context: passages and file names, without boilerplate. */
         val PRIVATE = PrivateSource("vault", names = true) { text ->
@@ -244,6 +263,8 @@ class Vault(
                     line.startsWith("[doc] ") -> line.removePrefix("[doc] ")
                     line.startsWith("[") -> line.substringAfter("] ").substringBefore(" · ")
                     line.isBlank() || line.startsWith("<") || line.startsWith("(") || line.startsWith("The user's private vault") -> null
+                    // The tool's own answers without passages: the echoed query is the model's, not the vault's.
+                    line.startsWith(NO_MATCH) || line.startsWith(EMPTY) -> null
                     else -> line
                 }
             }.joinToString("\n")
@@ -280,10 +301,10 @@ class VaultSearchTool(private val vault: Vault) : ToolDefinition {
         if (query.isEmpty()) return ToolOutput.error("query is empty", "INVALID_ARGS")
         val status = vault.status()
         if (status.modelId == null) return ToolOutput.error(Vault.NO_MODEL, "NO_MODEL")
-        if (status.documents == 0) return ToolOutput("The vault is empty: the user has not added any documents yet.")
+        if (status.documents == 0) return ToolOutput("${Vault.EMPTY}: the user has not added any documents yet.")
         val hits = vault.search(query, args.int("limit") ?: Vault.SEARCH_DEFAULT)
         val stale = if (status.stale > 0) "\n(${status.stale} document(s) need re-indexing in Settings › Vault and were not searched.)" else ""
-        if (hits.isEmpty()) return ToolOutput("No passages in the vault match \"$query\".$stale", meta = META)
+        if (hits.isEmpty()) return ToolOutput("${Vault.NO_MATCH} \"$query\".$stale", meta = META)
         return ToolOutput(format(hits) + stale, meta = META)
     }
 
@@ -326,7 +347,7 @@ fun vaultPlugin(vault: Vault): Plugin = plugin("vault", SystemPromptService.Key,
     ctx.effect {
         prompts.context(
             PromptContext("vault", ContextOrder.MEMORY + 1, Vault.PRIVATE) { _ ->
-                val docs = vault.documents()
+                val docs = vault.cachedDocuments()
                 if (docs.isEmpty()) return@PromptContext null
                 buildString {
                     append("<vault>\n")
