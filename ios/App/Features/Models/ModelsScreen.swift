@@ -89,7 +89,7 @@ final class ModelsModel {
     static func launch(_ m: InstalledModel, device: DeviceProfile? = nil, filesPresent: Bool = true) -> ModelLaunch {
         ModelLaunchKt.launchOf(
             kind: m.kind.kotlin, engine: m.engine.kotlin, ready: m.isReady,
-            fit: device?.capabilities.fit(kind: m.kind.kotlin, bytes: m.totalBytes, engine: m.engine.kotlin), filesPresent: filesPresent, platform: .ios,
+            fit: device?.capabilities.fit(kind: m.kind.kotlin, bytes: m.totalBytes, engine: m.engine.kotlin, contextTokens: 0), filesPresent: filesPresent, platform: .ios,
         )
     }
 

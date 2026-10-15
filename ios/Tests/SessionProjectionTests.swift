@@ -46,4 +46,15 @@ struct SessionProjectionTests {
         guard p.items.count == 1, case .tool(let t) = p.items[0] else { Issue.record("expected one tool row"); return }
         #expect(t.state == .waitingApproval)
     }
+
+    /// Tool rows are keyed by position (`t<seq>_<i>`): a model that repeats call ids still gives unique keys.
+    @Test func repeatedCallIdsGetUniqueKeys() {
+        let call = ToolCallRecord(id: "dup", name: "read", arguments: "{}")
+        let log = entries(
+            .assistantMessage(.init(turn: 1, step: 1, text: "", toolCalls: [call, call])),
+            .assistantMessage(.init(turn: 1, step: 2, text: "", toolCalls: [call])),
+        )
+        let keys = projectSession(log, pendingApprovals: [], running: []) { _, _ in "" }.items.map(\.key)
+        #expect(keys == ["t1_0", "t1_1", "t2_0"])
+    }
 }
