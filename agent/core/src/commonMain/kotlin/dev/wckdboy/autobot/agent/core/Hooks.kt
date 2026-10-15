@@ -24,6 +24,13 @@ data class PreStepInput(val agent: Agent, val turn: Int, val step: Int)
 sealed interface RequestErrorDecision {
     data object Fail : RequestErrorDecision
     data class Retry(val delayMs: Long) : RequestErrorDecision
+
+    /**
+     * Retry on another route for the rest of the turn (once per turn), e.g. the helper or an
+     * on-device model when the provider's usage limit is used up. [notice] is shown with the
+     * answer, so the switch is never silent.
+     */
+    data class Fallback(val config: LlmCallConfig, val notice: String) : RequestErrorDecision
 }
 
 data class RequestErrorInput(val agent: Agent, val failure: LlmFailure, val attempt: Int)

@@ -28,11 +28,17 @@ class ModelLaunchTest {
 
     @Test
     fun speechAndPartsOpenNothing() {
-        listOf(ModelKind.SPEECH, ModelKind.LORA, ModelKind.VAE, ModelKind.EMBEDDING, ModelKind.OTHER).forEach { kind ->
-            val launch = android(kind, if (kind == ModelKind.SPEECH) EngineKind.WHISPER else EngineKind.DIFFUSION)
+        listOf(ModelKind.SPEECH, ModelKind.VOICE, ModelKind.LORA, ModelKind.VAE, ModelKind.EMBEDDING, ModelKind.OTHER).forEach { kind ->
+            val engine = when (kind) {
+                ModelKind.SPEECH -> EngineKind.WHISPER
+                ModelKind.VOICE -> EngineKind.ONNX
+                else -> EngineKind.DIFFUSION
+            }
+            val launch = android(kind, engine)
             assertEquals(kind.name, ModelLaunch(ModelTask.NONE), launch)
             assertFalse(launch.opens)
         }
+        assertEquals(ModelLaunch(ModelTask.NONE), ios(ModelKind.VOICE, EngineKind.COREML))
     }
 
     @Test

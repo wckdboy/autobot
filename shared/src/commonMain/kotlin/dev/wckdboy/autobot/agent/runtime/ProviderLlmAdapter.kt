@@ -18,6 +18,7 @@ import dev.wckdboy.autobot.providers.remote.ChatRequest
 import dev.wckdboy.autobot.providers.remote.ChatRole
 import dev.wckdboy.autobot.providers.remote.ErrorKind
 import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ProviderSessions
 import dev.wckdboy.autobot.providers.remote.RemoteModel
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.providers.remote.ToolCall
@@ -40,22 +41,25 @@ interface ImageAttachments {
  *
  * Thinking models of DeepSeek and Kimi need their reasoning sent back (`reasoning_content`) in
  * tool loops: with tools, every earlier assistant reasoning is resent; without, only the current
- * turn's. Other providers ([echoReasoning] false) never receive it.
+ * turn's. Other models ([echoReasoning] false for them) never receive it.
  *
+ * @param echoReasoning whether a model needs its reasoning sent back (`ProviderPreset.echoesReasoning`).
  * @param models the provider's cached model list: its context windows replace the guesses of
  *   [modelInfo].
+ * @param helperModel the provider's helper model (subagents, summaries), if the user set one.
  */
 class ProviderLlmAdapter(
     override val provider: String,
     private val chat: ChatProvider,
     private val kind: ProviderKind,
     private val attachments: ImageAttachments? = null,
-    private val echoReasoning: Boolean = kind == ProviderKind.DEEPSEEK,
+    private val echoReasoning: (model: String) -> Boolean = { kind == ProviderKind.DEEPSEEK },
     private val models: ModelCache? = null,
+    override val helperModel: String? = null,
 ) : LlmAdapter {
 
     override fun stream(call: LlmCall): Flow<StreamChunk> = flow {
-        val echo = echoReasoning
+        val echo = echoReasoning(call.config.model)
         val withTools = call.tools.isNotEmpty()
         // Attachments are decrypted into short-lived files for this call only. Only the newest
         // [MAX_IMAGES] images are sent; older ones are noted in the text instead.
@@ -76,6 +80,7 @@ class ProviderLlmAdapter(
                 maxTokens = call.config.maxTokens,
                 tools = call.tools.map { ToolSpec(it.name, it.description, it.parameters.toString()) },
                 echoReasoning = echo,
+                sessionKey = call.sessionId?.let(ProviderSessions::key),
             )
             chat.streamChat(request).collect { event ->
                 when (event) {
@@ -166,7 +171,7 @@ class ProviderLlmAdapter(
                 ErrorKind.PROTOCOL -> LlmErrorCode.PROTOCOL
                 ErrorKind.HTTP -> LlmErrorCode.UNKNOWN
             }
-            return LlmFailure(code, message, httpCode)
+            return LlmFailure(code, message, httpCode, retryAfterMs)
         }
     }
 }

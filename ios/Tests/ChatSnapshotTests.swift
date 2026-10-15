@@ -43,7 +43,8 @@ struct ChatSnapshotTests {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
-        let root = RootBackground(content: view).environment(app).environment(nav).autobotTheme(mode)
+        // Ink animations render their end states, so snapshots are deterministic.
+        let root = RootBackground(content: view).environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(mode)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         try await Task.sleep(for: .milliseconds(1500))

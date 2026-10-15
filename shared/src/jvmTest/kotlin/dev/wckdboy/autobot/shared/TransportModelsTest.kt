@@ -1,5 +1,11 @@
 package dev.wckdboy.autobot.shared
 
+import dev.wckdboy.autobot.agent.core.llm.LlmCall
+import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
+import dev.wckdboy.autobot.agent.core.llm.LlmErrorCode
+import dev.wckdboy.autobot.agent.core.llm.LlmException
+import dev.wckdboy.autobot.agent.core.llm.ModelMessage
+import dev.wckdboy.autobot.agent.core.llm.ModelRole
 import dev.wckdboy.autobot.agent.runtime.ProviderLlmAdapter
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatEvent
@@ -11,6 +17,7 @@ import dev.wckdboy.autobot.providers.remote.ErrorKind
 import dev.wckdboy.autobot.providers.remote.ModelCache
 import dev.wckdboy.autobot.providers.remote.ModelListResult
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
+import dev.wckdboy.autobot.providers.remote.ProviderSessions
 import dev.wckdboy.autobot.providers.remote.RemoteModel
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.flow.toList
@@ -110,6 +117,40 @@ class TransportModelsTest {
         assertEquals("a-key", request.headers["x-api-key"])
         assertEquals("2023-06-01", request.headers["anthropic-version"])
         assertNull(request.headers["Authorization"])
+    }
+
+    @Test
+    fun openCodeGoThroughTheAdapterSendsTheSessionHashAndPicksTheWirePerModel() = runBlocking {
+        val go = ProviderPresets.byId(ProviderPresets.OPENCODE_GO)!!
+        val transport = Recording(200, listOf("""data: {"type":"message_stop"}"""))
+        val adapter = ProviderLlmAdapter(
+            "go", TransportChatProvider(go.baseUrl, "k", transport, "OpenCode Go", preset = go), ProviderKind.OPENAI_COMPATIBLE,
+            echoReasoning = go::echoesReasoning, helperModel = "glm-5.3-flash",
+        )
+        assertEquals("glm-5.3-flash", adapter.helperModel)
+        val call = LlmCall(LlmCallConfig("go", "minimax-m3"), listOf(ModelMessage(ModelRole.USER, "hi")), emptyList(), sessionId = "s1")
+        adapter.stream(call).toList()
+        val request = transport.sent.single()
+        assertEquals("https://opencode.ai/inference/go/v1/messages", request.url)
+        assertEquals(ProviderSessions.key("s1"), request.headers["x-opencode-session"])
+        assertEquals("k", request.headers["x-api-key"])
+    }
+
+    @Test
+    fun aUsedUpLimitReachesTheAgentAsQuotaWithItsResetTime() = runBlocking {
+        val limited = object : HttpTransport {
+            override fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable {
+                sink.onResponse(429, mapOf("retry-after" to "1800"), """{"type":"error","error":{"type":"GoUsageLimitError","message":"Go usage limit exceeded"}}""")
+                return Cancellable { }
+            }
+        }
+        val go = ProviderPresets.byId(ProviderPresets.OPENCODE_GO)!!
+        val adapter = ProviderLlmAdapter("go", TransportChatProvider(go.baseUrl, "k", limited, "t", preset = go), ProviderKind.OPENAI_COMPATIBLE)
+        val failure = runCatching { adapter.stream(LlmCall(LlmCallConfig("go", "kimi-k2.6"), emptyList(), emptyList())).toList() }
+            .exceptionOrNull() as LlmException
+        assertEquals(LlmErrorCode.QUOTA, failure.failure.code)
+        assertEquals(1_800_000L, failure.failure.retryAfterMs)
+        assertEquals("OpenCode Go's usage limit is used up; it resets in ~30 min.", failure.failure.message)
     }
 
     @Test

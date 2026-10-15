@@ -164,6 +164,9 @@ object CoreMLCatalog {
             ),
         )
     }
+
+    /** Read-aloud voices on Core ML: Kokoro (see [KokoroCatalog.coreML]). */
+    val voices: List<ModelPlan> = listOf(KokoroCatalog.coreML)
 }
 
 /** Compiled Core ML Stable Diffusion folders in Hugging Face repos (the iOS image browser). */

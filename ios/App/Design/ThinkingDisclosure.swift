@@ -25,7 +25,7 @@ struct ThinkingDisclosure: View {
                     withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
                 } label: {
                     HStack(spacing: 8) {
-                        if isThinking { StatusDot(color: accent, live: true, size: 6) }
+                        if isThinking { HalftoneStrip(color: accent, cell: 3) }
                         MicroLabel(isThinking ? "∴ thinking" : "∴ reasoning", color: accent)
                         MicroLabel("\(reasoning.count / 4) tok", color: c.outline)
                         Spacer(minLength: 0)

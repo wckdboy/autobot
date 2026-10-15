@@ -41,8 +41,9 @@ import org.junit.Test
 class TaskToolTest {
 
     /** Answers by who is asking: [respond] sees the request and returns the chunks to stream. */
-    private class RoutingAdapter(private val respond: (LlmCall) -> List<StreamChunk>) : LlmAdapter {
+    private class RoutingAdapter(private val helper: String? = null, private val respond: (LlmCall) -> List<StreamChunk>) : LlmAdapter {
         override val provider = "fake"
+        override val helperModel: String? get() = helper
         val calls: MutableList<LlmCall> = Collections.synchronizedList(mutableListOf())
 
         override fun stream(call: LlmCall): Flow<StreamChunk> = flow {
@@ -123,6 +124,46 @@ class TaskToolTest {
         assertTrue(adapter.calls.filterNot { it.isSubagent }.first().tools.any { it.name == "task" })
         // Nothing of the subagent lands in the parent log except the task call and its result.
         assertEquals(listOf("task"), agent.all<SessionEvent.ToolCall>().map { it.name })
+    }
+
+    @Test
+    fun subagentsRunOnTheHelperModelUnlessAskedForTheMainOne() = runTest {
+        val adapter = RoutingAdapter(helper = "fast") { call ->
+            when {
+                call.isSubagent -> reply("report ${call.prompt}")
+                call.toolResults.isEmpty() -> listOf(
+                    task("t1", "cheap", "a", 0),
+                    StreamChunk.ToolCallDelta(1, "t2", "task", """{"description":"strong","prompt":"b","model":"main"}"""),
+                    StreamChunk.Finish("tool_calls"),
+                )
+                else -> reply("ok")
+            }
+        }
+        val agent = agent(adapter)
+        agent.followup("fan out")
+        advanceUntilIdle()
+
+        val byPrompt = adapter.calls.filter { it.isSubagent }.associate { it.prompt to it.config.model }
+        assertEquals(mapOf("a" to "fast", "b" to "m"), byPrompt)
+        assertTrue(adapter.calls.filterNot { it.isSubagent }.all { it.config.model == "m" })
+        assertTrue(adapter.calls.all { it.sessionId != null })
+    }
+
+    @Test
+    fun withoutAHelperSubagentsUseTheMainModel() = runTest {
+        val adapter = RoutingAdapter { call ->
+            when {
+                call.isSubagent -> reply("report")
+                call.toolResults.isEmpty() -> listOf(task("t1", "job", "a"), StreamChunk.Finish("tool_calls"))
+                else -> reply("ok")
+            }
+        }
+        val agent = agent(adapter)
+        agent.followup("go")
+        advanceUntilIdle()
+
+        assertEquals(listOf("m"), adapter.calls.filter { it.isSubagent }.map { it.config.model })
+        assertEquals("report", agent.all<SessionEvent.ToolResult>().single().content)
     }
 
     @Test

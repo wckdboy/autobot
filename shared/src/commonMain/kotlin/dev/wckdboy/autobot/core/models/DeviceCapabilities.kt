@@ -38,6 +38,8 @@ data class DeviceCapabilities(
         val working = when (kind) {
             ModelKind.CHAT, ModelKind.CODE -> bytes * 13 / 10
             ModelKind.IMAGE -> bytes * 14 / 10
+            // The voice's weights plus activations for a sentence and its lexicons in memory.
+            ModelKind.VOICE -> bytes * 3 / 2
             else -> bytes
         }
         val budget = totalRamBytes / 2

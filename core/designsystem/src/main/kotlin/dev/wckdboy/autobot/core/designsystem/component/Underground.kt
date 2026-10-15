@@ -1,10 +1,5 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,19 +27,20 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.wckdboy.autobot.core.designsystem.motion.InkMath
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import java.util.Locale
@@ -155,22 +151,19 @@ fun Tag(
     Text(text.uppercase(Locale.ROOT), modifier = base, style = AutobotTheme.styles.micro, color = textColor, maxLines = 1)
 }
 
-/** Status dot; pulses while [live]. */
+/**
+ * Status dot; pulses (`statusDotPulseMillis`, down to `statusDotPulseMinAlpha`) while [live], on
+ * the throttled ink clock, so it stops off screen, in the background and with reduced motion.
+ */
 @Composable
 fun StatusDot(color: Color, modifier: Modifier = Modifier, live: Boolean = false, size: Dp = 7.dp) {
-    val alpha = if (live) {
-        val transition = rememberInfiniteTransition(label = "dot")
-        val a by transition.animateFloat(
-            initialValue = 1f,
-            targetValue = 0.25f,
-            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-            label = "dotAlpha",
-        )
-        a
-    } else {
-        1f
-    }
-    Box(modifier.size(size).alpha(alpha).background(color, CircleShape))
+    val clock = rememberInkClock(live)
+    Box(
+        modifier
+            .size(size)
+            .graphicsLayer { alpha = if (live) InkMath.pulseAlpha(clock.time * 1000f) else 1f }
+            .background(color, CircleShape),
+    )
 }
 
 /**

@@ -51,6 +51,34 @@ struct ProvidersTests {
         #expect(SharedMapping.kind(.anthropic) == AutobotShared.ProviderKind.anthropic)
     }
 
+    @Test func helperModelIsStoredAndOptional() throws {
+        let old = #"{"id":"g","kind":"OPENAI_COMPATIBLE","displayName":"Go","baseUrl":"https://opencode.ai/inference/go/v1","defaultModel":"kimi-k2.6","routing":"INHERIT","presetId":"opencode-go"}"#
+        #expect(try JSONDecoder().decode(Provider.self, from: Data(old.utf8)).helperModel == nil)
+        let repo = repository()
+        var p = Provider(id: "g", kind: .openAICompatible, displayName: "Go", baseUrl: "https://opencode.ai/inference/go/v1", defaultModel: "kimi-k2.6", presetId: "opencode-go")
+        p.helperModel = "glm-5.3-flash"
+        _ = try repo.save(p)
+        repo.load()
+        #expect(repo.get("g")?.helperModel == "glm-5.3-flash")
+    }
+
+    @Test func openCodeGoStartsWithAHelperAndLabelsEachModelsDataPolicy() {
+        let go = ProviderPresets.byId("opencode-go")!
+        let draft = ProviderDraft.fromPreset(go)
+        #expect(draft.defaultModel == "kimi-k2.6")
+        #expect(draft.helperModel == "glm-5.3-flash")
+        #expect(go.privacyUrl == "https://opencode.ai/docs/go/#privacy")
+        let kimi = RemoteModelItem(id: "kimi-k2.6", presetId: go.id)
+        #expect(kimi.caption == "no training · zero retention")
+        #expect(!kimi.trains)
+        let muse = RemoteModelItem(id: "muse-spark-1.3-contributor", presetId: go.id)
+        #expect(muse.trains)
+        #expect(muse.caption == "trains on your prompts")
+        // Without a preset (or on providers with one policy) nothing is added.
+        #expect(RemoteModelItem(id: "muse-spark-1.3-contributor").caption.isEmpty)
+        #expect(!ModelPrivacy.trains(presetId: "groq", model: "x-contributor"))
+    }
+
     @Test func modelListsAreCachedAndDeletedWithTheProvider() throws {
         let repo = repository()
         let p = try repo.save(Provider(id: "g", kind: .openAICompatible, displayName: "Groq", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "m", presetId: "groq"))

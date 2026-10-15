@@ -72,6 +72,7 @@ import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Readout
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
+import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import java.util.Locale
@@ -177,8 +178,8 @@ private fun Thumb(item: GalleryItem, actions: GalleryViewModel, onClick: () -> U
             .clickable(onClick = onClick),
     ) {
         bitmap?.let { Image(it, contentDescription = item.prompt.take(60), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
-        if (item.favorite) {
-            Icon(Icons.Filled.Star, null, tint = AutobotColors.Amber, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(14.dp))
+        Box(Modifier.align(Alignment.TopEnd).stamp(item.favorite, enabled = item.favorite)) {
+            if (item.favorite) Icon(Icons.Filled.Star, null, tint = AutobotColors.Amber, modifier = Modifier.padding(4.dp).size(14.dp))
         }
     }
 }
@@ -208,7 +209,12 @@ private fun DetailDialog(
                     IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close") }
                     MicroLabel(DateUtils.getRelativeTimeSpanString(item.createdAt).toString(), Modifier.weight(1f))
                     IconButton(onClick = onFavorite) {
-                        Icon(Icons.Filled.Star, "Favorite", tint = if (item.favorite) AutobotColors.Amber else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(
+                            Icons.Filled.Star,
+                            "Favorite",
+                            tint = if (item.favorite) AutobotColors.Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.stamp(item.favorite, enabled = item.favorite),
+                        )
                     }
                 }
                 Hairline()

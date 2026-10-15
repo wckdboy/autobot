@@ -15,6 +15,8 @@ import dev.wckdboy.autobot.providers.remote.ModelLists
 import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
+import dev.wckdboy.autobot.providers.remote.ProviderSessions
+import dev.wckdboy.autobot.providers.remote.QuotaErrors
 import kotlin.coroutines.resume
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -70,7 +72,8 @@ interface HttpTransport {
 /**
  * A remote chat provider over a host [HttpTransport] (the iOS counterpart of the Android
  * `OpenAICompatibleProvider`, with the same codecs): OpenAI chat completions or Anthropic
- * Messages, by the [preset]'s wire.
+ * Messages, by the [preset]'s wire for the requested model. Usage-limit refusals are told from
+ * throttling by [QuotaErrors].
  */
 class TransportChatProvider(
     baseUrl: String,
@@ -81,15 +84,16 @@ class TransportChatProvider(
     private val preset: ProviderPreset = ProviderPresets.forKind(ProviderKind.OPENAI_COMPATIBLE),
 ) : ChatProvider {
     private val base: String? = baseUrl.trim().trimEnd('/').takeIf { BASE.matches(it) }
-    private val wire: ChatWire = preset.wire()
 
-    private fun headers(accept: String): Map<String, String> = buildMap {
+    private fun headers(wire: ChatWire, accept: String, request: ChatRequest? = null): Map<String, String> = buildMap {
         put("Accept", accept)
         put("Content-Type", "application/json; charset=utf-8")
         putAll(wire.headers(apiKey))
+        request?.let { r -> ProviderSessions.header(preset, r)?.let { (k, v) -> put(k, v) } }
     }
 
     override fun streamChat(request: ChatRequest): Flow<ChatEvent> = callbackFlow {
+        val wire = preset.wire(request.model)
         val body = when {
             base == null -> null.also { trySend(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid base URL")) }
             else -> try {
@@ -106,12 +110,13 @@ class TransportChatProvider(
         val decoder = wire.decoder()
         var failed = false
         val call = transport.send(
-            HttpRequestSpec("POST", "$base/${wire.chatPath}", headers("text/event-stream"), body, tag, route),
+            HttpRequestSpec("POST", "$base/${wire.chatPath}", headers(wire, "text/event-stream", request), body, tag, route),
             object : HttpSink {
                 override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
                     if (status in 200..299) return
                     failed = true
-                    trySend(wire.httpError(status, errorBody.orEmpty()))
+                    val text = errorBody.orEmpty()
+                    trySend(QuotaErrors.refine(wire.httpError(status, text), status, text, headers["retry-after"], ProviderSessions.name(preset)))
                     close()
                 }
 

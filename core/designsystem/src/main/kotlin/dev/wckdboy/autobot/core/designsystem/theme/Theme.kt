@@ -13,6 +13,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
@@ -29,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import dev.wckdboy.autobot.core.designsystem.R
+import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkMotion
 
 /**
  * Riso palette: one signal red printed on ink (dark) or paper (light), with warm greys. Red is
@@ -267,7 +270,9 @@ fun AutobotTheme(
         }
         if (darkTheme && amoled) base.toAmoled() else base
     }
-    MaterialTheme(colorScheme = scheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
+    MaterialTheme(colorScheme = scheme, typography = AutobotTypography, shapes = AutobotShapes) {
+        CompositionLocalProvider(LocalInkMotion provides rememberInkMotion(), content = content)
+    }
 }
 
 /**

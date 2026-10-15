@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -52,12 +51,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.models.CivitaiModel
@@ -153,13 +154,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                             }
                             TextButton(onClick = { actions.pause(p.id) }) { Text("PAUSE") }
                         }
-                        LinearProgressIndicator(
-                            progress = { p.fraction },
-                            modifier = Modifier.fillMaxWidth().height(3.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant,
-                            drawStopIndicator = {},
-                        )
+                        InkProgressBar(p.fraction, Modifier.fillMaxWidth().height(3.dp))
                         MicroLabel("${formatBytes(p.downloaded)} / ${formatBytes(p.total)} · ${formatBytes(p.bytesPerSecond)}/s")
                     }
                     Spacer(Modifier.height(14.dp))
@@ -198,6 +193,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                         "code" to actions.recommended.filter { it.kind == ModelKind.CODE },
                         "image · cpu" to actions.recommended.filter { it.kind == ModelKind.IMAGE },
                         "speech · dictation" to actions.recommended.filter { it.kind == ModelKind.SPEECH },
+                        "voice · read aloud" to actions.recommended.filter { it.kind == ModelKind.VOICE },
                     ).forEach { (label, plans) ->
                         item(key = "h-$label") {
                             SectionLabel(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -256,12 +252,15 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel) {
         ).joinToString(" · "),
         onClick = if (task != ModelTask.NONE) ({ actions.use(model) }) else null,
     ) {
-        when (model.status) {
-            ModelStatus.READY -> Tag("ready", accent = MaterialTheme.colorScheme.primary, filled = true)
-            ModelStatus.DOWNLOADING -> Tag("${(model.fraction * 100).toInt()}%", accent = MaterialTheme.colorScheme.primary)
-            ModelStatus.QUEUED -> Tag("queued")
-            ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
-            ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
+        // "ready" is stamped in when a download finishes while you watch.
+        Box(Modifier.stamp(model.status, enabled = model.status == ModelStatus.READY)) {
+            when (model.status) {
+                ModelStatus.READY -> Tag("ready", accent = MaterialTheme.colorScheme.primary, filled = true)
+                ModelStatus.DOWNLOADING -> Tag("${(model.fraction * 100).toInt()}%", accent = MaterialTheme.colorScheme.primary)
+                ModelStatus.QUEUED -> Tag("queued")
+                ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
+                ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
+            }
         }
         Tag(if (confirm) "sure?" else "×", accent = MaterialTheme.colorScheme.onSurfaceVariant, onClick = {
             if (confirm) actions.remove(model.id) else confirm = true

@@ -197,21 +197,27 @@ private struct ErrorLine: View {
     }
 }
 
-/// 2×2 proofs: halftone while sampling, the image when done.
+/// 2×2 proofs: the ink plate flows while sampling, develops into previews and prints each result.
 private struct ProofGrid: View {
     let model: ImagineModel
     @Binding var selected: Int
     @Environment(\.scheme) private var c
-    @State private var preview: UIImage?
+    /// The latest latent preview (its luma), for the image being sampled.
+    @State private var preview: (image: Int, ink: PlateImage)?
+    @State private var previewSerial = 0
+    /// Slots of the last run, kept until its results are loaded (so the last proof can print).
+    @State private var pendingSlots = 0
+
+    private typealias Running = (image: Int, step: Int, total: Int, batch: Int, preview: Data?)
 
     var body: some View {
-        let running: (image: Int, step: Int, total: Int, batch: Int, preview: Data?)? = {
+        let running: Running? = {
             if case .running(_, _, let r, let image, let step, let total, let preview, _) = model.running {
                 return (image, step, total, r.batchCount, preview)
             }
             return nil
         }()
-        let count = running.map { max($0.batch, 1) } ?? model.results.count
+        let count = running.map { max($0.batch, 1) } ?? max(model.results.count, pendingSlots)
         let slots = min(max(count, 1), 4)
         let ratio = min(max(CGFloat(model.request.width) / CGFloat(max(model.request.height, 1)), 0.5), 2)
         let cols = slots == 1 ? 1 : 2
@@ -230,26 +236,53 @@ private struct ProofGrid: View {
             }
         }
         .task(id: running?.preview) {
-            guard let data = running?.preview else { return }
-            preview = await decodeImage(data, maxSide: 768)
+            guard let running, let data = running.preview else { return }
+            guard let image = await decodeImage(data, maxSide: 768), !Task.isCancelled, let cg = image.cgImage, let grid = LumaGrid(image: cg) else { return }
+            previewSerial += 1
+            preview = (running.image, PlateImage(id: "\(previewSerial)", grid: grid))
+        }
+        .onChange(of: running?.batch) { _, batch in
+            if let batch { pendingSlots = batch }
+        }
+        .onChange(of: model.running.isRunning) { _, isRunning in
+            if isRunning { preview = nil }
+        }
+        .task(id: model.results.count) {
+            // Results caught up, or the run ended without them (cancelled, failed).
+            if model.results.count >= pendingSlots { pendingSlots = 0; return }
+            guard !model.isRunning else { return }
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled && !model.isRunning { pendingSlots = 0 }
         }
     }
 
-    private func cell(_ i: Int, running: (image: Int, step: Int, total: Int, batch: Int, preview: Data?)?, ratio: CGFloat) -> some View {
+    private func ink(_ i: Int, running: Running?, result: ResultUi?) -> PlateInk? {
+        if let result, let grid = LumaCache.grid(result.image) {
+            return .final(PlateImage(id: result.galleryId, grid: grid, image: result.image))
+        }
+        guard let running else {
+            return i < pendingSlots ? .hold : nil
+        }
+        if i == running.image {
+            if running.preview != nil, let preview, preview.image == i { return .preview(preview.ink) }
+            let loading = model.phase != nil || running.total == 0
+            return .flow(progress: running.total > 0 ? Double(running.step) / Double(running.total) : 0, loading: loading)
+        }
+        return i < running.image ? .hold : .idle
+    }
+
+    private func cell(_ i: Int, running: Running?, ratio: CGFloat) -> some View {
         let result = model.results[imagineSafe: i]
+        let plateInk = ink(i, running: running, result: result)
         return ZStack(alignment: .bottomLeading) {
             c.surfaceContainerLow
-            if let result {
-                Image(uiImage: result.image).resizable().scaledToFill()
-            } else if let running, i == running.image, running.preview != nil, let preview {
-                HalftoneImage(image: preview, cell: 5)
-            } else if running != nil {
-                HalftoneField(dot: c.primary.opacity(0.35), cell: 7, phase: CGFloat(i))
+            if let plateInk {
+                InkPlate(ink: plateInk, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
             } else if model.preferInit, i == 0, let initImage = model.initImage {
                 Image(uiImage: initImage).resizable().scaledToFill()
                 if model.request.mode == .inpaint { MaskOverlay(mask: model.mask) }
             } else {
-                HalftoneField(dot: c.outlineVariant, cell: 9)
+                InkPlate(ink: .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
             }
             if let running, i == running.image {
                 Tag(model.phase == nil && running.total > 0 ? "step \(running.step)/\(running.total)" : "loading", accent: c.primary, filled: true).padding(6)
@@ -283,13 +316,7 @@ private struct StudioBar: View {
                     TextAction("Tune", color: c.primary, style: .labelLarge, action: onShowTune)
                 }
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Rectangle().fill(c.outlineVariant)
-                    Rectangle().fill(c.primary).frame(width: geo.size.width * progress)
-                }
-            }
-            .frame(height: 2)
+            InkProgressBar(fraction: Double(progress), height: 2, running: model.isRunning)
             HStack(spacing: 8) {
                 if case .running(let source, _, _, _, _, _, _, _) = model.running {
                     GhostButton("Cancel", accent: c.primary, enabled: source != .agent, action: model.cancel)

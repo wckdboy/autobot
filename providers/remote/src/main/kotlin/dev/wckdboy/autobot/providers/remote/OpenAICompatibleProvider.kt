@@ -20,16 +20,17 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 /**
- * Streaming client for a remote chat endpoint over OkHttp, in the dialect of its [preset]: any
- * OpenAI-compatible `/chat/completions` endpoint (Server-Sent Events, `stream=true`) or
- * Anthropic's native `/messages`. Encoding, stream decoding, model lists and error mapping live
- * in the shared [ChatWire] / [ModelLists] (the iOS app runs the same code); end of stream →
- * [ChatEvent.Done].
+ * Streaming client for a remote chat endpoint over OkHttp, in the dialect of its [preset] for the
+ * requested model: any OpenAI-compatible `/chat/completions` endpoint (Server-Sent Events,
+ * `stream=true`) or Anthropic's native `/messages`. Encoding, stream decoding, model lists and
+ * error mapping live in the shared [ChatWire] / [ModelLists] / [QuotaErrors] (the iOS app runs
+ * the same code); end of stream → [ChatEvent.Done].
  *
  * HTTP and transport failures are mapped to [ChatEvent.Error]; kill-switch refusals become
- * [ErrorKind.BLOCKED]. Only the wire's auth headers, `Accept` and `Content-Type` are sent; the
- * shared client replaces the User-Agent and strips identifying headers. The key goes to the
- * provider's own origin only.
+ * [ErrorKind.BLOCKED]. Only the wire's auth headers, `Accept`, `Content-Type` and, where the
+ * provider requires one, an opaque session id ([ProviderSessions]) are sent; the shared client
+ * replaces the User-Agent and strips identifying headers. The key goes to the provider's own
+ * origin only.
  *
  * @param baseUrl e.g. `https://api.deepseek.com` or `http://127.0.0.1:11434/v1`.
  */
@@ -42,9 +43,9 @@ open class OpenAICompatibleProvider(
 
     private val baseText: String = baseUrl.trim().trimEnd('/')
     private val base: HttpUrl? = baseText.toHttpUrlOrNull()
-    private val wire: ChatWire = preset.wire()
 
     override fun streamChat(request: ChatRequest): Flow<ChatEvent> = channelFlow {
+        val wire = preset.wire(request.model)
         val url = endpoint(wire.chatPath)
         if (url == null) {
             send(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid base URL"))
@@ -58,6 +59,7 @@ open class OpenAICompatibleProvider(
         }
         val httpRequest = Request.Builder().url(url)
             .apply { wire.headers(apiKey?.takeUnless { it.isBlank }?.reveal()).forEach { (k, v) -> header(k, v) } }
+            .apply { ProviderSessions.header(preset, request)?.let { (k, v) -> header(k, v) } }
             .header("Accept", "text/event-stream")
             .post(body.toRequestBody(JSON))
             .build()
@@ -67,9 +69,10 @@ open class OpenAICompatibleProvider(
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
-                        send(wire.httpError(response.code, errorBody(response)))
+                        val text = errorBody(response)
+                        send(QuotaErrors.refine(wire.httpError(response.code, text), response.code, text, response.header("Retry-After"), ProviderSessions.name(preset)))
                     } else {
-                        readStream(response) { send(it) }
+                        readStream(wire, response) { send(it) }
                     }
                 }
             } catch (e: NetworkBlockedException) {
@@ -107,7 +110,7 @@ open class OpenAICompatibleProvider(
 
     private fun endpoint(path: String): HttpUrl? = base?.newBuilder()?.addPathSegments(path)?.build()
 
-    private suspend fun readStream(response: Response, emit: suspend (ChatEvent) -> Unit) {
+    private suspend fun readStream(wire: ChatWire, response: Response, emit: suspend (ChatEvent) -> Unit) {
         val source = response.body.source()
         val decoder = wire.decoder()
         while (!decoder.done) {

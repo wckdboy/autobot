@@ -40,13 +40,16 @@ struct GalleryScreen: View {
                     .padding(.bottom, 8)
             }
             .hairlineEdge()
-            if let message {
-                HStack {
-                    MicroLabel(message, color: c.primary).frame(maxWidth: .infinity, alignment: .leading)
-                    TextAction("OK") { self.message = nil }
+            Group {
+                if let message {
+                    HStack {
+                        MicroLabel(message, color: c.primary).frame(maxWidth: .infinity, alignment: .leading)
+                        TextAction("OK") { self.message = nil }
+                    }
+                    .padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
             }
+            .stamp(message) { $0 != nil }
             if items.isEmpty {
                 Spacer()
                 MicroLabel(all.isEmpty ? "nothing generated yet" : "no matches")
@@ -121,6 +124,8 @@ private struct DetailView: View {
     @State private var confirmDelete = false
     @State private var confirmExport = false
     @State private var upscaling: String?
+    /// The "saved" stamp after an export.
+    @State private var saved = false
     private let upscaler = LocalUpscale()
     @State private var scale: CGFloat = 1
     @State private var baseScale: CGFloat = 1
@@ -136,6 +141,7 @@ private struct DetailView: View {
                 IconAction(symbol: "star.fill", label: "Favorite", tint: current.favorite ? AutobotColors.amber : c.onSurfaceVariant) {
                     app.gallery.setFavorite(item.id, !current.favorite)
                 }
+                .stamp(current.favorite) { $0 }
             }
             .padding(4)
             Hairline()
@@ -164,6 +170,17 @@ private struct DetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
+            .overlay(alignment: .topTrailing) {
+                Group {
+                    if saved { Tag("saved to photos", accent: c.primary, filled: true).padding(12) }
+                }
+                .stamp(saved) { $0 }
+            }
+            .task(id: saved) {
+                guard saved else { return }
+                try? await Task.sleep(for: .seconds(1.6))
+                withAnimation(.inkReduced) { saved = false }
+            }
             Hairline()
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
@@ -258,6 +275,7 @@ private struct DetailView: View {
                     PHAssetCreationRequest.forAsset().addResource(with: .photo, data: bytes, options: nil)
                 }
                 onMessage("Exported to Photos")
+                saved = true
             } catch {
                 onMessage("Export failed")
             }

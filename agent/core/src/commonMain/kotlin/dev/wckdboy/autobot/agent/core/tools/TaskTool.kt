@@ -29,8 +29,11 @@ import kotlinx.serialization.json.put
  * DSH `task`: delegates a self-contained job to a subagent and returns its final report. Several
  * `task` calls in one step run in parallel, each worker reporting back into this session.
  *
- * A subagent is a full [Agent] on the parent's model, permission preset, approval policy and
- * session grants, with a fresh history that holds only [prompt][TaskTool]. Its log is kept in
+ * A subagent is a full [Agent] with the parent's permission preset, approval policy and session
+ * grants, and a fresh history that holds only [prompt][TaskTool]. It runs on the provider's
+ * helper model when one is set (`model: "helper"`, the default; cheaper, and it spares a
+ * subscription's quota) or on the parent's own model (`model: "main"`, or when there is no
+ * helper). Its log is kept in
  * memory (never persisted), so the parent's tool result is the record: the report, plus a trace
  * of the steps in `meta.subagent`. It cannot spawn further subagents.
  *
@@ -49,6 +52,12 @@ object TaskTool : ToolDefinition {
     override val parameters = schema {
         string("description", "A short (3–6 word) label for the job, shown to the user", required = true)
         string("prompt", "The complete, standalone instructions for the subagent", required = true)
+        string(
+            "model",
+            "Which model runs the subagent: \"helper\" (default; the provider's faster, cheaper helper model if one is set) " +
+                "or \"main\" (this conversation's model, for jobs that need its full strength)",
+            enum = listOf(MODEL_HELPER, MODEL_MAIN),
+        )
     }
 
     /** Subagents run whole agent turns; the parent's per-step tool timeout would cut them short. */
@@ -64,9 +73,19 @@ object TaskTool : ToolDefinition {
         if (isSubagent(parent.id)) return ToolOutput.error("a subagent cannot start further subagents", "PERMISSION_DENIED")
         val prompt = args.string("prompt").orEmpty().ifBlank { return ToolOutput.error("prompt is empty", "INVALID_ARGS") }
 
+        val model = args.string("model")?.trim()?.lowercase().orEmpty().ifEmpty { MODEL_HELPER }
+        if (model != MODEL_HELPER && model != MODEL_MAIN) return ToolOutput.error("model must be \"helper\" or \"main\"", "INVALID_ARGS")
+
         val log = SessionLog.open(childId(parent.id, run.callId), InMemorySessionStore())
         val parentConfig = parent.config.value
+        // A turn that fell back (the main model's limit is used up) keeps its fallback route.
+        val llm = when {
+            parent.onFallback -> parent.activeLlm
+            model == MODEL_HELPER -> parent.helperConfig() ?: parentConfig.llm
+            else -> parentConfig.llm
+        }
         val config = parentConfig.copy(
+            llm = llm,
             restriction = parentConfig.restriction.copy(deny = parentConfig.restriction.deny + name),
             maxStepsPerTurn = minOf(parentConfig.maxStepsPerTurn, MAX_STEPS),
             toolsEnabled = true,
@@ -142,6 +161,8 @@ object TaskTool : ToolDefinition {
     }
 
     private const val MAX_STEPS = 24
+    const val MODEL_HELPER = "helper"
+    const val MODEL_MAIN = "main"
     private const val MARKER = "::task:"
 
     fun childId(parentId: String, callId: String) = "$parentId$MARKER$callId"

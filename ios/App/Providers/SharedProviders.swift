@@ -22,6 +22,8 @@ struct ProviderPreset: Sendable, Identifiable, Hashable {
     let privacyNote: String?
     let privacyUrl: String?
     let docsUrl: String
+    /// The helper model a new provider of this preset starts with.
+    let helperModel: String?
 
     init(_ p: AutobotShared.ProviderPreset) {
         id = p.id
@@ -39,29 +41,56 @@ struct ProviderPreset: Sendable, Identifiable, Hashable {
         privacyNote = p.privacyNote
         privacyUrl = p.privacyUrl
         docsUrl = p.docsUrl
+        helperModel = p.helperModel
     }
 }
 
-/// One model of a provider's list (a shared `RemoteModel`).
+/// One model of a provider's list (a shared `RemoteModel`). With its provider's [presetId], the
+/// caption ends with the model's data policy and [trains] flags a model that trains on prompts.
 struct RemoteModelItem: Sendable, Identifiable, Hashable {
     let id: String
     let name: String?
     let caption: String
     let contextWindow: Int?
+    var trains = false
 
-    init(_ m: AutobotShared.RemoteModel) {
+    init(_ m: AutobotShared.RemoteModel, presetId: String? = nil) {
         id = m.id
         name = m.name
-        caption = m.caption()
+        caption = [m.caption(), ModelPrivacy.caption(presetId: presetId, model: m.id)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         contextWindow = m.contextWindow.map { Int(truncating: $0) }
+        trains = ModelPrivacy.trains(presetId: presetId, model: m.id)
     }
 
-    init(id: String, caption: String = "") {
+    init(id: String, caption: String = "", presetId: String? = nil) {
         self.id = id
         name = nil
-        self.caption = caption
+        self.caption = [caption, ModelPrivacy.caption(presetId: presetId, model: id)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         contextWindow = nil
+        trains = ModelPrivacy.trains(presetId: presetId, model: id)
     }
+}
+
+/// Per-model data policies (shared `ModelDataPolicies`): picker captions and the confirmation
+/// before a chat moves to a model whose provider trains on prompts.
+enum ModelPrivacy {
+    static let trainsWarning = ModelDataPolicies.shared.TRAINS_WARNING
+
+    private static var nowMs: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    /// `no training · zero retention`, `trains on your prompts`, … or nil when the preset's note applies.
+    static func caption(presetId: String?, model: String) -> String? {
+        guard presetId != nil else { return nil }
+        return ModelDataPolicies.shared.caption(presetId: presetId, model: model, nowMs: nowMs)
+    }
+
+    static func trains(presetId: String?, model: String) -> Bool {
+        guard presetId != nil else { return false }
+        return ModelDataPolicies.shared.trains(presetId: presetId, model: model.trimmingCharacters(in: .whitespaces), nowMs: nowMs)
+    }
+
+    /// Whether the app may choose [model] on its own (first-in-list, defaults).
+    static func autoPickable(presetId: String?, model: String) -> Bool { !trains(presetId: presetId, model: model) }
 }
 
 enum ProviderPresets {
@@ -105,9 +134,9 @@ enum ProviderPresets {
 /// Model lists in the shared `ModelCache` encoding.
 enum ModelLists {
     /// The models of a stored list, or nil when there is none (or it is unreadable).
-    static func models(_ json: String?) -> [RemoteModelItem]? {
+    static func models(_ json: String?, presetId: String? = nil) -> [RemoteModelItem]? {
         guard let json, let cache = ModelCache.companion.decode(json: json) else { return nil }
-        return cache.models.map(RemoteModelItem.init)
+        return cache.models.map { RemoteModelItem($0, presetId: presetId) }
     }
 
     /// `fetched 12 min ago`.

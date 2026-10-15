@@ -78,7 +78,7 @@ class BackupService @Inject constructor(
         val manifest = BackupManifest(
             settings = SettingsSchema.encode(settings.settings.first()),
             providers = providers.observeProviders().first().map {
-                BackupProvider(it.id, it.kind.name, it.displayName, it.baseUrl, it.defaultModel, it.routing.name, it.presetId)
+                BackupProvider(it.id, it.kind.name, it.displayName, it.baseUrl, it.defaultModel, it.routing.name, it.presetId, it.helperModel)
             },
             conversations = conversations.map { BackupConversation(it.id, it.title, it.providerId, it.model, it.createdAt, it.updatedAt) },
             gallery = images.map { it.toBackup() },
@@ -207,6 +207,7 @@ class BackupService @Inject constructor(
         defaultModel = defaultModel,
         routing = ProviderRouting.entries.firstOrNull { it.name == routing } ?: ProviderRouting.INHERIT,
         presetId = presetId,
+        helperModel = helperModel?.takeIf { it.isNotBlank() },
     )
 
     private fun imageEntry(id: String) = "gallery/$id.png"

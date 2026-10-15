@@ -24,4 +24,7 @@ enum CoreMLCatalog {
 
     /// 4× super-resolution on the Neural Engine for gallery images (Android's NPU upscaler).
     static let upscalers: [ModelPlan] = AutobotShared.CoreMLCatalog.shared.upscalers.map(ModelPlan.init)
+
+    /// Kokoro, the on-device neural voice for read-aloud and voice mode (Android runs it on ONNX Runtime).
+    static let voices: [ModelPlan] = AutobotShared.CoreMLCatalog.shared.voices.map(ModelPlan.init)
 }

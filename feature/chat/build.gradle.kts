@@ -15,6 +15,7 @@ dependencies {
     implementation(projects.providers.remote)
     implementation(projects.agent.runtime)
     implementation(projects.engine.speech)
+    implementation(projects.engine.tts)
     implementation(projects.core.models)
 
     implementation(libs.androidx.activity.compose)

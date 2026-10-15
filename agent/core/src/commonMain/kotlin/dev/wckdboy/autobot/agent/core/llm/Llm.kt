@@ -36,10 +36,15 @@ data class LlmCallConfig(
     val reasoningEffort: ReasoningEffort? = null,
 )
 
+/**
+ * @param sessionId the conversation the call belongs to, for providers that route or cache by
+ *   session (sent only as an opaque hash, see the provider's `sessionHeader`).
+ */
 data class LlmCall(
     val config: LlmCallConfig,
     val messages: List<ModelMessage>,
     val tools: List<ToolSchema>,
+    val sessionId: String? = null,
 )
 
 /** Normalized streaming output (DSH `StreamChunk`). Usage precedes finish; nothing follows finish. */
@@ -95,6 +100,12 @@ interface LlmAdapter {
     val provider: String
     fun stream(call: LlmCall): Flow<StreamChunk>
     suspend fun resolveModel(model: String): ModelInfo = ModelInfo(contextWindow = DEFAULT_CONTEXT_WINDOW)
+
+    /**
+     * The provider's helper model, if the user set one: a cheaper model of the same provider for
+     * background work (subagents, compaction summaries), so a subscription quota lasts longer.
+     */
+    val helperModel: String? get() = null
 
     companion object {
         const val DEFAULT_CONTEXT_WINDOW = 65_536

@@ -8,7 +8,7 @@ import Foundation
 /// What a model is for. Drives which engine and screen use it.
 enum ModelKind: String, Codable, CaseIterable, Sendable {
     case chat = "CHAT", code = "CODE", image = "IMAGE", lora = "LORA", vae = "VAE", embedding = "EMBEDDING"
-    case upscaler = "UPSCALER", speech = "SPEECH", other = "OTHER"
+    case upscaler = "UPSCALER", speech = "SPEECH", voice = "VOICE", other = "OTHER"
 
     var label: String { rawValue.lowercased() }
 }
@@ -26,6 +26,8 @@ enum ModelFormat: String, Codable, CaseIterable, Sendable {
     case localDream = "LOCAL_DREAM"
     /// Compiled Core ML Stable Diffusion resources (iOS only, Apple's `split_einsum` builds).
     case coreML = "COREML"
+    /// ONNX graph for ONNX Runtime (Android's Kokoro voice; no engine here).
+    case onnx = "ONNX"
     case other = "OTHER"
 
     var label: String {
@@ -38,6 +40,7 @@ enum ModelFormat: String, Codable, CaseIterable, Sendable {
         case .mnn: "MNN"
         case .localDream: "Local Dream"
         case .coreML: "Core ML"
+        case .onnx: "ONNX"
         case .other: "file"
         }
     }
@@ -45,7 +48,7 @@ enum ModelFormat: String, Codable, CaseIterable, Sendable {
 
 /// Which built-in engine runs the model, if any.
 enum EngineKind: String, Codable, CaseIterable, Sendable {
-    case llama = "LLAMA", diffusion = "DIFFUSION", npu = "NPU", whisper = "WHISPER", coreML = "COREML", none = "NONE"
+    case llama = "LLAMA", diffusion = "DIFFUSION", npu = "NPU", whisper = "WHISPER", coreML = "COREML", onnx = "ONNX", none = "NONE"
 
     var label: String {
         switch self {
@@ -54,6 +57,7 @@ enum EngineKind: String, Codable, CaseIterable, Sendable {
         case .npu: "qnn · mnn"
         case .whisper: "whisper.cpp"
         case .coreML: "core ml"
+        case .onnx: "onnx runtime"
         case .none: "none"
         }
     }

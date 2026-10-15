@@ -49,7 +49,8 @@ enum class ProviderRouting { DIRECT, TOR, SOCKS5, INHERIT }
 /**
  * A configured remote model provider. The API key itself is never stored here; [apiKeyRef] is
  * an opaque reference into the encrypted SecretStore. [presetId] names its `ProviderPresets`
- * entry; rows from before 1.4 have none and are matched by kind and host.
+ * entry; rows from before 1.4 have none and are matched by kind and host. [helperModel] runs
+ * subagents and compaction summaries (null: the chat's own model).
  */
 @Entity(tableName = "providers")
 data class Provider(
@@ -61,6 +62,7 @@ data class Provider(
     val routing: ProviderRouting = ProviderRouting.INHERIT,
     val apiKeyRef: String? = null,
     @ColumnInfo(defaultValue = "NULL") val presetId: String? = null,
+    @ColumnInfo(defaultValue = "NULL") val helperModel: String? = null,
 ) {
     /** Its preset (by id, else by kind and host for older rows). */
     fun preset(): ProviderPreset = ProviderPresets.resolve(presetId, kind, baseUrl)

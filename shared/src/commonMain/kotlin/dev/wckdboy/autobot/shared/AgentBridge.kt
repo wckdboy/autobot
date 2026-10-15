@@ -11,6 +11,7 @@ import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.loop.LiveStream
 import dev.wckdboy.autobot.agent.core.monotonicNanos
 import dev.wckdboy.autobot.agent.core.policy.Compactor
+import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.LogEntry
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
@@ -30,6 +31,7 @@ import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
 import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ModelListResult
 import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
@@ -74,7 +76,8 @@ import okio.Path.Companion.toPath
 /**
  * A configured chat provider as the host stores it. [route] is `INHERIT`, `DIRECT`, `TOR` or
  * `SOCKS5`; [presetId] a `ProviderPresets` id (null for rows saved before presets were stored);
- * [modelsJson] its cached model list ([ModelCache.encode]), whose context windows the agent uses.
+ * [modelsJson] its cached model list ([ModelCache.encode]), whose context windows the agent uses;
+ * [helperModel] the model for subagents and summaries (null: the chat's own model).
  */
 class ProviderSpec(
     val id: String,
@@ -86,6 +89,7 @@ class ProviderSpec(
     val route: String = "INHERIT",
     val presetId: String? = null,
     val modelsJson: String? = null,
+    val helperModel: String? = null,
 ) {
     val preset: ProviderPreset get() = ProviderPresets.resolve(presetId, kind, baseUrl)
 }
@@ -212,10 +216,20 @@ class AgentBridge(
     init {
         harness.llm.setResolver { id ->
             providers.provider(id)?.let {
-                ProviderLlmAdapter(it.id, chatProvider(it), it.kind, attachments, it.preset.echoReasoning, ModelCache.decode(it.modelsJson))
+                ProviderLlmAdapter(
+                    it.id, chatProvider(it), it.kind, attachments, it.preset::echoesReasoning, ModelCache.decode(it.modelsJson),
+                    helperModel = it.helperModel?.takeIf { m -> m.isNotBlank() },
+                )
             }
         }
         val root = harness.root
+        root.plugin(
+            quotaFallbackPlugin(
+                enabled = { quotaFallback.enabled },
+                onDevice = { quotaFallback.onDevice },
+                eligible = { cfg -> providers.provider(cfg.provider)?.let { ModelDataPolicies.autoPickable(it.preset.id, cfg.model) } ?: true },
+            ),
+        )
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))
         root.plugin(contexts.plugin)
@@ -438,6 +452,21 @@ class AgentBridge(
 
     private var memoryHandle: Disposable? = null
     private var searchHandle: Disposable? = null
+
+    private class QuotaFallback(val enabled: Boolean, val onDevice: LlmCallConfig?)
+
+    @kotlin.concurrent.Volatile
+    private var quotaFallback = QuotaFallback(false, null)
+
+    /**
+     * "On limit, fall back" (off by default): when a provider's usage limit is used up, a turn is
+     * retried once on the provider's helper model, else on the on-device model
+     * ([onDeviceProviderId] / [onDeviceModel], null when none is installed), with a notice.
+     */
+    fun setQuotaFallback(enabled: Boolean, onDeviceProviderId: String?, onDeviceModel: String?) {
+        val onDevice = if (onDeviceProviderId.isNullOrBlank() || onDeviceModel.isNullOrBlank()) null else LlmCallConfig(onDeviceProviderId, onDeviceModel)
+        quotaFallback = QuotaFallback(enabled, onDevice)
+    }
 
     /**
      * Local memory on ([store] = the host's encrypted notes) or off (null): the memory tools and

@@ -26,6 +26,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// SearXNG instance URL. The Brave key is in the Keychain (`AppSettings.SEARCH_API_KEY_REF`).
     var searchBaseUrl = ""
     var searchRoute: ProviderRouting = .inherit
+    /// When a provider's usage limit is used up, answer once with its helper model, else the on-device one (off by default).
+    var quotaFallback = false
 
     var webSearchOn: Bool { searchProvider != "NONE" }
 
@@ -62,6 +64,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             searchProvider: SettingsSchema.shared.searchProvider(value: searchProvider),
             searchBaseUrl: searchBaseUrl,
             searchRoute: SettingsSchema.shared.searchRoute(value: searchRoute.rawValue),
+            quotaFallback: quotaFallback,
         )
         return SettingsSchema.shared.encode(settings: shared)
     }
@@ -82,6 +85,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         searchProvider = s.searchProvider.name
         searchBaseUrl = s.searchBaseUrl
         searchRoute = ProviderRouting(rawValue: s.searchRoute.name) ?? .inherit
+        quotaFallback = s.quotaFallback
     }
 }
 
@@ -146,6 +150,7 @@ final class SettingsStore {
     func setIncognitoByDefault(_ enabled: Bool) { update { $0.incognitoByDefault = enabled } }
     func setOnboarded() { update { $0.onboarded = true } }
     func setMemoryEnabled(_ enabled: Bool) { update { $0.memoryEnabled = enabled } }
+    func setQuotaFallback(_ enabled: Bool) { update { $0.quotaFallback = enabled } }
 
     func setWebSearch(provider: String, baseUrl: String, route: ProviderRouting) {
         update {

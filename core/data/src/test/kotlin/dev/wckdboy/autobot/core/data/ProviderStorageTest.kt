@@ -21,7 +21,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Providers in Room: the 4 → 5 migration (preset id, fetched model lists) and the model-list cache. */
+/** Providers in Room: the migrations (preset id, fetched model lists, helper model) and the model-list cache. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ProviderStorageTest {
@@ -63,6 +63,31 @@ class ProviderStorageTest {
     }
 
     @Test
+    fun migrationToEightKeepsProvidersAndAddsAnEmptyHelperModel() {
+        helper.createDatabase(DB, 7).use { db ->
+            db.execSQL(
+                "INSERT INTO providers (id, kind, displayName, baseUrl, defaultModel, routing, apiKeyRef, presetId) " +
+                    "VALUES ('g', 'OPENAI_COMPATIBLE', 'OpenCode Go', 'https://opencode.ai/inference/go/v1', 'kimi-k2.6', 'INHERIT', 'ref-g', 'opencode-go')",
+            )
+        }
+        helper.runMigrationsAndValidate(DB, 8, true).use { db ->
+            db.query("SELECT displayName, defaultModel, apiKeyRef, presetId, helperModel FROM providers WHERE id = 'g'").use { c ->
+                c.moveToFirst()
+                assertEquals("OpenCode Go", c.getString(0))
+                assertEquals("kimi-k2.6", c.getString(1))
+                assertEquals("ref-g", c.getString(2))
+                assertEquals("opencode-go", c.getString(3))
+                assertEquals(true, c.isNull(4))
+            }
+            db.execSQL("UPDATE providers SET helperModel = 'glm-5.3-flash' WHERE id = 'g'")
+            db.query("SELECT helperModel FROM providers WHERE id = 'g'").use { c ->
+                c.moveToFirst()
+                assertEquals("glm-5.3-flash", c.getString(0))
+            }
+        }
+    }
+
+    @Test
     fun oldRowsResolveToTheirPresetByHost() {
         val legacy = Provider("p", ProviderKind.OPENAI_COMPATIBLE, "Groq", "https://api.groq.com/openai/v1", "m")
         assertEquals("groq", legacy.preset().id)
@@ -81,6 +106,9 @@ class ProviderStorageTest {
             db.providerModelsDao().upsert(ProviderModelsRow("p", cache.fetchedAt, cache.encode()))
             assertEquals(cache, ModelCache.decode(db.providerModelsDao().get("p")!!.json))
             assertEquals("anthropic", db.providerDao().get("p")!!.presetId)
+            assertNull(db.providerDao().get("p")!!.helperModel)
+            db.providerDao().upsert(db.providerDao().get("p")!!.copy(helperModel = "claude-haiku-5-5"))
+            assertEquals("claude-haiku-5-5", db.providerDao().get("p")!!.helperModel)
             assertEquals(ProviderKind.ANTHROPIC, db.providerDao().get("p")!!.kind)
             assertEquals(1, db.providerModelsDao().observeAll().first().size)
             db.providerDao().delete("p")

@@ -15,6 +15,8 @@ cmake = "4.1.2"
 qnn = "2.51.0"
 # Headers come from the public QAIRT SDK zip (fetched at build time, never committed).
 qairt = "2.47.0.260601"
+# Kokoro voices (engine/tts). MIT. The JVM artifact only runs the optional local benchmark test.
+onnxruntime = "1.31.0"
 # Gemini Nano through ML Kit: only the opt-in `playServices` flavor (pulls in GMS and telemetry).
 mlkitGenaiPrompt = "1.0.0-beta4"
 
@@ -45,6 +47,8 @@ androidxTestCore = "1.7.0"
 
 [libraries]
 qnn-runtime = { module = "com.qualcomm.qti:qnn-runtime", version.ref = "qnn" }
+onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
+onnxruntime-jvm = { module = "com.microsoft.onnxruntime:onnxruntime", version.ref = "onnxruntime" }
 mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkitGenaiPrompt" }
 # AndroidX
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidxCore" }

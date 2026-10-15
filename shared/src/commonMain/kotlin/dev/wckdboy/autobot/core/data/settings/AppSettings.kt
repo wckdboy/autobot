@@ -29,6 +29,11 @@ data class AppSettings(
     val searchBaseUrl: String = "",
     /** Route for search requests, like a provider's routing override. */
     val searchRoute: RouteOverride = RouteOverride.INHERIT,
+    /**
+     * When a provider's usage limit is used up, retry the turn once on its helper model (else the
+     * on-device model), with a notice. Off by default: switching models is the user's call.
+     */
+    val quotaFallback: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_LOCK_TIMEOUT_MILLIS = 60_000L
@@ -57,6 +62,7 @@ object SettingsSchema {
     const val SEARCH_PROVIDER = "search_provider"
     const val SEARCH_BASE_URL = "search_base_url"
     const val SEARCH_ROUTE = "search_route"
+    const val QUOTA_FALLBACK = "quota_fallback"
 
     /** Lock timeouts offered in Settings; anything else read from storage is clamped to these bounds. */
     val LOCK_TIMEOUTS_MILLIS = listOf(0L, 30_000L, 60_000L, 300_000L, 900_000L)
@@ -83,6 +89,7 @@ object SettingsSchema {
         SEARCH_PROVIDER to settings.searchProvider.name,
         SEARCH_BASE_URL to settings.searchBaseUrl,
         SEARCH_ROUTE to settings.searchRoute.name,
+        QUOTA_FALLBACK to settings.quotaFallback.toString(),
     )
 
     fun decode(values: Map<String, String>): AppSettings {
@@ -102,6 +109,7 @@ object SettingsSchema {
             searchProvider = searchProvider(values[SEARCH_PROVIDER]),
             searchBaseUrl = values[SEARCH_BASE_URL]?.trim().orEmpty(),
             searchRoute = searchRoute(values[SEARCH_ROUTE]),
+            quotaFallback = bool(QUOTA_FALLBACK, defaults.quotaFallback),
         )
     }
 }

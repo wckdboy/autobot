@@ -26,13 +26,13 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class,
         BenchmarkRow::class, McpServer::class, MemoryNoteRow::class, ProviderModelsRow::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
     // 4 → 5 adds `mcp_servers`, 5 → 6 `memory_notes` (local memory), 6 → 7 `providers.presetId` and
-    // `provider_models` (fetched model lists); existing data is untouched.
+    // `provider_models` (fetched model lists), 7 → 8 `providers.helperModel`; existing data is untouched.
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
-        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7),
+        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
     ],
 )
 abstract class AutobotDatabase : RoomDatabase() {

@@ -46,7 +46,8 @@ enum ProviderRouting: String, Codable, CaseIterable, Sendable {
 /**
  A configured model provider. The API key itself is never stored here; [apiKeyRef] is an opaque
  reference into the Keychain-backed [SecretStore]. [presetId] names its shared preset; rows from
- before 1.4 have none and are matched by kind and host.
+ before 1.4 have none and are matched by kind and host. [helperModel] runs subagents and context
+ summaries (nil: the chat's own model; older rows have none and decode as nil).
  */
 struct Provider: Codable, Identifiable, Equatable, Sendable {
     var id: String
@@ -57,6 +58,7 @@ struct Provider: Codable, Identifiable, Equatable, Sendable {
     var routing: ProviderRouting = .inherit
     var apiKeyRef: String? = nil
     var presetId: String? = nil
+    var helperModel: String? = nil
 }
 
 /// A provider's fetched model list: [json] is the shared `ModelCache` encoding.

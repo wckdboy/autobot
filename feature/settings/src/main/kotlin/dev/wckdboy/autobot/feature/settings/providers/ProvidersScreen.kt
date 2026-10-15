@@ -68,10 +68,12 @@ import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ModelLists
 import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.PresetGroup
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
+import dev.wckdboy.autobot.providers.remote.RemoteModel
 
 @Composable
 fun ProvidersRoute(onBack: () -> Unit, viewModel: ProvidersViewModel = hiltViewModel()) {
@@ -313,6 +315,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 }
 
                 ModelPicker(draft, models, state.now, preset.modelsApi != ModelsApi.NONE, actions)
+                HelperModelField(draft, models, actions)
 
                 MicroLabel("routing")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -368,6 +371,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, canFetch: Boolean, actions: ProvidersActions) {
+    var confirm by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         ConsoleTextField(
             draft.defaultModel, { v -> actions.change { it.copy(defaultModel = v) } }, Modifier.fillMaxWidth(),
@@ -390,28 +394,81 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
         val shown = ModelLists.filter(models.models, query, limit = 24)
         Column {
             shown.forEach { m ->
-                val active = m.id == draft.defaultModel
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { actions.change { it.copy(defaultModel = m.id) } }
-                        .padding(vertical = 6.dp),
-                ) {
-                    Text(
-                        (if (active) "● " else "") + m.id,
-                        style = AutobotTheme.styles.code,
-                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    m.caption().takeIf { it.isNotEmpty() }?.let { MicroLabel(it) }
+                ModelRow(m, draft.presetId, active = m.id == draft.defaultModel) {
+                    if (ModelDataPolicies.trains(draft.presetId, m.id)) confirm = m.id else actions.change { it.copy(defaultModel = m.id) }
                 }
             }
             val more = ModelLists.filter(models.models, query, limit = Int.MAX_VALUE).size - shown.size
             if (more > 0) MicroLabel("+$more more · type to search")
         }
     }
+    confirm?.let { id -> TrainsDialog(id, onConfirm = { actions.change { it.copy(defaultModel = id) } }, onDismiss = { confirm = null }) }
 }
+
+/** Helper model: optional; typing searches the same list (a few matches), picking fills it in. */
+@Composable
+private fun HelperModelField(draft: ProviderDraft, models: EditorModels, actions: ProvidersActions) {
+    var confirm by remember { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ConsoleTextField(
+            draft.helperModel, { v -> actions.change { it.copy(helperModel = v) } }, Modifier.fillMaxWidth(),
+            label = "Helper model (optional)", singleLine = true, mono = true,
+        )
+        val helper = draft.helperModel.trim()
+        val chosen = models.models.firstOrNull { it.id == helper }
+        chosen?.let { ModelDataPolicies.modelCaption(draft.presetId, it).ifEmpty { null } }?.let { MicroLabel(it) }
+        Text(HELPER_HINT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (helper.isNotEmpty() && chosen == null) {
+            ModelLists.filter(models.models, helper, limit = 5).forEach { m ->
+                ModelRow(m, draft.presetId, active = false) {
+                    if (ModelDataPolicies.trains(draft.presetId, m.id)) confirm = m.id else actions.change { it.copy(helperModel = m.id) }
+                }
+            }
+        }
+    }
+    confirm?.let { id -> TrainsDialog(id, onConfirm = { actions.change { it.copy(helperModel = id) } }, onDismiss = { confirm = null }) }
+}
+
+/** One model of a list: its id, then context, price and (per-model) data policy. */
+@Composable
+private fun ModelRow(m: RemoteModel, presetId: String, active: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+    ) {
+        Text(
+            (if (active) "● " else "") + m.id,
+            style = AutobotTheme.styles.code,
+            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        ModelDataPolicies.modelCaption(presetId, m).takeIf { it.isNotEmpty() }?.let {
+            MicroLabel(it, color = if (ModelDataPolicies.trains(presetId, m.id)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Asks before choosing a model whose provider trains on prompts. */
+@Composable
+private fun TrainsDialog(model: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Use $model?") },
+        text = { Text(ModelDataPolicies.TRAINS_WARNING + " Anything you send with it may end up in a future model.") },
+        confirmButton = {
+            TextButton(onClick = {
+                onDismiss()
+                onConfirm()
+            }) { Text("Use anyway") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private const val HELPER_HINT = "Used for subagents and context summaries, to save quota. Empty: the chat's model."
 
 @Composable
 private fun TestResult(test: TestState) {

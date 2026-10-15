@@ -80,6 +80,8 @@ struct ChatScreen: View {
     @State private var model = ChatModel()
     @State private var showModels = false
     @State private var showSession = false
+    /// Which transcript items are new since the screen loaded (they ink in).
+    @State private var ledger = InkLedger()
 
     var body: some View {
         let session = app.agent.session(conversationId)
@@ -90,6 +92,7 @@ struct ChatScreen: View {
         let firstPrompt = state.projection.items.first { if case .user = $0 { true } else { false } }?.key
         let usage = state.projection.lastUsage
         let contextUsed = usage.map { ($0.inputTokens ?? 0) + ($0.cacheReadTokens ?? 0) + ($0.outputTokens ?? 0) }
+        let _ = ledger.observe(state.projection.items.map(\.key) + state.approvals.map { "approval:" + $0.callId })
 
         VStack(spacing: 0) {
             AutobotTopBar(title: state.toolsEnabled ? "Agent run" : "Chat", onBack: { nav.back() }) {
@@ -117,6 +120,7 @@ struct ChatScreen: View {
                         }
                         ForEach(state.projection.items) { item in
                             row(item, state: state, routing: routing, contextUsed: contextUsed, stepNumbers: stepNumbers, firstPrompt: firstPrompt)
+                                .inkEnter(ledger.isNew(item.key)) { ledger.entered(item.key) }
                         }
                         if let live = state.live { LiveMessage(live: live) }
                         Color.clear.frame(height: 1).id("bottom")
@@ -176,9 +180,12 @@ struct ChatScreen: View {
             }
         case .tool(let tool):
             if let approval = state.approvals.first(where: { $0.callId == tool.callId }) {
+                let key = "approval:" + tool.callId
                 ApprovalCard(number: stepNumbers[tool.key] ?? 0, tool: tool, approval: approval) { outcome in
                     app.agent.answerApproval(callId: tool.callId, outcome: outcome)
                 }
+                .registerGhost(ledger.isNew(key), color: c.primary)
+                .onAppear { ledger.entered(key) }
             } else {
                 StepRow(number: stepNumbers[tool.key] ?? 0, tool: tool, model: model) { id in nav.push(.gallery(openId: id)) }
             }
@@ -299,7 +306,7 @@ private struct LiveMessage: View {
             }
             ForEach(Array(live.toolNames.enumerated()), id: \.offset) { _, name in
                 HStack(spacing: 10) {
-                    StatusDot(color: c.primary, live: true)
+                    HalftoneStrip(color: c.primary, cell: 3)
                     Text(stepTitle(name)).textStyle(.titleMedium).foregroundStyle(c.onSurface)
                     MicroLabel("composing…")
                 }
@@ -317,6 +324,9 @@ private struct StepRow: View {
     let onOpenGallery: (String) -> Void
     @State private var expanded = false
     @Environment(\.scheme) private var c
+
+    /// A step mark stamps in when the step reaches one of these.
+    private static func settled(_ state: ToolState) -> Bool { state == .ok || state == .error || state == .denied }
 
     var body: some View {
         let (mark, markColor): (String, Color) = switch tool.state {
@@ -350,6 +360,7 @@ private struct StepRow: View {
                     Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
                         .textStyle(.readout)
                         .foregroundStyle(markColor)
+                        .stamp(tool.state, when: Self.settled)
                 }
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
@@ -374,7 +385,16 @@ private struct StepRow: View {
                     .background(c.surfaceContainerLow)
                     .textSelection(.enabled)
             }
-            if !tool.galleryIds.isEmpty {
+            if tool.name == "generate_image" && (tool.state == .running || !tool.galleryIds.isEmpty) {
+                // The agent's job draws the same ink plate as Imagine, then prints its first image.
+                HStack(spacing: 6) {
+                    AgentProof(tool: tool, model: model).onTapGesture { if let id = tool.galleryIds.first { onOpenGallery(id) } }
+                    ForEach(tool.galleryIds.dropFirst(), id: \.self) { id in
+                        GalleryThumb(id: id, model: model).onTapGesture { onOpenGallery(id) }
+                    }
+                }
+                .padding(.bottom, 6)
+            } else if !tool.galleryIds.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(tool.galleryIds, id: \.self) { id in
                         GalleryThumb(id: id, model: model).onTapGesture { onOpenGallery(id) }
@@ -403,6 +423,49 @@ private struct GalleryThumb: View {
         .clipped()
         .accessibilityLabel("Generated image")
         .task(id: id) { image = await model.galleryThumbnail(id, app: app) }
+    }
+}
+
+/// `generate_image` in the transcript: flows and develops with the agent's job, prints its first image.
+private struct AgentProof: View {
+    let tool: SessionItem.Tool
+    let model: ChatModel
+    @Environment(AppContainer.self) private var app
+    @Environment(\.scheme) private var c
+    @State private var image: UIImage?
+    @State private var preview: PlateImage?
+    @State private var serial = 0
+
+    var body: some View {
+        let id = tool.galleryIds.first
+        let job: (step: Int, total: Int, preview: Data?)? = {
+            if case .running(let source, _, _, _, let step, let total, let preview, _) = app.generator.state, source == .agent { return (step, total, preview) }
+            return nil
+        }()
+        let ink: PlateInk = {
+            if let id, let image, let grid = LumaCache.grid(image) { return .final(PlateImage(id: id, grid: grid, image: image)) }
+            if id != nil || tool.state != .running { return .hold }
+            // Between images (or once the job ends) keep what the plate shows.
+            guard let job else { return preview != nil ? .hold : .flow(progress: 0, loading: true) }
+            if job.preview != nil, let preview { return .preview(preview) }
+            return .flow(progress: job.total > 0 ? Double(job.step) / Double(job.total) : 0, loading: app.generator.phase != nil || job.total == 0)
+        }()
+        InkPlate(ink: ink, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary)
+            .frame(width: 120, height: 120)
+            .background(c.surfaceContainerLow)
+            .clipped()
+            .accessibilityElement()
+            .accessibilityLabel(id != nil ? "Generated image" : "Generating image")
+            .task(id: job?.preview) {
+                guard let data = job?.preview, let decoded = await decodeImage(data, maxSide: 512), !Task.isCancelled,
+                      let cg = decoded.cgImage, let grid = LumaGrid(image: cg) else { return }
+                serial += 1
+                preview = PlateImage(id: "\(serial)", grid: grid)
+            }
+            .task(id: id) {
+                guard let id else { return }
+                image = await model.galleryThumbnail(id, app: app)
+            }
     }
 }
 
@@ -748,7 +811,14 @@ private struct VoicePanel: View {
             }
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    LevelMeter(levels: voice.levels).frame(height: 36)
+                    Group {
+                        if voice.phase == .speaking {
+                            SpeechStrip(spoken: voice.spoken)
+                        } else {
+                            LevelMeter(levels: voice.levels, listening: voice.phase == .listening)
+                        }
+                    }
+                    .frame(height: 36)
                     MicroLabel(hint)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -777,24 +847,68 @@ private struct VoicePanel: View {
     }
 }
 
-/// Microphone peaks as riso bars, newest on the right; a flat rule when not listening.
+/// Microphone peaks as riso bars, newest on the right, easing toward each new peak (no jitter);
+/// a flat rule when not listening.
 private struct LevelMeter: View {
     let levels: [Float]
+    let listening: Bool
     @Environment(\.scheme) private var c
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var bars = LevelBars()
 
     var body: some View {
-        Canvas { context, size in
-            let slots = 32
-            let slot = size.width / CGFloat(slots)
-            for i in 0..<slots {
-                let index = levels.count - slots + i
-                let level = index >= 0 ? levels[index] : nil
-                let h = level.map { max(CGFloat(min(max($0, 0), 1)).squareRoot() * size.height, 2) } ?? 2
-                let rect = CGRect(x: CGFloat(i) * slot, y: (size.height - h) / 2, width: slot * 0.6, height: h)
-                context.fill(Path(rect), with: .color(level != nil ? c.primary : c.outlineVariant))
+        InkTimeline(active: listening) { date in
+            Canvas { context, size in
+                bars.step(levels, at: date, ease: listening && !reduceMotion)
+                let slot = size.width / CGFloat(LevelBars.slots)
+                var live = Path(), rule = Path()
+                for i in 0 ..< LevelBars.slots {
+                    let h = max(CGFloat(bars.shown[i]).squareRoot() * size.height, 2)
+                    let rect = CGRect(x: CGFloat(i) * slot, y: (size.height - h) / 2, width: slot * 0.6, height: h)
+                    if bars.heard[i] { live.addRect(rect) } else { rule.addRect(rect) }
+                }
+                context.fill(rule, with: .color(c.outlineVariant))
+                context.fill(live, with: .color(c.primary))
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// The meter's displayed bar levels, eased toward the latest peaks frame by frame.
+@MainActor
+private final class LevelBars {
+    static let slots = 32
+    private(set) var shown = [Double](repeating: 0, count: slots)
+    private(set) var heard = [Bool](repeating: false, count: slots)
+    private var last: Date?
+
+    func step(_ levels: [Float], at date: Date, ease: Bool) {
+        let dt = last.map { min(max(date.timeIntervalSince($0), 0), 0.1) } ?? 0
+        last = date
+        for i in 0 ..< Self.slots {
+            let index = levels.count - Self.slots + i
+            heard[i] = index >= 0
+            let target = index >= 0 ? Double(min(max(levels[index], 0), 1)) : 0
+            shown[i] = ease ? InkMath.approach(shown[i], target, dt: dt, timeConstant: 0.07) : target
+        }
+    }
+}
+
+/// While the answer is read aloud: a slow flow strip that swells with each spoken piece.
+private struct SpeechStrip: View {
+    let spoken: Int
+    @Environment(\.scheme) private var c
+    @State private var pulse: Date?
+
+    var body: some View {
+        let pulse = pulse
+        FlowingHalftone(active: true, speed: InkMath.loadingSpeed, dot: c.primary, cell: 6) { date in
+            let rest = Double(Tokens.Motion.flowMinFill)
+            guard let pulse else { return rest }
+            return rest + 0.45 * exp(-max(date.timeIntervalSince(pulse), 0) / 0.9)
+        }
+        .onChange(of: spoken, initial: true) { _, _ in self.pulse = Date() }
     }
 }
 
@@ -853,6 +967,7 @@ private struct ModelSheet: View {
     @State private var modelId = ""
     @State private var refreshing = false
     @State private var refreshError: String?
+    @State private var confirmTrains: String?
 
     var body: some View {
         let providers = app.providers.providers
@@ -914,9 +1029,15 @@ private struct ModelSheet: View {
                     .buttonStyle(PressStyle())
                 }
                 PrimaryButton("Use model", enabled: !modelId.trimmingCharacters(in: .whitespaces).isEmpty && selected != nil) {
-                    if let selected { app.agent.setRoute(conversationId, providerId: selected.id, model: modelId.trimmingCharacters(in: .whitespaces)) }
+                    let model = modelId.trimmingCharacters(in: .whitespaces)
+                    if let selected, ModelPrivacy.trains(presetId: ProviderPresets.resolve(selected).id, model: model) { confirmTrains = model; return }
+                    if let selected { app.agent.setRoute(conversationId, providerId: selected.id, model: model) }
                     onDismiss()
                 }
+                .alert("Switch to \(confirmTrains ?? "this model")?", isPresented: Binding(get: { confirmTrains != nil }, set: { if !$0 { confirmTrains = nil } })) {
+                    Button("Switch anyway") { if let selected, let m = confirmTrains { app.agent.setRoute(conversationId, providerId: selected.id, model: m) }; onDismiss() }
+                    Button("Cancel", role: .cancel) {}
+                } message: { Text(ModelPrivacy.trainsWarning + " Anything you send in this chat from now on may end up in a future model.") }
             }
             .padding(.horizontal, 16)
             .padding(.top, 20)
@@ -933,7 +1054,8 @@ private struct ModelSheet: View {
         // "This phone" lists every downloaded chat model, newest first, by title.
         var list = p.kind == .local
             ? app.library.models.filter { $0.isReady && $0.engine == .llama }.sorted { $0.addedAt > $1.addedAt }.map { RemoteModelItem(id: $0.id, caption: $0.title) }
-            : ModelLists.models(app.providers.modelLists[p.id]?.json) ?? ProviderPresets.resolve(p).suggestedModels.map { RemoteModelItem(id: $0) }
+            : ModelLists.models(app.providers.modelLists[p.id]?.json, presetId: ProviderPresets.resolve(p).id)
+                ?? ProviderPresets.resolve(p).suggestedModels.map { RemoteModelItem(id: $0, presetId: ProviderPresets.resolve(p).id) }
         // "This phone" also offers Apple Intelligence when it can answer.
         if p.kind == .local && AppleIntelligence.unavailability == nil { list.append(RemoteModelItem(id: AppleIntelligence.id)) }
         if p.defaultModel.isEmpty || list.contains(where: { $0.id == p.defaultModel }) { return list }
@@ -956,6 +1078,7 @@ private struct ModelSheet: View {
         let spec = ProviderSpec(
             id: p.id, kind: SharedMapping.kind(p.kind), displayName: p.displayName, baseUrl: p.baseUrl,
             apiKey: providers.apiKey(p)?.reveal(), defaultModel: p.defaultModel, route: p.routing.rawValue, presetId: p.presetId, modelsJson: nil,
+            helperModel: p.helperModel,
         )
         Task {
             let (json, error) = await shared.listModels(spec)

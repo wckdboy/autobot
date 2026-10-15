@@ -13,6 +13,9 @@ enum class ModelKind(val label: String) {
     EMBEDDING("embedding"),
     UPSCALER("upscaler"),
     SPEECH("speech"),
+
+    /** A neural voice that reads text aloud (Kokoro). */
+    VOICE("voice"),
     OTHER("other"),
 }
 
@@ -36,6 +39,9 @@ enum class ModelFormat(val label: String) {
 
     /** Compiled Core ML resources (`.mlmodelc` / `.mlpackage`), e.g. Apple's `split_einsum` builds. */
     COREML("Core ML"),
+
+    /** ONNX graph run by ONNX Runtime (Android's Kokoro voice). */
+    ONNX("ONNX"),
     OTHER("file"),
 }
 
@@ -47,12 +53,15 @@ enum class EngineKind(val label: String) {
     NPU("qnn · mnn"),
     WHISPER("whisper.cpp"),
     COREML("core ml"),
+
+    /** ONNX Runtime on the CPU (Kokoro voices on Android). */
+    ONNX("onnx runtime"),
     NONE("none"),
 }
 
 /** An app and the built-in engines it ships. */
 enum class AppPlatform(val engines: Set<EngineKind>) {
-    ANDROID(setOf(EngineKind.LLAMA, EngineKind.DIFFUSION, EngineKind.NPU, EngineKind.WHISPER)),
+    ANDROID(setOf(EngineKind.LLAMA, EngineKind.DIFFUSION, EngineKind.NPU, EngineKind.WHISPER, EngineKind.ONNX)),
     IOS(setOf(EngineKind.LLAMA, EngineKind.WHISPER, EngineKind.COREML)),
     ;
 
@@ -232,6 +241,7 @@ fun formatOf(name: String, owner: String? = null): ModelFormat {
         n.endsWith(".gguf") -> ModelFormat.GGUF
         n.startsWith("ggml-") && n.endsWith(".bin") -> ModelFormat.GGML
         ".mlmodelc" in n || ".mlpackage" in n -> ModelFormat.COREML
+        n.endsWith(".onnx") -> ModelFormat.ONNX
         n.endsWith(".safetensors") -> ModelFormat.SAFETENSORS
         n.endsWith(".ckpt") || n.endsWith(".pt") || n.endsWith(".pth") -> ModelFormat.CKPT
         else -> ModelFormat.OTHER
@@ -240,11 +250,17 @@ fun formatOf(name: String, owner: String? = null): ModelFormat {
 
 /**
  * The built-in engine of [platform] that can run [kind] in [format] (GGUF is used by both Android
- * engines; sd.cpp and QNN formats have no engine on iOS, Core ML none on Android).
+ * engines; sd.cpp and QNN formats have no engine on iOS, Core ML none on Android). Voices run on
+ * ONNX Runtime on Android and on Core ML on iOS.
  */
 fun engineFor(kind: ModelKind, format: ModelFormat, platform: AppPlatform = HostPlatform): EngineKind {
     val engine = when {
         kind == ModelKind.SPEECH -> if (format == ModelFormat.GGML) EngineKind.WHISPER else EngineKind.NONE
+        kind == ModelKind.VOICE -> when (format) {
+            ModelFormat.ONNX -> EngineKind.ONNX
+            ModelFormat.COREML -> EngineKind.COREML
+            else -> EngineKind.NONE
+        }
         format == ModelFormat.LOCAL_DREAM || format == ModelFormat.OTHER -> EngineKind.NONE
         format == ModelFormat.QNN || format == ModelFormat.MNN -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.NPU else EngineKind.NONE
         format == ModelFormat.COREML -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.COREML else EngineKind.NONE

@@ -68,6 +68,7 @@ data class SettingsUiState(
     val lockTimeoutMillis: Long = AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS,
     val incognitoByDefault: Boolean = false,
     val memoryEnabled: Boolean = false,
+    val quotaFallback: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.NONE,
     val offline: Boolean = false,
 )
@@ -89,6 +90,7 @@ class SettingsViewModel @Inject constructor(
             lockTimeoutMillis = it.lockTimeoutMillis,
             incognitoByDefault = it.incognitoByDefault,
             memoryEnabled = it.memoryEnabled,
+            quotaFallback = it.quotaFallback,
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
         )
@@ -101,6 +103,7 @@ class SettingsViewModel @Inject constructor(
     fun setLockTimeout(millis: Long) = launch { settings.setLockTimeoutMillis(millis) }
     fun setIncognitoByDefault(enabled: Boolean) = launch { settings.setIncognitoByDefault(enabled) }
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
+    fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
@@ -142,6 +145,7 @@ fun SettingsRoute(
         onMemoryEnabled = viewModel::setMemoryEnabled,
         onOpenMemory = onOpenMemory,
         onOpenWebSearch = { showSearch = true },
+        onQuotaFallback = viewModel::setQuotaFallback,
     )
 }
 
@@ -164,6 +168,7 @@ fun SettingsScreen(
     onMemoryEnabled: (Boolean) -> Unit = {},
     onOpenMemory: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
+    onQuotaFallback: (Boolean) -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -198,6 +203,12 @@ fun SettingsScreen(
                 onMemoryEnabled,
             )
             NavigationRow("Memory notes", "View, search, edit and delete what the agent remembers", onOpenMemory)
+            SwitchRow(
+                "On limit, fall back",
+                "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",
+                state.quotaFallback,
+                onQuotaFallback,
+            )
             NavigationRow(
                 "Web search",
                 if (state.searchProvider == SearchProvider.NONE) "Off · SearXNG or Brave Search" else "${state.searchProvider.label} · queries only, through your route",

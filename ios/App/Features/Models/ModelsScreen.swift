@@ -275,7 +275,7 @@ struct ModelsScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 TextAction("Pause", color: c.primary) { app.downloader.pause(p.id) }
             }
-            ProgressLine(fraction: p.fraction)
+            ProgressLine(fraction: p.fraction, running: true)
             MicroLabel("\(formatBytes(p.downloaded)) / \(formatBytes(p.total)) · \(formatBytes(p.bytesPerSecond))/s")
         }
         .padding(12)
@@ -290,6 +290,7 @@ struct ModelsScreen: View {
             ("chat", Catalog.chat),
             ("code", Catalog.code),
             ("speech · dictation", Catalog.speech),
+            ("voice · read aloud", CoreMLCatalog.voices),
         ]
         ForEach(sections, id: \.0) { label, plans in
             SectionLabel(label, color: c.onSurfaceVariant)
@@ -360,17 +361,9 @@ struct ModelsScreen: View {
 struct ProgressLine: View {
     let fraction: Double
     var height: CGFloat = 3
-    @Environment(\.scheme) private var c
+    var running = false
 
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Rectangle().fill(c.outlineVariant)
-                Rectangle().fill(c.primary).frame(width: geo.size.width * min(max(fraction, 0), 1))
-            }
-        }
-        .frame(height: height)
-    }
+    var body: some View { InkProgressBar(fraction: fraction, height: height, running: running) }
 }
 
 /// Transient message at the bottom of the screen (Material Snackbar).
@@ -415,13 +408,16 @@ private struct InstalledRow: View {
         // Tapping a ready model opens the task it runs (the × tag still removes it).
         let opens = ModelsModel.launch(model).task != ModelTask.none
         RunRow(title: model.title, subtitle: subtitle, action: opens ? onUse : nil) {
-            switch model.status {
-            case .ready: Tag("ready", accent: c.primary, filled: true)
-            case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary)
-            case .queued: Tag("queued")
-            case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }
-            case .failed: Tag("retry", accent: c.error) { app.downloader.resume(model.id) }
+            ZStack {
+                switch model.status {
+                case .ready: Tag("ready", accent: c.primary, filled: true)
+                case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary)
+                case .queued: Tag("queued")
+                case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }
+                case .failed: Tag("retry", accent: c.error) { app.downloader.resume(model.id) }
+                }
             }
+            .stamp(model.status == .ready) { $0 }
             Tag(confirm ? "sure?" : "×", accent: confirm ? c.error : c.onSurfaceVariant) {
                 if confirm {
                     app.downloader.remove(model.id)

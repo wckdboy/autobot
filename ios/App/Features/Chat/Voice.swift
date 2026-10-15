@@ -35,13 +35,15 @@ extension Speaker {
     func prepare(_ text: String) {}
 
     /// Reads [markdown] sentence by sentence: speech starts after the first one and stops between any two.
-    func read(_ markdown: String) async throws {
+    /// [onChunk] hears each piece's index as it starts (voice mode's speaking strip pulses with it).
+    func read(_ markdown: String, onChunk: (Int) -> Void = { _ in }) async throws {
         let text = AutobotShared.VoiceText.shared
         let chunks = text.chunks(text: text.speakable(markdown: markdown), maxChars: text.MAX_CHUNK)
         for (i, chunk) in chunks.enumerated() {
             // stop() ends the piece being spoken; a cancelled task must not start the next one.
             try Task.checkCancellation()
             if i + 1 < chunks.count { prepare(chunks[i + 1]) }
+            onChunk(i)
             try await speak(chunk)
         }
     }
@@ -52,9 +54,12 @@ extension Speaker {
 enum Speakers {
     private static var all: [any Speaker] = [SystemSpeaker()]
 
-    /// The engine with [id] (a setting, later), else the system one.
+    /// The engine with [id] (a setting, later), else the neural voice when one is downloaded,
+    /// else the system one.
     static func pick(_ id: String? = nil) -> any Speaker {
-        all.first { $0.id == id } ?? all.first { $0.id == SystemSpeaker.systemId }!
+        all.first { $0.id == id }
+            ?? all.first { $0.id == KokoroSpeaker.kokoroId && $0.isAvailable }
+            ?? all.first { $0.id == SystemSpeaker.systemId }!
     }
 
     /// Adds an engine (a neural voice) next to the system one.

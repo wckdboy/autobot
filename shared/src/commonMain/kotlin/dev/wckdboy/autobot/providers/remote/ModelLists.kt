@@ -157,12 +157,12 @@ object ModelLists {
             .toList()
     }
 
-    /** A models-endpoint response as a [ModelListResult]. */
+    /** A models-endpoint response as a [ModelListResult]; models on APIs the app does not speak are left out. */
     fun result(preset: ProviderPreset, status: Int, body: String): ModelListResult {
         if (status !in 200..299) return OpenAiCodec.httpError(status, body).let { ModelListResult.Failure(it.kind, it.message) }
         val models = parse(preset.modelsApi, body, preset.suggestedModels)
             ?: return ModelListResult.Failure(ErrorKind.PROTOCOL, "Unexpected model list from ${preset.displayName}")
-        return ModelListResult.Success(models)
+        return ModelListResult.Success(models.filter { preset.supports(it.id) })
     }
 
     /** The documented list of a provider without a models endpoint. */

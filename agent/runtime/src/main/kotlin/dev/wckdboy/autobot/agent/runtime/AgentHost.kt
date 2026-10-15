@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentConfig
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.policy.Compactor
+import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.tools.UserQuestion
@@ -27,12 +28,14 @@ import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.MessageRole
 import dev.wckdboy.autobot.core.data.model.Provider
+import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.WebSearchRepository
 import dev.wckdboy.autobot.core.data.toSpec
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.providers.remote.ChatRoutes
+import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
 import dev.wckdboy.autobot.shared.mcp.McpHub
@@ -47,12 +50,14 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -141,10 +146,25 @@ class AgentHost @Inject constructor(
     init {
         harness.llm.setResolver { id ->
             providers.getProvider(id)?.let {
-                ProviderLlmAdapter(it.id, providerFactory.create(it), it.kind, images, it.preset().echoReasoning, providers.modelCache(it.id))
+                ProviderLlmAdapter(
+                    it.id, providerFactory.create(it), it.kind, images, it.preset()::echoesReasoning, providers.modelCache(it.id),
+                    helperModel = it.helperModel?.takeIf { m -> m.isNotBlank() },
+                )
             }
         }
         val root = harness.root
+        // "On limit, fall back" (Settings, off by default): helper model, else the on-device one.
+        val quotaFallback = settings.settings.map { it.quotaFallback }.stateIn(scope, SharingStarted.Eagerly, false)
+        root.plugin(
+            quotaFallbackPlugin(
+                enabled = { quotaFallback.value },
+                onDevice = {
+                    providers.observeProviders().first().firstOrNull { it.kind == ProviderKind.LOCAL && it.defaultModel.isNotBlank() }
+                        ?.let { LlmCallConfig(it.id, it.defaultModel) }
+                },
+                eligible = { cfg -> providers.getProvider(cfg.provider)?.let { ModelDataPolicies.autoPickable(it.preset().id, cfg.model) } ?: true },
+            ),
+        )
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))
         root.plugin(contexts.plugin)

@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.agent.core.session.TokenUsage
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
+import dev.wckdboy.autobot.providers.remote.QuotaErrors
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -102,7 +103,7 @@ fun projectSession(
                 UserMessageKind.CONTEXT -> Unit
             }
             is SessionEvent.AssistantMessage -> {
-                e.fallback?.let { why -> items += SessionItem.Notice("${key}f", SystemModels.fallbackNotice(e.model.orEmpty(), why), NoticeKind.WARN) }
+                e.fallback?.let { why -> items += SessionItem.Notice("${key}f", fallbackNotice(e.model.orEmpty(), why), NoticeKind.WARN) }
                 if (e.text.isNotBlank() || !e.reasoning.isNullOrBlank()) {
                     items += SessionItem.Assistant(key, e.text, e.reasoning, e.interrupted, e.usage?.outputTokens, e.model)
                 }
@@ -167,14 +168,20 @@ fun projectSession(
     return SessionProjection(items, todos, usage, window)
 }
 
+/** The notice above an answer from a stand-in model: the system model, or another route after a usage limit. */
+fun fallbackNotice(model: String, why: String): String =
+    if (SystemModels.isSystem(model)) SystemModels.fallbackNotice(model, why) else "$model · fallback — $why"
+
 /**
  * A failed turn's `CODE: message` detail in words the user can act on: what went wrong, then
- * the provider's own message.
+ * the provider's own message. A used-up usage limit ([QuotaErrors]) reads as a sentence with its
+ * reset time and what to do meanwhile.
  */
 fun explainFailure(detail: String?): String {
     if (detail.isNullOrBlank()) return "The turn failed"
     val code = detail.substringBefore(": ", "")
     val message = if (code.isNotEmpty() && code.all { it.isUpperCase() || it == '_' }) detail.substringAfter(": ") else return detail
+    if (code == "QUOTA" && QuotaErrors.isLimitMessage(message)) return "$message $QUOTA_ADVICE"
     val lead = when (code) {
         "AUTH" -> "The provider rejected the API key. Check it under Settings › Model providers"
         "QUOTA" -> "The provider says the account is out of credit or quota"
@@ -187,5 +194,9 @@ fun explainFailure(detail: String?): String {
         "EMPTY_RESPONSE" -> "The model returned an empty answer. Send again"
         else -> return message.replaceFirstChar { it.uppercase() }
     }
-    return if (message.isBlank()) lead else "$lead ($message)"
+    val explained = if (message.isBlank()) lead else "$lead ($message)"
+    return if (code == "QUOTA") "$explained. $QUOTA_ADVICE" else explained
 }
+
+/** What to do while a provider's limit or credit is used up. */
+const val QUOTA_ADVICE = "Switch to the helper model or an on-device model."

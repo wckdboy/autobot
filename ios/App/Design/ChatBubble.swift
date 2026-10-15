@@ -27,7 +27,7 @@ struct ChatBubble<Footer: View>: View {
                 VStack(alignment: .leading, spacing: Tokens.Spacing.chatBlockGap) {
                     ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in MarkdownBlockView(block: block) }
                     if isStreaming && blocks.isEmpty {
-                        Text("▍").textStyle(.bodyLarge).foregroundStyle(c.primary)
+                        HalftoneStrip(color: c.primary).padding(.vertical, 6)
                     }
                     if hasFooter { footer() }
                 }

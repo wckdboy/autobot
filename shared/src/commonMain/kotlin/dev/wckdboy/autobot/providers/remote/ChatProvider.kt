@@ -34,6 +34,8 @@ data class ToolSpec(val name: String, val description: String, val parametersJso
  *
  * @param echoReasoning send [ChatMessage.reasoning] back as `reasoning_content` on assistant
  *   messages. DeepSeek requires this for the assistant messages of the current tool-call turn.
+ * @param sessionKey an opaque per-conversation key (a hash, never the local id), sent only to
+ *   providers that require one for routing and prompt caching (`ProviderPreset.sessionHeader`).
  */
 data class ChatRequest(
     val model: String,
@@ -42,6 +44,7 @@ data class ChatRequest(
     val maxTokens: Int? = null,
     val tools: List<ToolSpec> = emptyList(),
     val echoReasoning: Boolean = false,
+    val sessionKey: String? = null,
 )
 
 /** Streaming output of [ChatProvider.streamChat]. */
@@ -63,8 +66,16 @@ sealed interface ChatEvent {
     /**
      * @param code the on-device engine's error code (`LOAD_FAILED`, `CONTEXT_WINDOW_EXCEEDED`, …),
      *   so a local route can tell a model that never loaded from one that failed mid-answer.
+     * @param retryAfterMs when the provider said to come back (`Retry-After`, or a usage
+     *   limit's reset time, see [QuotaErrors]).
      */
-    data class Error(val kind: ErrorKind, val message: String, val httpCode: Int? = null, val code: String? = null) : ChatEvent
+    data class Error(
+        val kind: ErrorKind,
+        val message: String,
+        val httpCode: Int? = null,
+        val code: String? = null,
+        val retryAfterMs: Long? = null,
+    ) : ChatEvent
 
     /** Another model than the requested one is answering (on-device fallback); [fallback] says why. */
     data class ServedBy(val model: String, val fallback: String? = null) : ChatEvent

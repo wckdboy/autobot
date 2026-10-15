@@ -26,6 +26,15 @@ enum class PresetGroup(val label: String) {
  *   (scheme://host:port) are filled in from the user's base URL, so it stays on the same host.
  * @param legacyHosts other hosts the provider answered on, to recognise providers saved before
  *   presets existed.
+ * @param messagesModels id prefixes that a provider of several model families serves over
+ *   Anthropic's Messages API (`{base}/messages`, [AnthropicWire]) instead of chat completions.
+ * @param unsupportedModels id prefixes served only on APIs the app does not speak (OpenAI
+ *   Responses, Gemini's native API); they are left out of model lists.
+ * @param echoReasoningModels id prefixes that need [echoReasoning], on hosts of several families.
+ * @param sessionHeader header that carries [ChatRequest.sessionKey], for providers that refuse
+ *   requests without a per-conversation id.
+ * @param helperModel the helper model a new provider of this preset starts with: fast, cheap,
+ *   tool-capable and not trained on prompts (see [ModelDataPolicies]).
  */
 data class ProviderPreset(
     val id: String,
@@ -46,15 +55,32 @@ data class ProviderPreset(
     val privacyNote: String? = null,
     val privacyUrl: String? = null,
     val legacyHosts: List<String> = emptyList(),
+    val messagesModels: List<String> = emptyList(),
+    val unsupportedModels: List<String> = emptyList(),
+    val echoReasoningModels: List<String> = emptyList(),
+    val sessionHeader: String? = null,
+    val helperModel: String? = null,
 ) {
-    /** The chat dialect of this provider. */
-    fun wire(): ChatWire = when (kind) {
-        ProviderKind.ANTHROPIC -> AnthropicWire
+    /** The chat dialect of this provider, for [model] when it serves families on several APIs. */
+    fun wire(model: String? = null): ChatWire = when {
+        kind == ProviderKind.ANTHROPIC -> AnthropicWire
+        model != null && matches(messagesModels, model) -> AnthropicWire
         else -> OpenAiWire(
             includeUsage = includeUsage,
             echoExtraContent = id == ProviderPresets.GEMINI,
             reasoningEffort = if (id == ProviderPresets.OPENAI) ProviderPresets::openAiReasoningEffort else { _ -> null },
         )
+    }
+
+    /** Whether the app can chat with [model] here (it is not on an API the app does not speak). */
+    fun supports(model: String): Boolean = !matches(unsupportedModels, model)
+
+    /** Whether [model]'s reasoning must be sent back in tool loops. */
+    fun echoesReasoning(model: String): Boolean = echoReasoning || matches(echoReasoningModels, model)
+
+    private fun matches(prefixes: List<String>, model: String): Boolean {
+        val m = model.trim().lowercase()
+        return prefixes.any { m.startsWith(it) }
     }
 
     /** Host shown in lists (`api.groq.com`, `127.0.0.1:11434`). */
@@ -67,6 +93,7 @@ object ProviderPresets {
     const val GEMINI = "gemini"
     const val DEEPSEEK = "deepseek"
     const val OPENROUTER = "openrouter"
+    const val OPENCODE_GO = "opencode-go"
     const val OLLAMA = "ollama"
     const val LOCAL = "local"
     const val CUSTOM = "openai-compatible"
@@ -251,6 +278,26 @@ object ProviderPresets {
             note = "No HTTP-Referer / X-Title attribution headers are sent.",
             privacyNote = "Prompts are not logged unless you opt in; zero data retention can be enforced per account.",
             privacyUrl = "https://openrouter.ai/docs/guides/features/zdr",
+        ),
+        ProviderPreset(
+            id = OPENCODE_GO, kind = ProviderKind.OPENAI_COMPATIBLE, displayName = "OpenCode Go", group = PresetGroup.OPEN_MODEL_HOSTS,
+            baseUrl = "https://opencode.ai/inference/go/v1",
+            defaultModel = "kimi-k2.6",
+            suggestedModels = listOf(
+                "kimi-k2.6", "kimi-k3", "glm-5.3", "glm-5.2", "deepseek-v4-pro", "glm-5.3-flash", "deepseek-v4.1-flash", "qwen3.8-max", "minimax-m3",
+            ),
+            requiresApiKey = true,
+            // Endpoint per model, limits and per-model privacy: https://opencode.ai/docs/go/#endpoints
+            // Models (public): https://opencode.ai/inference/go/v1/models
+            docsUrl = "https://opencode.ai/docs/go/",
+            note = "$10/month plan; each model has 5-hour, weekly and monthly limits. Grok, GPT, Muse and Gemini need APIs the app doesn't speak and are hidden.",
+            privacyNote = "Per model: most keep nothing and never train; Claude Haiku keeps 30 days; \"Contributor\" models train on your prompts.",
+            privacyUrl = "https://opencode.ai/docs/go/#privacy",
+            messagesModels = listOf("claude-", "minimax-", "qwen3"),
+            unsupportedModels = listOf("grok-", "gpt-", "muse-spark-", "gemini-"),
+            echoReasoningModels = listOf("deepseek-", "kimi-"),
+            sessionHeader = "x-opencode-session",
+            helperModel = "glm-5.3-flash",
         ),
         ProviderPreset(
             id = "groq", kind = ProviderKind.OPENAI_COMPATIBLE, displayName = "Groq", group = PresetGroup.OPEN_MODEL_HOSTS,

@@ -13,9 +13,10 @@ class ModelsTest {
 
     @Test
     fun catalogIsConsistent() {
-        val ids = (Catalog.all + CoreMLCatalog.all + CoreMLCatalog.upscalers).map { it.id }
+        val ids = (Catalog.all + CoreMLCatalog.all + CoreMLCatalog.upscalers + CoreMLCatalog.voices).map { it.id }
         assertEquals(ids.size, ids.toSet().size)
-        Catalog.all.forEach { plan ->
+        // Pinned multi-source bundles (voices) are checked in kokoroBundles.
+        (Catalog.all - Catalog.voiceModels.toSet()).forEach { plan ->
             assertTrue(plan.id, plan.manifest.files.isNotEmpty())
             plan.manifest.files.forEach { f ->
                 assertTrue(f.url, f.url.startsWith("https://huggingface.co/") && "/resolve/main/" in f.url)
@@ -60,6 +61,36 @@ class ModelsTest {
         val weights = upscaler.manifest.files.first { it.name.endsWith("model.mlmodel") }
         assertEquals(66_857_221L, weights.sizeBytes)
         assertEquals(FileRole.MODEL, weights.role)
+    }
+
+    @Test
+    fun kokoroBundles() {
+        val android = KokoroCatalog.onnx
+        val ios = KokoroCatalog.coreML
+        assertEquals(listOf(android), Catalog.voiceModels)
+        assertEquals(listOf(ios), CoreMLCatalog.voices)
+        assertEquals(EngineKind.ONNX, engineFor(ModelKind.VOICE, ModelFormat.ONNX, AppPlatform.ANDROID))
+        assertEquals(EngineKind.COREML, engineFor(ModelKind.VOICE, ModelFormat.COREML, AppPlatform.IOS))
+        assertEquals(EngineKind.NONE, engineFor(ModelKind.VOICE, ModelFormat.ONNX, AppPlatform.IOS))
+        assertEquals(EngineKind.NONE, engineFor(ModelKind.VOICE, ModelFormat.COREML, AppPlatform.ANDROID))
+        assertEquals(ModelFormat.ONNX, formatOf("model_quantized.onnx"))
+        for (plan in listOf(android, ios)) {
+            assertEquals(ModelKind.VOICE, plan.kind)
+            assertEquals(plan.engine, engineFor(plan.kind, plan.format, if (plan === android) AppPlatform.ANDROID else AppPlatform.IOS))
+            val names = plan.manifest.files.map { it.name }
+            assertEquals(names.size, names.toSet().size)
+            // Every file pinned to a commit, with its size and SHA-256; only Hub files get the Hub credential.
+            plan.manifest.files.forEach { f ->
+                assertTrue(f.url, f.keepName && f.sizeBytes > 0 && f.sha256?.length == 64 && "/main/" !in f.url)
+                assertEquals(f.url, if (f.url.startsWith("https://huggingface.co/")) AuthHost.HUGGING_FACE else null, f.auth)
+            }
+            assertTrue(names.containsAll(listOf("config.json", "us_gold.json", "us_silver.json", "gb_gold.json", "gb_silver.json")))
+            assertTrue(KokoroCatalog.voices.all { (id, _) -> "$id.bin" in names })
+        }
+        assertEquals("model_quantized.onnx", android.manifest.files.single { it.role == FileRole.MODEL }.name)
+        assertTrue(ios.manifest.files.any { it.name == "Kokoro_Predictor.mlpackage/Data/com.apple.CoreML/weights/weight.bin" })
+        assertEquals(108_621_583L, android.totalBytes)
+        assertTrue(ios.totalBytes in 600_000_000L..620_000_000L)
     }
 
     @Test

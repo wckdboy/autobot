@@ -5,6 +5,7 @@ import dev.wckdboy.autobot.agent.core.Plugin
 import dev.wckdboy.autobot.agent.core.RequestErrorDecision
 import dev.wckdboy.autobot.agent.core.ServiceKey
 import dev.wckdboy.autobot.agent.core.llm.LlmCall
+import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
 import dev.wckdboy.autobot.agent.core.llm.LlmErrorCode
 import dev.wckdboy.autobot.agent.core.llm.LlmService
 import dev.wckdboy.autobot.agent.core.llm.ModelMessage
@@ -27,8 +28,12 @@ import kotlinx.coroutines.CancellationException
  * Trigger: before a step, when estimated prompt tokens exceed
  * `min(W × 0.8, W − O − reserve)` (W = context window, O = output reservation), or after a
  * `CONTEXT_WINDOW_EXCEEDED` failure. The newest ~[retainRatio] of history stays verbatim; the
- * rest is summarized by the same model and logged as one `user/message` whose
- * [SurfaceOp.Replace] hides the summarized range. Nothing is deleted from the log.
+ * rest is summarized and logged as one `user/message` whose [SurfaceOp.Replace] hides the
+ * summarized range. Nothing is deleted from the log.
+ *
+ * The summary is written by the provider's helper model when one is set ([Agent.helperConfig]:
+ * cheaper, and it spares a subscription's quota), else by the chat's own model (which can read
+ * the resent prefix from its cache). On a turn that fell back to another route, that route.
  */
 class Compactor(private val retainRatio: Double = 0.16) {
 
@@ -96,11 +101,11 @@ class Compactor(private val retainRatio: Double = 0.16) {
 
     /** Re-sends the current history (prefix-cache friendly) with the instruction appended last. */
     private suspend fun summarize(agent: Agent, entries: List<LogEntry>): String {
-        val config = agent.config.value.llm
+        val config = summaryConfig(agent)
         val adapter = agent.ctx.require(LlmService.Key).adapter(config.provider)
         val messages = deriveMessages(entries) + ModelMessage(ModelRole.USER, SUMMARY_INSTRUCTION)
         val out = StringBuilder()
-        adapter.stream(LlmCall(config.copy(temperature = 0.2), messages, emptyList())).collect { chunk ->
+        adapter.stream(LlmCall(config.copy(temperature = 0.2), messages, emptyList(), sessionId = agent.id)).collect { chunk ->
             if (chunk is StreamChunk.TextDelta) out.append(chunk.text)
         }
         return out.toString().trim()
@@ -108,6 +113,10 @@ class Compactor(private val retainRatio: Double = 0.16) {
 
     companion object {
         val Key = ServiceKey<Compactor>("compaction")
+
+        /** The route that writes summaries: this turn's fallback, else the helper, else the chat's model. */
+        suspend fun summaryConfig(agent: Agent): LlmCallConfig =
+            if (agent.onFallback) agent.activeLlm else agent.helperConfig() ?: agent.config.value.llm
 
         /** Section list from DSH `summarizer.ts`. */
         val SUMMARY_INSTRUCTION = """

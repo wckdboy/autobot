@@ -14,6 +14,8 @@ struct VoiceState: Equatable {
     var handsFree = false
     /// Recent microphone peaks (0…1), oldest first.
     var levels: [Float] = []
+    /// Spoken pieces started (the speaking strip pulses on each).
+    var spoken = 0
 }
 
 /// Prepares picked images for vision models (port of `ImageInput.kt`).
@@ -315,7 +317,7 @@ final class ChatModel {
         voiceTask = Task {
             setPhase(.speaking)
             do {
-                try await speaker.read(reply)
+                try await speaker.read(reply) { [weak self] _ in self?.voice?.spoken += 1 }
             } catch let e as SpeakerUnavailable {
                 return voiceFailed(e.message)
             } catch {

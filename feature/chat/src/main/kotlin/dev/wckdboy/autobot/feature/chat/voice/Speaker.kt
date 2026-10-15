@@ -55,6 +55,12 @@ suspend fun Speaker.read(markdown: String) {
 class Speakers @Inject constructor(private val all: Set<@JvmSuppressWildcards Speaker>) {
     /** The engine with [id] (a setting, later), else the system one. */
     fun pick(id: String? = null): Speaker = all.firstOrNull { it.id == id } ?: all.first { it.id == SystemSpeaker.ID }
+
+    /** The neural voice when one is downloaded, else the phone's offline voice. */
+    suspend fun best(): Speaker = all.firstOrNull { it.id == KokoroSpeaker.ID && it.isAvailable() } ?: pick()
+
+    /** Stops whichever engine is talking. */
+    fun stopAll() = all.forEach { it.stop() }
 }
 
 @Module
@@ -63,4 +69,8 @@ abstract class VoiceModule {
     @Binds
     @IntoSet
     abstract fun system(speaker: SystemSpeaker): Speaker
+
+    @Binds
+    @IntoSet
+    abstract fun kokoro(speaker: KokoroSpeaker): Speaker
 }

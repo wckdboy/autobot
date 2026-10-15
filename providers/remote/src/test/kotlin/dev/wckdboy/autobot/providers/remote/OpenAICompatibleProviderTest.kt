@@ -264,6 +264,51 @@ class OpenAICompatibleProviderTest {
     }
 
     @Test
+    fun openCodeGoRoutesEachModelToItsApiWithASessionId() = runTest {
+        val go = ProviderPresets.byId(ProviderPresets.OPENCODE_GO)!!
+        server.enqueue(sse("""{"choices":[{"delta":{"content":"a"}}]}""", "[DONE]"))
+        server.enqueue(
+            MockResponse.Builder().code(200).setHeader("Content-Type", "text/event-stream")
+                .body("""data: {"type":"message_stop"}""" + "\n\n").build(),
+        )
+        val provider = OpenAICompatibleProvider(baseUrl(), Secret("go-key"), clients.create("go"), go)
+        val key = ProviderSessions.key("conversation-1")
+        provider.streamChat(ChatRequest("kimi-k2.6", listOf(ChatMessage(ChatRole.USER, "hi")), sessionKey = key)).toList()
+        provider.streamChat(ChatRequest("qwen3.8-flash", listOf(ChatMessage(ChatRole.USER, "hi")), sessionKey = key)).toList()
+
+        val chat = server.takeRequest()
+        assertEquals("/v1/chat/completions", chat.url.encodedPath)
+        assertEquals("Bearer go-key", chat.headers["Authorization"])
+        assertEquals(key, chat.headers["x-opencode-session"])
+        val messages = server.takeRequest()
+        assertEquals("/v1/messages", messages.url.encodedPath)
+        assertEquals("go-key", messages.headers["x-api-key"])
+        assertEquals(key, messages.headers["x-opencode-session"])
+        // Other presets never send it.
+        server.enqueue(sse("[DONE]"))
+        provider().streamChat(request.copy(sessionKey = key)).toList()
+        assertNull(server.takeRequest().headers["x-opencode-session"])
+    }
+
+    @Test
+    fun usageLimitIsQuotaWithItsResetTimeButThrottlingStaysRetryable() = runTest {
+        val go = OpenAICompatibleProvider(baseUrl(), Secret("k"), clients.create("go"), ProviderPresets.byId(ProviderPresets.OPENCODE_GO)!!)
+        server.enqueue(
+            MockResponse.Builder().code(429).setHeader("Retry-After", "7200")
+                .body("""{"type":"error","error":{"type":"GoUsageLimitError","message":"Go 5-hour usage limit exceeded"}}""").build(),
+        )
+        server.enqueue(MockResponse.Builder().code(429).setHeader("Retry-After", "3").body("""{"error":{"message":"Rate limit exceeded"}}""").build())
+
+        val limit = go.streamChat(request.copy(model = "kimi-k2.6")).toList().single() as ChatEvent.Error
+        assertEquals(ErrorKind.QUOTA, limit.kind)
+        assertEquals("OpenCode Go's 5-hour limit is used up; it resets in ~2 h.", limit.message)
+        assertEquals(7_200_000L, limit.retryAfterMs)
+        val throttled = go.streamChat(request.copy(model = "kimi-k2.6")).toList().single() as ChatEvent.Error
+        assertEquals(ErrorKind.RATE_LIMITED, throttled.kind)
+        assertEquals(3_000L, throttled.retryAfterMs)
+    }
+
+    @Test
     fun modelListHttpErrorsAreMapped() = runTest {
         server.enqueue(MockResponse.Builder().code(401).body("""{"error":{"message":"bad key"}}""").build())
         assertEquals(ModelListResult.Failure(ErrorKind.UNAUTHORIZED, "HTTP 401: bad key"), provider().listModels())

@@ -66,6 +66,8 @@ final class AppContainer {
         attachments = AttachmentRepository(keys: keys)
         library = ModelLibrary(store: store)
         compute = ComputeProfile(store: store, library: library)
+        // Read-aloud and voice mode prefer the neural voice once it is downloaded.
+        Speakers.register(KokoroSpeaker(library: library))
         accounts = ModelAccounts(preferences: preferences, secrets: secrets)
         downloader = ModelDownloader(library: library, clients: clients, accounts: accounts)
         backends = DiffusionBackendRepository(preferences: preferences)
@@ -127,6 +129,7 @@ final class AppContainer {
             searchOn = s.webSearchOn
             shared.setWebSearch(searchOn ? searchSource : nil)
         }
+        shared.setQuotaFallback(s.quotaFallback, onDevice: providers.get(ProviderPresets.localProviderId))
         #endif
     }
 
@@ -134,6 +137,7 @@ final class AppContainer {
         #if canImport(AutobotShared)
         snapshots.setProviders(list)
         snapshots.setModelLists(providers.modelLists.mapValues(\.json))
+        (agent as? SharedAgentRuntime)?.setQuotaFallback(settings.settings.quotaFallback, onDevice: list.first { $0.id == ProviderPresets.localProviderId })
         #endif
         // A chat whose provider was deleted (or that had none yet) moves to the first provider.
         agent.providersChanged(list)

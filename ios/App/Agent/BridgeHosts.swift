@@ -73,6 +73,7 @@ final class ProviderDirectoryHost: NSObject, ProviderDirectory, @unchecked Senda
             route: p.routing.rawValue,
             presetId: p.presetId,
             modelsJson: snapshots.modelList(p.id),
+            helperModel: p.helperModel,
         )
     }
 }

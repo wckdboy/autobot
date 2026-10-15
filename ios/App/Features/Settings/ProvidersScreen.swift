@@ -9,6 +9,8 @@ struct ProviderDraft: Equatable, CustomStringConvertible {
     var displayName = ""
     var baseUrl = ""
     var defaultModel = ""
+    /// Subagents and summaries; empty = the chat's own model.
+    var helperModel = ""
     var routing: ProviderRouting = .inherit
     var apiKeyInput = ""
     var hasStoredKey = false
@@ -40,7 +42,7 @@ struct ProviderDraft: Equatable, CustomStringConvertible {
     }
 
     var description: String {
-        "ProviderDraft(id=\(id ?? "nil"), preset=\(presetId), displayName=\(displayName), baseUrl=\(baseUrl), model=\(defaultModel), " +
+        "ProviderDraft(id=\(id ?? "nil"), preset=\(presetId), displayName=\(displayName), baseUrl=\(baseUrl), model=\(defaultModel), helper=\(helperModel), " +
             "routing=\(routing), apiKeyInput=\(apiKeyInput.isEmpty ? "" : Secret.redacted), hasStoredKey=\(hasStoredKey))"
     }
 
@@ -58,7 +60,10 @@ struct ProviderDraft: Equatable, CustomStringConvertible {
     }
 
     static func fromPreset(_ preset: ProviderPreset) -> ProviderDraft {
-        ProviderDraft(presetId: preset.id, kind: preset.kind, displayName: preset.displayName, baseUrl: preset.baseUrl, defaultModel: preset.defaultModel)
+        ProviderDraft(
+            presetId: preset.id, kind: preset.kind, displayName: preset.displayName, baseUrl: preset.baseUrl, defaultModel: preset.defaultModel,
+            helperModel: preset.helperModel ?? "",
+        )
     }
 }
 
@@ -189,7 +194,7 @@ struct ProvidersScreen: View {
         guard p.kind != .local else { return }
         editor = ProviderDraft(
             id: p.id, presetId: ProviderPresets.resolve(p).id, kind: p.kind, displayName: p.displayName, baseUrl: p.baseUrl,
-            defaultModel: p.defaultModel, routing: p.routing, hasStoredKey: app.providers.hasApiKey(p),
+            defaultModel: p.defaultModel, helperModel: p.helperModel ?? "", routing: p.routing, hasStoredKey: app.providers.hasApiKey(p),
         )
     }
 
@@ -264,6 +269,8 @@ private struct ProviderEditorSheet: View {
     @State private var saving = false
     @State private var error: String?
     @State private var confirmNoKey = false
+    /// A tapped model whose provider trains on prompts, and the field it goes to.
+    @State private var confirmTrains: (model: String, helper: Bool)?
     @State private var testTask: Task<Void, Never>?
     @State private var modelsTask: Task<Void, Never>?
     @Environment(AppContainer.self) private var app
@@ -319,6 +326,8 @@ private struct ProviderEditorSheet: View {
                 }
 
                 modelPicker(preset)
+                helperField
+
 
                 MicroLabel("routing")
                 ChipRow(items: ProviderRouting.allCases, selected: draft.routing, label: { $0.label }) { r in update { $0.routing = r } }
@@ -361,6 +370,57 @@ private struct ProviderEditorSheet: View {
         } message: {
             Text("\(preset.displayName) needs an API key; requests will be refused until you add one.")
         }
+        .alert(
+            "Use \(confirmTrains?.model ?? "this model")?",
+            isPresented: Binding(get: { confirmTrains != nil }, set: { if !$0 { confirmTrains = nil } }),
+            presenting: confirmTrains,
+        ) { pick in
+            Button("Use anyway") { update { if pick.helper { $0.helperModel = pick.model } else { $0.defaultModel = pick.model } } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(ModelPrivacy.trainsWarning + " Anything you send with it may end up in a future model.")
+        }
+    }
+
+    /// Helper model: optional; typing searches the same list (a few matches), picking fills it in.
+    @ViewBuilder private var helperField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ConsoleTextField(text: field(\.helperModel), label: "Helper model (optional)", kind: .mono)
+            let helper = draft.helperModel.trimmingCharacters(in: .whitespaces)
+            let chosen = models.models.first { $0.id == helper }
+            if let chosen, !chosen.caption.isEmpty { MicroLabel(chosen.caption, color: chosen.trains ? c.error : nil, lines: 2) }
+            Text("Used for subagents and context summaries, to save quota. Empty: the chat's model.")
+                .textStyle(.bodySmall)
+                .foregroundStyle(c.onSurfaceVariant)
+                .fixedSize(horizontal: false, vertical: true)
+            if !helper.isEmpty && chosen == nil {
+                ForEach(ModelLists.filter(models.models, helper, limit: 5)) { m in
+                    modelRow(m, active: false) { pick(m, helper: true) }
+                }
+            }
+        }
+    }
+
+    private func modelRow(_ m: RemoteModelItem, active: Bool, onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text((active ? "● " : "") + m.id).textStyle(.code).foregroundStyle(active ? c.primary : c.onSurface).lineLimit(1)
+                if !m.caption.isEmpty { MicroLabel(m.caption, color: m.trains ? c.error : nil) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+    }
+
+    /// Fills in a tapped model, asking first when its provider trains on prompts.
+    private func pick(_ m: RemoteModelItem, helper: Bool) {
+        if m.trains {
+            confirmTrains = (m.id, helper)
+        } else {
+            update { if helper { $0.helperModel = m.id } else { $0.defaultModel = m.id } }
+        }
     }
 
     /// Default model: a field that also searches the fetched (or offline) list below it.
@@ -388,17 +448,7 @@ private struct ProviderEditorSheet: View {
             let query = models.models.contains { $0.id == draft.defaultModel } ? "" : draft.defaultModel
             let all = ModelLists.filter(models.models, query, limit: .max)
             ForEach(all.prefix(24)) { m in
-                let active = m.id == draft.defaultModel
-                Button { update { $0.defaultModel = m.id } } label: {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text((active ? "● " : "") + m.id).textStyle(.code).foregroundStyle(active ? c.primary : c.onSurface).lineLimit(1)
-                        if !m.caption.isEmpty { MicroLabel(m.caption) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PressStyle())
+                modelRow(m, active: m.id == draft.defaultModel) { pick(m, helper: false) }
             }
             if all.count > 24 { MicroLabel("+\(all.count - 24) more · type to search") }
         }
@@ -428,10 +478,10 @@ private struct ProviderEditorSheet: View {
     }
 
     private func loadModels() {
-        if let id = draft.id, let stored = app.providers.modelLists[id], let list = ModelLists.models(stored.json) {
+        if let id = draft.id, let stored = app.providers.modelLists[id], let list = ModelLists.models(stored.json, presetId: draft.presetId) {
             models = EditorModels(models: list, json: stored.json, fetchedAt: stored.fetchedAt)
         } else {
-            models = EditorModels(models: draft.preset.suggestedModels.map { RemoteModelItem(id: $0) })
+            models = EditorModels(models: draft.preset.suggestedModels.map { RemoteModelItem(id: $0, presetId: draft.presetId) })
         }
     }
 
@@ -445,7 +495,14 @@ private struct ProviderEditorSheet: View {
             routing: draft.routing,
             apiKeyRef: draft.id.flatMap(app.providers.get)?.apiKeyRef,
             presetId: draft.presetId,
+            helperModel: helperModel(),
         )
+    }
+
+    /// The helper to store: nil when empty or the default model itself.
+    private func helperModel() -> String? {
+        let helper = draft.helperModel.trimmingCharacters(in: .whitespaces)
+        return helper.isEmpty || helper == draft.defaultModel.trimmingCharacters(in: .whitespaces) ? nil : helper
     }
 
     private func draftKey() -> Secret? {
@@ -458,6 +515,7 @@ private struct ProviderEditorSheet: View {
         ProviderSpec(
             id: p.id, kind: SharedMapping.kind(p.kind), displayName: p.displayName, baseUrl: p.baseUrl,
             apiKey: key?.reveal(), defaultModel: p.defaultModel, route: p.routing.rawValue, presetId: p.presetId, modelsJson: nil,
+            helperModel: p.helperModel,
         )
     }
 
@@ -496,10 +554,11 @@ private struct ProviderEditorSheet: View {
 
     private func accept(_ json: String?) {
         guard let json, let cache = ModelCache.companion.decode(json: json) else { return }
-        let list = cache.models.map(RemoteModelItem.init)
+        let list = cache.models.map { RemoteModelItem($0, presetId: draft.presetId) }
         models = EditorModels(models: list, json: json, fetchedAt: cache.fetchedAt)
-        // Servers whose model is whatever is loaded (llama.cpp, vLLM, LM Studio) start without one.
-        if draft.defaultModel.isEmpty, let first = list.first { draft.defaultModel = first.id }
+        // Servers whose model is whatever is loaded (llama.cpp, vLLM, LM Studio) start without one;
+        // never one whose provider trains on prompts (that takes the user's own choice).
+        if draft.defaultModel.isEmpty, let first = list.first(where: { !$0.trains }) { draft.defaultModel = first.id }
     }
 
     private func refreshModels() {

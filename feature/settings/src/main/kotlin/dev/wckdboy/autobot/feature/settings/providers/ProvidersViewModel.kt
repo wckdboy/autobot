@@ -15,6 +15,7 @@ import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
 import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ModelListResult
 import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
@@ -61,6 +62,8 @@ data class ProviderDraft(
     val displayName: String = "",
     val baseUrl: String = "",
     val defaultModel: String = "",
+    /** Subagents and summaries; empty = the chat's own model. */
+    val helperModel: String = "",
     val routing: ProviderRouting = ProviderRouting.INHERIT,
     val apiKeyInput: String = "",
     val hasStoredKey: Boolean = false,
@@ -77,7 +80,7 @@ data class ProviderDraft(
     val missingKey: Boolean get() = preset.requiresApiKey && apiKeyInput.isBlank() && (!hasStoredKey || clearStoredKey)
 
     override fun toString(): String =
-        "ProviderDraft(id=$id, preset=$presetId, displayName=$displayName, baseUrl=$baseUrl, model=$defaultModel, " +
+        "ProviderDraft(id=$id, preset=$presetId, displayName=$displayName, baseUrl=$baseUrl, model=$defaultModel, helper=$helperModel, " +
             "routing=$routing, apiKeyInput=${if (apiKeyInput.isEmpty()) "" else Secret.REDACTED}, hasStoredKey=$hasStoredKey)"
 
     companion object {
@@ -94,6 +97,7 @@ data class ProviderDraft(
             displayName = preset.displayName,
             baseUrl = preset.baseUrl,
             defaultModel = preset.defaultModel,
+            helperModel = preset.helperModel.orEmpty(),
         )
     }
 }
@@ -212,6 +216,7 @@ class ProvidersViewModel @Inject constructor(
                 displayName = provider.displayName,
                 baseUrl = provider.baseUrl,
                 defaultModel = provider.defaultModel,
+                helperModel = provider.helperModel.orEmpty(),
                 routing = provider.routing,
                 hasStoredKey = repository.hasApiKey(provider),
             )
@@ -308,7 +313,11 @@ class ProvidersViewModel @Inject constructor(
     private fun accept(list: List<RemoteModel>) {
         models.value = EditorModels(list, System.currentTimeMillis())
         // Servers whose model is whatever is loaded (llama.cpp, vLLM, LM Studio) start without one.
-        editor.update { d -> if (d != null && d.defaultModel.isBlank() && list.isNotEmpty()) d.copy(defaultModel = list.first().id) else d }
+        // Never one whose provider trains on prompts: that takes the user's own choice.
+        editor.update { d ->
+            val first = list.firstOrNull { d != null && ModelDataPolicies.autoPickable(d.presetId, it.id) }
+            if (d != null && d.defaultModel.isBlank() && first != null) d.copy(defaultModel = first.id) else d
+        }
     }
 
     private suspend fun draftProvider(draft: ProviderDraft) = run {
@@ -345,5 +354,6 @@ class ProvidersViewModel @Inject constructor(
         routing = routing,
         apiKeyRef = existing?.apiKeyRef,
         presetId = presetId,
+        helperModel = helperModel.trim().takeIf { it.isNotEmpty() && it != defaultModel.trim() },
     )
 }

@@ -10,6 +10,7 @@ import dev.wckdboy.autobot.agent.core.TurnStoppingDecision
 import dev.wckdboy.autobot.agent.core.TurnStoppingInput
 import dev.wckdboy.autobot.agent.core.approval.ApprovalPolicy
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
+import dev.wckdboy.autobot.agent.core.llm.LlmAdapter
 import dev.wckdboy.autobot.agent.core.llm.LlmCall
 import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
 import dev.wckdboy.autobot.agent.core.llm.LlmErrorCode
@@ -18,6 +19,7 @@ import dev.wckdboy.autobot.agent.core.llm.LlmFailure
 import dev.wckdboy.autobot.agent.core.llm.LlmService
 import dev.wckdboy.autobot.agent.core.llm.ModelInfo
 import dev.wckdboy.autobot.agent.core.llm.StreamChunk
+import dev.wckdboy.autobot.agent.core.llm.ToolSchema
 import dev.wckdboy.autobot.agent.core.prompt.SystemPromptService
 import dev.wckdboy.autobot.agent.core.session.ABORTED_BEFORE_DISPATCH
 import dev.wckdboy.autobot.agent.core.session.LogEntry
@@ -230,6 +232,8 @@ class Agent(
         var detail: String? = null
         _status.value = AgentStatus.RUNNING
         try {
+            turnRoute = null
+            routeNotice = null
             log.append(SessionEvent.TurnStart(turn))
             val claimed = claimTurnInput()
             turnInput = claimed
@@ -286,6 +290,8 @@ class Agent(
         } finally {
             withContext(NonCancellable) {
                 _live.value = null
+                turnRoute = null
+                routeNotice = null
                 log.append(SessionEvent.TurnEnd(turn, reason, detail))
                 _status.value = AgentStatus.IDLE
             }
@@ -307,34 +313,64 @@ class Agent(
 
     private var lastModelInfo: Pair<String, ModelInfo>? = null
 
-    /** Resolves (and caches) model metadata for the current route. */
-    suspend fun modelInfo(): ModelInfo {
+    /**
+     * The route of the rest of this turn after a [RequestErrorDecision.Fallback], and the notice
+     * still to be shown with the next answer. Both reset when a turn starts.
+     */
+    @kotlin.concurrent.Volatile
+    private var turnRoute: LlmCallConfig? = null
+    private var routeNotice: String? = null
+
+    /** The route requests go to right now: the configured one, or this turn's fallback. */
+    val activeLlm: LlmCallConfig get() = turnRoute ?: config.value.llm
+
+    /** Whether this turn already moved to a fallback route (there is only one per turn). */
+    val onFallback: Boolean get() = turnRoute != null
+
+    /**
+     * The configured route on the provider's helper model, or null when the provider has none
+     * (or it is the main model itself). Used for subagents and compaction summaries.
+     */
+    suspend fun helperConfig(): LlmCallConfig? {
         val cfg = config.value.llm
+        val helper = runCatching { llm.adapter(cfg.provider).helperModel }.getOrNull()?.trim()
+        return if (helper.isNullOrEmpty() || helper == cfg.model) null else cfg.copy(model = helper)
+    }
+
+    /** Resolves (and caches) model metadata for the current route. */
+    suspend fun modelInfo(): ModelInfo = modelInfo(activeLlm)
+
+    private suspend fun modelInfo(cfg: LlmCallConfig): ModelInfo {
         val key = "${cfg.provider}/${cfg.model}"
         lastModelInfo?.takeIf { it.first == key }?.let { return it.second }
         return llm.adapter(cfg.provider).resolveModel(cfg.model).also { lastModelInfo = key to it }
     }
 
+    /** Adapter, metadata and tool schemas for one request on [callConfig]; logs a changed route. */
+    private suspend fun prepare(callConfig: LlmCallConfig): Triple<LlmAdapter, ModelInfo, List<ToolSchema>> {
+        val adapter = llm.adapter(callConfig.provider)
+        val info = modelInfo(callConfig)
+        val requestContext = SessionEvent.RequestContext(callConfig.provider, callConfig.model, info.contextWindow)
+        if (log.latest<SessionEvent.RequestContext>() != requestContext) log.append(requestContext)
+        val restriction = config.value.restriction
+        val schemas = if (config.value.toolsEnabled && info.supportsTools) tools.list(restriction).map { it.schema() } else emptyList()
+        return Triple(adapter, info, schemas)
+    }
+
     private suspend fun runStep(turn: Int, step: Int): StepOutcome {
         log.appendAll(claimStepInput())
 
-        val callConfig = ctx.run(Hooks.Request, config.value.llm) { it }
-        val adapter = llm.adapter(callConfig.provider)
-        val info = modelInfo()
-        val requestContext = SessionEvent.RequestContext(callConfig.provider, callConfig.model, info.contextWindow)
-        if (log.latest<SessionEvent.RequestContext>() != requestContext) log.append(requestContext)
+        var callConfig = turnRoute ?: ctx.run(Hooks.Request, config.value.llm) { it }
+        var (adapter, _, schemas) = prepare(callConfig)
 
         val systemPrompt = prompts.assemble(this)
         if (log.latest<SessionEvent.SystemMessage>()?.text != systemPrompt) log.append(SessionEvent.SystemMessage(systemPrompt))
-
-        val restriction = config.value.restriction
-        val schemas = if (config.value.toolsEnabled && info.supportsTools) tools.list(restriction).map { it.schema() } else emptyList()
 
         var attempt = 0
         var acc: StreamAccumulator
         while (true) {
             acc = StreamAccumulator(turn, step, nanoTime())
-            val call = LlmCall(callConfig, deriveMessages(log.entries.value), schemas)
+            val call = LlmCall(callConfig, deriveMessages(log.entries.value), schemas, sessionId = id)
             try {
                 streamOnce(adapter.provider, call, acc)
                 if (acc.isEmpty()) throw LlmException(LlmFailure(LlmErrorCode.EMPTY_RESPONSE, "The model returned an empty response"))
@@ -351,10 +387,25 @@ class Agent(
                     delay(decision.delayMs)
                     continue
                 }
+                if (decision is RequestErrorDecision.Fallback && turnRoute == null) {
+                    // One switch per turn: the failure stays in the log, the answer carries the notice.
+                    log.append(SessionEvent.AssistantAttempt(turn, step, e.failure.code.name, e.failure.message))
+                    turnRoute = decision.config
+                    routeNotice = decision.notice
+                    callConfig = decision.config
+                    prepare(callConfig).let { (a, _, s) ->
+                        adapter = a
+                        schemas = s
+                    }
+                    attempt = 0
+                    continue
+                }
                 log.append(SessionEvent.AssistantAttempt(turn, step, e.failure.code.name, e.failure.message))
                 throw e
             }
         }
+        acc.fallback = acc.fallback ?: routeNotice
+        routeNotice = null
 
         val calls = acc.completedCalls(step)
         log.append(

@@ -112,4 +112,13 @@ class TokensParityTest {
             assertEquals("radius.$name", group("radius").getValue(name).jsonPrimitive.double, px.toDouble(), 0.01)
         }
     }
+
+    @Test
+    fun motionMatches() {
+        val motion = group("motion")
+        assertEquals("motion token names", motion.keys, Motion.all.keys)
+        motion.forEach { (name, value) ->
+            assertEquals("motion.$name", value.jsonPrimitive.double, Motion.all.getValue(name).toDouble(), 0.0001)
+        }
+    }
 }

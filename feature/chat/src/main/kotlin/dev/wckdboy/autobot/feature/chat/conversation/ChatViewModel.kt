@@ -47,6 +47,7 @@ import dev.wckdboy.autobot.feature.chat.voice.SpeakerUnavailable
 import dev.wckdboy.autobot.feature.chat.voice.Speakers
 import dev.wckdboy.autobot.feature.chat.voice.read
 import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ModelListResult
 import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
@@ -84,7 +85,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * A provider in the model switcher. [models] is its fetched list (or the preset's offline
- * suggestions), [modelsLabel] `42 models · fetched 3 min ago` / `offline list`.
+ * suggestions), [modelsLabel] `42 models · fetched 3 min ago` / `offline list`; [presetId] keys
+ * its per-model data policies ([ModelDataPolicies]).
  */
 @Immutable
 data class ProviderOption(
@@ -94,8 +96,15 @@ data class ProviderOption(
     val models: List<RemoteModel>,
     val modelsLabel: String,
     val canRefresh: Boolean,
+    val presetId: String? = null,
 ) {
     val suggestedModels: List<String> get() = (listOf(defaultModel) + models.map { it.id }).filter { it.isNotBlank() }.distinct()
+
+    /** Picker caption: context, price, data policy. */
+    fun caption(model: RemoteModel): String = ModelDataPolicies.modelCaption(presetId, model)
+
+    /** Switching to [model] needs a confirmation: its provider trains on prompts. */
+    fun trains(model: String): Boolean = ModelDataPolicies.trains(presetId, model.trim())
 }
 
 @Immutable
@@ -372,7 +381,7 @@ class ChatViewModel @AssistedInject constructor(
     fun speak(key: String, text: String) {
         readJob?.cancel()
         if (speakingKey.value == key) {
-            speakers.pick().stop()
+            speakers.stopAll()
             speakingKey.value = null
             return
         }
@@ -380,7 +389,7 @@ class ChatViewModel @AssistedInject constructor(
         speakingKey.value = key
         readJob = viewModelScope.launch {
             try {
-                speakers.pick().read(text)
+                speakers.best().read(text)
             } catch (e: SpeakerUnavailable) {
                 notice.value = e.message
             } finally {
@@ -421,7 +430,7 @@ class ChatViewModel @AssistedInject constructor(
             VoicePhase.TRANSCRIBING -> Unit
             VoicePhase.THINKING -> stop()
             VoicePhase.SPEAKING -> {
-                speakers.pick().stop()
+                speakers.stopAll()
                 listen()
             }
         }
@@ -481,7 +490,7 @@ class ChatViewModel @AssistedInject constructor(
         val waiting = state.approvals.keys + listOfNotNull(state.question?.callId)
         if (current.needsAnnouncement(waiting)) {
             val line = if (state.question != null) "The agent has a question." else "Needs your approval."
-            viewModelScope.launch { runCatching { speakers.pick().speak(line) } }
+            viewModelScope.launch { runCatching { speakers.best().speak(line) } }
         }
         val finished = current.update(state.items, state.running, SystemClock.elapsedRealtime()) ?: return
         turn = null
@@ -490,7 +499,7 @@ class ChatViewModel @AssistedInject constructor(
         voiceJob = viewModelScope.launch {
             setPhase(VoicePhase.SPEAKING)
             try {
-                speakers.pick().read(reply)
+                speakers.best().read(reply)
             } catch (e: SpeakerUnavailable) {
                 return@launch voiceFailed(e.message.orEmpty())
             }
@@ -508,7 +517,7 @@ class ChatViewModel @AssistedInject constructor(
     private fun stopVoiceWork() {
         voiceJob?.cancel()
         stopRecording.set(true)
-        speakers.pick().stop()
+        speakers.stopAll()
         turn = null
         setPhase(VoicePhase.READY)
     }
@@ -566,11 +575,20 @@ class ChatViewModel @AssistedInject constructor(
         }
     }
 
-    fun selectModel(model: String) {
+    /**
+     * Switches the chat to [model]. A model whose provider trains on prompts needs [confirmed]
+     * (the picker asks first); `/model` with one only explains why it did not switch.
+     */
+    fun selectModel(model: String, confirmed: Boolean = false) {
         val trimmed = model.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launch {
             val providerId = uiState.value.selectedProviderId ?: providers.firstProviderId() ?: return@launch
+            val presetId = providers.getProvider(providerId)?.preset()?.id
+            if (!confirmed && ModelDataPolicies.trains(presetId, trimmed)) {
+                notice.value = "${ModelDataPolicies.TRAINS_WARNING} Pick it in the model sheet to confirm."
+                return@launch
+            }
             host.setRoute(conversationId, providerId, trimmed)
         }
     }
@@ -631,6 +649,7 @@ class ChatViewModel @AssistedInject constructor(
                 else -> "offline list"
             },
             canRefresh = !local && preset.modelsApi != ModelsApi.NONE,
+            presetId = preset.id,
         )
     }
 }

@@ -15,6 +15,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import dev.wckdboy.autobot.providers.remote.SystemModels
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,6 +68,25 @@ class SessionProjectionTest {
         assertEquals("No model provider selected", explainFailure("BAD_REQUEST: no model provider selected"))
         assertEquals("something odd", explainFailure("something odd"))
         assertEquals("The turn failed", explainFailure(null))
+    }
+
+    @Test
+    fun usedUpLimitsSayWhenTheyResetAndWhatToDo() {
+        assertEquals(
+            "OpenCode Go's 5-hour limit is used up; it resets in ~2 h. Switch to the helper model or an on-device model.",
+            explainFailure("QUOTA: OpenCode Go's 5-hour limit is used up; it resets in ~2 h."),
+        )
+        assertEquals(
+            "The provider says the account is out of credit or quota (HTTP 402: Insufficient balance). Switch to the helper model or an on-device model.",
+            explainFailure("QUOTA: HTTP 402: Insufficient balance"),
+        )
+    }
+
+    @Test
+    fun fallbackAnswersCarryANotice() {
+        assertEquals("glm-5.3-flash · fallback — kimi-k2.6 hit its usage limit — answered by the helper model",
+            fallbackNotice("glm-5.3-flash", "kimi-k2.6 hit its usage limit — answered by the helper model"))
+        assertTrue(fallbackNotice(SystemModels.APPLE, "too big").contains("system model"))
     }
 
     @Test

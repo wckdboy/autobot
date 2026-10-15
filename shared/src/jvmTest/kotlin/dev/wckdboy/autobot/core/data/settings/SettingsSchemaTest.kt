@@ -23,6 +23,7 @@ class SettingsSchemaTest {
             searchProvider = SearchProvider.SEARXNG,
             searchBaseUrl = "https://search.example.org",
             searchRoute = RouteOverride.TOR,
+            quotaFallback = true,
         )
         assertEquals(settings, SettingsSchema.decode(SettingsSchema.encode(settings)))
     }
@@ -38,8 +39,10 @@ class SettingsSchemaTest {
                 SettingsSchema.MEMORY_ENABLED to "yes",
                 SettingsSchema.SEARCH_PROVIDER to "GOOGLE",
                 SettingsSchema.SEARCH_ROUTE to "VPN",
+                SettingsSchema.QUOTA_FALLBACK to "maybe",
             ),
         )
+        assertEquals(false, decoded.quotaFallback)
         assertEquals(false, decoded.memoryEnabled)
         assertEquals(SearchProvider.NONE, decoded.searchProvider)
         assertEquals(RouteOverride.INHERIT, decoded.searchRoute)

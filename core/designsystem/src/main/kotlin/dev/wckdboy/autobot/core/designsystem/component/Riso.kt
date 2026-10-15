@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
-import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -29,15 +28,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,13 +45,16 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.R
+import dev.wckdboy.autobot.core.designsystem.motion.FlowPhase
+import dev.wckdboy.autobot.core.designsystem.motion.InkMath
+import dev.wckdboy.autobot.core.designsystem.motion.InkTween
+import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.Locale
 import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 /** Where a run executes. Shown as a tag on every card and row. */
 enum class Route(val glyph: String, val label: String, val local: Boolean) {
@@ -284,7 +287,8 @@ fun BigReadout(label: String, value: String, modifier: Modifier = Modifier, onCl
 
 /**
  * Renders an image as halftone dots (riso print look): the image is sampled on a grid and each
- * cell becomes a dot whose radius follows the cell's darkness.
+ * cell becomes a dot whose radius follows the cell's darkness. The luma grid is computed once
+ * per bitmap off the main thread; the dots are one path fill.
  */
 @Composable
 fun HalftoneImage(
@@ -294,61 +298,60 @@ fun HalftoneImage(
     paper: Color = Color.Transparent,
     cell: Dp = 6.dp,
 ) {
-    val samples = remember(image) { luminanceGrid(image.asAndroidBitmap(), 96) }
+    val samples by rememberLumaGrid(image)
+    val batch = remember { DotBatch() }
     Canvas(modifier.background(paper).clipToBounds()) {
-        val c = cell.toPx()
+        val grid = samples ?: return@Canvas
+        val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
         val cols = max(1, (size.width / c).toInt())
         val rows = max(1, (size.height / c).toInt())
+        batch.reset()
         for (r in 0 until rows) for (col in 0 until cols) {
-            val sx = (col + 0.5f) / cols
-            val sy = (r + 0.5f) / rows
-            val l = samples.sample(sx, sy)
-            val radius = (1f - l) * c * 0.62f
-            if (radius > 0.25f) drawCircle(dot, radius, Offset((col + 0.5f) * c, (r + 0.5f) * c))
+            val l = grid.sample((col + 0.5f) / cols, (r + 0.5f) / rows)
+            batch.dot((col + 0.5f) * c, (r + 0.5f) * c, (1f - l) * c * 0.62f)
         }
+        drawPath(batch.path, dot)
     }
 }
 
-/** Procedural halftone field (hero art): dots swell along a soft diagonal wave. */
+/**
+ * Procedural halftone field (hero art): dots swell along a soft diagonal wave. While [flowing]
+ * the wave's phase advances (ink moving over a drum) at [speed] × `flowCyclesPerSecond`, on the
+ * throttled, lifecycle-aware ink clock; [fill] scales the dots and eases to new values. Static
+ * (as before) when not flowing or with reduced motion.
+ */
 @Composable
-fun HalftoneField(modifier: Modifier = Modifier, dot: Color = MaterialTheme.colorScheme.primary, cell: Dp = 9.dp, phase: Float = 0f) {
+fun HalftoneField(
+    modifier: Modifier = Modifier,
+    dot: Color = MaterialTheme.colorScheme.primary,
+    cell: Dp = 9.dp,
+    phase: Float = 0f,
+    flowing: Boolean = false,
+    fill: Float = 1f,
+    speed: Float = 1f,
+) {
+    val reduced = LocalInkMotion.current.reduced
+    val clock = rememberInkClock(flowing)
+    val flow = remember { FlowPhase() }
+    val fillTween = remember { InkTween(fill, Motion.developMillis / 1000f) }
+    SideEffect {
+        if (flowing && !reduced) fillTween.retarget(fill, Snapshot.withoutReadObservation { clock.time }) else fillTween.snap(fill)
+    }
+    val batch = remember { DotBatch() }
     Canvas(modifier.clipToBounds()) {
-        val c = cell.toPx()
+        val t = clock.time
+        val p = phase + flow.at(t, speed)
+        val f = if (flowing) fillTween.value(t) else fill
+        val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
         val cols = (size.width / c).toInt() + 1
         val rows = (size.height / c).toInt() + 1
+        batch.reset()
         for (r in 0 until rows) for (col in 0 until cols) {
-            val x = col / cols.toFloat()
-            val y = r / rows.toFloat()
-            val wave = 0.5f + 0.5f * sin((x * 3.1f + y * 2.3f + phase) * 3.14159f).toFloat()
-            val blob = 1f - min(1f, sqrt((x - 0.62f) * (x - 0.62f) * 2.2f + (y - 0.38f) * (y - 0.38f) * 3.0f))
-            val v = (0.55f * wave + 0.75f * blob - 0.25f * y).coerceIn(0f, 1f)
-            val radius = v * c * 0.6f
-            if (radius > 0.3f) drawCircle(dot, radius, Offset(col * c, r * c))
+            val v = InkMath.field(col / cols.toFloat(), r / rows.toFloat(), p)
+            batch.dot(col * c, r * c, v * c * 0.6f * f)
         }
+        drawPath(batch.path, dot)
     }
-}
-
-/** Downsampled luminance grid used by [HalftoneImage]. */
-private class LumaGrid(val w: Int, val h: Int, val values: FloatArray) {
-    fun sample(x: Float, y: Float): Float {
-        val ix = (x * w).toInt().coerceIn(0, w - 1)
-        val iy = (y * h).toInt().coerceIn(0, h - 1)
-        return values[iy * w + ix]
-    }
-}
-
-private fun luminanceGrid(bitmap: Bitmap, longSide: Int): LumaGrid {
-    val scale = longSide.toFloat() / max(bitmap.width, bitmap.height)
-    val w = max(1, (bitmap.width * scale).toInt())
-    val h = max(1, (bitmap.height * scale).toInt())
-    val small = Bitmap.createScaledBitmap(bitmap.copy(Bitmap.Config.ARGB_8888, false), w, h, true)
-    val px = IntArray(w * h)
-    small.getPixels(px, 0, w, 0, 0, w, h)
-    val values = FloatArray(px.size) { i ->
-        val p = px[i]
-        ((p shr 16 and 0xFF) * 0.299f + (p shr 8 and 0xFF) * 0.587f + (p and 0xFF) * 0.114f) / 255f
-    }
-    return LumaGrid(w, h, values)
 }
 
 @Preview(name = "Riso kit", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)

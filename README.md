@@ -129,8 +129,9 @@ Settings → Providers → **+** lists every preset from the shared table
 
 - **Cloud:** OpenAI, Anthropic (native Messages API with prompt caching), Google Gemini, xAI,
   Mistral, DeepSeek, Moonshot (Kimi), Alibaba Qwen, Z.ai (GLM), MiniMax, Cohere, Perplexity.
-- **Open-model hosts:** OpenRouter, Groq, Cerebras, Together AI, Fireworks AI, DeepInfra, Nebius
-  Token Factory, SambaNova, Novita, Hugging Face Inference Providers, Venice.ai, abliteration.ai.
+- **Open-model hosts:** OpenRouter, OpenCode Go, Groq, Cerebras, Together AI, Fireworks AI,
+  DeepInfra, Nebius Token Factory, SambaNova, Novita, Hugging Face Inference Providers, Venice.ai,
+  abliteration.ai.
 - **Local servers:** Ollama, LM Studio, llama.cpp server, vLLM, any OpenAI-compatible endpoint.
 - **This phone:** added automatically once a chat model is installed.
 
@@ -139,6 +140,24 @@ same kill switch, route and audit log as chat. The key is sent only to the provi
 origin. Non-chat models (embeddings, speech, image, moderation…) are filtered out, lists are
 sorted flagship-first then newest, cached in the encrypted store ("fetched 3 min ago"), and
 their context windows size the agent's context. Each preset shows its privacy note.
+
+**OpenCode Go** (the $10/month subscription, one key for ~30 open models) gets per-model
+handling: each model goes to its documented endpoint (chat completions, or the Anthropic-style
+`/messages` for Qwen, MiniMax and Claude Haiku); models only on the Responses or Gemini APIs
+(Grok, GPT, Muse, Gemini) are hidden. Every request carries the per-conversation
+`x-opencode-session` id the service requires, an opaque hash of the local chat id. Model lists show
+each model's data policy (`ModelDataPolicies`): zero retention, kept 30 days, or "trains on your
+prompts" for the *Contributor* models. Switching a chat to one of those asks first, and the app
+never picks one on its own. DeepSeek's zero-retention agreement is dated and stops counting after
+it ends.
+
+**Helper model.** Every provider can name a cheaper helper model, used for subagents (the
+`task` tool runs on it unless asked for `model: "main"`) and context summaries, so a quota lasts
+longer. OpenCode Go starts with `glm-5.3-flash`. A used-up plan limit (HTTP 429 "usage limit",
+402) reads as such, with the window and reset time when the provider gives them ("OpenCode Go's
+5-hour limit is used up; it resets in ~2 h"). It is not retried like a rate limit. With **On
+limit, fall back** (Settings → Agent, off by default), the turn runs once more on the helper
+model, else the on-device model, and the answer says so.
 
 ## On-device models
 

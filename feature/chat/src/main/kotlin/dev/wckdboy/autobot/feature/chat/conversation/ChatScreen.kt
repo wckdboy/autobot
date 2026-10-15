@@ -51,12 +51,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,11 +80,15 @@ import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.HalftoneStrip
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PaperButton
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
+import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
@@ -92,6 +98,13 @@ import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
 import dev.wckdboy.autobot.core.designsystem.component.TokenRateLabel
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
+import dev.wckdboy.autobot.core.designsystem.motion.InkTweenRow
+import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
+import dev.wckdboy.autobot.core.designsystem.motion.inkEnter
+import dev.wckdboy.autobot.core.designsystem.motion.registerGhost
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkEnterTracker
+import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.providers.remote.ModelLists
@@ -174,6 +187,8 @@ fun ChatScreen(
         state.items.filterIsInstance<SessionItem.Tool>().associate { it.key to ++n }
     }
     val firstPromptKey = state.items.firstOrNull { it is SessionItem.User }?.key
+    // Items added after the transcript loaded ink in; history just appears.
+    val enter = rememberInkEnterTracker(state.loaded) { state.items.map { it.key } }
 
     Scaffold(
         topBar = {
@@ -207,23 +222,28 @@ fun ChatScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                state.live?.let { live -> item(key = "live", contentType = "live") { LiveMessage(live) } }
+                state.live?.let { live -> item(key = "live", contentType = "live") { LiveMessage(live, Modifier.inkEnter(enter.armed)) } }
                 items(state.items.asReversed(), key = { it.key }, contentType = { it::class }) { item ->
-                    when (item) {
-                        is SessionItem.User -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
-                            if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
-                        }
-                        is SessionItem.Assistant -> AssistantMessage(item, speaking = state.speakingKey == item.key) { actions.speak(item.key, item.text) }
-                        is SessionItem.Tool -> {
-                            val approval = state.approvals[item.callId]
-                            if (approval != null) {
-                                ApprovalCard(stepNumbers[item.key] ?: 0, item, approval, actions)
-                            } else {
-                                StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery)
+                    // An assistant reply replaces the live message already on screen: no entrance.
+                    val fresh = remember(item.key) { enter.claim(item.key) } && item !is SessionItem.Assistant
+                    Box(Modifier.inkEnter(fresh)) {
+                        when (item) {
+                            is SessionItem.User -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
+                                if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
                             }
+                            is SessionItem.Assistant -> AssistantMessage(item, speaking = state.speakingKey == item.key) { actions.speak(item.key, item.text) }
+                            is SessionItem.Tool -> {
+                                val approval = state.approvals[item.callId]
+                                if (approval != null) {
+                                    val ghost = remember(item.callId) { enter.claim("approval:${item.callId}") }
+                                    ApprovalCard(stepNumbers[item.key] ?: 0, item, approval, actions, ghost)
+                                } else {
+                                    StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery)
+                                }
+                            }
+                            is SessionItem.Notice -> NoticeRow(item)
                         }
-                        is SessionItem.Notice -> NoticeRow(item)
                     }
                 }
                 if (state.loaded && state.items.isEmpty() && state.live == null) {
@@ -249,7 +269,7 @@ fun ChatScreen(
             onDismiss = { showModels = false },
             onSelectProvider = actions::selectProvider,
             onSelectModel = {
-                actions.selectModel(it)
+                actions.selectModel(it, confirmed = true)
                 showModels = false
             },
             onOpenProviders = {
@@ -327,10 +347,13 @@ private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onS
 }
 
 @Composable
-private fun LiveMessage(live: LiveUi) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (live.reasoning.isNotEmpty()) ThinkingDisclosure(reasoning = live.reasoning, isThinking = live.text.isEmpty())
-        if (live.text.isNotEmpty() || live.reasoning.isEmpty()) {
+        if (live.text.isEmpty() && live.reasoning.isEmpty() && live.toolNames.isEmpty()) {
+            // Nothing to read yet: a tiny halftone strip instead of an empty bubble.
+            HalftoneStrip(Modifier.padding(vertical = 6.dp))
+        } else if (live.text.isNotEmpty()) {
             ChatBubble(
                 role = BubbleRole.ASSISTANT,
                 text = live.text,
@@ -340,7 +363,7 @@ private fun LiveMessage(live: LiveUi) {
         }
         live.toolNames.forEach { name ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatusDot(MaterialTheme.colorScheme.primary, live = true)
+                HalftoneStrip(cell = 3.dp)
                 Text(stepTitle(name), style = MaterialTheme.typography.titleMedium)
                 MicroLabel("composing…")
             }
@@ -352,6 +375,10 @@ private fun LiveMessage(live: LiveUi) {
 @Composable
 private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel, onOpenGallery: () -> Unit) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
+    // Images this row saw being made get printed in; older ones just show.
+    val watched = remember(item.key) { booleanArrayOf(false) }
+    val generating = item.name == "generate_image" && item.state == ToolState.RUNNING
+    if (generating) watched[0] = true
     val (mark, markColor) = when (item.state) {
         ToolState.OK -> "✓" to MaterialTheme.colorScheme.onSurfaceVariant
         ToolState.ERROR -> "×" to MaterialTheme.colorScheme.error
@@ -389,6 +416,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
             if (item.state == ToolState.RUNNING) StatusDot(MaterialTheme.colorScheme.primary, live = true)
             Text(
                 mark + (item.durationMs?.let { " ${String.format(Locale.ROOT, "%.1f", it / 1000f)} s" } ?: ""),
+                modifier = Modifier.stamp(item.state, enabled = item.state == ToolState.OK || item.state == ToolState.ERROR || item.state == ToolState.DENIED),
                 style = AutobotTheme.styles.readout,
                 color = markColor,
             )
@@ -409,12 +437,18 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (generating && item.galleryIds.isEmpty()) {
+            // The same plate as the image studio, flowing while the agent's job runs.
+            Box(Modifier.padding(bottom = 6.dp).size(120.dp).background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+                DevelopingHalftone(preview = null, modifier = Modifier.fillMaxSize())
+            }
+        }
         if (item.galleryIds.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 item.galleryIds.forEach { id ->
                     val bitmap by produceState<ImageBitmap?>(null, id) { value = actions.thumbnail(id) }
                     Box(Modifier.size(120.dp).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onOpenGallery)) {
-                        bitmap?.let { Image(it, contentDescription = "Generated image", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                        bitmap?.let { PrintReveal(it, Modifier.fillMaxSize(), animate = watched[0], contentDescription = "Generated image") }
                     }
                 }
             }
@@ -425,8 +459,13 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
 
 /** The red approval block: `04 · APPROVAL NEEDED · NETWORK ACCESS`, title, args, DENY / APPROVE. */
 @Composable
-private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatViewModel) {
-    Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = MaterialTheme.shapes.extraSmall) {
+private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatViewModel, ghost: Boolean) {
+    Surface(
+        modifier = Modifier.registerGhost(ghost, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), MaterialTheme.shapes.extraSmall),
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = MaterialTheme.shapes.extraSmall,
+    ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row {
                 Text(String.format(Locale.ROOT, "%02d · APPROVAL NEEDED", number), style = AutobotTheme.styles.micro, modifier = Modifier.weight(1f))
@@ -723,7 +762,12 @@ private fun VoicePanel(
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    LevelMeter(voice.levels, Modifier.fillMaxWidth().height(36.dp))
+                    if (voice.phase == VoicePhase.SPEAKING) {
+                        // A slow flow strip while the answer is read aloud.
+                        HalftoneField(Modifier.fillMaxWidth().height(36.dp), cell = 6.dp, flowing = true, fill = 0.8f, speed = 1.5f)
+                    } else {
+                        LevelMeter(voice.levels, Modifier.fillMaxWidth().height(36.dp), live = voice.phase == VoicePhase.LISTENING)
+                    }
                     MicroLabel(hint)
                 }
                 val talks = voice.phase == VoicePhase.READY || voice.phase == VoicePhase.SPEAKING
@@ -757,23 +801,36 @@ private fun VoicePanel(
     }
 }
 
-/** Microphone peaks as riso bars, newest on the right; a flat rule when not listening. */
+/** Microphone peaks as riso bars, newest on the right, easing to each new reading; a flat rule when not listening. */
 @Composable
-private fun LevelMeter(levels: List<Float>, modifier: Modifier = Modifier) {
+private fun LevelMeter(levels: List<Float>, modifier: Modifier = Modifier, live: Boolean = true) {
     val ink = MaterialTheme.colorScheme.primary
     val rule = MaterialTheme.colorScheme.outlineVariant
+    val animated = live && !LocalInkMotion.current.reduced
+    val clock = rememberInkClock(animated)
+    val bars = remember { InkTweenRow(METER_SLOTS, METER_EASE_SECONDS) }
+    SideEffect {
+        val targets = FloatArray(METER_SLOTS) { i -> levels.getOrNull(levels.size - METER_SLOTS + i)?.let { sqrt(it.coerceIn(0f, 1f)) } ?: 0f }
+        if (animated) bars.retarget(targets, Snapshot.withoutReadObservation { clock.time }) else bars.snap(targets)
+    }
+    val count = levels.size
     Canvas(modifier) {
-        val slots = 32
-        val slot = size.width / slots
+        val now = clock.time
+        val slot = size.width / METER_SLOTS
         val bar = slot * 0.6f
         val floor = 2.dp.toPx()
-        for (i in 0 until slots) {
-            val level = levels.getOrNull(levels.size - slots + i)
-            val h = level?.let { (sqrt(it.coerceIn(0f, 1f)) * size.height).coerceAtLeast(floor) } ?: floor
-            drawRect(if (level != null) ink else rule, topLeft = Offset(i * slot, (size.height - h) / 2), size = Size(bar, h))
+        for (i in 0 until METER_SLOTS) {
+            val has = count - METER_SLOTS + i >= 0
+            val h = if (has) (bars.value(i, now) * size.height).coerceAtLeast(floor) else floor
+            drawRect(if (has) ink else rule, topLeft = Offset(i * slot, (size.height - h) / 2), size = Size(bar, h))
         }
     }
 }
+
+private const val METER_SLOTS = 32
+
+/** Readings arrive 10 a second; each bar eases to its new height in that time. */
+private const val METER_EASE_SECONDS = 0.1f
 
 /** Square thumbnails of attached images; [onRemove] adds a remove button (composer only). */
 @Composable
@@ -824,6 +881,7 @@ private fun ModelSheet(
     onRefreshModels: () -> Unit,
 ) {
     var model by remember(state.selectedProviderId, state.selectedModel) { mutableStateOf(state.selectedModel.orEmpty()) }
+    var confirmTrains by remember { mutableStateOf<String?>(null) }
     val selected = state.providers.firstOrNull { it.id == state.selectedProviderId }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -863,11 +921,12 @@ private fun ModelSheet(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        m.caption().takeIf { it.isNotEmpty() }?.let { MicroLabel(it) }
+                        option.caption(m).takeIf { it.isNotEmpty() }?.let { MicroLabel(it) }
                     }
                 }
             }
-            PrimaryButton("Use model", { onSelectModel(model) }, Modifier.fillMaxWidth(), enabled = model.isNotBlank() && selected != null)
+            PrimaryButton("Use model", { if (selected?.trains(model) == true) confirmTrains = model else onSelectModel(model) }, Modifier.fillMaxWidth(), enabled = model.isNotBlank() && selected != null)
+            confirmTrains?.let { TrainsConfirmDialog(it, onConfirm = { onSelectModel(it) }, onDismiss = { confirmTrains = null }) }
         }
     }
 }

@@ -11,7 +11,7 @@ enum class ModelTask {
     /** The gallery, where upscalers run on saved images. */
     GALLERY,
 
-    /** Nothing opens it (speech, LoRAs, VAEs, or not downloaded yet): the row keeps its tags. */
+    /** Nothing opens it (speech, voices, LoRAs, VAEs, or not downloaded yet): the row keeps its tags. */
     NONE,
 }
 
@@ -41,6 +41,7 @@ fun launchOf(
         ModelKind.CHAT, ModelKind.CODE -> ModelTask.CHAT
         ModelKind.IMAGE -> ModelTask.IMAGINE
         ModelKind.UPSCALER -> ModelTask.GALLERY
+        // Voices are used by read-aloud and voice mode, never opened on their own.
         else -> return ModelLaunch(ModelTask.NONE)
     }
     val problem = when {

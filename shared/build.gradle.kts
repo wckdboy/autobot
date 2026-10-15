@@ -45,3 +45,9 @@ kotlin {
         }
     }
 }
+
+// Optional: `-Pkokoro.dir=<folder with the misaki lexicons>` runs the frontend against the full
+// lexicons (KokoroFrontendTest.fullLexicons); skipped otherwise.
+tasks.withType<Test>().configureEach {
+    providers.gradleProperty("kokoro.dir").orNull?.let { systemProperty("kokoro.dir", it) }
+}

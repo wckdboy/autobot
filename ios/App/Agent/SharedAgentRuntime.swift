@@ -179,6 +179,13 @@ final class SharedAgentRuntime: AgentRuntime {
     /// `web_search` on (settings read per call) or off.
     func setWebSearch(_ source: WebSearchSourceHost?) { bridge.setWebSearch(source: source) }
 
+    /// "On limit, fall back" (off by default): a turn whose provider's usage limit is used up is
+    /// retried once on the provider's helper model, else on [onDevice] (the "This phone" provider).
+    func setQuotaFallback(_ enabled: Bool, onDevice: Provider?) {
+        let model = onDevice?.defaultModel ?? ""
+        bridge.setQuotaFallback(enabled: enabled, onDeviceProviderId: model.isEmpty ? nil : onDevice?.id, onDeviceModel: model.isEmpty ? nil : model)
+    }
+
     /// Skills found in the workspace (`name: description`).
     func skills() -> [String] { bridge.skills() }
 }

@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -62,13 +61,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneImage
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
+import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
@@ -300,11 +301,25 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, onSelect: (Int) -> U
                             .then(if (i == selected && result != null) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
                             .clickable(enabled = result != null) { onSelect(i) },
                     ) {
-                        val preview = running?.preview
+                        // Results that arrive while we watch get printed; ones already there just show.
+                        val sampled = remember { booleanArrayOf(false) }
+                        if (running != null && result == null) sampled[0] = true
+                        val live = running != null && i == running.image
                         when {
-                            result != null -> Image(result.bitmap, contentDescription = "Result ${i + 1}", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                            running != null && i == running.image && preview != null -> HalftoneImage(preview, Modifier.fillMaxSize(), cell = 5.dp)
-                            running != null -> HalftoneField(Modifier.fillMaxSize(), cell = 7.dp, dot = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), phase = i.toFloat())
+                            result != null -> PrintReveal(
+                                result.bitmap,
+                                Modifier.fillMaxSize(),
+                                animate = sampled[0],
+                                contentDescription = "Result ${i + 1}",
+                                key = result.galleryId,
+                            )
+                            running != null -> DevelopingHalftone(
+                                preview = if (live) running.preview else null,
+                                modifier = Modifier.fillMaxSize(),
+                                progress = if (live && running.totalSteps > 0) running.step.toFloat() / running.totalSteps else 0f,
+                                loading = !live || running.totalSteps == 0,
+                                seed = i.toFloat(),
+                            )
                             else -> HalftoneField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant)
                         }
                         if (running != null && i == running.image) {
@@ -352,12 +367,10 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
                 TextButton(onClick = onShowTune) { Text("TUNE", style = MaterialTheme.typography.labelLarge) }
             }
         }
-        LinearProgressIndicator(
-            progress = { running?.let { if (it.totalSteps > 0) (it.image + it.step.toFloat() / it.totalSteps) / it.batch.coerceAtLeast(1) else 0f } ?: 0f },
+        InkProgressBar(
+            progress = running?.let { if (it.totalSteps > 0) (it.image + it.step.toFloat() / it.totalSteps) / it.batch.coerceAtLeast(1) else 0f } ?: 0f,
             modifier = Modifier.fillMaxWidth().height(2.dp),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.outlineVariant,
-            drawStopIndicator = {},
+            running = running != null,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when {

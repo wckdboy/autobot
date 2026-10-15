@@ -166,5 +166,8 @@ object Catalog {
         speech("whisper-large-v3-turbo-q8_0", "Whisper large-v3 turbo", "834 MB · best accuracy · slower", "ggml-large-v3-turbo-q8_0.bin", 834),
     )
 
-    val all: List<ModelPlan> get() = chatModels + imageModels + speechModels
+    /** Read-aloud voices this catalog's engines run (Android: Kokoro on ONNX Runtime; iOS's is [CoreMLCatalog.voices]). */
+    val voiceModels: List<ModelPlan> = listOf(KokoroCatalog.onnx)
+
+    val all: List<ModelPlan> get() = chatModels + imageModels + speechModels + voiceModels
 }
