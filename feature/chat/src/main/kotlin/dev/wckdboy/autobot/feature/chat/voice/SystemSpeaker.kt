@@ -13,7 +13,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -63,6 +68,11 @@ class SystemSpeaker @Inject constructor(@ApplicationContext private val context:
 
     private val mutex = Mutex()
     private var tts: TextToSpeech? = null
+
+    /** Unbinds the engine once read-aloud has been idle a while (it holds a service binding and memory). */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    @Volatile
+    private var idleShutdown: Job? = null
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
 
     /** The voice chosen for the current locale (voices change rarely; [stop] forgets it). */
@@ -84,6 +94,7 @@ class SystemSpeaker @Inject constructor(@ApplicationContext private val context:
     }
 
     private suspend fun engine(): TextToSpeech = mutex.withLock {
+        idleShutdown?.cancel()
         tts?.let { return it }
         val ready = CompletableDeferred<Int>()
         val engine = withContext(Dispatchers.Main) { TextToSpeech(context) { ready.complete(it) } }
@@ -115,7 +126,7 @@ class SystemSpeaker @Inject constructor(@ApplicationContext private val context:
         return voice
     }
 
-    override suspend fun isAvailable(): Boolean = runCatching { offlineVoice(engine()) != null }.getOrDefault(false)
+    override suspend fun isAvailable(): Boolean = runCatching { offlineVoice(engine()) != null }.getOrDefault(false).also { shutdownWhenIdle() }
 
     override suspend fun speak(text: String) {
         if (text.isBlank()) return
@@ -140,6 +151,20 @@ class SystemSpeaker @Inject constructor(@ApplicationContext private val context:
             throw e
         } finally {
             pending.remove(id)
+            shutdownWhenIdle()
+        }
+    }
+
+    private fun shutdownWhenIdle() {
+        idleShutdown?.cancel()
+        idleShutdown = scope.launch {
+            delay(IDLE_SHUTDOWN_MS)
+            mutex.withLock {
+                if (pending.isNotEmpty()) return@withLock
+                tts?.shutdown()
+                tts = null
+                chosen = null
+            }
         }
     }
 
@@ -151,6 +176,9 @@ class SystemSpeaker @Inject constructor(@ApplicationContext private val context:
 
     companion object {
         const val ID = "system"
+
+        /** Read-aloud idle this long releases the system engine; the next answer binds it again (about a second). */
+        const val IDLE_SHUTDOWN_MS = 2 * 60_000L
 
         /** Longest [chars] characters may take to speak: a slow rate (8 chars/s) plus engine start-up. */
         fun deadlineMillis(chars: Int): Long = chars.coerceAtLeast(0) * 1000L / 8 + 10_000L

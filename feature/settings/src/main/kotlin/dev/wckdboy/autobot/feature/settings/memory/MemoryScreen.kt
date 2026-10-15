@@ -49,6 +49,7 @@ import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.shared.memory.MemoryNote
@@ -57,10 +58,13 @@ import dev.wckdboy.autobot.shared.memory.SaveResult
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 
 @Immutable
@@ -72,6 +76,7 @@ data class MemoryUiState(
     val message: String? = null,
 )
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 @HiltViewModel
 class MemoryViewModel @Inject constructor(
     private val repository: MemoryRepository,
@@ -80,9 +85,10 @@ class MemoryViewModel @Inject constructor(
     private val query = MutableStateFlow("")
     private val message = MutableStateFlow<String?>(null)
 
-    val uiState: StateFlow<MemoryUiState> = combine(repository.observe(), query, settings.settings, message) { notes, q, s, m ->
+    // Filtering follows the search text after a short pause (clearing applies at once), off the main thread.
+    val uiState: StateFlow<MemoryUiState> = combine(repository.observe(), query.debounce { if (it.isBlank()) 0L else 150L }, settings.settings, message) { notes, q, s, m ->
         MemoryUiState(s.memoryEnabled, q, MemoryRules.filter(notes, q), notes.size, m)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MemoryUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MemoryUiState())
 
     fun setQuery(value: String) {
         query.value = value
@@ -179,10 +185,11 @@ fun MemoryScreen(
                 },
                 trailingContent = { Switch(checked = state.enabled, onCheckedChange = onEnabled) },
             )
+            val query = rememberLocalText(state.query, onQuery)
             NoPersonalizedLearning {
                 OutlinedTextField(
-                    value = state.query,
-                    onValueChange = onQuery,
+                    value = query.text,
+                    onValueChange = query::edit,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     singleLine = true,
                     label = { Text("Search notes") },

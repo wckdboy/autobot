@@ -88,6 +88,7 @@ struct ChatScreen: View {
     @State private var ledger = InkLedger()
 
     var body: some View {
+        let _ = InkProbe.hit("body.chat")
         // Opened in .task: opening repoints the conversation and starts the agent, which must not
         // happen while the view renders. A previewed (or already open) session shows at once.
         let state = app.agent.existingSession(conversationId)?.state ?? ChatSessionState(sessionId: conversationId)
@@ -136,7 +137,7 @@ struct ChatScreen: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
-                .inkGround(app.dataLoaded && state.projection.items.isEmpty && state.live == nil)
+                .inkGround(app.dataLoaded && state.projection.items.isEmpty && state.live == nil, fade: UnitPoint(x: 0.3, y: 0.15))
                 .onChange(of: state.projection.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: state.live == nil) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }

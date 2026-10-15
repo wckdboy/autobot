@@ -68,6 +68,8 @@ class SdApiEngine(
         modelSwitching = true,
         livePreview = true,
         maskEncoding = MaskEncoding.OPAQUE_BLACK_WHITE,
+        hires = true,
+        vae = true,
     )
 
     override suspend fun catalog(): EngineCatalog = withContext(Dispatchers.IO) {
@@ -84,6 +86,8 @@ class SdApiEngine(
             loras = names("sdapi/v1/loras", "name"),
             samplers = names("sdapi/v1/samplers", "name"),
             schedulers = names("sdapi/v1/schedulers", "label"),
+            vaes = names("sdapi/v1/sd-vae", "model_name"),
+            upscalers = names("sdapi/v1/upscalers", "name") + names("sdapi/v1/latent-upscale-modes", "name"),
         )
     }
 
@@ -98,14 +102,20 @@ class SdApiEngine(
         var finished = false
 
         val poller = launch(Dispatchers.IO) {
+            val previews = PreviewPolling()
             while (isActive) {
                 delay(progressIntervalMs)
-                val progress = runCatching { get(client, "sdapi/v1/progress?skip_current_image=false").jsonObject }.getOrNull() ?: continue
+                val withImage = previews.wantImage()
+                val progress = runCatching { get(client, "sdapi/v1/progress?skip_current_image=${!withImage}").jsonObject }.getOrNull() ?: continue
                 val state = progress["state"] as? JsonObject
                 val step = state?.get("sampling_step")?.jsonPrimitive?.intOrNull ?: continue
                 val total = state["sampling_steps"]?.jsonPrimitive?.intOrNull ?: request.steps
                 val job = state["job_no"]?.jsonPrimitive?.intOrNull ?: 0
-                val preview = progress["current_image"]?.jsonPrimitive?.contentOrNull?.let(::decodeBase64)
+                val key = job to step
+                if (!previews.isNew(key, withImage)) continue
+                // The (large) preview is decoded only for a step it has not shown yet.
+                val preview = if (previews.decode(key, withImage)) progress["current_image"]?.jsonPrimitive?.contentOrNull?.let(::decodeBase64) else null
+                previews.record(key, previewed = preview != null)
                 if (step > 0) send(DiffusionEvent.Progress(job, step, total, preview))
             }
         }
@@ -170,10 +180,19 @@ class SdApiEngine(
             buildJsonObject {
                 request.model?.let { put("sd_model_checkpoint", it) }
                 request.clipSkip?.let { put("CLIP_stop_at_last_layers", it) }
+                request.vae?.let { put("sd_vae", it) }
                 put("return_grid", false)
             },
         )
         put("override_settings_restore_afterwards", false)
+        val hires = request.hires
+        if (request.mode == DiffusionMode.TXT2IMG && hires != null) {
+            put("enable_hr", true)
+            put("hr_scale", hires.scale)
+            put("hr_upscaler", hires.upscaler)
+            put("hr_second_pass_steps", hires.steps)
+            put("denoising_strength", hires.denoise)
+        }
         if (request.mode != DiffusionMode.TXT2IMG) {
             put("init_images", buildJsonArray { add(JsonPrimitive(encodeBase64(inputs.initImage!!))) })
             put("denoising_strength", request.denoiseStrength)
@@ -236,6 +255,33 @@ class SdApiEngine(
 
         fun decodeBase64(text: String): ByteArray? =
             runCatching { Base64.getDecoder().decode(text.substringAfter("base64,")) }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+}
+
+/**
+ * When the progress poll asks for the live preview: the backend encodes it (and we decode it) on
+ * every call that wants it, so it is only requested once the sampler has moved past the step the
+ * last preview showed. A poll that brings no new step and no new preview sends nothing.
+ */
+internal class PreviewPolling {
+    /** (job, step) of the last poll. */
+    private var last: Pair<Int, Int>? = null
+
+    /** (job, step) the last decoded preview showed. */
+    private var shown: Pair<Int, Int>? = null
+
+    /** Whether the next poll asks for the image. */
+    fun wantImage(): Boolean = last == null || last != shown
+
+    /** Whether a poll at [key] has anything to report. */
+    fun isNew(key: Pair<Int, Int>, withImage: Boolean): Boolean = key != last || decode(key, withImage)
+
+    /** Whether to decode the poll's preview. */
+    fun decode(key: Pair<Int, Int>, withImage: Boolean): Boolean = withImage && key != shown
+
+    fun record(key: Pair<Int, Int>, previewed: Boolean) {
+        last = key
+        if (previewed) shown = key
     }
 }
 

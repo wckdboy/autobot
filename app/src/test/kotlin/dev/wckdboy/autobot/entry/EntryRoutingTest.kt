@@ -46,4 +46,11 @@ class EntryRoutingTest {
         assertNull(handoff.take("c1"))
         assertNull(handoff.take("c2"))
     }
+
+    @Test
+    fun sharedWorkflowOpensTheWorkflowsRoom() {
+        val plan = EntryRouting.plan(EntryRequest.ImportWorkflow(json = "{}"), canChat = false)
+        assertEquals(EntryPlan.Workflow(dev.wckdboy.autobot.feature.studio.WorkflowShare.Text("{}")), plan)
+        assertEquals(listOf(Run, dev.wckdboy.autobot.navigation.Studio(room = "workflows")), EntryRouting.backStack(plan, null))
+    }
 }

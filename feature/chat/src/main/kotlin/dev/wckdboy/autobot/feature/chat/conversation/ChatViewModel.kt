@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.SystemClock
+import android.util.LruCache
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -37,6 +38,7 @@ import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.designsystem.component.Route
+import dev.wckdboy.autobot.core.designsystem.markdown.LiteMarkdown
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.ModelLibrary
@@ -141,10 +143,11 @@ enum class VoicePhase { READY, LISTENING, TRANSCRIBING, THINKING, SPEAKING }
 
 /**
  * Voice mode (null in [ChatUiState] when off). [handsFree]: listen again after each answer and
- * stop listening at the end of speech. [levels]: recent microphone peaks (0…1), oldest first.
+ * stop listening at the end of speech. The microphone levels are a separate flow
+ * ([ChatViewModel.micLevels]): ten readings a second must reach the meter only.
  */
 @Immutable
-data class VoiceUi(val phase: VoicePhase = VoicePhase.READY, val handsFree: Boolean = false, val levels: List<Float> = emptyList())
+data class VoiceUi(val phase: VoicePhase = VoicePhase.READY, val handsFree: Boolean = false)
 
 @Immutable
 data class ChatUiState(
@@ -154,7 +157,6 @@ data class ChatUiState(
     val items: List<SessionItem> = emptyList(),
     /** Tool step numbers in transcript order, by item key (computed with the projection, off the main thread). */
     val stepNumbers: Map<String, Int> = emptyMap(),
-    val live: LiveUi? = null,
     val running: Boolean = false,
     val todos: List<TodoItem> = emptyList(),
     val approvals: Map<String, ApprovalUi> = emptyMap(),
@@ -210,7 +212,7 @@ class ChatViewModel @AssistedInject constructor(
     handoff: ChatHandoff,
     @ApplicationContext private val appContext: Context,
     networkPolicy: NetworkPolicy,
-) : ViewModel() {
+) : ViewModel(), ChatActions {
 
     @AssistedFactory
     interface Factory {
@@ -232,12 +234,13 @@ class ChatViewModel @AssistedInject constructor(
     private val speakingKey = MutableStateFlow<String?>(null)
     private var readJob: Job? = null
     private val voiceMode = MutableStateFlow<VoiceUi?>(null)
+    private val levels = MutableStateFlow<List<Float>>(emptyList())
     /** Voice mode's current step (listening + transcribing, or speaking an answer). */
     private var voiceJob: Job? = null
     private var voiceWatch: Job? = null
     private var turn: VoiceTurn? = null
-    private val attachmentThumbs = ConcurrentHashMap<String, ImageBitmap>()
-    private val thumbs = ConcurrentHashMap<String, ImageBitmap>()
+    private val attachmentThumbs = ThumbnailCache()
+    private val thumbs = ThumbnailCache()
 
     private val policy = combine(networkPolicy.mode, networkPolicy.allowLoopbackWhenOffline, networkPolicy.socksFallback) { m, l, s -> Triple(m, l, s) }
 
@@ -245,9 +248,13 @@ class ChatViewModel @AssistedInject constructor(
     private val installedChat = library.models.map { list ->
         list.filter { it.isLocalChat }.sortedByDescending { it.addedAt }.map { RemoteModel(it.id, name = it.title) }
     }
-    private val providerModels = combine(providers.observeProviders(), providers.observeModelCaches(), installedChat) { list, caches, installed ->
-        Triple(list, caches, installed)
-    }
+    /**
+     * Providers with their switcher options, built only when providers, model lists or installs
+     * change (OpenRouter lists hundreds of models), not on every transcript change.
+     */
+    private val providerModels = combine(providers.observeProviders(), providers.observeModelCaches(), installedChat, systemModel.status) { list, caches, installed, _ ->
+        list to list.map { it.toOption(caches[it.id], installed) }
+    }.flowOn(Dispatchers.Default)
     private val refreshing = MutableStateFlow(false)
 
     private val routing = combine(conversations.observeConversation(conversationId), providerModels, policy) { c, list, p -> Triple(c, list, p) }
@@ -268,6 +275,10 @@ class ChatViewModel @AssistedInject constructor(
             val projection = projectSession(entries, approvals.keys, running) { name, args -> describe(a, name, args) }
             var n = 0
             val steps = projection.items.filterIsInstance<SessionItem.Tool>().associate { it.key to ++n }
+            // Parse the latest answers' markdown here, off the main thread: their bubbles then
+            // compose from the cache (and a finished reply continues its streamed parse).
+            projection.items.asReversed().asSequence().filterIsInstance<SessionItem.Assistant>().take(WARM_BUBBLES)
+                .forEach { if (it.text.isNotEmpty()) LiteMarkdown.cached(it.text) }
             Transcript(projection, steps, approvals, question)
         }
         combine(transcript, a.status, a.config, a.permission) { t, status, config, permission ->
@@ -278,11 +289,18 @@ class ChatViewModel @AssistedInject constructor(
         emit(AgentSnapshot())
     }.flowOn(Dispatchers.Default)
 
-    /** The streaming reply, at most [LIVE_FRAME_MS] apart; its end (null) goes out at once. */
-    private val live: Flow<LiveUi?> = agent.flatMapLatest { a -> a?.live?.throttleLatest(LIVE_FRAME_MS) { it == null } ?: flowOf(null) }
+    /**
+     * The streaming reply, at most [LIVE_FRAME_MS] apart; its end (null) goes out at once. Kept
+     * out of [uiState]: its frames must recompose the live message only, not the whole screen.
+     */
+    val live: StateFlow<LiveUi?> = agent.flatMapLatest { a -> a?.live?.throttleLatest(LIVE_FRAME_MS) { it == null } ?: flowOf(null) }
         .map { it?.toUi() }
         .catch { emit(null) }
         .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Voice mode's recent microphone peaks (0…1), oldest first, ten a second while listening: for the meter only. */
+    val micLevels: StateFlow<List<Float>> = levels
 
     private class Transcript(
         val projection: SessionProjection,
@@ -306,7 +324,7 @@ class ChatViewModel @AssistedInject constructor(
     private val voice = combine(dictation, dictated, speakingKey, voiceMode, ::VoiceSnapshot)
 
     private val baseState: Flow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, withModels, p), n, images, v ->
-        val (providerList, caches, installed) = withModels
+        val (providerList, options) = withModels
         val (mode, allowLoopback, socks) = p
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
         val effective = provider?.let { RouteResolver.effectiveMode(mode, it.routing.toOverride(), socks) } ?: mode
@@ -323,7 +341,7 @@ class ChatViewModel @AssistedInject constructor(
             todos = snap.projection.todos,
             approvals = snap.approvals,
             question = snap.question,
-            providers = providerList.map { it.toOption(caches[it.id], installed) },
+            providers = options,
             selectedProviderId = provider?.id,
             selectedProviderName = provider?.displayName,
             selectedModel = conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel,
@@ -356,15 +374,15 @@ class ChatViewModel @AssistedInject constructor(
         )
     }
 
-    val uiState: StateFlow<ChatUiState> = combine(baseState, live) { state, l -> state.copy(live = l) }
+    val uiState: StateFlow<ChatUiState> = baseState
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isIncognito = conversations.isIncognito(conversationId)))
 
     /** The composer's text: kept here, not in the saved instance state, so a huge paste cannot overflow it. */
-    var draft: String = savedState.get<String>(KEY_DRAFT).orEmpty()
+    override var draft: String = savedState.get<String>(KEY_DRAFT).orEmpty()
         private set
 
-    fun setDraft(text: String) {
+    override fun setDraft(text: String) {
         draft = text
         // Only a bounded prefix survives process death (the saved state travels in one binder transaction).
         savedState[KEY_DRAFT] = text.take(MAX_SAVED_DRAFT)
@@ -408,7 +426,7 @@ class ChatViewModel @AssistedInject constructor(
     // Intents
 
     /** Sends a prompt (with the attached images) or runs a slash command. */
-    fun send(text: String) {
+    override fun send(text: String) {
         val input = text.trim()
         if (input.isEmpty() && pending.value.isEmpty()) return
         if (input.startsWith("/") && runCommand(input)) return
@@ -423,7 +441,7 @@ class ChatViewModel @AssistedInject constructor(
     }
 
     /** Attaches a picked image: downscaled and re-encoded (which also drops EXIF/GPS metadata). */
-    fun attach(uri: Uri) {
+    override fun attach(uri: Uri) {
         viewModelScope.launch {
             val encoded = withContext(Dispatchers.Default) { runCatching { ImageInput.encode(appContext, uri) }.getOrNull() }
             if (encoded == null) {
@@ -443,7 +461,7 @@ class ChatViewModel @AssistedInject constructor(
     }
 
     /** Starts dictation, or stops it and transcribes on the phone (whisper.cpp). */
-    fun toggleDictation() {
+    override fun toggleDictation() {
         when (dictation.value) {
             Dictation.RECORDING -> stopRecording.set(true)
             Dictation.TRANSCRIBING -> Unit
@@ -469,7 +487,7 @@ class ChatViewModel @AssistedInject constructor(
         }
     }
 
-    fun consumeDictation() {
+    override fun consumeDictation() {
         dictated.value = null
     }
 
@@ -477,7 +495,7 @@ class ChatViewModel @AssistedInject constructor(
         library.all().firstOrNull { it.isReady && it.engine == EngineKind.WHISPER }?.paths?.get(FileRole.MODEL)
 
     /** Reads an answer aloud, on the device only (see [Speakers]); tapping again stops. */
-    fun speak(key: String, text: String) {
+    override fun speak(key: String, text: String) {
         readJob?.cancel()
         if (speakingKey.value == key) {
             speakers.stopAll()
@@ -509,7 +527,7 @@ class ChatViewModel @AssistedInject constructor(
     // -----------------------------------------------------------------------------------------
     // Voice mode: push to talk → transcribe → send → read the answer aloud, all on the phone.
 
-    fun setVoiceMode(on: Boolean) {
+    override fun setVoiceMode(on: Boolean) {
         if (on == (voiceMode.value != null)) return
         stopVoiceWork()
         voiceWatch?.cancel()
@@ -523,10 +541,10 @@ class ChatViewModel @AssistedInject constructor(
         voiceWatch = viewModelScope.launch { uiState.collect(::onVoiceState) }
     }
 
-    fun setHandsFree(on: Boolean) = voiceMode.update { it?.copy(handsFree = on) }
+    override fun setHandsFree(on: Boolean) = voiceMode.update { it?.copy(handsFree = on) }
 
     /** The voice button: talk, send what was said, stop the agent, or interrupt the answer and talk. */
-    fun voiceTap() {
+    override fun voiceTap() {
         when (voiceMode.value?.phase ?: return) {
             VoicePhase.READY -> listen()
             VoicePhase.LISTENING -> stopRecording.set(true)
@@ -540,7 +558,7 @@ class ChatViewModel @AssistedInject constructor(
     }
 
     /** The microphone permission was refused from the voice button. */
-    fun voiceDenied() = voiceFailed("Microphone access is off — allow it in Settings to talk")
+    override fun voiceDenied() = voiceFailed("Microphone access is off — allow it in Settings to talk")
 
     private fun listen() {
         voiceJob?.cancel()
@@ -553,7 +571,7 @@ class ChatViewModel @AssistedInject constructor(
             var nothingSaid = false
             try {
                 val audio = speech.record(stopped = stopRecording::get) { peak ->
-                    voiceMode.update { it?.copy(levels = (it.levels + peak).takeLast(LEVEL_HISTORY)) }
+                    levels.update { (it + peak).takeLast(LEVEL_HISTORY) }
                     if (handsFree) {
                         when (detector.onLevel(peak, SystemClock.elapsedRealtime())) {
                             SpeechVerdict.LISTENING -> Unit
@@ -622,7 +640,10 @@ class ChatViewModel @AssistedInject constructor(
         }
     }
 
-    private fun setPhase(phase: VoicePhase) = voiceMode.update { it?.copy(phase = phase, levels = emptyList()) }
+    private fun setPhase(phase: VoicePhase) {
+        levels.value = emptyList()
+        voiceMode.update { it?.copy(phase = phase) }
+    }
 
     private fun voiceFailed(message: String) {
         notice.value = message
@@ -644,19 +665,16 @@ class ChatViewModel @AssistedInject constructor(
         super.onCleared()
     }
 
-    fun removeAttachment(id: String) {
+    override fun removeAttachment(id: String) {
         pending.update { it - id }
         viewModelScope.launch { runCatching { attachments.delete(id) } }
     }
 
     /** Small preview of an attachment for the composer and the transcript. */
-    suspend fun attachmentThumbnail(id: String): ImageBitmap? {
+    override suspend fun attachmentThumbnail(id: String): ImageBitmap? {
         attachmentThumbs[id]?.let { return it }
         val bytes = runCatching { attachments.bytes(id) }.getOrNull() ?: return null
-        return withContext(Dispatchers.Default) {
-            val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
-        }?.also { attachmentThumbs[id] = it }
+        return withContext(Dispatchers.Default) { decodeThumbnail(bytes) }?.also { attachmentThumbs[id] = it }
     }
 
     private fun runCommand(input: String): Boolean {
@@ -676,15 +694,15 @@ class ChatViewModel @AssistedInject constructor(
         return true
     }
 
-    fun stop() {
+    override fun stop() {
         viewModelScope.launchSafely(::failed) { host.agent(conversationId).cancel() }
     }
 
-    fun approve(callId: String, outcome: ApprovalOutcome) = host.answerApproval(callId, outcome)
+    override fun approve(callId: String, outcome: ApprovalOutcome) = host.answerApproval(conversationId, callId, outcome)
 
-    fun answer(callId: String, answers: List<String>?) = host.answerQuestion(callId, answers)
+    override fun answer(callId: String, answers: List<String>?) = host.answerQuestion(conversationId, callId, answers)
 
-    fun selectProvider(providerId: String) {
+    override fun selectProvider(providerId: String) {
         viewModelScope.launchSafely(::failed) {
             val provider = providers.getProvider(providerId) ?: return@launchSafely
             host.setRoute(conversationId, provider.id, provider.defaultModel)
@@ -695,7 +713,7 @@ class ChatViewModel @AssistedInject constructor(
      * Switches the chat to [model]. A model whose provider trains on prompts needs [confirmed]
      * (the picker asks first); `/model` with one only explains why it did not switch.
      */
-    fun selectModel(model: String, confirmed: Boolean = false) {
+    override fun selectModel(model: String, confirmed: Boolean) {
         val trimmed = model.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launchSafely(::failed) {
@@ -709,42 +727,42 @@ class ChatViewModel @AssistedInject constructor(
         }
     }
 
-    fun setToolsEnabled(enabled: Boolean) {
+    override fun setToolsEnabled(enabled: Boolean) {
         viewModelScope.launchSafely(::failed) { host.setToolsEnabled(conversationId, enabled) }
     }
 
-    fun setPermission(preset: PermissionPreset) {
+    override fun setPermission(preset: PermissionPreset) {
         viewModelScope.launchSafely(::failed) { host.setPermission(conversationId, preset) }
     }
 
-    fun compact() = host.compact(conversationId) { e -> notice.value = "Compact failed: ${userMessage(e)}" }
+    override fun compact() = host.compact(conversationId) { e -> notice.value = "Compact failed: ${userMessage(e)}" }
 
-    fun rename(title: String) {
+    override fun rename(title: String) {
         viewModelScope.launch { conversations.rename(conversationId, title) }
     }
 
-    fun setPinned(pinned: Boolean) {
+    override fun setPinned(pinned: Boolean) {
         viewModelScope.launch { conversations.setPinned(listOf(conversationId), pinned) }
     }
 
-    fun setArchived(archived: Boolean) {
+    override fun setArchived(archived: Boolean) {
         viewModelScope.launch { conversations.setArchived(listOf(conversationId), archived) }
     }
 
     /** Deletes this chat (undoable from the list for a few seconds); a running turn is cancelled first. */
-    fun delete() {
+    override fun delete() {
         stopVoiceWork()
         chats.trash(listOf(conversationId), uiState.value.title)
     }
 
     /** Undoes one file step (and later changes to the same files). */
-    fun undoStep(callId: String) = undo { host.undoStep(conversationId, callId) }
+    override fun undoStep(callId: String) = undo { host.undoStep(conversationId, callId) }
 
     /** Undoes every file change of [turn]. */
-    fun undoTurn(turn: Int) = undo { host.undoTurn(conversationId, turn) }
+    override fun undoTurn(turn: Int) = undo { host.undoTurn(conversationId, turn) }
 
     /** Re-applies what an undo put back. */
-    fun redo(revertId: String) = undo { host.redo(conversationId, revertId) }
+    override fun redo(revertId: String) = undo { host.redo(conversationId, revertId) }
 
     private fun undo(op: suspend () -> Any?) {
         viewModelScope.launchSafely({ e -> notice.value = "Undo failed: ${userMessage(e)}" }) {
@@ -756,14 +774,13 @@ class ChatViewModel @AssistedInject constructor(
         }
     }
 
-    fun dismissNotice() = notice.update { null }
+    override fun dismissNotice() = notice.update { null }
 
     /** Decrypted gallery thumbnail for tool cards (cached for the screen's lifetime). */
-    suspend fun thumbnail(galleryId: String): ImageBitmap? {
+    override suspend fun thumbnail(galleryId: String): ImageBitmap? {
         thumbs[galleryId]?.let { return it }
         val bytes = runCatching { gallery.thumbnail(galleryId) }.getOrNull() ?: return null
-        return withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
-            ?.also { thumbs[galleryId] = it }
+        return withContext(Dispatchers.Default) { decodeThumbnail(bytes) }?.also { thumbs[galleryId] = it }
     }
 
     /** "This phone" also offers the OS's model (Gemini Nano in the `playServices` build) when it can run. */
@@ -771,7 +788,7 @@ class ChatViewModel @AssistedInject constructor(
         listOfNotNull(systemModel.status.value?.takeIf { kind == ProviderKind.LOCAL && it.usable }?.id)
 
     /** Model switcher "refresh": refetches the selected provider's list (kill switch, route and audit log apply). */
-    fun refreshModels() {
+    override fun refreshModels() {
         val id = uiState.value.selectedProviderId ?: return
         if (refreshing.value) return
         refreshing.value = true
@@ -798,6 +815,9 @@ class ChatViewModel @AssistedInject constructor(
         const val KEY_DRAFT = "draft"
         const val MAX_SAVED_DRAFT = 16_000
         const val MAX_DESCRIBED = 1_024
+
+        /** Answers whose markdown is parsed ahead, newest first (about a screenful and a half). */
+        const val WARM_BUBBLES = 24
     }
 
     private fun Provider.toOption(cache: ModelCache?, installed: List<RemoteModel>): ProviderOption {
@@ -817,4 +837,26 @@ class ChatViewModel @AssistedInject constructor(
             presetId = preset.id,
         )
     }
+}
+
+/** Longest side of a decoded chat thumbnail (cards and strips are at most 120 dp). */
+private const val THUMBNAIL_PX = 480
+
+/** Decoded thumbnails by id, bounded by their pixel bytes. */
+private class ThumbnailCache : LruCache<String, ImageBitmap>(16 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+
+    operator fun set(key: String, value: ImageBitmap) {
+        put(key, value)
+    }
+}
+
+/** [bytes] decoded at most [THUMBNAIL_PX] on its longest side (power-of-two subsampling). */
+private fun decodeThumbnail(bytes: ByteArray): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= THUMBNAIL_PX) sample *= 2
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
 }

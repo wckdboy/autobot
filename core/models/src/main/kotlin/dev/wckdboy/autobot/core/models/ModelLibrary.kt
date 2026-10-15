@@ -1,15 +1,24 @@
 package dev.wckdboy.autobot.core.models
 
 import android.content.Context
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.ModelRowRepository
+import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
@@ -22,15 +31,27 @@ import kotlinx.serialization.json.Json
 class ModelLibrary @Inject constructor(
     @ApplicationContext private val context: Context,
     private val rows: ModelRowRepository,
+    @ApplicationScope scope: CoroutineScope,
 ) {
-    val root: File get() = File(context.filesDir, DIR).apply { mkdirs() }
+    private val rootDir: File by lazy { File(context.filesDir, DIR) }
 
-    fun dirOf(id: String): File = File(root, safeName(id))
+    /** The models folder, created if missing (a panic wipe removes it). */
+    val root: File get() = rootDir.apply { if (!isDirectory) mkdirs() }
+
+    /** [id]'s folder; not created here (the downloader creates it with the first file). */
+    fun dirOf(id: String): File = File(rootDir, safeName(id))
 
     fun fileOf(id: String, file: ModelFile): File =
         File(dirOf(id), if (file.keepName) safeFileName(file.name) else "${file.role.name.lowercase()}-${safeName(file.name)}")
 
-    val models: Flow<List<InstalledModel>> = rows.observe().map { list -> list.mapNotNull { it.toModel() } }
+    private val decoder = ModelRowDecoder()
+
+    /**
+     * Every model, decoded off the main thread and shared: the many screens and services that
+     * watch the registry share one database query and one decode per change (progress writes
+     * during a download change it every second).
+     */
+    val models: Flow<List<InstalledModel>> = sharedModels(rows.observe(), scope, Dispatchers.Default) { list -> list.mapNotNull { it.toModel() } }
 
     suspend fun get(id: String): InstalledModel? = rows.get(id)?.toModel()
 
@@ -89,7 +110,7 @@ class ModelLibrary @Inject constructor(
     fun bytesOnDisk(id: String): Long = dirOf(id).walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
     private fun ModelRow.toModel(): InstalledModel? {
-        val manifest = runCatching { ManifestJson.decodeFromString(ModelManifest.serializer(), manifestJson) }.getOrNull() ?: return null
+        val manifest = decoder.manifest(id, manifestJson) ?: return null
         val status = runCatching { ModelStatus.valueOf(status) }.getOrDefault(ModelStatus.FAILED)
         return InstalledModel(
             id = id,
@@ -116,7 +137,9 @@ class ModelLibrary @Inject constructor(
     companion object {
         private const val DIR = "models"
 
-        private val ManifestJson = Json {
+        private val Unsafe = Regex("[^A-Za-z0-9._-]")
+
+        internal val ManifestJson = Json {
             ignoreUnknownKeys = true
             encodeDefaults = false
             explicitNulls = false
@@ -124,15 +147,51 @@ class ModelLibrary @Inject constructor(
 
         /** File-system-safe, collision-resistant name for an id. */
         fun safeName(id: String): String {
-            val cleaned = id.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
+            val cleaned = id.replace(Unsafe, "_").take(80)
             val hash = Integer.toHexString(id.hashCode())
             return "${cleaned}_$hash"
         }
 
         /** A plain file name (no hash suffix), for files other files refer to by name. */
         fun safeFileName(name: String): String {
-            val base = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
+            val base = name.substringAfterLast('/').replace(Unsafe, "_").take(120)
             return base.trimStart('.').ifEmpty { "file" }
         }
     }
 }
+
+/**
+ * Decodes manifests once per (id, JSON): a progress write changes a row's bytes, not its
+ * manifest, so the per-second re-emissions during a download reuse the decoded one.
+ */
+internal class ModelRowDecoder(private val capacity: Int = 256) {
+    private val cache = object : LinkedHashMap<String, Pair<String, ModelManifest>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<String, ModelManifest>>?) = size > capacity
+    }
+
+    /** How many manifests were actually parsed (tests). */
+    @Volatile
+    var decoded = 0
+        private set
+
+    fun manifest(id: String, json: String): ModelManifest? {
+        synchronized(cache) { cache[id]?.takeIf { it.first == json }?.let { return it.second } }
+        decoded++
+        val manifest = runCatching { ModelLibrary.ManifestJson.decodeFromString(ModelManifest.serializer(), json) }.getOrNull() ?: return null
+        synchronized(cache) { cache[id] = json to manifest }
+        return manifest
+    }
+}
+
+/**
+ * [rows] mapped by [decode] on [dispatcher], repeated values dropped, shared by every collector
+ * (one upstream query while anyone watches, kept 5 s past the last one, latest value replayed).
+ * A failing query ends the upstream (logged); the next subscriber starts it again.
+ */
+internal fun <T> sharedModels(rows: Flow<List<ModelRow>>, scope: CoroutineScope, dispatcher: CoroutineDispatcher, decode: (List<ModelRow>) -> List<T>): Flow<List<T>> =
+    rows.distinctUntilChanged()
+        .map(decode)
+        .distinctUntilChanged()
+        .flowOn(dispatcher)
+        .catch { e -> Log.w("ModelLibrary", "model registry query failed", e) }
+        .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)

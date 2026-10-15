@@ -25,6 +25,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<Conversation>>
 
+    /** The [limit] most recently updated conversations that are not archived (home screen). */
+    @Query("SELECT * FROM conversations WHERE archived = 0 ORDER BY updatedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<Conversation>>
+
     @Query("SELECT * FROM conversations WHERE id = :id")
     fun observe(id: String): Flow<Conversation?>
 
@@ -43,6 +47,10 @@ interface ConversationDao {
     @Query("SELECT id FROM conversations")
     suspend fun allIds(): List<String>
 
+    /** Marks activity: bumps [Conversation.updatedAt] without reading the row. */
+    @Query("UPDATE conversations SET updatedAt = :now WHERE id = :id")
+    suspend fun touch(id: String, now: Long)
+
     /** Renaming does not count as activity: [Conversation.updatedAt] stays. */
     @Query("UPDATE conversations SET title = :title WHERE id = :id")
     suspend fun rename(id: String, title: String)
@@ -58,6 +66,9 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET folderId = NULL WHERE folderId = :folderId")
     suspend fun clearFolder(folderId: String)
+
+    @Query("SELECT COUNT(*) FROM conversations")
+    suspend fun count(): Int
 
     /** Chats without searchable text yet (from before 1.5, or imported). */
     @Query("SELECT id FROM conversations WHERE id NOT IN (SELECT conversationId FROM conversation_text)")
@@ -151,6 +162,9 @@ interface SessionEventDao {
 interface GalleryDao {
     @Query("SELECT * FROM gallery_items ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<GalleryItem>>
+
+    @Query("SELECT * FROM gallery_items ORDER BY createdAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<GalleryItem>>
 
     @Query("SELECT * FROM gallery_items WHERE id = :id")
     suspend fun get(id: String): GalleryItem?

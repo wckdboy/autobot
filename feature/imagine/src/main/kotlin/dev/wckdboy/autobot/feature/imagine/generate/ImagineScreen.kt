@@ -74,6 +74,7 @@ import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
@@ -109,6 +110,7 @@ fun ImagineRoute(
     onOpenGallery: () -> Unit,
     onOpenBackends: () -> Unit,
     onOpenModels: () -> Unit,
+    onOpenStudio: () -> Unit = {},
     handoff: GalleryHandoff? = null,
     modelId: String? = null,
     prompt: String? = null,
@@ -127,7 +129,7 @@ fun ImagineRoute(
         if (handoff.asInit) viewModel.useAsInit(handoff.galleryId)
     }
     LaunchedEffect(modelId) { modelId?.let(viewModel::useModel) }
-    ImagineScreen(state, viewModel, onBack, onOpenGallery, onOpenBackends, onOpenModels)
+    ImagineScreen(state, viewModel, onBack, onOpenGallery, onOpenBackends, onOpenModels, onOpenStudio)
 }
 
 private val ASPECTS = listOf("1:1" to (1 to 1), "2:3" to (2 to 3), "3:2" to (3 to 2), "3:4" to (3 to 4), "4:3" to (4 to 3), "9:16" to (9 to 16), "16:9" to (16 to 9))
@@ -143,6 +145,7 @@ fun ImagineScreen(
     onOpenGallery: () -> Unit,
     onOpenBackends: () -> Unit,
     onOpenModels: () -> Unit,
+    onOpenStudio: () -> Unit = {},
 ) {
     var showTune by rememberSaveable { mutableStateOf(false) }
     var showMask by rememberSaveable { mutableStateOf(false) }
@@ -169,6 +172,8 @@ fun ImagineScreen(
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     route?.let { RouteTag(it) }
+                    // The full image room (queue, grids, workflows) is in Studio mode.
+                    Tag("studio", accent = MaterialTheme.colorScheme.primary, onClick = onOpenStudio)
                     IconButton(onClick = onOpenGallery) { Icon(AutobotIcons.Image, contentDescription = "Gallery") }
                 },
             )
@@ -275,18 +280,20 @@ private fun sizeLabel(w: Int, h: Int) = if (w == h) "$w²" else "${w}×$h"
 /** The prompt, set in the display face with a red caret (mockup 04). */
 @Composable
 private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int) {
+    // The text lives here: typing never waits on the studio's state round trip.
+    val prompt = rememberLocalText(value, onChange)
     Column {
         NoPersonalizedLearning {
             BasicTextField(
-                value = value,
-                onValueChange = onChange,
+                value = prompt.text,
+                onValueChange = prompt::edit,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
                 textStyle = MaterialTheme.typography.headlineMedium.copy(color = MaterialTheme.colorScheme.onBackground),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = PromptKeyboardOptions,
                 decorationBox = { inner ->
                     Box {
-                        if (value.isEmpty()) {
+                        if (prompt.text.isEmpty()) {
                             Text("Describe an image…", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.outline)
                         }
                         inner()
@@ -370,9 +377,10 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
     val running = state.running
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(running?.startedAt) {
+        // The bar shows whole seconds: wake once a second, just after each one ticks over.
         while (running != null) {
             now = System.currentTimeMillis()
-            delay(250)
+            delay(1_000 - (now - running.startedAt).mod(1_000L) + 5)
         }
     }
     Column(Modifier.background(MaterialTheme.colorScheme.background).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -14,10 +14,13 @@ import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.feature.chat.conversation.ChatHandoff
 import dev.wckdboy.autobot.feature.chat.conversation.ChatStart
 import dev.wckdboy.autobot.feature.home.defaultChatTarget
+import dev.wckdboy.autobot.feature.studio.StudioInbox
+import dev.wckdboy.autobot.feature.studio.WorkflowShare
 import dev.wckdboy.autobot.navigation.Chat
 import dev.wckdboy.autobot.navigation.Imagine
 import dev.wckdboy.autobot.navigation.Models
 import dev.wckdboy.autobot.navigation.Run
+import dev.wckdboy.autobot.navigation.Studio
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +33,9 @@ sealed interface EntryPlan {
 
     data class Studio(val prompt: String?) : EntryPlan
 
+    /** The Studio's Workflows room, with a shared workflow to review. */
+    data class Workflow(val share: WorkflowShare) : EntryPlan
+
     /** No chat model or provider yet: the Models tab. */
     data object Setup : EntryPlan
 }
@@ -38,6 +44,7 @@ sealed interface EntryPlan {
 object EntryRouting {
     fun plan(request: EntryRequest, canChat: Boolean): EntryPlan = when (request) {
         is EntryRequest.Imagine -> EntryPlan.Studio(request.prompt)
+        is EntryRequest.ImportWorkflow -> EntryPlan.Workflow(request.uri?.let { WorkflowShare.File(it) } ?: WorkflowShare.Text(request.json.orEmpty()))
         is EntryRequest.NewChat -> if (canChat) EntryPlan.NewChat(ChatStart(draft = request.draft, images = request.images)) else EntryPlan.Setup
         EntryRequest.Voice -> if (canChat) EntryPlan.NewChat(ChatStart(voice = true)) else EntryPlan.Setup
     }
@@ -46,6 +53,7 @@ object EntryRouting {
     fun backStack(plan: EntryPlan, conversationId: String?): List<NavKey> = when (plan) {
         is EntryPlan.NewChat -> if (conversationId != null) listOf(Run, Chat(conversationId)) else listOf(Models)
         is EntryPlan.Studio -> listOf(Run, Imagine(prompt = plan.prompt))
+        is EntryPlan.Workflow -> listOf(Run, Studio(room = "workflows"))
         EntryPlan.Setup -> listOf(Models)
     }
 }
@@ -63,6 +71,7 @@ class EntryViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val host: AgentHost,
     private val handoff: ChatHandoff,
+    private val studioInbox: StudioInbox,
 ) : ViewModel() {
 
     private val _pending = MutableStateFlow<EntryRequest?>(null)
@@ -79,6 +88,7 @@ class EntryViewModel @Inject constructor(
         val target = defaultChatTarget(providers.observeProviders().first(), library.all())
         val plan = EntryRouting.plan(request, canChat = target != null)
         var conversationId: String? = null
+        if (plan is EntryPlan.Workflow) studioInbox.put(plan.share)
         if (plan is EntryPlan.NewChat && target != null) {
             val (provider, model) = target
             val conversation = conversations.createConversation(settings.settings.first().incognitoByDefault, provider.id, model)

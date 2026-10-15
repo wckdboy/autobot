@@ -51,6 +51,21 @@ object DownloadQueue {
     const val KILL_SWITCH_ERROR = "Network is off (kill switch). Downloads continue when you allow a network mode in Privacy Center."
     const val LOW_STORAGE_PREFIX = "Not enough storage"
 
+    /** What a kick (something new to download) does with the job. */
+    enum class Kick { SCHEDULE, SKIP, AFTER_CLOSE }
+
+    /**
+     * A kick schedules the job only when none is starting or running: scheduling the same job id
+     * again while it starts would make Android stop and restart it. A loop that is finishing
+     * ([closing]) has stopped looking at the queue, so the kick waits for it to end.
+     */
+    fun kick(starting: Boolean, workerActive: Boolean, closing: Boolean): Kick = when {
+        starting -> Kick.SKIP
+        workerActive && closing -> Kick.AFTER_CLOSE
+        workerActive -> Kick.SKIP
+        else -> Kick.SCHEDULE
+    }
+
     /** The next model to download. */
     fun next(models: List<InstalledModel>): InstalledModel? = queued(models).firstOrNull()
 

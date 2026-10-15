@@ -9,11 +9,10 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -49,7 +48,10 @@ import dev.wckdboy.autobot.feature.settings.memory.MemoryRoute
 import dev.wckdboy.autobot.feature.settings.vault.VaultRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
 import dev.wckdboy.autobot.feature.settings.providers.ProvidersRoute
+import dev.wckdboy.autobot.feature.studio.ui.StudioRoute
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private enum class Tab(val label: String, val root: TopLevel) {
     RUN("run", Run),
@@ -92,17 +94,20 @@ private fun inkEnterDecorator(pushing: () -> Boolean): NavEntryDecorator<NavKey>
 fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     // A forward push is in flight (cleared after its transition): the screen composed now is the
     // pushed one and enters with the misregistration plate.
+    // Only read lazily (by the entry decorator) and cleared from a coroutine, never read here:
+    // a push must not cost the host an extra recomposition when its transition ends.
     var pushing by remember { mutableStateOf(false) }
-    var pushes by remember { mutableIntStateOf(0) }
-    LaunchedEffect(pushes) {
-        delay(Motion.transitionMillis.toLong())
-        pushing = false
-    }
+    val scope = rememberCoroutineScope()
+    val settle = remember { arrayOfNulls<Job>(1) }
 
     fun navigate(key: NavKey) {
         if (backStack.lastOrNull() != key) {
             pushing = true
-            pushes++
+            settle[0]?.cancel()
+            settle[0] = scope.launch {
+                delay(Motion.transitionMillis.toLong())
+                pushing = false
+            }
             backStack.add(key)
         }
     }
@@ -143,6 +148,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                         RunRoute(
                             onOpenSession = { navigate(Chat(it)) },
                             onOpenImagine = { navigate(Imagine()) },
+                            onOpenStudio = { navigate(Studio()) },
                             onOpenAllRuns = { navigate(ChatList) },
                             onOpenGalleryItem = { navigate(Gallery(it)) },
                             onOpenModels = { switchTo(Models) },
@@ -200,11 +206,21 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                                 onOpenGallery = { navigate(Gallery()) },
                                 onOpenBackends = { navigate(ImageBackends) },
                                 onOpenModels = { switchTo(Models) },
+                                onOpenStudio = { navigate(Studio()) },
                                 handoff = key.handoffId?.let { GalleryHandoff(it, key.asInit) },
                                 modelId = key.modelId,
                                 prompt = key.prompt,
                             )
                         }
+                    }
+                    // Studio mode: its own bar replaces the app's (no tab root, so the app bar hides).
+                    entry<Studio> { key ->
+                        StudioRoute(
+                            onBack = ::back,
+                            onOpenModels = { switchTo(Models) },
+                            onOpenImageBackends = { navigate(ImageBackends) },
+                            initialRoom = key.room,
+                        )
                     }
                     entry<Gallery> { key ->
                         GalleryRoute(

@@ -11,6 +11,13 @@ enum class DiffusionMode(val label: String) { TXT2IMG("txt2img"), IMG2IMG("img2i
 data class LoraRef(val name: String, val weight: Float = 1f)
 
 /**
+ * A second, larger pass over a txt2img result (A1111 "hires fix"): upscale by [scale] with
+ * [upscaler], then [steps] img2img steps (0 = the first pass's count) at [denoise].
+ */
+@Serializable
+data class HiresFix(val scale: Float = 2f, val upscaler: String = "Latent", val steps: Int = 0, val denoise: Float = 0.5f)
+
+/**
  * Engine-independent generation parameters. Pixel inputs travel separately in
  * [DiffusionInputs] so requests stay small, comparable and serializable (history, "reuse").
  *
@@ -37,6 +44,10 @@ data class DiffusionRequest(
     val loras: List<LoraRef> = emptyList(),
     val clipSkip: Int? = null,
     val model: String? = null,
+    /** VAE override (backends with [EngineCapabilities.vae]); null = the model's own. */
+    val vae: String? = null,
+    /** Second pass for txt2img on backends with [EngineCapabilities.hires]. */
+    val hires: HiresFix? = null,
 )
 
 /** How a backend wants the inpaint mask encoded. */
@@ -86,6 +97,10 @@ data class EngineCapabilities(
     val fixedSizes: List<Pair<Int, Int>> = emptyList(),
     val sizeMultiple: Int = 8,
     val maxSteps: Int = 150,
+    /** Takes [DiffusionRequest.hires] (a second pass on the backend). */
+    val hires: Boolean = false,
+    /** Takes [DiffusionRequest.vae]. */
+    val vae: Boolean = false,
 )
 
 /** Discoverable resources of a backend. */
@@ -95,6 +110,8 @@ data class EngineCatalog(
     val loras: List<String> = emptyList(),
     val samplers: List<String> = emptyList(),
     val schedulers: List<String> = emptyList(),
+    val vaes: List<String> = emptyList(),
+    val upscalers: List<String> = emptyList(),
 )
 
 /**

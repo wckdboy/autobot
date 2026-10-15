@@ -346,6 +346,10 @@ struct ModeCard<Background: View>: View {
     let action: () -> Void
     @ViewBuilder var art: () -> Background
     var hasArt = true
+    /// A living card background (motion spec v3 §2) when there is no art; [seed] keeps
+    /// neighbouring cards out of lockstep.
+    var living = false
+    var seed = 0.0
     @Environment(\.scheme) private var c
 
     var body: some View {
@@ -365,6 +369,9 @@ struct ModeCard<Background: View>: View {
                         startPoint: .top,
                         endPoint: .bottom,
                     )
+                } else if living {
+                    // Dots thin out under the title (bottom-left).
+                    InkCardField(seed: seed, fade: UnitPoint(x: 0.2, y: 0.95))
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .center) {
@@ -398,8 +405,8 @@ struct ModeCard<Background: View>: View {
 }
 
 extension ModeCard where Background == EmptyView {
-    init(index: String, title: String, subtitle: String, route: Route?, action: @escaping () -> Void) {
-        self.init(index: index, title: title, subtitle: subtitle, route: route, action: action, art: { EmptyView() }, hasArt: false)
+    init(index: String, title: String, subtitle: String, route: Route?, living: Bool = false, seed: Double = 0, action: @escaping () -> Void) {
+        self.init(index: index, title: title, subtitle: subtitle, route: route, action: action, art: { EmptyView() }, hasArt: false, living: living, seed: seed)
     }
 }
 

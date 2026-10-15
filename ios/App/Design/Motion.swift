@@ -122,69 +122,8 @@ enum InkMath {
     /// The fractional part of [t] (0…1), for looping cycles.
     static func cycle(_ t: Double) -> Double { t - t.rounded(.down) }
 
-    /// Loader: the drop's width along the diagonal and the resting dot fill (of the full radius).
-    static let loaderDropWidth = 0.34
-    static let loaderRestFill = 0.4
-    /// Loader peak radius (of half the cell): just past touching, so the drop reads as one blot.
-    static let loaderPeak = 1.08
-    static var loaderCycleSeconds: Double { Double(Tokens.Motion.loaderCycleMillis) / 1000 }
-
-    /// Loader cycle position (0…1) at [seconds] (a still mid-cycle frame for Reduce Motion).
-    static func loaderPhase(_ seconds: Double) -> Double { cycle(seconds / loaderCycleSeconds) }
-
-    /// Where the drop is along the diagonal at cycle position [t]: it enters before the first dot
-    /// and leaves after the last, easing in and out.
-    static func loaderDropCenter(_ t: Double) -> Double {
-        -loaderDropWidth + (1 + 2 * loaderDropWidth) * smoothstep(cycle(t))
-    }
-
-    /// How much the loader dot at ([x], [y]) (0…1) swells (0…1) as the drop passes, at [t].
-    static func loaderSwell(x: Double, y: Double, t: Double) -> Double {
-        let d = ((x + y) / 2 - loaderDropCenter(t)) / loaderDropWidth
-        return exp(-2 * d * d)
-    }
-
-    /// The loader dot's radius as a share of half its cell.
-    static func loaderRadius(x: Double, y: Double, t: Double) -> Double {
-        loaderRestFill + (loaderPeak - loaderRestFill) * loaderSwell(x: x, y: y, t: t)
-    }
-
-    /// Determinate bar: the lightest dot (share of the full fill) at the tail of the filled part.
-    static let barTailDensity = 0.3
-
-    /// Determinate bar density at [u] (0 tail … 1 leading edge of the filled part): a fine
-    /// halftone gradient, densest at the head.
-    static func barDensity(_ u: Double) -> Double {
-        barTailDensity + (1 - barTailDensity) * pow(clamp01(u), 1.6)
-    }
-
-    /// Indeterminate bar: the sweeping segment and its trail, as shares of the track.
-    static let sweepLength = 0.2
-    static let sweepTrail = 0.24
-    static var sweepSeconds: Double { Double(Tokens.Motion.indeterminateSweepMillis) / 1000 }
-
-    /// The segment's leading edge (0 … 1 + length + trail) at sweep position [t]: it enters from
-    /// the left, eases across and leaves on the right, trail and all.
-    static func sweepHead(_ t: Double) -> Double { easeInOutCubic(cycle(t)) * (1 + sweepLength + sweepTrail) }
-
-    /// Ink density (0…1) of the indeterminate bar at [u] (0…1 along the track): solid inside the
-    /// segment, fading dots behind it.
-    static func sweepDensity(_ u: Double, t: Double) -> Double {
-        let head = sweepHead(t), tail = head - sweepLength
-        if u > head { return 0 }
-        if u >= tail { return 1 }
-        let behind = (tail - u) / sweepTrail
-        return behind >= 1 ? 0 : (1 - behind) * (1 - behind)
-    }
-
     /// Ambient tier: 10 fps; never in Low Power Mode.
     static var ambientFrameInterval: TimeInterval { Double(Tokens.Motion.ambientFrameIntervalMillis) / 1000 }
-
-    /// Ambient wave phase advanced in [dt] seconds: one cycle (2 units) per `ambientCycleSeconds`.
-    static func ambientPhaseStep(dt: Double) -> Double { 2 * dt / Double(Tokens.Motion.ambientCycleSeconds) }
-
-    /// The ambient register plate's breath (−1…1 pt) [elapsed] seconds in.
-    static func ambientBreath(_ elapsed: Double) -> Double { sin(2 * .pi * elapsed / Double(Tokens.Motion.ambientBreathSeconds)) }
 
     /// An ambient ground only drifts on screen, in the foreground, with motion allowed, outside Low
     /// Power Mode, while no heavy job runs and until `ambientIdleStopSeconds` without a touch.
@@ -244,33 +183,41 @@ extension EnvironmentValues {
 enum InkTier { case work, ambient }
 
 /**
- A frame clock for procedural ink: a TimelineView capped at 30 fps (15 in Low Power Mode) that
- only ticks while [active], on screen, in the foreground and with Reduce Motion off. Paused, it
- still renders once, so content must draw a sensible still for any date.
+ Procedural ink on the shared frame clock ([InkClock], one per tier): while [active], on screen,
+ in the foreground and with Reduce Motion off, [content] is re-run for every tick of the tier's
+ clock (30 / 15 fps, or 10 fps ambient). Only the small leaf that calls [content] reads the clock,
+ so a tick never re-evaluates the view that owns the timeline. Paused, it renders once, so
+ content must draw a sensible still for any date.
  */
 struct InkTimeline<Content: View>: View {
     let active: Bool
-    /// `.ambient`: 10 fps and never in Low Power Mode (living backgrounds).
+    /// `.ambient`: 10 fps, never in Low Power Mode, asleep after a minute without a touch.
     var tier = InkTier.work
     @ViewBuilder let content: (Date) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.inkStill) private var still
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
-    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var subscription = InkSubscription()
 
     var body: some View {
-        let ambient = tier == .ambient
-        let running = InkMath.shouldAnimate(active: active && !(ambient && lowPower), visible: visible, foreground: scenePhase == .active, reduceMotion: reduceMotion || still)
-        let interval = ambient ? InkMath.ambientFrameInterval : InkMath.frameInterval(lowPower: lowPower)
-        TimelineView(.animation(minimumInterval: interval, paused: !running)) { context in
-            content(context.date)
-        }
-        .onAppear { visible = true }
-        .onDisappear { visible = false }
-        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange).receive(on: RunLoop.main)) { _ in
-            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
-        }
+        let running = InkMath.shouldAnimate(active: active, visible: visible, foreground: scenePhase == .active, reduceMotion: reduceMotion || still)
+        let clock = InkClock.shared(tier)
+        InkTick(clock: running ? clock : nil, content: content)
+            .onAppear { visible = true }
+            .onDisappear { visible = false }
+            .onChange(of: running, initial: true) { _, run in subscription.set(run ? clock : nil) }
+    }
+}
+
+/// The leaf that reads the clock: re-evaluated on every tick, alone.
+private struct InkTick<Content: View>: View {
+    let clock: InkClock?
+    let content: (Date) -> Content
+
+    var body: some View {
+        let _ = InkProbe.hit("ink.tick")
+        content(clock?.now ?? Date())
     }
 }
 
@@ -318,6 +265,7 @@ struct FlowingHalftone: View {
     var body: some View {
         InkTimeline(active: active) { date in
             Canvas { context, size in
+                InkProbe.hit("ink.draw")
                 flow.advance(to: date, speed: speed, fill: fill(date))
                 let pitch = InkMath.dotCell(width: size.width, height: size.height, base: cell)
                 context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase + flow.phase, fill: flow.fill), with: .color(dot ?? scheme.primary))
@@ -365,6 +313,7 @@ struct HalftoneStrip: View {
     var body: some View {
         InkTimeline(active: true) { date in
             Canvas { context, _ in
+                InkProbe.hit("ink.draw")
                 flow.advance(to: date, speed: 2.2, fill: 1)
                 var path = Path()
                 for r in 0 ..< rows {
@@ -380,210 +329,6 @@ struct HalftoneStrip: View {
         }
         .frame(width: CGFloat(cols) * cell, height: CGFloat(rows) * cell)
         .accessibilityLabel("Working")
-    }
-}
-
-/// What an [InkProgressBar] shows.
-enum InkBarState: Equatable {
-    /// [fraction] done; [running] adds the flowing head.
-    case progress(Double, running: Bool)
-    /// Working, amount unknown: a short segment sweeps across, leaving a fading trail.
-    case indeterminate
-    /// Stopped at [fraction]: static, dimmed, with a `‖` mark.
-    case paused(Double)
-    /// Failed: fills red and holds.
-    case error(Double)
-}
-
-/**
- Progress bar in ink (motion spec v2 §1). Determinate: the width eases to each value over
- `progressMillis` (no jumps); the filled part is a fine halftone gradient, densest at the leading
- edge, and while running a small flowing dot cluster leads it. Indeterminate: a short ink segment
- sweeps with ease-in-out over `indeterminateSweepMillis`, leaving a fading dot trail. Paused:
- static, dimmed, `‖`. Error: fills red, then holds. One Canvas, one path; static with Reduce Motion.
- */
-struct InkProgressBar: View {
-    var state: InkBarState
-    var height: CGFloat = 3
-    var track: Color? = nil
-    var ink: Color? = nil
-    @Environment(\.scheme) private var c
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.inkStill) private var still
-
-    init(fraction: Double, height: CGFloat = 3, running: Bool = false, track: Color? = nil, ink: Color? = nil) {
-        self.init(.progress(fraction, running: running), height: height, track: track, ink: ink)
-    }
-
-    init(_ state: InkBarState, height: CGFloat = 3, track: Color? = nil, ink: Color? = nil) {
-        self.state = state
-        self.height = height
-        self.track = track
-        self.ink = ink
-    }
-
-    var body: some View {
-        let reduced = reduceMotion || still
-        let color = state.isError ? c.error : ink ?? c.primary
-        let value = state.value
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Rectangle().fill(track ?? c.outlineVariant)
-                if state == .indeterminate {
-                    InkSweep(color: color, reduced: reduced)
-                } else {
-                    InkFill(fraction: value, color: color, solid: state.isError)
-                        .opacity(state.isPaused ? 0.45 : 1)
-                        .animation(reduced ? .inkReduced : .inkProgress, value: value)
-                }
-            }
-            // Dense dots merge into a solid rule at the bar's height.
-            .clipped()
-            .overlay(alignment: .leading) {
-                let width = geo.size.width * value
-                if case .progress(_, true) = state, !reduced, value < 1 {
-                    InkHead(color: color)
-                        .frame(width: InkHead.length, height: 9)
-                        .offset(x: min(width, max(geo.size.width - InkHead.length, 0)))
-                        .animation(.inkProgress, value: value)
-                        .allowsHitTesting(false)
-                } else if state.isPaused {
-                    Text("‖")
-                        .textStyle(.micro)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .fixedSize()
-                        .offset(x: min(width + 3, max(geo.size.width - 8, 0)))
-                        .allowsHitTesting(false)
-                }
-            }
-        }
-        .frame(height: height)
-        .accessibilityElement()
-        .accessibilityLabel(state.label)
-        .accessibilityValue(state == .indeterminate ? "" : "\(Int(value * 100)) percent")
-    }
-}
-
-private extension InkBarState {
-    var value: Double {
-        switch self {
-        case .progress(let f, _), .paused(let f): InkMath.clamp01(f)
-        case .error: 1
-        case .indeterminate: 0
-        }
-    }
-
-    var isError: Bool { if case .error = self { true } else { false } }
-    var isPaused: Bool { if case .paused = self { true } else { false } }
-
-    var label: String {
-        switch self {
-        case .progress: "Progress"
-        case .indeterminate: "Working"
-        case .paused: "Paused"
-        case .error: "Failed"
-        }
-    }
-}
-
-/// The filled part of a determinate bar: a row of dots that grow toward the leading edge until
-/// they merge (animatable, so the width eases without per-dot views).
-private struct InkFill: View, Animatable {
-    var fraction: Double
-    let color: Color
-    var solid = false
-
-    nonisolated var animatableData: Double {
-        get { fraction }
-        set { fraction = newValue }
-    }
-
-    var body: some View {
-        Canvas { context, size in
-            let width = size.width * CGFloat(InkMath.clamp01(fraction))
-            guard width > 0.5 else { return }
-            if solid {
-                context.fill(Path(CGRect(x: 0, y: 0, width: width, height: size.height)), with: .color(color))
-                return
-            }
-            context.fill(InkBarDots.fill(size: size, width: width), with: .color(color))
-        }
-    }
-}
-
-/// Indeterminate: one segment sweeping across with its fading trail.
-private struct InkSweep: View {
-    let color: Color
-    let reduced: Bool
-
-    var body: some View {
-        InkTimeline(active: !reduced) { date in
-            Canvas { context, size in
-                let t = reduced ? 0.5 : InkMath.cycle(date.timeIntervalSinceReferenceDate / InkMath.sweepSeconds)
-                context.fill(InkBarDots.sweep(size: size, t: t), with: .color(color))
-            }
-        }
-    }
-}
-
-/// Bar dots: rows of dots (pitch ≈ the bar's height) across [width], their radius following
-/// [density] (0…1) at x; dense dots overlap into solid ink.
-enum InkBarDots {
-    /// A determinate fill [width] wide: densest at its leading edge.
-    static func fill(size: CGSize, width: CGFloat) -> Path {
-        path(size: size, width: width) { InkMath.barDensity(Double($0 / width)) }
-    }
-
-    /// The indeterminate segment and its trail at sweep position [t].
-    static func sweep(size: CGSize, t: Double) -> Path {
-        path(size: size, width: size.width) { InkMath.sweepDensity(Double($0 / size.width), t: t) }
-    }
-
-    static func path(size: CGSize, width: CGFloat, density: (CGFloat) -> Double) -> Path {
-        let pitch = max(min(size.height, 4), 2)
-        let rows = max(1, Int((size.height / pitch).rounded(.down)))
-        let oy = (size.height - CGFloat(rows) * pitch) / 2
-        let cols = Int((width / pitch).rounded(.up))
-        var path = Path()
-        for col in 0 ..< cols {
-            let cx = (CGFloat(col) + 0.5) * pitch
-            let d = density(min(cx, width))
-            guard d > 0.02 else { continue }
-            let radius = pitch * 0.5 * CGFloat(0.4 + 0.85 * d)
-            for r in 0 ..< rows {
-                let cy = oy + (CGFloat(r) + 0.5) * pitch
-                path.addEllipse(in: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
-            }
-        }
-        return path
-    }
-}
-
-/// Dots spreading ahead of a progress bar's head, thinning with distance, rippling with the flow.
-private struct InkHead: View {
-    static let length: CGFloat = 18
-    let color: Color
-    @State private var flow = FlowState(fill: 1)
-
-    var body: some View {
-        InkTimeline(active: true) { date in
-            Canvas { context, size in
-                flow.advance(to: date, speed: 2, fill: 1)
-                let cell: CGFloat = 3, cols = Int(size.width / cell), rows = 3
-                var path = Path()
-                for r in 0 ..< rows {
-                    for col in 0 ..< cols {
-                        let distance = Double(col) / Double(max(cols - 1, 1))
-                        let wave = 0.5 + 0.5 * sin((Double(col) * 0.7 + Double(r) * 0.5 - flow.phase) * .pi)
-                        let radius = cell * 0.5 * CGFloat((1 - distance) * (0.35 + 0.65 * wave))
-                        guard radius > 0.25 else { continue }
-                        let cx = (CGFloat(col) + 0.5) * cell, cy = size.height / 2 + (CGFloat(r) - 1) * cell
-                        path.addEllipse(in: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
-                    }
-                }
-                context.fill(path, with: .color(color))
-            }
-        }
     }
 }
 

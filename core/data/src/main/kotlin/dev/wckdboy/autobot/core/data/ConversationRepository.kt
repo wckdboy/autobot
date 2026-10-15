@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data
 
+import androidx.room.withTransaction
 import dev.wckdboy.autobot.core.data.db.ConversationDao
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
@@ -41,6 +42,14 @@ class ConversationRepository @Inject constructor(
                 (ephemeral + stored).sortedByDescending { it.updatedAt }
             }
 
+    /** The [limit] newest conversations that are not archived, incognito ones included (LIMIT in SQL). */
+    fun observeRecentConversations(limit: Int): Flow<List<Conversation>> =
+        flow { emitAll(database.get().conversationDao().observeRecent(limit)) }
+            .flowOn(io)
+            .combine(incognito.conversations) { stored, ephemeral ->
+                (ephemeral.filterNot { it.archived } + stored).sortedByDescending { it.updatedAt }.take(limit)
+            }
+
     fun observeConversation(id: String): Flow<Conversation?> =
         if (incognito.isIncognito(id)) {
             incognito.observeConversation(id)
@@ -56,6 +65,9 @@ class ConversationRepository @Inject constructor(
         }
 
     fun isIncognito(conversationId: String): Boolean = incognito.isIncognito(conversationId)
+
+    /** The incognito chats (process memory only, no database read). */
+    fun incognitoConversations(): List<Conversation> = incognito.conversations.value
 
     suspend fun createConversation(
         incognito: Boolean,
@@ -106,9 +118,10 @@ class ConversationRepository @Inject constructor(
         } else {
             withContext(io) {
                 val db = database.get()
-                db.messageDao().upsert(message)
-                db.conversationDao().get(message.conversationId)?.let {
-                    db.conversationDao().upsert(it.copy(updatedAt = clock()))
+                // One transaction (one fsync, one invalidation) instead of upsert + read + upsert.
+                db.withTransaction {
+                    db.messageDao().upsert(message)
+                    db.conversationDao().touch(message.conversationId, clock())
                 }
             }
         }
@@ -190,6 +203,9 @@ class ConversationRepository @Inject constructor(
         // A chat deleted meanwhile has no row to attach the text to.
         if (db.conversationDao().get(id) != null) db.conversationDao().upsertSearchText(ConversationTextRow(id, text))
     }
+
+    /** Stored (not incognito) chats. */
+    suspend fun storedCount(): Int = withContext(io) { database.get().conversationDao().count() }
 
     suspend fun unindexedConversations(): List<String> = withContext(io) { database.get().conversationDao().unindexed() }
 

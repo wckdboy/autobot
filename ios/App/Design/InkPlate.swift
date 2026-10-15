@@ -85,6 +85,7 @@ struct InkPlate: View {
                 }
                 if !engine.printed {
                     Canvas { context, size in
+                        InkProbe.hit("ink.draw")
                         engine.draw(&context, size: size, at: date, cell: cell, phase: phase, dot: dot, idleDot: idleDot, plate: plate)
                     }
                 }
@@ -123,6 +124,7 @@ private struct StillPlate: View {
 
     private func field(_ color: Color, fill: Double) -> some View {
         Canvas { context, size in
+            InkProbe.hit("ink.draw")
             let pitch = InkMath.dotCell(width: size.width, height: size.height, base: cell)
             context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase, fill: fill), with: .color(color))
         }
@@ -175,6 +177,8 @@ final class PlateEngine {
     private var pitch: CGFloat = 0
     private var size = CGSize.zero
     private var target: [Float] = []
+    private var waveArg: [Double] = []
+    private var fieldStatic: [Double] = []
     private var from: [Float] = []
 
     private static var developSeconds: Double { Double(Tokens.Motion.developMillis) / 1000 }
@@ -365,7 +369,7 @@ final class PlateEngine {
 
     /// The darkness (0…1) of dot [i] now.
     private func value(_ i: Int, x: Double, y: Double, at now: Date, phase: Double) -> Double {
-        let field = { InkMath.fieldValue(x: x, y: y, phase: phase + self.flow.phase) * self.flow.fill }
+        let field = { self.fieldAt(i, phase: phase + self.flow.phase) * self.flow.fill }
         switch stage {
         case .idle, .flow:
             return field()
@@ -389,6 +393,14 @@ final class PlateEngine {
     /// A ±4% ripple while previews update (the flow keeps moving, very slightly).
     private func shimmer(_ x: Double, _ y: Double) -> Double {
         speed > 0 ? 0.96 + 0.08 * InkMath.fieldValue(x: x, y: y, phase: flow.phase) : 1
+    }
+
+    /// [InkMath.fieldValue] for dot [i] from its cached wave argument and static part (no sqrt
+    /// per dot per frame).
+    private func fieldAt(_ i: Int, phase: Double) -> Double {
+        typealias H = Tokens.Halftone
+        let wave = 0.5 + 0.5 * sin(waveArg[i] - phase * .pi)
+        return InkMath.clamp01(Double(H.fieldWaveMix) * wave + fieldStatic[i])
     }
 
     private func tick(_ now: Date) {
@@ -416,6 +428,22 @@ final class PlateEngine {
         cols = max(0, Int(newSize.width / pitch))
         rows = max(0, Int(newSize.height / pitch))
         target = [Float](repeating: 0, count: cols * rows)
+        // The field's per-dot constants: the wave's argument and the blob/falloff part.
+        typealias H = Tokens.Halftone
+        waveArg = []
+        fieldStatic = []
+        waveArg.reserveCapacity(cols * rows)
+        fieldStatic.reserveCapacity(cols * rows)
+        for r in 0 ..< rows {
+            let y = (Double(r) + 0.5) / Double(rows)
+            for c in 0 ..< cols {
+                let x = (Double(c) + 0.5) / Double(cols)
+                waveArg.append((x * Double(H.fieldWaveX) + y * Double(H.fieldWaveY)) * .pi)
+                let dx = x - Double(H.fieldBlobX), dy = y - Double(H.fieldBlobY)
+                let blob = 1 - min(1, (dx * dx * Double(H.fieldBlobWeightX) + dy * dy * Double(H.fieldBlobWeightY)).squareRoot())
+                fieldStatic.append(Double(H.fieldBlobMix) * blob - Double(H.fieldFalloffY) * y)
+            }
+        }
         resample()
         from = target
     }

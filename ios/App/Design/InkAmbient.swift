@@ -25,24 +25,39 @@ extension Animation {
 // MARK: - Loader
 
 /**
- The indeterminate indicator (motion spec v2 §1): a small square of halftone dots where a soft
- ink drop travels the diagonal and the dots swell as it passes, once per `loaderCycleMillis`.
- Sizes: inline (12pt), button (16pt, in place of a label) and block (48pt, optional caption).
- Only on screen while work runs; a still mid-cycle frame with Reduce Motion.
+ The indeterminate indicator (motion spec v3 §1): the same wave of swelling dots as a loading
+ bar. Inline and button: a row of 5 dots; block: a 3 × 7 grid where the wave travels
+ diagonally, with an optional caption. One cycle per `loaderCycleMillis`, on the shared work
+ clock; a still frame with Reduce Motion.
  */
 struct InkLoader: View {
     enum Size {
         case inline, button, block
 
-        var side: CGFloat {
+        /// Dot diameter, slot pitch, columns and rows.
+        var diameter: CGFloat {
             switch self {
-            case .inline: 12
-            case .button: 16
-            case .block: 48
+            case .inline: 3
+            case .button: 4.5
+            case .block: 6
             }
         }
 
-        var dots: Int { self == .block ? 5 : 4 }
+        var pitch: CGFloat { diameter * 1.45 }
+        var cols: Int { self == .block ? 7 : 5 }
+        var rows: Int { self == .block ? 3 : 1 }
+        /// The wave's length in dots (the grid's wave runs along its diagonal).
+        var wavelength: Double { self == .block ? 7 : 5 }
+
+        var width: CGFloat { CGFloat(cols - 1) * pitch + diameter }
+        /// Inline and button keep the height of the text they stand in for.
+        var height: CGFloat {
+            switch self {
+            case .inline: 12
+            case .button: 16
+            case .block: CGFloat(rows - 1) * pitch + diameter
+            }
+        }
     }
 
     var size = Size.inline
@@ -61,31 +76,33 @@ struct InkLoader: View {
     var body: some View {
         let reduced = reduceMotion || still
         let ink = color ?? c.primary
-        let n = size.dots
+        let size = size
         VStack(spacing: 8) {
             InkTimeline(active: !reduced) { date in
                 Canvas { context, canvas in
-                    let t = reduced ? 0.5 : InkMath.loaderPhase(date.timeIntervalSinceReferenceDate)
-                    context.fill(Self.dots(side: min(canvas.width, canvas.height), count: n, t: t), with: .color(ink))
+                    InkProbe.hit("ink.draw")
+                    let t = reduced ? InkMath.loaderCycleSeconds * 0.3 : date.timeIntervalSinceReferenceDate
+                    context.fill(Self.dots(size, in: canvas, seconds: t), with: .color(ink))
                 }
             }
-            .frame(width: size.side, height: size.side)
+            .frame(width: size.width, height: size.height)
             if size == .block, let caption { MicroLabel(caption).fixedSize() }
         }
         .accessibilityElement()
         .accessibilityLabel(caption ?? "Working")
     }
 
-    /// The loader's [count]² dots in a [side] square at cycle position [t].
-    static func dots(side: CGFloat, count n: Int, t: Double) -> Path {
-        let cell = side / CGFloat(n)
+    /// The loader's dots, centred in [canvas], at [seconds].
+    static func dots(_ size: Size, in canvas: CGSize, seconds: Double) -> Path {
+        let d = size.diameter, pitch = size.pitch
+        let ox = (canvas.width - size.width) / 2 + d / 2
+        let oy = (canvas.height - (CGFloat(size.rows - 1) * pitch + d)) / 2 + d / 2
         var path = Path()
-        for r in 0 ..< n {
-            let y = (Double(r) + 0.5) / Double(n)
-            for col in 0 ..< n {
-                let x = (Double(col) + 0.5) / Double(n)
-                let radius = cell * 0.5 * CGFloat(InkMath.loaderRadius(x: x, y: y, t: t))
-                let cx = (CGFloat(col) + 0.5) * cell, cy = (CGFloat(r) + 0.5) * cell
+        for r in 0 ..< size.rows {
+            for col in 0 ..< size.cols {
+                let position = Double(col) + Double(r) * 0.75
+                let radius = d / 2 * CGFloat(InkMath.loaderScale(position: position, wavelength: size.wavelength, seconds: seconds))
+                let cx = ox + CGFloat(col) * pitch, cy = oy + CGFloat(r) * pitch
                 path.addEllipse(in: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
             }
         }
@@ -113,14 +130,15 @@ struct InkBusyLabel<Label: View>: View {
 
 /// The last touch anywhere in the app (ambient grounds sleep after `ambientIdleStopSeconds`).
 @MainActor
-@Observable
 final class InkIdleClock {
     static let shared = InkIdleClock()
     private(set) var lastTouch = Date()
 
     func touch(at now: Date = Date()) {
         // At most one update a second: grounds only care about the minute.
-        if now.timeIntervalSince(lastTouch) > 1 { lastTouch = now }
+        guard now.timeIntervalSince(lastTouch) > 1 else { return }
+        lastTouch = now
+        InkClock.ambient.wake()
     }
 }
 
@@ -143,7 +161,7 @@ private final class InkTouchSensor: UIGestureRecognizer, UIGestureRecognizerDele
 }
 
 /// Installs one [InkTouchSensor] on the window it lands in.
-private struct InkTouchWatcher: UIViewRepresentable {
+struct InkTouchWatcher: UIViewRepresentable {
     final class Host: UIView {
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -161,85 +179,79 @@ private struct InkTouchWatcher: UIViewRepresentable {
     func updateUIView(_ uiView: Host, context: Context) {}
 }
 
-/// Integrates the ambient drift and breath; a gap (asleep, off screen) counts as one short frame.
-@MainActor
-final class AmbientState {
-    private(set) var phase: Double
-    private(set) var elapsed = 0.0
-    private var last: Date?
-
-    init(phase: Double = 0) { self.phase = phase }
-
-    func advance(to date: Date) {
-        defer { last = date }
-        guard let last else { return }
-        let dt = min(max(date.timeIntervalSince(last), 0), 0.2)
-        phase += InkMath.ambientPhaseStep(dt: dt)
-        elapsed += dt
-    }
-}
-
 /**
- Living paper (motion spec v2 §2): the hero halftone field drifting extremely slowly (one cycle per
- `ambientCycleSeconds`) in a low-contrast ink at `ambientOpacity`, with a second, primary plate out
- of register that breathes ±1pt over `ambientBreathSeconds`. Drawn behind content at ≤10 fps (the
- ambient tier); holds still after `ambientIdleStopSeconds` without a touch (a touch wakes it),
- while a heavy job runs, in Low Power Mode and with Reduce Motion. [hero] draws the field at full
- strength in [dot] (the welcome hero), without the plate.
+ Living paper (motion specs v2 §2, v3 §2): behind large empty areas, the living-card dot field
+ at `ambientOpacity` in a low-contrast ink, its radii following a very slow travelling wave (one
+ cycle per `ambientCycleSeconds`). ≤ `cardMaxDots` dots on the shared ambient clock (≤10 fps,
+ asleep after `ambientIdleStopSeconds` without a touch, off while a heavy job runs, in Low Power
+ Mode and with Reduce Motion). [hero] draws the halftone field pattern at full strength in
+ [dot] (the welcome hero). [fade] thins the dots where text sits. Unlocking prints the paper away
+ (the dots swell into ink, a primary plate settles into register, all lifts off).
  */
 struct InkGround: View {
     var dot: Color? = nil
+    /// The register plate while printing away.
     var plate = true
     var hero = false
     var cell: CGFloat = 12
     var phase = 0.0
+    var fade: UnitPoint? = nil
     @Environment(\.scheme) private var c
     @Environment(\.inkHeavyWork) private var heavy
     @Environment(\.inkPrintAway) private var printing
-    @State private var ambient = AmbientState()
-    @State private var asleep = false
-    private var idle: InkIdleClock { InkIdleClock.shared }
+    @State private var grid = InkDotGrid()
+
+    /// The hero's dot budget (it is the only thing on its screen); grounds use `cardMaxDots`.
+    static let heroMaxDots = 1500
 
     var body: some View {
         let ink = dot ?? (hero ? c.primary : c.outline)
-        let plateInk = c.primary
+        let plateInk = plate ? c.primary : nil
         let opacity = hero ? 1 : Double(Tokens.Motion.ambientOpacity)
-        let printing = printing
-        let lastTouch = idle.lastTouch
-        InkTimeline(active: !heavy && !asleep, tier: .ambient) { date in
+        let printing = printing, grid = grid, cell = cell, phase = phase, hero = hero, fade = fade
+        InkTimeline(active: !heavy, tier: .ambient) { date in
             Canvas { context, size in
-                ambient.advance(to: date)
-                Self.draw(&context, size: size, cell: cell, phase: phase + ambient.phase, breath: InkMath.ambientBreath(ambient.elapsed),
-                          printing: printing, ink: ink, plate: plate ? plateInk : nil, opacity: opacity)
+                InkProbe.hit("ink.draw")
+                grid.layout(size, base: Double(cell), maxDots: hero ? Self.heroMaxDots : Int(Tokens.Motion.cardMaxDots), fade: fade)
+                Self.draw(&context, grid: grid, seconds: date.timeIntervalSinceReferenceDate, phase: phase, hero: hero, printing: printing,
+                          ink: ink, plate: plateInk, opacity: opacity)
             }
         }
         .background(InkTouchWatcher())
-        .task(id: lastTouch) {
-            asleep = false
-            try? await Task.sleep(for: .seconds(Double(Tokens.Motion.ambientIdleStopSeconds)))
-            if !Task.isCancelled { asleep = true }
-        }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    /// One frame of paper: the field in [ink] and, when given, the [plate] out of register by
-    /// `registerOffset` + [breath] pt. [printing] (0…1): the dots swell into solid ink, the paper
-    /// darkens for a moment, the plate settles into register, then it all lifts off.
-    static func draw(_ context: inout GraphicsContext, size: CGSize, cell: CGFloat, phase: Double, breath: Double, printing: Double,
+    /// One frame of paper at [seconds]. [printing] (0…1): the dots swell into solid ink, the
+    /// paper darkens for a moment, the [plate] settles into register, then it all lifts off.
+    static func draw(_ context: inout GraphicsContext, grid: InkDotGrid, seconds: Double, phase: Double, hero: Bool, printing: Double,
                      ink: Color, plate: Color?, opacity: Double) {
-        let pitch = InkMath.dotCell(width: size.width, height: size.height, base: cell)
         let fill = printing > 0 ? InkMath.printScale(printing) : 1
         let alpha = InkMath.printAwayAlpha(printing, rest: opacity)
-        let field = HalftonePaths.field(size: size, cell: pitch, phase: phase, fill: fill)
-        if let plate {
-            let settle = printing > 0 ? 1 - InkMath.easeOutBack(printing * Double(Tokens.Motion.printMillis / Tokens.Motion.registerMillis)) : 1
-            let shift = CGFloat((Double(Tokens.Motion.registerOffset) + breath) * settle)
+        let field = hero ? heroField(grid, seconds: seconds, phase: phase, fill: fill)
+            : InkField.path(grid, seconds: seconds, period: Double(Tokens.Motion.ambientCycleSeconds), seed: phase * .pi, scale: 0.4, fill: fill)
+        if let plate, printing > 0 {
+            let settle = 1 - InkMath.easeOutBack(printing * Double(Tokens.Motion.printMillis / Tokens.Motion.registerMillis))
+            let shift = CGFloat(Double(Tokens.Motion.registerOffset) * settle)
             var shifted = context
             shifted.translateBy(x: shift, y: shift)
             shifted.fill(field, with: .color(plate.opacity(alpha * 0.6)))
         }
         context.fill(field, with: .color(ink.opacity(alpha)))
+    }
+
+    /// The hero's halftone field pattern drifting one cycle per `ambientCycleSeconds`.
+    private static func heroField(_ grid: InkDotGrid, seconds: Double, phase: Double, fill: Double) -> Path {
+        let w = max(Double(grid.size.width), 1), h = max(Double(grid.size.height), 1)
+        let drift = phase + InkMath.cycle(seconds / Double(Tokens.Motion.ambientCycleSeconds)) * 2
+        let scale = grid.pitch * Double(Tokens.Halftone.fieldRadiusFactor) * fill
+        var path = Path()
+        for i in 0 ..< grid.count {
+            let r = InkMath.fieldValue(x: grid.xs[i] / w, y: grid.ys[i] / h, phase: drift) * scale * grid.weights[i]
+            guard r > Double(Tokens.Halftone.fieldMinRadius) else { continue }
+            path.addEllipse(in: CGRect(x: grid.xs[i] - r, y: grid.ys[i] - r, width: r * 2, height: r * 2))
+        }
+        return path
     }
 }
 
@@ -296,10 +308,11 @@ private struct InkArrive: ViewModifier {
 }
 
 /// A title's primary plate: a primary silhouette of the title, `registerOffset` pt up-left of the
-/// (arriving) title, settling into register over `transitionMillis`, then gone.
+/// (arriving) title, settling into register over `transitionMillis`, then gone. The silhouette (a
+/// mask, rendered offscreen) only exists while it prints.
 private struct TitleGhost: ViewModifier {
     let color: Color
-    @State private var count = 0
+    @State private var printing = false
     @State private var printed = false
     @Environment(\.inkArrives) private var arrives
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -309,28 +322,35 @@ private struct TitleGhost: ViewModifier {
         let color = color
         content
             .background {
-                color.mask { content }
-                    .keyframeAnimator(initialValue: GhostKeyframe(), trigger: count) { view, frame in
-                        view
-                            .opacity(0.8 * frame.alpha)
-                            .offset(x: -offset * (1 - frame.settle), y: -offset * (1 - frame.settle))
-                    } keyframes: { _ in
-                        KeyframeTrack(\.settle) {
-                            MoveKeyframe(0.0)
-                            LinearKeyframe(1.0, duration: duration, timingCurve: .inkBack)
+                if printing {
+                    color.mask { content }
+                        .keyframeAnimator(initialValue: GhostKeyframe(), repeating: false) { view, frame in
+                            view
+                                .opacity(0.8 * frame.alpha)
+                                .offset(x: -offset * (1 - frame.settle), y: -offset * (1 - frame.settle))
+                        } keyframes: { _ in
+                            KeyframeTrack(\.settle) {
+                                MoveKeyframe(0.0)
+                                LinearKeyframe(1.0, duration: duration, timingCurve: .inkBack)
+                            }
+                            KeyframeTrack(\.alpha) {
+                                MoveKeyframe(1.0)
+                                LinearKeyframe(1.0, duration: duration * 0.6)
+                                LinearKeyframe(0.0, duration: duration * 0.6)
+                            }
                         }
-                        KeyframeTrack(\.alpha) {
-                            MoveKeyframe(1.0)
-                            LinearKeyframe(1.0, duration: duration * 0.6)
-                            LinearKeyframe(0.0, duration: duration * 0.6)
-                        }
-                    }
-                    .accessibilityHidden(true)
+                        .accessibilityHidden(true)
+                }
             }
             .onAppear {
                 guard arrives, !printed, !reduceMotion else { return }
                 printed = true
-                count += 1
+                printing = true
+            }
+            .task(id: printing) {
+                guard printing else { return }
+                try? await Task.sleep(for: .seconds(duration * 1.3))
+                printing = false
             }
     }
 }
@@ -391,12 +411,14 @@ private struct InkDissolveMask: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
+        let _ = InkProbe.hit("dissolve.body")
         let amount = amount, dotted = amount > 0 && !reduceMotion
         content
             .opacity(reduceMotion ? 1 - amount : 1)
             .mask {
                 if dotted {
                     Canvas { context, size in
+                        InkProbe.hit("ink.draw")
                         context.fill(InkDissolve.dots(size: size, amount: amount), with: .color(.black))
                     }
                 } else {
@@ -411,7 +433,12 @@ struct InkDissolve: Transition {
     static let cell: CGFloat = 4
 
     func body(content: Content, phase: TransitionPhase) -> some View {
-        content.modifier(InkDissolveMask(amount: phase == .didDisappear ? 1 : 0))
+        // Rows at rest carry no mask (a mask renders offscreen); it only exists while leaving.
+        if phase.isIdentity {
+            content
+        } else {
+            content.modifier(InkDissolveMask(amount: phase == .didDisappear ? 1 : 0))
+        }
     }
 
     /// The dissolving dots of a [size] row at [amount] (0 whole … 1 gone); ≤ 2500 dots.
@@ -444,9 +471,10 @@ extension View {
     /// Prints this title's primary plate into register when the screen inks in ([inkArrive]).
     func titleGhost(_ color: Color) -> some View { modifier(TitleGhost(color: color)) }
 
-    /// A living paper ground behind this view (motion spec v2 §2) while [when].
-    func inkGround(_ when: Bool = true, plate: Bool = true) -> some View {
-        background { if when { InkGround(plate: plate).ignoresSafeArea() } }
+    /// A living paper ground behind this view (motion specs v2 §2, v3 §2) while [when]; [fade]
+    /// thins the dots where text sits.
+    func inkGround(_ when: Bool = true, plate: Bool = true, fade: UnitPoint? = nil) -> some View {
+        background { if when { InkGround(plate: plate, fade: fade).ignoresSafeArea() } }
     }
 }
 

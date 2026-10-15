@@ -10,6 +10,7 @@ import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.MemoryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.SessionEventRepository
+import dev.wckdboy.autobot.core.data.StudioRepository
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
 import dev.wckdboy.autobot.core.data.model.ChatFolderRow
@@ -52,7 +53,7 @@ import okio.source
 import okio.utf8Size
 
 /** What an import added (existing items with the same id are kept, not overwritten). */
-data class ImportSummary(val conversations: Int, val providers: Int, val images: Int, val attachments: Int, val memories: Int = 0)
+data class ImportSummary(val conversations: Int, val providers: Int, val images: Int, val attachments: Int, val memories: Int = 0, val studioAssets: Int = 0)
 
 /**
  * Passphrase-sealed export and import of everything the user owns, in the shared `.autobot`
@@ -72,12 +73,15 @@ class BackupService @Inject constructor(
     private val attachments: AttachmentRepository,
     private val settings: SettingsRepository,
     private val memory: MemoryRepository,
+    private val studio: StudioRepository,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) {
     suspend fun export(out: OutputStream, passphrase: String, app: String, onProgress: (String) -> Unit = {}) = withContext(io) {
         val db = database.get()
         val conversations = db.conversationDao().observeAll().first()
         val images = db.galleryDao().observeAll().first()
+        // Studio assets whose file is still there (a record without bytes cannot be restored).
+        val studioAssets = studio.assets().filter { studio.bytes(it.id) != null }
         // One conversation's log in memory at a time: here for its attachments, below to write it.
         val attachmentIds = LinkedHashSet<String>()
         conversations.forEach { c ->
@@ -98,6 +102,10 @@ class BackupService @Inject constructor(
             gallery = images.map { it.toBackup() },
             attachments = attachmentIds.toList(),
             memory = memory.all(),
+            studioProjects = studio.projects(),
+            studioAssets = studioAssets,
+            studioWorkflows = studio.workflows(),
+            studioSnippets = studio.snippets(),
         )
         val sink = out.sink().buffer()
         onProgress("deriving key…")
@@ -113,6 +121,10 @@ class BackupService @Inject constructor(
             gallery.image(item.id)?.let { writer.entry(imageEntry(item.id), it) }
         }
         attachmentIds.forEach { id -> attachments.bytes(id)?.let { writer.entry(BackupManifest.attachmentEntry(id), it) } }
+        studioAssets.forEachIndexed { i, asset ->
+            onProgress("studio ${i + 1}/${studioAssets.size}")
+            studio.bytes(asset.id)?.let { writer.entry(BackupManifest.studioEntry(asset), it) }
+        }
         writer.finish()
         sink.flush()
     }
@@ -147,6 +159,7 @@ class BackupService @Inject constructor(
                             }
                         }
                         added = added.copy(conversations = newConversations.size, memories = importMemory(m))
+                        importStudioRecords(m)
                     }
                     manifest == null -> throw BackupException("Damaged export: manifest missing")
                     name.startsWith("sessions/") -> {
@@ -160,6 +173,15 @@ class BackupService @Inject constructor(
                             gallery.save(item.toItem(), bytes, thumbnail(bytes) ?: bytes)
                             added = added.copy(images = added.images + 1)
                             onProgress("images ${added.images}/${manifest!!.gallery.size}")
+                        }
+                    }
+                    name.startsWith("studio/") -> {
+                        val asset = manifest!!.studioAssets.firstOrNull { BackupManifest.studioEntry(it) == name }
+                        if (asset != null && StudioRepository.SAFE_ID.matches(asset.id) && studio.asset(asset.id) == null) {
+                            studio.writeBytes(asset.id, data.readByteArray(size))
+                            studio.putAsset(asset)
+                            added = added.copy(studioAssets = added.studioAssets + 1)
+                            onProgress("studio ${added.studioAssets}/${manifest!!.studioAssets.size}")
                         }
                     }
                     name.startsWith("attachments/") -> {
@@ -220,6 +242,19 @@ class BackupService @Inject constructor(
         val plan = FolderImport.plan(dao.all().map { BackupFolder(it.id, it.name, it.createdAt) }, manifest.folders)
         plan.create.forEach { dao.upsert(ChatFolderRow(it.id, it.name, it.createdAt)) }
         return plan
+    }
+
+    /**
+     * Adds the export's Studio projects, saved workflows and prompt-library entries whose id is
+     * new (existing ones are kept as they are). Asset records follow with their files.
+     */
+    private suspend fun importStudioRecords(manifest: BackupManifest) {
+        val projects = studio.projects().mapTo(HashSet()) { it.id }
+        manifest.studioProjects.filter { it.id !in projects && StudioRepository.SAFE_ID.matches(it.id) }.forEach { studio.putProject(it) }
+        val workflows = studio.workflows().mapTo(HashSet()) { it.id }
+        manifest.studioWorkflows.filter { it.id !in workflows }.forEach { studio.putWorkflow(it) }
+        val snippets = studio.snippets().mapTo(HashSet()) { it.id }
+        manifest.studioSnippets.filter { it.id !in snippets }.forEach { studio.putSnippet(it) }
     }
 
     /** Adds notes whose id is new, up to the memory cap; existing notes are kept as they are. */

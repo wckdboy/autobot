@@ -46,9 +46,9 @@ fun ChatBubble(
     isStreaming: Boolean = false,
     footer: (@Composable () -> Unit)? = null,
 ) {
-    // While a reply streams, only its last block is parsed again (and earlier ones keep their identity).
-    val previous = remember { arrayOfNulls<LiteMarkdown.Parsed>(1) }
-    val blocks = remember(text) { LiteMarkdown.parse(text, previous[0]).also { previous[0] = it }.blocks }
+    // While a reply streams, only its last block is parsed again (and earlier ones keep their
+    // identity); the finished reply and history reuse earlier parses (LiteMarkdown.cached).
+    val blocks = remember(text) { LiteMarkdown.cached(text).blocks }
     val isUser = role == BubbleRole.USER
     Row(
         modifier = modifier.fillMaxWidth(),

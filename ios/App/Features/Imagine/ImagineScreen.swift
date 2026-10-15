@@ -28,6 +28,7 @@ struct ImagineScreen: View {
     @State private var selected = -1
 
     var body: some View {
+        let _ = InkProbe.hit("body.imagine")
         Group {
             if let model {
                 content(model)

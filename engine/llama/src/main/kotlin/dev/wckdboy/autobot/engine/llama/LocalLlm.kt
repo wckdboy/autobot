@@ -43,8 +43,11 @@ class EngineUnavailableException(message: String) : RemoteException(message)
  * requests, which lets Android reclaim the model's memory. If the engine process dies
  * mid-request (OOM, native crash), the running flow fails with [EngineDiedException]; if it
  * cannot be started, with [EngineUnavailableException].
+ *
+ * The idle window is long ([IDLE_UNBIND_MILLIS]): reloading a multi-GB model costs seconds, and
+ * real memory pressure frees it sooner through the app's memory coordinator.
  */
-class LocalLlm(context: Context, private val idleMillis: Long = 5 * 60_000L) {
+class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILLIS) {
     private val app = context.applicationContext
     private val mutex = Mutex()
     private val main = Handler(Looper.getMainLooper())
@@ -233,7 +236,10 @@ class LocalLlm(context: Context, private val idleMillis: Long = 5 * 60_000L) {
         engine = null
     }
 
-    private companion object {
-        const val CONNECT_TIMEOUT_MS = 15_000L
+    companion object {
+        private const val CONNECT_TIMEOUT_MS = 15_000L
+
+        /** Unbind (and free the model) after this long without requests: 12 minutes. */
+        const val IDLE_UNBIND_MILLIS = 12 * 60_000L
     }
 }

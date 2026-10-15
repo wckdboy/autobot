@@ -26,6 +26,7 @@ import dev.wckdboy.autobot.shared.chats.HighlightSpan
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
@@ -36,6 +37,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
@@ -127,21 +132,36 @@ class ChatListViewModel @Inject constructor(
 
     private val inputs = combine(settingsRepository.settings, incognitoOverride, networkPolicy.mode) { s, o, m -> Triple(s, o, m) }
 
-    /** Search matches by chat id; null while no search is active. */
-    private val matches: Flow<Map<String, ChatMatch>?> = query.debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MS }
-        .distinctUntilChanged()
+    /** The query once typing pauses: the list (and the search) follow this, not every keystroke. */
+    private val settledQuery = query.debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MS }.distinctUntilChanged()
+
+    /** Every conversation (stored and incognito), shared by the list and the search. */
+    private val all = conversations.observeConversations().shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1)
+
+    /**
+     * Search matches by chat id; null while no search is active. A search runs when the query
+     * settles, and again when chats change (a reply arriving, a rename), at most once a second.
+     */
+    private val matches: Flow<Map<String, ChatMatch>?> = settledQuery
         .flatMapLatest { q ->
-            if (q.isBlank()) flowOf(null) else conversations.observeConversations().mapLatest { chats.search(q) }
+            if (q.isBlank()) {
+                flowOf(null)
+            } else {
+                val changes = all.map { list -> list.map { it.id to it.updatedAt } }.distinctUntilChanged().drop(1).debounce(RESEARCH_MS)
+                merge(flowOf(Unit), changes.map { }).mapLatest { chats.search(q) }
+            }
         }
         .onStart { emit(null) }
 
     private data class View(val filter: ChatFilter, val sort: ChatSort, val selection: Set<String>, val matches: Map<String, ChatMatch>?, val query: String)
 
-    private val view = combine(filter, settingsRepository.chatSort, selection, matches, query) { f, s, sel, m, q -> View(ChatFilter.parse(f), s, sel, m, q) }
+    private val view = combine(filter, settingsRepository.chatSort, selection, matches, settledQuery.onStart { emit(query.value) }) { f, s, sel, m, q ->
+        View(ChatFilter.parse(f), s, sel, m, q)
+    }
 
     private data class Data(val list: List<Conversation>, val folders: List<ChatFolderRow>, val pending: List<PendingDeletion>, val running: Set<String>)
 
-    private val data = combine(conversations.observeConversations(), conversations.observeFolders(), chats.pending, host.running, ::Data)
+    private val data = combine(all, conversations.observeFolders(), chats.pending, host.running, ::Data)
 
     val uiState: StateFlow<ChatListUiState> = combine(data, providers.observeProviders(), view, inputs) { d, providerList, v, (settings, override, mode) ->
         val providerNames = providerList.associate { it.id to it.displayName }
@@ -200,7 +220,11 @@ class ChatListViewModel @Inject constructor(
             hasProviders = providerList.isNotEmpty(),
             loading = false,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatListUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatListUiState())
+
+    init {
+        chats.prepareSearch()
+    }
 
     fun setIncognito(enabled: Boolean) {
         incognitoOverride.value = enabled
@@ -306,5 +330,8 @@ class ChatListViewModel @Inject constructor(
         const val KEY_FILTER = "filter"
         const val KEY_QUERY = "query"
         const val SEARCH_DEBOUNCE_MS = 150L
+
+        /** A running search is refreshed at most this often while chats change under it. */
+        const val RESEARCH_MS = 1_000L
     }
 }

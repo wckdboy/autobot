@@ -35,6 +35,9 @@ class GalleryRepository @Inject constructor(
 
     fun observe(): Flow<List<GalleryItem>> = flow { emitAll(database.get().galleryDao().observeAll()) }.flowOn(io)
 
+    /** The [limit] newest images (LIMIT in SQL). */
+    fun observeRecent(limit: Int): Flow<List<GalleryItem>> = flow { emitAll(database.get().galleryDao().observeRecent(limit)) }.flowOn(io)
+
     suspend fun get(id: String): GalleryItem? = withContext(io) { database.get().galleryDao().get(id) }
 
     fun newId(): String = UUID.randomUUID().toString()

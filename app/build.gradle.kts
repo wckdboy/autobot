@@ -149,6 +149,7 @@ dependencies {
     implementation(projects.feature.imagine)
     implementation(projects.feature.models)
     implementation(projects.feature.home)
+    implementation(projects.feature.studio)
     implementation(projects.core.models)
     implementation(projects.engine.llama)
     implementation(projects.engine.diffusion)

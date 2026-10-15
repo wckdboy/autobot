@@ -144,7 +144,7 @@ class ComputeViewModel @Inject constructor(
     init {
         // /proc/cpuinfo, StatFs and the engine's device enumeration (a binder call into native code) block: never on Main.
         viewModelScope.launch { device.value = withContext(Dispatchers.IO) { runCatching { profiler.profile() }.getOrNull() } }
-        refresh()
+        // No refresh() here: ComputeRoute refreshes on every visit, the first one included.
     }
 
     fun refresh() {
