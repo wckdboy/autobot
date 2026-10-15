@@ -203,9 +203,10 @@ final class LocalSpeech: Sendable {
         #endif
     }
 
-    func start() throws {
+    /// Starts recording; see `AudioRecorder.start` for [managesSession] and [onLevel] (audio thread).
+    func start(managesSession: Bool = true, onLevel: @escaping @Sendable (Float) -> Void = { _ in }) throws {
         #if canImport(AutobotEngines)
-        do { try recorder.start() } catch { throw Engines.map(error) }
+        do { try recorder.start(managesSession: managesSession, onLevel: onLevel) } catch { throw Engines.map(error) }
         #else
         throw EngineUnavailable()
         #endif

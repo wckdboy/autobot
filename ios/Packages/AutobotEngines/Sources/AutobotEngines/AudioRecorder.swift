@@ -12,6 +12,7 @@ public final class AudioRecorder: Sendable {
     private struct State: ~Copyable {
         var engine: AVAudioEngine?
         var samples: [Float] = []
+        var managesSession = true
     }
 
     private let state = Mutex(State())
@@ -28,15 +29,22 @@ public final class AudioRecorder: Sendable {
 
     public var isRecording: Bool { state.withLock { $0.engine != nil } }
 
-    /// Starts recording. [onLevel] gets the peak level (0…1) of each buffer, on an audio thread.
-    public func start(onLevel: @escaping @Sendable (Float) -> Void = { _ in }) throws {
+    /**
+     * Starts recording. [onLevel] gets the peak level (0…1) of each buffer, on an audio thread.
+     * [managesSession]: switch the audio session to recording and release it on stop; false when
+     * the app has set up a session that can record (play-and-record for a voice conversation) and
+     * keeps it, so speech can play right after.
+     */
+    public func start(managesSession: Bool = true, onLevel: @escaping @Sendable (Float) -> Void = { _ in }) throws {
         guard AVAudioApplication.shared.recordPermission == .granted else {
             throw EngineError("NO_PERMISSION", "microphone access is off")
         }
         _ = stop()
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement)
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
+        if managesSession {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+        }
 
         let engine = AVAudioEngine()
         let input = engine.inputNode
@@ -83,6 +91,7 @@ public final class AudioRecorder: Sendable {
         state.withLock {
             $0.samples = []
             $0.engine = running
+            $0.managesSession = managesSession
         }
     }
 
@@ -93,17 +102,17 @@ public final class AudioRecorder: Sendable {
     }
 
     private func stop(keep: Bool) -> [Float] {
-        let (engine, samples) = state.withLock { state -> (AVAudioEngine?, [Float]) in
+        let (engine, samples, release) = state.withLock { state -> (AVAudioEngine?, [Float], Bool) in
             let engine = state.engine
             state.engine = nil
-            if keep { return (engine, []) }
+            if keep { return (engine, [], state.managesSession) }
             defer { state.samples = [] }
-            return (engine, state.samples)
+            return (engine, state.samples, state.managesSession)
         }
         if let engine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            if release { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
         }
         return samples
     }

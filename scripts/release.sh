@@ -87,5 +87,6 @@ cp app/build/outputs/apk/foss/debug/app-foss-debug.apk "$WORK/autobot-$VERSION-d
 if [ -n "$NOTES" ]; then set -- --notes-file "$NOTES"; else set -- --generate-notes; fi
 gh release create "$TAG" --title "Autobot $VERSION" --latest "$@" \
     "$WORK/autobot-$VERSION-release.apk" "$WORK/autobot-$VERSION-debug.apk" "$WORK/SHA256SUMS.txt"
-(cd "$WORK" && rm -rf dl && gh release download "$TAG" -D dl && cd dl && shasum -a 256 -c SHA256SUMS.txt) || fail "published assets do not match"
+# Download from the repo directory (gh needs it to know the repository), check in $WORK.
+rm -rf "$WORK/dl" && gh release download "$TAG" -D "$WORK/dl" && (cd "$WORK/dl" && shasum -a 256 -c SHA256SUMS.txt) || fail "published assets do not match"
 echo "Released Autobot $VERSION ($BUILD): $(gh release view "$TAG" --json url -q .url)"

@@ -1,9 +1,20 @@
-import AVFoundation
+import AutobotShared
 import Foundation
 import Observation
 import UIKit
 
 enum Dictation { case idle, recording, transcribing }
+
+/// Voice mode's loop: ready → listening → transcribing → thinking (agent turn) → speaking → ready.
+enum VoicePhase { case ready, listening, transcribing, thinking, speaking }
+
+/// Voice mode ([handsFree]: listen again after each answer, stop at the end of speech).
+struct VoiceState: Equatable {
+    var phase = VoicePhase.ready
+    var handsFree = false
+    /// Recent microphone peaks (0…1), oldest first.
+    var levels: [Float] = []
+}
 
 /// Prepares picked images for vision models (port of `ImageInput.kt`).
 enum ImageInput {
@@ -46,16 +57,20 @@ final class ChatModel {
     var dictated: String?
     /// Key of the assistant message being read aloud.
     var speakingKey: String?
+    /// Voice mode; nil when off.
+    var voice: VoiceState?
 
     @ObservationIgnored private var thumbs: [String: UIImage] = [:]
-    @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
-    @ObservationIgnored private var speechDelegate: SpeechDelegate?
+    @ObservationIgnored private var readTask: Task<Void, Never>?
+    @ObservationIgnored private var voiceTask: Task<Void, Never>?
+    @ObservationIgnored private var voiceApp: AppContainer?
+    @ObservationIgnored private var voiceConversation: String?
+    @ObservationIgnored private var turn: VoiceTurn?
+    @ObservationIgnored private var endOfSpeech: EndOfSpeech?
 
-    init() {
-        let delegate = SpeechDelegate { [weak self] in self?.speakingKey = nil }
-        speechDelegate = delegate
-        synthesizer.delegate = delegate
-    }
+    private static let levelHistory = 32
+
+    private var speaker: any Speaker { Speakers.pick() }
 
     // MARK: Attachments
 
@@ -123,6 +138,7 @@ final class ChatModel {
                 notice = "Get a speech model in Models → speech to dictate"
                 return
             }
+            stopSpeaking()
             Task {
                 // Asked only when the microphone is first needed.
                 guard await app.speech.requestPermission() else {
@@ -155,38 +171,177 @@ final class ChatModel {
 
     // MARK: Read aloud
 
-    /// Reads an answer aloud with the system speech synthesizer; tapping again stops.
+    /// Reads an answer aloud, on the device only (see [Speakers]); tapping again stops.
     func speak(key: String, text: String) {
+        readTask?.cancel()
         if speakingKey == key {
-            synthesizer.stopSpeaking(at: .immediate)
-            speakingKey = nil
+            stopSpeaking()
             return
         }
-        synthesizer.stopSpeaking(at: .immediate)
-        let plain = text
-            .replacingOccurrences(of: "```[\\s\\S]*?```", with: " code block. ", options: .regularExpression)
-            .replacingOccurrences(of: "[*_#`>|]", with: "", options: .regularExpression)
+        if voice != nil {
+            stopVoiceWork()
+        } else {
+            SpeechAudio.activate(.readAloud)
+        }
+        speaker.stop()
         speakingKey = key
-        synthesizer.speak(AVSpeechUtterance(string: plain))
+        readTask = Task {
+            do {
+                try await speaker.read(text)
+            } catch let e as SpeakerUnavailable {
+                notice = e.message
+            } catch {}
+            guard speakingKey == key else { return }
+            speakingKey = nil
+            if voice == nil { SpeechAudio.deactivate() }
+        }
     }
 
     func stopSpeaking() {
-        synthesizer.stopSpeaking(at: .immediate)
+        readTask?.cancel()
+        speaker.stop()
+        if speakingKey != nil, voice == nil { SpeechAudio.deactivate() }
         speakingKey = nil
     }
-}
 
-private final class SpeechDelegate: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
-    private let onDone: @MainActor () -> Void
+    // MARK: Voice mode: push to talk → transcribe → send → read the answer aloud, all on the phone
 
-    init(onDone: @escaping @MainActor () -> Void) { self.onDone = onDone }
+    func setVoiceMode(_ on: Bool, app: AppContainer, conversationId: String) {
+        guard on != (voice != nil) else { return }
+        stopVoiceWork()
+        guard on else {
+            voice = nil
+            SpeechAudio.deactivate()
+            return
+        }
+        stopSpeaking()
+        stopRecording(app: app)
+        voiceApp = app
+        voiceConversation = conversationId
+        SpeechAudio.activate(.voice)
+        voice = VoiceState()
+    }
 
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { finished() }
+    func setHandsFree(_ on: Bool) { voice?.handsFree = on }
 
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {}
+    /// The voice button: talk, send what was said, stop the agent, or interrupt the answer and talk.
+    func voiceTap() {
+        switch voice?.phase {
+        case .ready: listen()
+        case .listening: finishListening()
+        case .transcribing, nil: break
+        case .thinking: if let voiceApp, let voiceConversation { voiceApp.agent.cancel(voiceConversation) }
+        case .speaking:
+            speaker.stop()
+            listen()
+        }
+    }
 
-    private func finished() {
-        let onDone = onDone
-        DispatchQueue.main.async { MainActor.assumeIsolated { onDone() } }
+    private func listen() {
+        guard let app = voiceApp else { return }
+        guard speechModelPath(app) != nil else { return voiceFailed("Get a speech model in Models › speech") }
+        voiceTask?.cancel()
+        speaker.stop()
+        voiceTask = Task {
+            // Asked only when the microphone is first needed.
+            guard await app.speech.requestPermission() else { return voiceFailed("Microphone access is off — allow it in Settings to talk") }
+            guard !Task.isCancelled, voice != nil else { return }
+            endOfSpeech = voice?.handsFree == true ? EndOfSpeech(threshold: 0.05, silenceMs: 1_200, minSpeechMs: 200, noSpeechMs: 8_000) : nil
+            do {
+                try app.speech.start(managesSession: false) { [weak self] peak in
+                    Task { @MainActor in self?.heard(peak) }
+                }
+                setPhase(.listening)
+            } catch {
+                voiceFailed("Voice failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// One microphone level: the meter, and hands-free end-of-speech detection.
+    private func heard(_ peak: Float) {
+        guard voice?.phase == .listening, let app = voiceApp else { return }
+        voice?.levels = Array(((voice?.levels ?? []) + [peak]).suffix(Self.levelHistory))
+        guard let endOfSpeech else { return }
+        let verdict = endOfSpeech.onLevel(peak: peak, atMs: monotonicMs())
+        if verdict == .ended {
+            finishListening()
+        } else if verdict == .noSpeech {
+            _ = app.speech.stop()
+            voiceFailed("Didn't catch that")
+        }
+    }
+
+    private func finishListening() {
+        guard let app = voiceApp, let conversationId = voiceConversation else { return }
+        let samples = app.speech.stop()
+        endOfSpeech = nil
+        guard let path = speechModelPath(app) else { return voiceFailed("Get a speech model in Models › speech") }
+        setPhase(.transcribing)
+        voiceTask?.cancel()
+        voiceTask = Task {
+            do {
+                let raw = try await app.speech.transcribe(modelPath: path, samples: samples)
+                guard !Task.isCancelled else { return }
+                let text = AutobotShared.VoiceText.shared.transcript(raw: raw)
+                guard !text.isEmpty else { return voiceFailed("Didn't catch that") }
+                turn = VoiceTurn(baseline: Set(app.agent.session(conversationId).state.projection.items.map(\.key)), startedAtMs: monotonicMs())
+                setPhase(.thinking)
+                let images = pendingImages
+                pendingImages = []
+                await app.agent.send(conversationId, text: text, images: images)
+                // Re-check once the prompt could have been dropped without any state change.
+                try await Task.sleep(for: .milliseconds(VoiceTurn.timeoutMs))
+                sessionChanged(app.agent.session(conversationId).state)
+            } catch is CancellationError {
+            } catch {
+                voiceFailed("Voice failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Follows the agent during a voice turn: announces approvals, reads the answer when it is done.
+    func sessionChanged(_ state: ChatSessionState) {
+        guard let turn, voice?.phase == .thinking else { return }
+        let waiting = state.approvals.map(\.callId) + (state.question.map { [$0.callId] } ?? [])
+        if turn.needsAnnouncement(waiting) {
+            let line = state.question != nil ? "The agent has a question." : "Needs your approval."
+            Task { try? await speaker.speak(line) }
+        }
+        guard let finished = turn.update(items: state.projection.items, running: state.running, nowMs: monotonicMs()) else { return }
+        self.turn = nil
+        guard let reply = finished.reply else { return setPhase(.ready) }
+        voiceTask?.cancel()
+        voiceTask = Task {
+            setPhase(.speaking)
+            do {
+                try await speaker.read(reply)
+            } catch let e as SpeakerUnavailable {
+                return voiceFailed(e.message)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            if voice?.handsFree == true { listen() } else { setPhase(.ready) }
+        }
+    }
+
+    private func setPhase(_ phase: VoicePhase) {
+        voice?.phase = phase
+        voice?.levels = []
+    }
+
+    private func voiceFailed(_ message: String) {
+        notice = message
+        setPhase(.ready)
+    }
+
+    private func stopVoiceWork() {
+        voiceTask?.cancel()
+        if voice?.phase == .listening, let voiceApp { _ = voiceApp.speech.stop() }
+        endOfSpeech = nil
+        speaker.stop()
+        turn = nil
+        setPhase(.ready)
     }
 }

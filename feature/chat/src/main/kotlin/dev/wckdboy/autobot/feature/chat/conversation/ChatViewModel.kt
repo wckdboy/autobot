@@ -3,8 +3,7 @@ package dev.wckdboy.autobot.feature.chat.conversation
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
+import android.os.SystemClock
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -44,6 +43,9 @@ import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.core.network.RouteResolver
 import dev.wckdboy.autobot.engine.speech.LocalSpeech
 import dev.wckdboy.autobot.feature.chat.toPrivacyStatus
+import dev.wckdboy.autobot.feature.chat.voice.SpeakerUnavailable
+import dev.wckdboy.autobot.feature.chat.voice.Speakers
+import dev.wckdboy.autobot.feature.chat.voice.read
 import dev.wckdboy.autobot.providers.remote.ModelCache
 import dev.wckdboy.autobot.providers.remote.ModelListResult
 import dev.wckdboy.autobot.providers.remote.ModelsApi
@@ -55,10 +57,17 @@ import dev.wckdboy.autobot.providers.remote.toOverride
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.projectSession
+import dev.wckdboy.autobot.shared.voice.EndOfSpeech
+import dev.wckdboy.autobot.shared.voice.SpeechVerdict
+import dev.wckdboy.autobot.shared.voice.VoiceText
+import dev.wckdboy.autobot.shared.voice.VoiceTurn
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -100,6 +109,19 @@ data class QuestionUi(val callId: String, val question: UserQuestion)
 
 enum class Dictation { IDLE, RECORDING, TRANSCRIBING }
 
+/** Microphone levels kept for voice mode's meter (10 a second). */
+private const val LEVEL_HISTORY = 32
+
+/** Voice mode's loop: ready → listening → transcribing → thinking (agent turn) → speaking → ready. */
+enum class VoicePhase { READY, LISTENING, TRANSCRIBING, THINKING, SPEAKING }
+
+/**
+ * Voice mode (null in [ChatUiState] when off). [handsFree]: listen again after each answer and
+ * stop listening at the end of speech. [levels]: recent microphone peaks (0…1), oldest first.
+ */
+@Immutable
+data class VoiceUi(val phase: VoicePhase = VoicePhase.READY, val handsFree: Boolean = false, val levels: List<Float> = emptyList())
+
 @Immutable
 data class ChatUiState(
     val title: String = "",
@@ -131,6 +153,7 @@ data class ChatUiState(
     val dictated: String? = null,
     /** Key of the assistant message being read aloud. */
     val speakingKey: String? = null,
+    val voice: VoiceUi? = null,
 )
 
 /**
@@ -149,6 +172,7 @@ class ChatViewModel @AssistedInject constructor(
     private val gallery: GalleryRepository,
     private val attachments: AttachmentRepository,
     private val speech: LocalSpeech,
+    private val speakers: Speakers,
     private val library: ModelLibrary,
     private val systemModel: SystemModel,
     @ApplicationContext private val appContext: Context,
@@ -166,8 +190,13 @@ class ChatViewModel @AssistedInject constructor(
     private val dictation = MutableStateFlow(Dictation.IDLE)
     private val dictated = MutableStateFlow<String?>(null)
     private val stopRecording = AtomicBoolean(false)
-    private var tts: TextToSpeech? = null
     private val speakingKey = MutableStateFlow<String?>(null)
+    private var readJob: Job? = null
+    private val voiceMode = MutableStateFlow<VoiceUi?>(null)
+    /** Voice mode's current step (listening + transcribing, or speaking an answer). */
+    private var voiceJob: Job? = null
+    private var voiceWatch: Job? = null
+    private var turn: VoiceTurn? = null
     private val attachmentThumbs = ConcurrentHashMap<String, ImageBitmap>()
     private val thumbs = ConcurrentHashMap<String, ImageBitmap>()
 
@@ -210,9 +239,11 @@ class ChatViewModel @AssistedInject constructor(
         val permission: PermissionPreset,
     )
 
-    private val voice = combine(dictation, dictated, speakingKey) { d, t, s -> Triple(d, t, s) }
+    private data class VoiceSnapshot(val dictation: Dictation, val dictated: String?, val speakingKey: String?, val mode: VoiceUi?)
 
-    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, withModels, p), n, images, (dict, dictText, speaking) ->
+    private val voice = combine(dictation, dictated, speakingKey, voiceMode, ::VoiceSnapshot)
+
+    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, withModels, p), n, images, v ->
         val (providerList, caches, installed) = withModels
         val (mode, allowLoopback, socks) = p
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
@@ -252,9 +283,10 @@ class ChatViewModel @AssistedInject constructor(
             isIncognito = conversations.isIncognito(conversationId),
             notice = n,
             pendingImages = images,
-            dictation = dict,
-            dictated = dictText,
-            speakingKey = speaking,
+            dictation = v.dictation,
+            dictated = v.dictated,
+            speakingKey = v.speakingKey,
+            voice = v.mode,
             loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isIncognito = conversations.isIncognito(conversationId)))
@@ -308,8 +340,7 @@ class ChatViewModel @AssistedInject constructor(
             Dictation.RECORDING -> stopRecording.set(true)
             Dictation.TRANSCRIBING -> Unit
             Dictation.IDLE -> viewModelScope.launch {
-                val model = library.all().firstOrNull { it.isReady && it.engine == EngineKind.WHISPER }
-                val path = model?.paths?.get(FileRole.MODEL)
+                val path = speechModelPath()
                 if (path == null) {
                     notice.value = "Get a speech model in Models → speech to dictate"
                     return@launch
@@ -334,35 +365,157 @@ class ChatViewModel @AssistedInject constructor(
         dictated.value = null
     }
 
-    /** Reads an answer aloud with the phone's text-to-speech; tapping again stops. */
+    private suspend fun speechModelPath(): String? =
+        library.all().firstOrNull { it.isReady && it.engine == EngineKind.WHISPER }?.paths?.get(FileRole.MODEL)
+
+    /** Reads an answer aloud, on the device only (see [Speakers]); tapping again stops. */
     fun speak(key: String, text: String) {
+        readJob?.cancel()
         if (speakingKey.value == key) {
-            tts?.stop()
+            speakers.pick().stop()
             speakingKey.value = null
             return
         }
-        val plain = text.replace(Regex("```[\\s\\S]*?```"), " code block. ").replace(Regex("[*_#`>|]"), "")
-        val engine = tts
-        if (engine == null) {
-            tts = TextToSpeech(appContext) { status ->
-                if (status == TextToSpeech.SUCCESS) speak(key, text) else notice.value = "Text-to-speech is not available"
-            }.apply {
-                setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String) = Unit
-                    override fun onDone(utteranceId: String) { speakingKey.compareAndSet(utteranceId, null) }
-                    @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String) { speakingKey.compareAndSet(utteranceId, null) }
-                })
+        if (voiceMode.value != null) stopVoiceWork()
+        speakingKey.value = key
+        readJob = viewModelScope.launch {
+            try {
+                speakers.pick().read(text)
+            } catch (e: SpeakerUnavailable) {
+                notice.value = e.message
+            } finally {
+                speakingKey.compareAndSet(key, null)
             }
+        }
+    }
+
+    private fun stopReading() {
+        readJob?.cancel()
+        speakingKey.value = null
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Voice mode: push to talk → transcribe → send → read the answer aloud, all on the phone.
+
+    fun setVoiceMode(on: Boolean) {
+        if (on == (voiceMode.value != null)) return
+        stopVoiceWork()
+        voiceWatch?.cancel()
+        if (!on) {
+            voiceMode.value = null
             return
         }
-        speakingKey.value = key
-        engine.speak(plain, TextToSpeech.QUEUE_FLUSH, null, key)
+        if (dictation.value == Dictation.RECORDING) stopRecording.set(true)
+        stopReading()
+        voiceMode.value = VoiceUi()
+        voiceWatch = viewModelScope.launch { uiState.collect(::onVoiceState) }
+    }
+
+    fun setHandsFree(on: Boolean) = voiceMode.update { it?.copy(handsFree = on) }
+
+    /** The voice button: talk, send what was said, stop the agent, or interrupt the answer and talk. */
+    fun voiceTap() {
+        when (voiceMode.value?.phase ?: return) {
+            VoicePhase.READY -> listen()
+            VoicePhase.LISTENING -> stopRecording.set(true)
+            VoicePhase.TRANSCRIBING -> Unit
+            VoicePhase.THINKING -> stop()
+            VoicePhase.SPEAKING -> {
+                speakers.pick().stop()
+                listen()
+            }
+        }
+    }
+
+    /** The microphone permission was refused from the voice button. */
+    fun voiceDenied() = voiceFailed("Microphone access is off — allow it in Settings to talk")
+
+    private fun listen() {
+        voiceJob?.cancel()
+        voiceJob = viewModelScope.launch {
+            val path = speechModelPath() ?: return@launch voiceFailed("Get a speech model in Models › speech")
+            stopRecording.set(false)
+            setPhase(VoicePhase.LISTENING)
+            val handsFree = voiceMode.value?.handsFree == true
+            val detector = EndOfSpeech()
+            var nothingSaid = false
+            try {
+                val audio = speech.record(stopped = stopRecording::get) { peak ->
+                    voiceMode.update { it?.copy(levels = (it.levels + peak).takeLast(LEVEL_HISTORY)) }
+                    if (handsFree) {
+                        when (detector.onLevel(peak, SystemClock.elapsedRealtime())) {
+                            SpeechVerdict.LISTENING -> Unit
+                            SpeechVerdict.ENDED -> stopRecording.set(true)
+                            SpeechVerdict.NO_SPEECH -> {
+                                nothingSaid = true
+                                stopRecording.set(true)
+                            }
+                        }
+                    }
+                }
+                if (nothingSaid) {
+                    audio.delete()
+                    return@launch voiceFailed("Didn't catch that")
+                }
+                setPhase(VoicePhase.TRANSCRIBING)
+                val text = VoiceText.transcript(speech.transcribe(path, audio))
+                if (text.isEmpty()) return@launch voiceFailed("Didn't catch that")
+                turn = VoiceTurn(uiState.value.items.mapTo(HashSet()) { it.key }, SystemClock.elapsedRealtime())
+                setPhase(VoicePhase.THINKING)
+                send(text)
+                // Re-check once the prompt could have been dropped without any state change.
+                delay(VoiceTurn.TIMEOUT_MS)
+                onVoiceState(uiState.value)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                voiceFailed("Voice failed: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
+    }
+
+    /** Follows the agent during a voice turn: announces approvals, reads the answer when it is done. */
+    private fun onVoiceState(state: ChatUiState) {
+        val current = turn ?: return
+        if (voiceMode.value?.phase != VoicePhase.THINKING) return
+        val waiting = state.approvals.keys + listOfNotNull(state.question?.callId)
+        if (current.needsAnnouncement(waiting)) {
+            val line = if (state.question != null) "The agent has a question." else "Needs your approval."
+            viewModelScope.launch { runCatching { speakers.pick().speak(line) } }
+        }
+        val finished = current.update(state.items, state.running, SystemClock.elapsedRealtime()) ?: return
+        turn = null
+        val reply = finished.reply ?: return setPhase(VoicePhase.READY)
+        voiceJob?.cancel()
+        voiceJob = viewModelScope.launch {
+            setPhase(VoicePhase.SPEAKING)
+            try {
+                speakers.pick().read(reply)
+            } catch (e: SpeakerUnavailable) {
+                return@launch voiceFailed(e.message.orEmpty())
+            }
+            if (voiceMode.value?.handsFree == true) listen() else setPhase(VoicePhase.READY)
+        }
+    }
+
+    private fun setPhase(phase: VoicePhase) = voiceMode.update { it?.copy(phase = phase, levels = emptyList()) }
+
+    private fun voiceFailed(message: String) {
+        notice.value = message
+        setPhase(VoicePhase.READY)
+    }
+
+    private fun stopVoiceWork() {
+        voiceJob?.cancel()
+        stopRecording.set(true)
+        speakers.pick().stop()
+        turn = null
+        setPhase(VoicePhase.READY)
     }
 
     override fun onCleared() {
-        tts?.shutdown()
-        stopRecording.set(true)
+        readJob?.cancel()
+        stopVoiceWork()
         super.onCleared()
     }
 

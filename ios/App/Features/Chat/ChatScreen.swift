@@ -93,6 +93,9 @@ struct ChatScreen: View {
 
         VStack(spacing: 0) {
             AutobotTopBar(title: state.toolsEnabled ? "Agent run" : "Chat", onBack: { nav.back() }) {
+                Tag("voice", accent: model.voice != nil ? c.primary : nil, filled: model.voice != nil) {
+                    model.setVoiceMode(model.voice == nil, app: app, conversationId: conversationId)
+                }
                 Button { showModels = true } label: { RouteTag(route: routing.route) }.buttonStyle(PressStyle())
                 IconAction(symbol: "ellipsis", label: "Session settings") { showSession = true }
             }
@@ -134,7 +137,11 @@ struct ChatScreen: View {
                 QuestionCard(question: question) { app.agent.answerQuestion(callId: question.callId, answers: $0) }
             }
             PolicyLine(state: state, contextUsed: contextUsed)
-            InputBar(model: model, running: state.running, onSend: send, onStop: { app.agent.cancel(conversationId) })
+            if let voice = model.voice {
+                VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
+            } else {
+                InputBar(model: model, running: state.running, onSend: send, onStop: { app.agent.cancel(conversationId) })
+            }
         }
         .background(c.background)
         .sheet(isPresented: $showModels) {
@@ -143,7 +150,9 @@ struct ChatScreen: View {
         .sheet(isPresented: $showSession) {
             SessionSheet(conversationId: conversationId, state: state) { showSession = false }
         }
+        .onChange(of: state) { _, new in model.sessionChanged(new) }
         .onDisappear {
+            model.setVoiceMode(false, app: app, conversationId: conversationId)
             model.stopSpeaking()
             model.stopRecording(app: app)
         }
@@ -701,6 +710,91 @@ private struct InputBar: View {
                 }
             }
         }
+    }
+}
+
+/**
+ Voice mode's composer: what the loop is doing (`// VOICE · LISTENING`), a level meter while
+ listening, and one button that talks, sends, stops the agent or interrupts the answer.
+ */
+private struct VoicePanel: View {
+    let voice: VoiceState
+    let model: ChatModel
+    let onType: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        let (label, hint): (String, String) = switch voice.phase {
+        case .ready: ("ready", "tap to talk")
+        case .listening: ("listening", voice.handsFree ? "pause to send · tap to send now" : "tap to send")
+        case .transcribing: ("transcribing", "on this phone")
+        case .thinking: ("thinking", "tap to stop")
+        case .speaking: ("speaking", "tap to interrupt and talk")
+        }
+        let quiet = voice.phase == .thinking || voice.phase == .speaking
+        let action = switch voice.phase {
+        case .ready: "Talk"
+        case .listening: "Send"
+        case .transcribing: "Transcribing"
+        case .thinking: "Stop"
+        case .speaking: "Interrupt"
+        }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                StatusDot(color: voice.phase == .ready ? c.outline : c.primary, live: voice.phase != .ready)
+                SectionLabel("voice · \(label)").frame(maxWidth: .infinity, alignment: .leading)
+                Tag("hands-free", accent: voice.handsFree ? c.primary : nil, filled: voice.handsFree) { model.setHandsFree(!voice.handsFree) }
+                Tag("type", action: onType)
+            }
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    LevelMeter(levels: voice.levels).frame(height: 36)
+                    MicroLabel(hint)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button { model.voiceTap() } label: {
+                    Group {
+                        switch voice.phase {
+                        case .ready, .speaking: AutobotIconView(icon: .mic, size: 26, color: quiet ? c.primary : c.onPrimary)
+                        case .listening: Rectangle().fill(c.onPrimary).frame(width: 16, height: 16)
+                        case .transcribing: Text("…").textStyle(.code).foregroundStyle(c.onPrimary)
+                        case .thinking: Rectangle().fill(c.primary).frame(width: 14, height: 14)
+                        }
+                    }
+                    .frame(width: 64, height: 64)
+                    .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(quiet ? c.surfaceContainerHigh : c.primary))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+                .disabled(voice.phase == .transcribing)
+                .accessibilityLabel(action)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(c.background)
+        .hairlineEdge(top: true, bottom: false)
+    }
+}
+
+/// Microphone peaks as riso bars, newest on the right; a flat rule when not listening.
+private struct LevelMeter: View {
+    let levels: [Float]
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        Canvas { context, size in
+            let slots = 32
+            let slot = size.width / CGFloat(slots)
+            for i in 0..<slots {
+                let index = levels.count - slots + i
+                let level = index >= 0 ? levels[index] : nil
+                let h = level.map { max(CGFloat(min(max($0, 0), 1)).squareRoot() * size.height, 2) } ?? 2
+                let rect = CGRect(x: CGFloat(i) * slot, y: (size.height - h) / 2, width: slot * 0.6, height: h)
+                context.fill(Path(rect), with: .color(level != nil ? c.primary : c.outlineVariant))
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 

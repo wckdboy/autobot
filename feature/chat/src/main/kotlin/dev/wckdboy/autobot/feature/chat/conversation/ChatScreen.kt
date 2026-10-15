@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -58,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -95,6 +99,7 @@ import dev.wckdboy.autobot.shared.session.NoticeKind
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.ToolState
 import java.util.Locale
+import kotlin.math.sqrt
 
 @Composable
 fun ChatRoute(
@@ -176,6 +181,14 @@ fun ChatScreen(
                 title = if (state.toolsEnabled) "Agent run" else "Chat",
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
+                    val voiceOn = state.voice != null
+                    Tag(
+                        "voice",
+                        accent = if (voiceOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        filled = voiceOn,
+                        onClick = { actions.setVoiceMode(!voiceOn) },
+                    )
+                    Spacer(Modifier.width(8.dp))
                     RouteTag(state.route, Modifier.clickable { showModels = true })
                     IconButton(onClick = { showSession = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Session settings") }
                 },
@@ -221,7 +234,12 @@ fun ChatScreen(
             if (state.todos.isNotEmpty() && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
             state.question?.let { QuestionCard(it, actions::answer) }
             PolicyLine(state)
-            InputBar(state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation, actions::consumeDictation)
+            val voice = state.voice
+            if (voice != null) {
+                VoicePanel(voice, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
+            } else {
+                InputBar(state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation, actions::consumeDictation)
+            }
         }
     }
 
@@ -661,6 +679,98 @@ private fun InputBar(
                     ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (state.running) "Queue" else "Send") }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Voice mode's composer: what the loop is doing (`// VOICE · LISTENING`), a level meter while
+ * listening, and one button that talks, sends, stops the agent or interrupts the answer.
+ */
+@Composable
+private fun VoicePanel(
+    voice: VoiceUi,
+    onTap: () -> Unit,
+    onDenied: () -> Unit,
+    onHandsFree: (Boolean) -> Unit,
+    onType: () -> Unit,
+) {
+    val context = LocalContext.current
+    val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) onTap() else onDenied() }
+    val primary = MaterialTheme.colorScheme.primary
+    val (label, hint) = when (voice.phase) {
+        VoicePhase.READY -> "ready" to "tap to talk"
+        VoicePhase.LISTENING -> "listening" to if (voice.handsFree) "pause to send · tap to send now" else "tap to send"
+        VoicePhase.TRANSCRIBING -> "transcribing" to "on this phone"
+        VoicePhase.THINKING -> "thinking" to "tap to stop"
+        VoicePhase.SPEAKING -> "speaking" to "tap to interrupt and talk"
+    }
+    Surface(color = MaterialTheme.colorScheme.background) {
+        Column(
+            Modifier.hairlineEdge(top = true, bottom = false).padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusDot(if (voice.phase == VoicePhase.READY) MaterialTheme.colorScheme.outline else primary, live = voice.phase != VoicePhase.READY)
+                SectionLabel("voice · $label", Modifier.weight(1f))
+                Tag(
+                    "hands-free",
+                    accent = if (voice.handsFree) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    filled = voice.handsFree,
+                    onClick = { onHandsFree(!voice.handsFree) },
+                )
+                Tag("type", onClick = onType)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LevelMeter(voice.levels, Modifier.fillMaxWidth().height(36.dp))
+                    MicroLabel(hint)
+                }
+                val talks = voice.phase == VoicePhase.READY || voice.phase == VoicePhase.SPEAKING
+                FilledIconButton(
+                    onClick = {
+                        if (talks && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            microphone.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            onTap()
+                        }
+                    },
+                    enabled = voice.phase != VoicePhase.TRANSCRIBING,
+                    shape = MaterialTheme.shapes.extraSmall,
+                    colors = if (voice.phase == VoicePhase.THINKING || voice.phase == VoicePhase.SPEAKING) {
+                        IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = primary)
+                    } else {
+                        IconButtonDefaults.filledIconButtonColors()
+                    },
+                    modifier = Modifier.size(64.dp),
+                ) {
+                    when (voice.phase) {
+                        VoicePhase.READY -> Icon(AutobotIcons.Mic, contentDescription = "Talk")
+                        VoicePhase.LISTENING -> Box(Modifier.size(16.dp).background(MaterialTheme.colorScheme.onPrimary))
+                        VoicePhase.TRANSCRIBING -> Text("…", style = AutobotTheme.styles.code)
+                        VoicePhase.THINKING -> Box(Modifier.size(14.dp).background(primary))
+                        VoicePhase.SPEAKING -> Icon(AutobotIcons.Mic, contentDescription = "Interrupt")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Microphone peaks as riso bars, newest on the right; a flat rule when not listening. */
+@Composable
+private fun LevelMeter(levels: List<Float>, modifier: Modifier = Modifier) {
+    val ink = MaterialTheme.colorScheme.primary
+    val rule = MaterialTheme.colorScheme.outlineVariant
+    Canvas(modifier) {
+        val slots = 32
+        val slot = size.width / slots
+        val bar = slot * 0.6f
+        val floor = 2.dp.toPx()
+        for (i in 0 until slots) {
+            val level = levels.getOrNull(levels.size - slots + i)
+            val h = level?.let { (sqrt(it.coerceIn(0f, 1f)) * size.height).coerceAtLeast(floor) } ?: floor
+            drawRect(if (level != null) ink else rule, topLeft = Offset(i * slot, (size.height - h) / 2), size = Size(bar, h))
         }
     }
 }
