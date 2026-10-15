@@ -21,7 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * 10 → 11 drops `session_events`' separate `sessionId` index: its primary key (sessionId, seq)
+ * 11 → 12 drops `session_events`' separate `sessionId` index: its primary key (sessionId, seq)
  * already serves per-session reads and the cascade from `conversations`. Also the one-transaction
  * message write that bumps its chat's `updatedAt`.
  */
@@ -38,13 +38,13 @@ class SessionEventsMigrationTest {
     )
 
     @Test
-    fun migrationToElevenDropsOnlyTheRedundantIndexAndKeepsTheLogs() {
-        helper.createDatabase(DB, 10).use { db ->
+    fun migrationToTwelveDropsOnlyTheRedundantIndexAndKeepsTheLogs() {
+        helper.createDatabase(DB, 11).use { db ->
             db.execSQL("INSERT INTO conversations (id, title, providerId, model, createdAt, updatedAt) VALUES ('c', 'Trip', 'p', 'm', 1, 2)")
             db.execSQL("INSERT INTO session_events (sessionId, seq, time, json) VALUES ('c', 1, 1, '{\"a\":1}'), ('c', 2, 2, '{}')")
             assertTrue(indexes(db).contains("index_session_events_sessionId"))
         }
-        helper.runMigrationsAndValidate(DB, 11, true).use { db ->
+        helper.runMigrationsAndValidate(DB, 12, true).use { db ->
             assertFalse(indexes(db).contains("index_session_events_sessionId"))
             db.query("SELECT seq, json FROM session_events WHERE sessionId = 'c' ORDER BY seq").use { c ->
                 assertEquals(2, c.count)

@@ -71,4 +71,17 @@ class EntryParserTest {
         assertNull(EntryParser.parse(null))
         assertNull(EntryParser.parse("com.example.SOMETHING", "text/plain", text = "hi"))
     }
+
+    @Test
+    fun sharedWorkflowsGoToTheStudio() {
+        assertEquals(
+            EntryRequest.ImportWorkflow(uri = "content://files/wf.json"),
+            EntryParser.parse(Intent.ACTION_SEND, "application/json", streams = listOf("content://files/wf.json")),
+        )
+        val graph = """{"3":{"class_type":"KSampler","inputs":{}}}"""
+        assertEquals(EntryRequest.ImportWorkflow(json = graph), EntryParser.parse(Intent.ACTION_SEND, "text/plain", text = graph))
+        // A file:// stream is never read; plain text stays a chat draft.
+        assertNull(EntryParser.parse(Intent.ACTION_SEND, "application/json", streams = listOf("file:///data/x.json")))
+        assertEquals(EntryRequest.NewChat(draft = "{not a graph}"), EntryParser.parse(Intent.ACTION_SEND, "text/plain", text = "{not a graph}"))
+    }
 }

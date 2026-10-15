@@ -16,6 +16,12 @@ sealed interface EntryRequest {
 
     /** The image studio, with [prompt] filled in (not generated). */
     data class Imagine(val prompt: String? = null) : EntryRequest
+
+    /**
+     * A ComfyUI workflow for the Studio's Workflows room: a shared `.json` file ([uri]) or its text
+     * ([json]). It is only shown for review; nothing is saved or run on its own.
+     */
+    data class ImportWorkflow(val uri: String? = null, val json: String? = null) : EntryRequest
 }
 
 /** Explicit actions used by the tile, the launcher shortcuts and the widget. */
@@ -57,6 +63,11 @@ object EntryParser {
     }
 
     private fun shared(type: String?, text: CharSequence?, subject: CharSequence?, streams: List<String>): EntryRequest? {
+        if (type == "application/json") {
+            return streams.firstOrNull(::isContentUri)?.let { EntryRequest.ImportWorkflow(uri = it) }
+                ?: text?.toString()?.trim()?.takeIf { isWorkflowJson(it) }?.let { EntryRequest.ImportWorkflow(json = it) }
+        }
+        text?.toString()?.trim()?.takeIf { isWorkflowJson(it) }?.let { return EntryRequest.ImportWorkflow(json = it) }
         val images = if (type?.startsWith("image/") == true) streams.filter(::isContentUri).distinct().take(MAX_IMAGES) else emptyList()
         val body = clean(text)
         // Browsers share the page title as the subject and the URL as the text.
@@ -71,6 +82,13 @@ object EntryParser {
      * private storage and have it attach (and maybe upload) its own files.
      */
     fun isContentUri(uri: String): Boolean = uri.startsWith("content://", ignoreCase = true)
+
+    /** Longest workflow text taken from another app (API graphs are large, but not this large). */
+    const val MAX_WORKFLOW = 8 * 1024 * 1024
+
+    /** Text that is a ComfyUI graph (API or editor format) rather than something to chat about. */
+    fun isWorkflowJson(text: String): Boolean =
+        text.length <= MAX_WORKFLOW && text.startsWith("{") && text.endsWith("}") && ("\"class_type\"" in text || ("\"nodes\"" in text && "\"links\"" in text))
 
     private fun clean(text: CharSequence?): String? = text?.toString()?.trim()?.take(MAX_TEXT)?.trim()?.ifEmpty { null }
 }

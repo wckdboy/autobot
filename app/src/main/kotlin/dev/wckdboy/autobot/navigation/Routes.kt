@@ -33,6 +33,10 @@ data class Chat(val conversationId: String) : NavKey
 @Serializable
 data class Imagine(val handoffId: String? = null, val asInit: Boolean = false, val modelId: String? = null, val prompt: String? = null) : NavKey
 
+/** The Creative Studio; [room] is a `StudioRoom` name (image, audio, video, workflows, library). */
+@Serializable
+data class Studio(val room: String? = null) : NavKey
+
 @Serializable
 data class Gallery(val openId: String? = null) : NavKey
 

@@ -92,12 +92,32 @@ class EnginesTest {
         server.enqueue(MockResponse.Builder().body("""[{"name":"film","alias":"film"}]""").build())
         server.enqueue(MockResponse.Builder().body("""[{"name":"Euler a"},{"name":"DPM++ 2M"}]""").build())
         server.enqueue(MockResponse.Builder().body("""[{"name":"karras","label":"Karras"}]""").build())
+        server.enqueue(MockResponse.Builder().body("""[{"model_name":"vae-ft-mse","filename":"/x"}]""").build())
+        server.enqueue(MockResponse.Builder().body("""[{"name":"R-ESRGAN 4x+"}]""").build())
+        server.enqueue(MockResponse.Builder().body("""[{"name":"Latent"}]""").build())
         val catalog = SdApiEngine(url(), { clients.create("t") }).catalog()
         assertEquals(listOf("sd15.safetensors [abc]"), catalog.models)
         assertEquals("sd15.safetensors [abc]", catalog.currentModel)
         assertEquals(listOf("film"), catalog.loras)
         assertEquals(listOf("Euler a", "DPM++ 2M"), catalog.samplers)
         assertEquals(listOf("Karras"), catalog.schedulers)
+        assertEquals(listOf("vae-ft-mse"), catalog.vaes)
+        assertEquals(listOf("R-ESRGAN 4x+", "Latent"), catalog.upscalers)
+    }
+
+    @Test
+    fun sdApiHiresPassAndVaeGoIntoTxt2Img() {
+        val engine = SdApiEngine(url(), { clients.create("t") })
+        val body = engine.requestBody(DiffusionRequest(prompt = "x", vae = "vae-ft-mse", hires = HiresFix(1.5f, "Latent", 10, 0.45f)), DiffusionInputs())
+        assertEquals("true", body["enable_hr"]!!.jsonPrimitive.content)
+        assertEquals("1.5", body["hr_scale"]!!.jsonPrimitive.content)
+        assertEquals("Latent", body["hr_upscaler"]!!.jsonPrimitive.content)
+        assertEquals("10", body["hr_second_pass_steps"]!!.jsonPrimitive.content)
+        assertEquals("0.45", body["denoising_strength"]!!.jsonPrimitive.content)
+        assertEquals("vae-ft-mse", body["override_settings"]!!.jsonObject["sd_vae"]!!.jsonPrimitive.content)
+        // img2img ignores the hires pass.
+        val img2img = engine.requestBody(DiffusionRequest(mode = DiffusionMode.IMG2IMG, hires = HiresFix()), DiffusionInputs(initImage = png1))
+        assertEquals(null, img2img["enable_hr"])
     }
 
     @Test

@@ -42,6 +42,7 @@ import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 fun RunRoute(
     onOpenSession: (String) -> Unit,
     onOpenImagine: () -> Unit,
+    onOpenStudio: () -> Unit,
     onOpenAllRuns: () -> Unit,
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
@@ -51,7 +52,7 @@ fun RunRoute(
     LaunchedEffect(viewModel) {
         viewModel.navigation.collect { if (it is RunEvent.OpenSession) onOpenSession(it.conversationId) }
     }
-    RunScreen(state, viewModel, onOpenSession, onOpenImagine, onOpenAllRuns, onOpenGalleryItem, onOpenModels)
+    RunScreen(state, viewModel, onOpenSession, onOpenImagine, onOpenStudio, onOpenAllRuns, onOpenGalleryItem, onOpenModels)
 }
 
 @Composable
@@ -60,6 +61,7 @@ fun RunScreen(
     actions: RunViewModel,
     onOpenSession: (String) -> Unit,
     onOpenImagine: () -> Unit,
+    onOpenStudio: () -> Unit,
     onOpenAllRuns: () -> Unit,
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
@@ -102,7 +104,11 @@ fun RunScreen(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                ModeCard("04", "Code", state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, Modifier.fillMaxWidth().height(100.dp))
+                Row(Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ModeCard("04", "Code", state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, Modifier.weight(1f).fillMaxSize())
+                    // Studio mode: image, audio, video, workflows and the library behind its own bar.
+                    ModeCard("05", "Studio", "image · audio · video", null, onOpenStudio, Modifier.weight(1f).fillMaxSize())
+                }
                 Spacer(Modifier.height(22.dp))
             }
             if (!state.hasAnything) {

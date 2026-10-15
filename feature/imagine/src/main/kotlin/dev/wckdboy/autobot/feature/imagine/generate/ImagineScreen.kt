@@ -110,6 +110,7 @@ fun ImagineRoute(
     onOpenGallery: () -> Unit,
     onOpenBackends: () -> Unit,
     onOpenModels: () -> Unit,
+    onOpenStudio: () -> Unit = {},
     handoff: GalleryHandoff? = null,
     modelId: String? = null,
     prompt: String? = null,
@@ -128,7 +129,7 @@ fun ImagineRoute(
         if (handoff.asInit) viewModel.useAsInit(handoff.galleryId)
     }
     LaunchedEffect(modelId) { modelId?.let(viewModel::useModel) }
-    ImagineScreen(state, viewModel, onBack, onOpenGallery, onOpenBackends, onOpenModels)
+    ImagineScreen(state, viewModel, onBack, onOpenGallery, onOpenBackends, onOpenModels, onOpenStudio)
 }
 
 private val ASPECTS = listOf("1:1" to (1 to 1), "2:3" to (2 to 3), "3:2" to (3 to 2), "3:4" to (3 to 4), "4:3" to (4 to 3), "9:16" to (9 to 16), "16:9" to (16 to 9))
@@ -144,6 +145,7 @@ fun ImagineScreen(
     onOpenGallery: () -> Unit,
     onOpenBackends: () -> Unit,
     onOpenModels: () -> Unit,
+    onOpenStudio: () -> Unit = {},
 ) {
     var showTune by rememberSaveable { mutableStateOf(false) }
     var showMask by rememberSaveable { mutableStateOf(false) }
@@ -170,6 +172,8 @@ fun ImagineScreen(
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     route?.let { RouteTag(it) }
+                    // The full image room (queue, grids, workflows) is in Studio mode.
+                    Tag("studio", accent = MaterialTheme.colorScheme.primary, onClick = onOpenStudio)
                     IconButton(onClick = onOpenGallery) { Icon(AutobotIcons.Image, contentDescription = "Gallery") }
                 },
             )
