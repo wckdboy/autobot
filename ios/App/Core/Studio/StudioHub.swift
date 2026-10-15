@@ -97,10 +97,12 @@ final class StudioHub {
         onWorkflowsChanged?(!library.workflows.isEmpty)
         guard !restored else { return }
         restored = true
-        jobsHandle = bridge.observeJobs { [weak self] list in
-            Task { @MainActor in self?.jobsChanged(list) }
+        // Kotlin calls back on its own threads: no closure handed to the bridge may be main-actor isolated.
+        jobsHandle = bridge.observeJobs { @Sendable [weak self] list in
+            let jobs = Unchecked(list)
+            Task { @MainActor in self?.jobsChanged(jobs.value) }
         }
-        bridge.restore {}
+        bridge.restore { @Sendable in }
     }
 
     func close() {
@@ -236,7 +238,7 @@ final class StudioHub {
 
     func testComfy(_ server: ComfyServer) async -> (ok: Bool, text: String) {
         await withCheckedContinuation { c in
-            bridge.testComfy(backend: comfyBackend(server)) { ok, text in c.resume(returning: (ok.boolValue, text)) }
+            bridge.testComfy(backend: comfyBackend(server)) { @Sendable ok, text in c.resume(returning: (ok.boolValue, text)) }
         }
     }
 
@@ -394,7 +396,7 @@ final class StudioHub {
     func runPipeline(_ pipeline: Pipeline, vars: [String: String], input: [String]) async -> (ok: Bool, message: String) {
         guard let projectId else { return (false, "No project") }
         return await withCheckedContinuation { c in
-            _ = bridge.runPipeline(pipeline: pipeline, projectId: projectId, vars: vars, input: input, onStep: { _ in }) { result, error in
+            _ = bridge.runPipeline(pipeline: pipeline, projectId: projectId, vars: vars, input: input, onStep: { @Sendable _ in }) { @Sendable result, error in
                 if let error { c.resume(returning: (false, error)) } else if let result {
                     c.resume(returning: (result.ok, result.error ?? "\(result.assetIds.count) asset\(result.assetIds.count == 1 ? "" : "s") made"))
                 } else {
@@ -428,7 +430,7 @@ final class StudioHub {
 
     func importWorkflow(name: String, json: String, backendId: String?) async -> Imported {
         await withCheckedContinuation { c in
-            bridge.importWorkflow(name: name, json: json, backendId: backendId) { w, validation, checked, error in
+            bridge.importWorkflow(name: name, json: json, backendId: backendId) { @Sendable w, validation, checked, error in
                 c.resume(returning: Imported(workflow: w, validation: validation, checked: checked.boolValue, error: error))
             }
         }
@@ -436,12 +438,12 @@ final class StudioHub {
 
     /// The validation message (nil = ready) or the error reaching the server.
     func validate(_ w: StudioWorkflow, on backendId: String) async -> (message: String?, error: String?) {
-        await withCheckedContinuation { c in bridge.validate(workflow: w, backendId: backendId) { m, e in c.resume(returning: (m, e)) } }
+        await withCheckedContinuation { c in bridge.validate(workflow: w, backendId: backendId) { @Sendable m, e in c.resume(returning: (m, e)) } }
     }
 
     func refreshOptions(_ w: StudioWorkflow, on backendId: String) async -> StudioWorkflow {
         await withCheckedContinuation { (c: CheckedContinuation<Unchecked<StudioWorkflow>, Never>) in
-            bridge.refreshOptions(workflow: w, backendId: backendId) { c.resume(returning: Unchecked($0)) }
+            bridge.refreshOptions(workflow: w, backendId: backendId) { @Sendable w in c.resume(returning: Unchecked(w)) }
         }.value
     }
 
