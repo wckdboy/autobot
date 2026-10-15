@@ -110,6 +110,7 @@ struct ImagineScreen: View {
                 .padding(.horizontal, Tokens.Spacing.gutter)
             }
             .scrollDismissesKeyboard(.interactively)
+            .inkGround(m.results.isEmpty && !m.isRunning)
             StudioBar(model: m) { showTune = true }
         }
         .task(id: m.running.isRunning) { await m.syncResults() }
@@ -285,7 +286,8 @@ private struct ProofGrid: View {
                 InkPlate(ink: .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
             }
             if let running, i == running.image {
-                Tag(model.phase == nil && running.total > 0 ? "step \(running.step)/\(running.total)" : "loading", accent: c.primary, filled: true).padding(6)
+                let loading = model.phase != nil || running.total == 0
+                Tag(loading ? "loading" : "step \(running.step)/\(running.total)", accent: c.primary, filled: true, busy: loading).padding(6)
             }
         }
         .frame(maxWidth: .infinity)
@@ -316,7 +318,7 @@ private struct StudioBar: View {
                     TextAction("Tune", color: c.primary, style: .labelLarge, action: onShowTune)
                 }
             }
-            InkProgressBar(fraction: Double(progress), height: 2, running: model.isRunning)
+            InkProgressBar(barState, height: 2)
             HStack(spacing: 8) {
                 if case .running(let source, _, _, _, _, _, _, _) = model.running {
                     GhostButton("Cancel", accent: c.primary, enabled: source != .agent, action: model.cancel)
@@ -331,6 +333,12 @@ private struct StudioBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(c.background)
+    }
+
+    /// The model loading (no steps yet) is indeterminate; sampling fills the bar.
+    private var barState: InkBarState {
+        guard case .running(_, _, _, _, _, let total, _, _) = model.running else { return .progress(0, running: false) }
+        return model.phase != nil || total == 0 ? .indeterminate : .progress(Double(progress), running: true)
     }
 
     private var progress: CGFloat {
@@ -405,7 +413,7 @@ private struct TuneSheet: View {
         let caps = model.capabilities
         let kind = model.backend?.kind
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            InkStack(alignment: .leading, spacing: 14) {
                 HStack {
                     SectionLabel("tune")
                     Tag("backends", action: onOpenBackends)
@@ -512,7 +520,7 @@ private struct LoraSheet: View {
 
     var body: some View {
         let filtered = available.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
-        VStack(alignment: .leading, spacing: 8) {
+        InkStack(alignment: .leading, spacing: 8) {
             SectionLabel("lora library · \(available.count)")
             ConsoleTextField(text: $query, placeholder: "filter", kind: .mono)
             if filtered.isEmpty { MicroLabel(available.isEmpty ? "no loras — add them to your pc backend" : "no match") }

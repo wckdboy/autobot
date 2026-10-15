@@ -9,6 +9,9 @@ struct ComputeScreen: View {
     @Environment(\.scheme) private var c
     @State private var devices: ComputeDevices?
     @State private var running: String?
+    /// The model being benchmarked, and how far (backends done / to run).
+    @State private var benchModel: String?
+    @State private var benchStep = (done: 0, total: 1)
     @State private var device: DeviceProfile?
     @State private var report: String?
 
@@ -27,7 +30,7 @@ struct ComputeScreen: View {
                         let info = LocalDeviceInfo.current()
                         SectionLabel("this phone" + ([info.name ?? device?.machine, info.chip ?? device?.chip].compactMap { $0 }.isEmpty ? "" : " · " + [info.name ?? device?.machine, info.chip ?? device?.chip].compactMap { $0 }.joined(separator: " · ")))
                         HStack(alignment: .top, spacing: 10) {
-                            DeviceCard(label: "cpu", value: device.map { "\($0.cores) cores" } ?? "…", present: true)
+                            DeviceCard(label: "cpu", value: device.map { "\($0.cores) cores" }, present: true)
                             DeviceCard(label: "gpu", value: devices?.gpu ?? "none", present: devices?.gpu != nil)
                             DeviceCard(label: "npu", value: devices?.npu ?? "none", present: devices?.npu != nil)
                         }
@@ -46,10 +49,15 @@ struct ComputeScreen: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    if let running { MicroLabel("benchmarking · \(running)", color: c.primary, lines: 2) }
+                    if let running {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MicroLabel("benchmarking · \(running.hasSuffix("…") ? String(running.dropLast()) : running)", color: c.primary, lines: 2)
+                            InkProgressBar(fraction: Double(benchStep.done) / Double(max(benchStep.total, 1)), height: 2, running: true)
+                        }
+                    }
                     SectionLabel("models · auto picks the fastest measured backend", color: c.onSurfaceVariant)
                     ForEach(models) { m in
-                        ModelCompute(model: m, running: running != nil) { benchmark(m) }
+                        ModelCompute(model: m, running: running != nil, benchmarking: benchModel == m.id) { benchmark(m) }
                     }
                     if models.isEmpty { MicroLabel("no runnable models yet — get one in the Models tab", lines: 2) }
                 }
@@ -75,12 +83,21 @@ struct ComputeScreen: View {
 
     private func benchmark(_ model: InstalledModel) {
         guard running == nil else { return }
-        running = "starting…"
+        running = "starting"
+        benchModel = model.id
         let bench = ComputeBench(library: app.library, profile: app.compute, llm: app.llm)
         let backends = devices?.llmBackends ?? [.cpu]
+        // One step per backend measured (ComputeBench.run reports each as it starts).
+        let total = model.engine == .llama ? [Backend.cpu, .gpu, .npu].filter(backends.contains).count : 2
+        benchStep = (0, max(total, 1))
         Task {
-            _ = await bench.run(model, backends: backends) { running = $0 }
+            _ = await bench.run(model, backends: backends) { status in
+                if running != "starting" { benchStep.done = min(benchStep.done + 1, benchStep.total) }
+                running = status
+            }
+            benchStep.done = benchStep.total
             running = nil
+            benchModel = nil
             app.modelsChanged()
         }
     }
@@ -88,17 +105,24 @@ struct ComputeScreen: View {
 
 private struct DeviceCard: View {
     let label: String
-    let value: String
+    /// Nil while it is being read.
+    let value: String?
     let present: Bool
     @Environment(\.scheme) private var c
 
     var body: some View {
         Panel(title: label, accent: present ? c.primary : nil) {
-            Text(value)
-                .textStyle(.bodySmall)
-                .foregroundStyle(present ? c.onSurface : c.onSurfaceVariant)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+            Group {
+                if let value {
+                    Text(value)
+                        .textStyle(.bodySmall)
+                        .foregroundStyle(present ? c.onSurface : c.onSurfaceVariant)
+                        .lineLimit(2)
+                } else {
+                    InkLoader()
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity)
     }
@@ -107,6 +131,8 @@ private struct DeviceCard: View {
 private struct ModelCompute: View {
     let model: InstalledModel
     let running: Bool
+    /// This model is the one being benchmarked.
+    let benchmarking: Bool
     let onBenchmark: () -> Void
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
@@ -119,7 +145,7 @@ private struct ModelCompute: View {
         let isText = model.engine == .llama
         let order: [Backend] = [.auto, .cpu, .gpu, .npu]
         Panel(title: model.title) {
-            Tag(running ? "busy" : "benchmark", accent: c.primary, filled: !running, action: running ? nil : onBenchmark)
+            Tag("benchmark", accent: c.primary, filled: !running || benchmarking, busy: benchmarking, action: running ? nil : onBenchmark)
         } content: {
             Segmented(options: order, selected: model.backend, label: { b in
                 if b == .auto, let fastest { "auto · \(fastest.label)" } else { b.label }
@@ -165,7 +191,7 @@ private struct ReportSheet: View {
     @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        InkStack(alignment: .leading, spacing: 12) {
             Text("Diagnostics report").textStyle(.headlineSmall).foregroundStyle(c.onSurface)
             MicroLabel("no prompts, file paths or identifiers · nothing is sent", lines: 2)
             ScrollView {

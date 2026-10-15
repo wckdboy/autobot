@@ -223,7 +223,7 @@ struct ModelsScreen: View {
                     if let p = app.downloader.progress { progressPanel(p) }
                     if !app.library.models.isEmpty {
                         SectionLabel("installed · \(app.library.models.count)")
-                        ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) } }
+                        ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) }.transition(.inkDissolve) }
                         Spacer().frame(height: 18)
                     }
                     Segmented(options: ModelsTab.allCases, selected: model.tab, label: \.label) { model.tab = $0 }
@@ -237,6 +237,7 @@ struct ModelsScreen: View {
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.vertical, 8)
+                .animation(.inkDissolve, value: app.library.models.map(\.id))
             }
             .scrollDismissesKeyboard(.interactively)
         }
@@ -319,9 +320,10 @@ struct ModelsScreen: View {
                 kind: .mono,
                 onSubmit: model.searchHf,
             )
-            if model.hfLoading || model.openLoading { MicroLabel("loading…") }
+            if model.hfLoading || model.openLoading { InkLoader() }
             Hairline()
         }
+        if model.hfResults.isEmpty && !model.hfLoading { EmptyResults() }
         ForEach(model.hfResults) { m in
             RunRow(
                 title: String(m.id.split(separator: "/").last ?? Substring(m.id)),
@@ -345,15 +347,27 @@ struct ModelsScreen: View {
             Segmented(options: CivitaiScope.allCases, selected: model.civitaiScope, label: \.label) { model.setCivitaiScope($0) }
             ConsoleTextField(text: $model.civitaiQuery, placeholder: "search sd 1.5 / sdxl / pony / illustrious", kind: .mono) { model.searchCivitai() }
             MicroLabel("checkpoints and loras run on pc backends (a1111 / forge) — core ml on this phone needs converted models", color: AutobotColors.amber, lines: 3)
-            if model.civitaiLoading { MicroLabel("loading…") }
+            if model.civitaiLoading { InkLoader() }
             Hairline()
         }
+        if model.civitaiResults.isEmpty && !model.civitaiLoading { EmptyResults() }
         ForEach(model.civitaiResults) { m in
             CivitaiRow(model: m, installed: installed, previews: model.previews) { model.installCivitai(m) }
         }
         if model.civitaiCursor != nil {
             TextAction("More", color: c.primary) { model.searchCivitai(reset: false) }
         }
+    }
+}
+
+/// No search results yet: a patch of living paper.
+private struct EmptyResults: View {
+    var body: some View {
+        Color.clear
+            .frame(height: 180)
+            .inkGround()
+            .mask(LinearGradient(colors: [.black, .clear], startPoint: .center, endPoint: .bottom))
+            .accessibilityHidden(true)
     }
 }
 
@@ -431,6 +445,8 @@ private struct InstalledRow: View {
             MicroLabel("Deletes \(formatBytes(model.totalBytes)) from this phone. Chats that use it need another model picked.", color: c.error, lines: 2)
                 .padding(.bottom, 8)
         }
+        if model.status == .paused { InkProgressBar(.paused(model.fraction), height: 2).padding(.bottom, 6) }
+        if model.status == .failed { InkProgressBar(.error(model.fraction), height: 2).padding(.bottom, 6) }
         if let paused = model.pausedLabel { MicroLabel(paused).padding(.bottom, 8) }
         if let error = model.error {
             MicroLabel(error, color: c.error, lines: 4).padding(.bottom, 8)
@@ -480,7 +496,7 @@ private struct RepoSheet: View {
         }
         let bundles = repo.coreMLBundles
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            InkStack(alignment: .leading, spacing: 8) {
                 SectionLabel(repo.id)
                 Text([repo.license, repo.gated ? "gated — accept on huggingface.co" : nil, repo.commit.map { String($0.prefix(10)) }].compactMap { $0 }.joined(separator: " · "))
                     .textStyle(.micro)

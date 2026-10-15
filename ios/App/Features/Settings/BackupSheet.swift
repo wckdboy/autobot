@@ -30,12 +30,14 @@ struct BackupSheet: View {
     @State private var status = Status.idle
     @State private var exported: BundleFile?
     @State private var importing = false
+    /// Which way the running job goes (its button shows the loader).
+    @State private var exporting = false
 
     private var working: Bool { if case .working = status { true } else { false } }
     private var exportable: Bool { passphrase.count >= BackupService.minPassphrase && passphrase == confirm }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        InkStack(alignment: .leading, spacing: 12) {
             Text("Export & import").textStyle(.headlineSmall).foregroundStyle(c.onSurface)
             Text("Sessions, gallery, attachments, providers (without API keys) and appearance settings, sealed with a passphrase (AES-256-GCM). The Android app opens the same file. Models are not included.")
                 .textStyle(.bodySmall)
@@ -46,14 +48,18 @@ struct BackupSheet: View {
             MicroLabel("at least \(BackupService.minPassphrase) characters · it cannot be recovered", lines: 2)
             switch status {
             case .idle: EmptyView()
-            case .working(let s): MicroLabel(s, color: c.primary, lines: 2)
+            case .working(let s):
+                VStack(alignment: .leading, spacing: 6) {
+                    InkProgressBar(.indeterminate, height: 2)
+                    MicroLabel(s.hasSuffix("…") ? String(s.dropLast()) : s, color: c.primary, lines: 2)
+                }
             case .done(let s): Text(s).textStyle(.bodySmall).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
             case .failed(let s): Text(s).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             HStack(spacing: 8) {
-                GhostButton("Import", enabled: !passphrase.isEmpty && !working) { importing = true }
-                PrimaryButton("Export", enabled: exportable && !working) { export() }
+                GhostButton("Import", enabled: !passphrase.isEmpty && !working, busy: working && !exporting) { importing = true }
+                PrimaryButton("Export", enabled: exportable && !working, busy: working && exporting) { export() }
             }
         }
         .padding(16)
@@ -80,6 +86,7 @@ struct BackupSheet: View {
     private func export() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("autobot-\(UUID().uuidString).autobot")
         status = .working("export…")
+        exporting = true
         Task {
             do {
                 try await BackupService(app: app).export(to: url, passphrase: passphrase) { status = .working($0) }
@@ -93,6 +100,7 @@ struct BackupSheet: View {
 
     private func importBundle(_ url: URL) {
         status = .working("import…")
+        exporting = false
         Task {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }

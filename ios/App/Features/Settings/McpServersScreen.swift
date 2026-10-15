@@ -63,8 +63,9 @@ struct McpServersScreen: View {
                     VStack(alignment: .leading, spacing: 0) {
                         SectionLabel("remote tools · \(servers.count)").padding(.vertical, 8)
                         if let error { MicroLabel(error, color: c.error, lines: 3) }
-                        ForEach(servers) { s in row(s) }
+                        ForEach(servers) { s in row(s).transition(.inkDissolve) }
                     }
+                    .animation(.inkDissolve, value: servers.map(\.id))
                     .padding(.horizontal, Tokens.Spacing.gutter)
                     .padding(.bottom, 96)
                 }
@@ -174,7 +175,7 @@ private struct McpServerEditorSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            InkStack(alignment: .leading, spacing: 12) {
                 SectionLabel(draft.isNew ? "add mcp server" : "edit mcp server")
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -227,7 +228,7 @@ private struct McpServerEditorSheet: View {
                 if let error { MicroLabel(error, color: c.error, lines: 3) }
 
                 HStack(spacing: 8) {
-                    GhostButton(test == .running ? "Testing…" : "Test connection", accent: c.onSurface, enabled: draft.urlValid && test != .running, action: testConnection)
+                    GhostButton("Test connection", accent: c.onSurface, enabled: draft.urlValid && test != .running, busy: test == .running, action: testConnection)
                     PrimaryButton("Save", enabled: draft.canSave && !saving, action: save)
                 }
                 TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
@@ -243,7 +244,8 @@ private struct McpServerEditorSheet: View {
     @ViewBuilder private var testResult: some View {
         switch test {
         case .idle: EmptyView()
-        case .running: HStack(spacing: 8) { ProgressView().tint(c.primary); Text("Testing…").textStyle(.bodySmall).foregroundStyle(c.onSurface) }
+        // The Test button carries the loader.
+        case .running: EmptyView()
         case .success(let m): Text(m).textStyle(.bodySmall).foregroundStyle(AutobotColors.green)
         case .failure(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.error)
         }
