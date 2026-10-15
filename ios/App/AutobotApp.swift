@@ -40,6 +40,8 @@ struct RootView: View {
             }
         }
         .autobotTheme(settings.themeMode, amoled: settings.amoled, paperOnTop: { if case .imagine = nav.path.last { true } else { false } }())
+        // Living paper holds still while heavy work runs.
+        .environment(\.inkHeavyWork, busy)
         .onChange(of: phase) { old, new in
             switch new {
             case .background:
@@ -80,6 +82,7 @@ struct RootView: View {
         @Environment(AppContainer.self) private var app
         @Environment(Navigator.self) private var nav
         @Environment(\.scheme) private var c
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             Group {
@@ -91,6 +94,8 @@ struct RootView: View {
                         lockMessage = nil
                         Task { lockMessage = await app.lock.authenticate(reason: "Your conversations are encrypted on this device") }
                     }
+                    // On unlock the paper prints away.
+                    .transition(.inkPrintAway)
                 } else if !app.settings.settings.onboarded {
                     WelcomeScreen(
                         onSetUp: {
@@ -112,6 +117,7 @@ struct RootView: View {
                 }
             }
             .background(c.background.ignoresSafeArea())
+            .animation(reduceMotion ? .inkReduced : .linear(duration: Double(Tokens.Motion.printMillis) / 1000), value: app.lock.state)
         }
     }
 }

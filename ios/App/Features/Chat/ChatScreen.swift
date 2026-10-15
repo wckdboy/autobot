@@ -134,6 +134,7 @@ struct ChatScreen: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
+                .inkGround(app.dataLoaded && state.projection.items.isEmpty && state.live == nil)
                 .onChange(of: state.projection.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: state.live == nil) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
@@ -390,7 +391,7 @@ private struct StepRow: View {
         case .ok: (tool.isUndone ? "undone" : "✓", c.onSurfaceVariant)
         case .error: ("×", c.error)
         case .denied: ("denied", c.onSurfaceVariant)
-        case .running, .streaming, .waitingApproval: ("…", c.primary)
+        case .running, .streaming, .waitingApproval: ("", c.primary)
         }
         VStack(alignment: .leading, spacing: 0) {
             Button { if tool.output != nil { expanded.toggle() } } label: {
@@ -417,11 +418,14 @@ private struct StepRow: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if tool.state == .running { StatusDot(color: c.primary, live: true).padding(.top, 6) }
-                    Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
-                        .textStyle(.readout)
-                        .foregroundStyle(markColor)
-                        .stamp(StampKey(state: tool.state, undone: tool.isUndone), when: { Self.settled($0.state) })
+                    // The mark keeps its identity so it can stamp in when the step settles.
+                    ZStack(alignment: .topTrailing) {
+                        Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
+                            .textStyle(.readout)
+                            .foregroundStyle(markColor)
+                            .stamp(StampKey(state: tool.state, undone: tool.isUndone), when: { Self.settled($0.state) })
+                        if mark.isEmpty { InkLoader().padding(.top, 4) }
+                    }
                 }
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
@@ -806,7 +810,7 @@ private struct InputBar: View {
                         switch model.dictation {
                         case .idle: AutobotIconView(icon: .mic, size: 24, color: c.onSurface)
                         case .recording: Rectangle().fill(c.primary).frame(width: 14, height: 14)
-                        case .transcribing: Text("…").textStyle(.code).foregroundStyle(c.primary)
+                        case .transcribing: InkLoader(.button)
                         }
                     }
                     .frame(width: 44, height: 52)
@@ -919,7 +923,7 @@ private struct VoicePanel: View {
                         switch voice.phase {
                         case .ready, .speaking: AutobotIconView(icon: .mic, size: 26, color: quiet ? c.primary : c.onPrimary)
                         case .listening: Rectangle().fill(c.onPrimary).frame(width: 16, height: 16)
-                        case .transcribing: Text("…").textStyle(.code).foregroundStyle(c.onPrimary)
+                        case .transcribing: InkLoader(.button, color: c.onPrimary)
                         case .thinking: Rectangle().fill(c.primary).frame(width: 14, height: 14)
                         }
                     }
@@ -934,6 +938,7 @@ private struct VoicePanel: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .inkGround(plate: false)
         .background(c.background)
         .hairlineEdge(top: true, bottom: false)
     }
@@ -1066,7 +1071,7 @@ private struct ModelSheet: View {
         let selected = providers.first { $0.id == (providerId ?? routing.provider?.id) }
         let models: [RemoteModelItem] = selected.map(models) ?? []
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            InkStack(alignment: .leading, spacing: 8) {
                 SectionLabel("route")
                 if providers.isEmpty {
                     TextAction("Add a provider", color: c.primary) {
@@ -1101,7 +1106,7 @@ private struct ModelSheet: View {
                     Spacer(minLength: 0)
                     if let selected { MicroLabel(refreshError ?? modelsLabel(selected), color: refreshError != nil ? c.error : nil) }
                     if let selected, canRefresh(selected) {
-                        TextAction(refreshing ? "…" : "Refresh", color: c.primary, enabled: !refreshing) { refresh(selected) }
+                        TextAction("Refresh", color: c.primary, busy: refreshing) { refresh(selected) }
                     }
                 }
                 ConsoleTextField(text: $modelId, label: "Model id · type to search", kind: .mono)
@@ -1195,7 +1200,7 @@ private struct SessionSheet: View {
 
     var body: some View {
         let session = app.agent.session(conversationId)
-        VStack(alignment: .leading, spacing: 14) {
+        InkStack(alignment: .leading, spacing: 14) {
             SectionLabel("session")
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {

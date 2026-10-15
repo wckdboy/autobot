@@ -64,8 +64,13 @@ final class Navigator {
         #endif
     }
 
+    /// Pushes without the slide: the new screen inks in instead ([View.inkArrive]). Going back
+    /// (button or edge swipe) keeps the native, interactive pop.
     func push(_ destination: Destination) {
-        if path.last != destination { path.append(destination) }
+        guard path.last != destination else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { path.append(destination) }
     }
 
     func back() {
@@ -87,7 +92,8 @@ final class Navigator {
 /**
  Navigation host: the tab root with pushed details on top. The image studio is printed on paper
  (light) as in the mockups. Screens draw their own riso top bars, so the system navigation bar is
- hidden (the edge-swipe back gesture stays enabled).
+ hidden (the edge-swipe back gesture stays enabled). Pushed screens and tab roots ink in
+ (motion spec v2 §3).
  */
 struct AutobotNavHost: View {
     @Environment(Navigator.self) private var nav
@@ -98,9 +104,12 @@ struct AutobotNavHost: View {
         VStack(spacing: 0) {
             NavigationStack(path: $nav.path) {
                 root
+                    .inkArrive()
+                    .id(nav.tab)
                     .toolbar(.hidden, for: .navigationBar)
                     .navigationDestination(for: Destination.self) { destination in
                         screen(destination)
+                            .inkArrive()
                             .toolbar(.hidden, for: .navigationBar)
                             .background(c.background.ignoresSafeArea())
                     }

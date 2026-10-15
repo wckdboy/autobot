@@ -139,6 +139,12 @@ struct RunScreen: View {
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.vertical, 8)
             }
+            .background(alignment: .top) {
+                // Living paper behind the hero, fading out above the cards.
+                InkGround()
+                    .frame(height: 240)
+                    .mask(LinearGradient(colors: [.black, .clear], startPoint: .center, endPoint: .bottom))
+            }
         }
         .background(c.background)
         .task {

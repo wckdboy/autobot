@@ -60,14 +60,19 @@ struct ChatListScreen: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(32)
+                .inkGround()
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(list) { item in
-                            ConversationRow(item: item, onClick: { nav.push(.chat(conversationId: item.id)) }, onDelete: { pendingDelete = item.id })
-                            Hairline().padding(.leading, 16)
+                            VStack(spacing: 0) {
+                                ConversationRow(item: item, onClick: { nav.push(.chat(conversationId: item.id)) }, onDelete: { pendingDelete = item.id })
+                                Hairline().padding(.leading, 16)
+                            }
+                            .transition(.inkDissolve)
                         }
                     }
+                    .animation(.inkDissolve, value: list.map(\.id))
                     .padding(.bottom, 24)
                 }
             }

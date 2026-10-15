@@ -36,7 +36,7 @@ struct ReceiptSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            InkStack(alignment: .leading, spacing: 10) {
                 SectionLabel("receipt · turn \(receipt.turn)")
                 Text(headline).textStyle(.headlineSmall).foregroundStyle(c.onBackground).fixedSize(horizontal: false, vertical: true)
 
