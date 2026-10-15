@@ -33,6 +33,7 @@ final class AppContainer {
     let downloader: ModelDownloader
     let backends: DiffusionBackendRepository
     let memory: MemoryRepository
+    let vault: VaultRepository
 
     // Engines, providers, agent
     let llm = LocalLlm()
@@ -43,10 +44,13 @@ final class AppContainer {
     let agent: any AgentRuntime
     let panicWipe: PanicWipe
     let sessions: SessionStore
+    /// Chat deletion (with undo) and search.
+    let chats: ChatLibrary
     #if canImport(AutobotShared)
     let snapshots = HostSnapshots()
     @ObservationIgnored private let searchSource: WebSearchSourceHost
     @ObservationIgnored private var memoryOn = false
+    @ObservationIgnored private var vaultOn = false
     @ObservationIgnored private var searchOn = false
     #endif
 
@@ -74,6 +78,7 @@ final class AppContainer {
         downloader = ModelDownloader(library: library, clients: clients, accounts: accounts)
         backends = DiffusionBackendRepository(preferences: preferences)
         memory = MemoryRepository(store: store)
+        vault = VaultRepository(store: store, llm: llm)
         providerFactory = ProviderFactory(clients: clients, providers: providers, library: library, compute: compute, llm: llm)
         engines = DiffusionEngineFactory(clients: clients, llm: llm)
         generator = ImageGenerator(engines: engines, gallery: gallery, backends: backends, library: library)
@@ -90,6 +95,8 @@ final class AppContainer {
         agent = InterimAgentRuntime(store: sessions, conversations: conversations, providers: providers, factory: providerFactory, attachments: attachments)
         #endif
 
+        chats = ChatLibrary(conversations: conversations, agent: agent, sessions: sessions, attachments: attachments)
+
         let agent = agent, conversations = conversations, downloader = downloader, generator = generator, clients = clients, store = store, llm = llm
         panicWipe = PanicWipe(keys: keys, secrets: secrets, participants: [
             { agent.shutdown() },
@@ -103,7 +110,15 @@ final class AppContainer {
 
         providers.onChange = { [weak self] list in self?.providersChanged(list) }
         mcpServers.onChange = { [weak self] list in self?.mcpServersChanged(list) }
-        settings.onChange = { [weak self] s in self?.agentFeaturesChanged(s) }
+        settings.onChange = { [weak self] s in
+            self?.agentFeaturesChanged(s)
+            self?.downloader.networkChanged(offline: s.mode == .offline)
+        }
+        // A background relaunch hands its completion handler back once the downloader settled.
+        BackgroundEvents.shared.settled = { [weak downloader] in
+            guard let downloader else { return true }
+            return !downloader.preparing && (!downloader.busy || downloader.hasActiveTransfer)
+        }
         agentFeaturesChanged(settings.settings)
         library.onChange = { [weak self] in self?.modelsChanged() }
         // Apple Intelligence can be switched on (or finish preparing) while the app is in the background.
@@ -131,7 +146,7 @@ final class AppContainer {
         syncLocalProvider()
     }
 
-    /// Opt-in agent features follow settings: memory while on, web search while a provider is set.
+    /// Opt-in agent features follow settings: memory and the vault while on, web search while a provider is set.
     private func agentFeaturesChanged(_ s: AppSettings) {
         #if canImport(AutobotShared)
         guard let shared = agent as? SharedAgentRuntime else { return }
@@ -139,6 +154,10 @@ final class AppContainer {
         if s.memoryEnabled != memoryOn {
             memoryOn = s.memoryEnabled
             shared.setMemory(memoryOn ? memory.host : nil)
+        }
+        if s.vaultEnabled != vaultOn {
+            vaultOn = s.vaultEnabled
+            shared.setVault(vaultOn ? vault.host : nil)
         }
         if s.webSearchOn != searchOn {
             searchOn = s.webSearchOn
@@ -168,11 +187,12 @@ final class AppContainer {
     /// Model registry changed: refresh the built-in providers and the bridge's model snapshot.
     func modelsChanged() {
         guard dataLoaded else { return }
+        vault.embedder.update(library)
         syncLocalProvider()
         #if canImport(AutobotShared)
         var map: [String: HostSnapshots.LocalModel] = [:]
         let device = DeviceProfile.current()
-        for model in library.models where model.isReady && model.engine == .llama {
+        for model in library.models where model.isLocalChat {
             let paths = library.paths(model)
             guard let path = paths[.model] else { continue }
             let context = min(model.manifest.recommended?.contextLength ?? LocalChatProvider.defaultContext, LocalChatProvider.maxContext)
@@ -183,6 +203,22 @@ final class AppContainer {
         }
         snapshots.setModels(map)
         #endif
+    }
+
+    /**
+     iOS relaunched (or woke) the app in the background for a model download's session events.
+     Only the model registry is loaded (no UI, conversations or other repositories), and only while
+     the device is unlocked: the registry's key is not readable while it is locked. Then a finished
+     body stays on disk and the queue continues on the next unlock or launch.
+     */
+    func resumeDownloadsInBackground(_ identifier: String) {
+        downloader.attachBackgroundSession(identifier)
+        guard !dataLoaded, UIApplication.shared.isProtectedDataAvailable else {
+            BackgroundEvents.shared.check()
+            return
+        }
+        library.load()
+        downloader.recoverAfterRestart()
     }
 
     /**
@@ -212,6 +248,8 @@ final class AppContainer {
         mcpServers.load(rows.mcpServers)
         gallery.load(rows.gallery)
         memory.load(rows.memory)
+        // The vault reads its documents on the bridge's own thread and publishes on main.
+        vault.load()
         library.load(rows.library)
         compute.load(rows.compute)
         downloader.recoverAfterRestart()
@@ -229,7 +267,7 @@ final class AppContainer {
      `OnDeviceBackendSync`).
      */
     func syncLocalProvider() {
-        let installed = library.models.filter { $0.isReady && $0.engine == .llama }.sorted { $0.addedAt < $1.addedAt }.map(\.id)
+        let installed = library.models.filter(\.isLocalChat).sorted { $0.addedAt < $1.addedAt }.map(\.id)
         let ready = installed + (AppleIntelligence.unavailability == nil ? [AppleIntelligence.id] : [])
         let existing = providers.get(ProviderPresets.localProviderId)
         if ready.isEmpty {

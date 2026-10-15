@@ -21,6 +21,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var onboarded = false
     /// Local memory for the agent (off by default).
     var memoryEnabled = false
+    /// Private vault: the agent may search the user's indexed documents (off by default).
+    var vaultEnabled = false
     /// `SearchProvider` name: `NONE` (web search off), `SEARXNG` or `BRAVE`.
     var searchProvider = "NONE"
     /// SearXNG instance URL. The Brave key is in the Keychain (`AppSettings.SEARCH_API_KEY_REF`).
@@ -61,6 +63,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             incognitoByDefault: incognitoByDefault,
             onboarded: onboarded,
             memoryEnabled: memoryEnabled,
+            vaultEnabled: vaultEnabled,
             searchProvider: SettingsSchema.shared.searchProvider(value: searchProvider),
             searchBaseUrl: searchBaseUrl,
             searchRoute: SettingsSchema.shared.searchRoute(value: searchRoute.rawValue),
@@ -82,6 +85,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         incognitoByDefault = s.incognitoByDefault
         onboarded = s.onboarded
         memoryEnabled = s.memoryEnabled
+        vaultEnabled = s.vaultEnabled
         searchProvider = s.searchProvider.name
         searchBaseUrl = s.searchBaseUrl
         searchRoute = ProviderRouting(rawValue: s.searchRoute.name) ?? .inherit
@@ -150,6 +154,7 @@ final class SettingsStore {
     func setIncognitoByDefault(_ enabled: Bool) { update { $0.incognitoByDefault = enabled } }
     func setOnboarded() { update { $0.onboarded = true } }
     func setMemoryEnabled(_ enabled: Bool) { update { $0.memoryEnabled = enabled } }
+    func setVaultEnabled(_ enabled: Bool) { update { $0.vaultEnabled = enabled } }
     func setQuotaFallback(_ enabled: Bool) { update { $0.quotaFallback = enabled } }
 
     func setWebSearch(provider: String, baseUrl: String, route: ProviderRouting) {

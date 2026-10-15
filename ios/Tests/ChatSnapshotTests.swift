@@ -29,6 +29,7 @@ struct ChatSnapshotTests {
         app.agent.preview(chat.id, state: Self.chatState(chat.id))
 
         let empty = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
+        app.conversations.setPinned([agent.id], true)
 
         for mode in [ThemeMode.dark, .light] {
             let suffix = mode == .dark ? "dark" : "light"
@@ -36,6 +37,7 @@ struct ChatSnapshotTests {
             try await snapshot(ChatScreen(conversationId: chat.id), app, nav, mode, "\(dir)/chat-plain-\(suffix).png")
             try await snapshot(ChatScreen(conversationId: empty.id), app, nav, mode, "\(dir)/chat-empty-\(suffix).png")
             try await snapshot(ChatListScreen(), app, nav, mode, "\(dir)/chat-list-\(suffix).png")
+            try await snapshot(ChatListScreen(query: "list"), app, nav, mode, "\(dir)/chat-list-search-\(suffix).png")
         }
     }
 

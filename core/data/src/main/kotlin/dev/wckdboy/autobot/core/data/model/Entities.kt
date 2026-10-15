@@ -8,7 +8,11 @@ import androidx.room.PrimaryKey
 import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 
-/** A chat thread. [providerId]/[model] record the last selection for this conversation. */
+/**
+ * A chat thread. [providerId]/[model] record the last selection for this conversation. [pinned]
+ * chats float to the top of the list, [archived] ones only show in the archive; [folderId] is a
+ * [ChatFolderRow] (null: no folder).
+ */
 @Entity(tableName = "conversations", indices = [Index("updatedAt")])
 data class Conversation(
     @PrimaryKey val id: String,
@@ -17,6 +21,39 @@ data class Conversation(
     val model: String?,
     val createdAt: Long,
     val updatedAt: Long,
+    @ColumnInfo(defaultValue = "0") val pinned: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val archived: Boolean = false,
+    @ColumnInfo(defaultValue = "NULL") val folderId: String? = null,
+)
+
+/** A folder chats can be moved into. Deleting it moves its chats out (they are kept). */
+@Entity(tableName = "chat_folders")
+data class ChatFolderRow(
+    @PrimaryKey val id: String,
+    val name: String,
+    val createdAt: Long,
+)
+
+/**
+ * A chat's searchable text (its prompts and replies, see `:shared` `ChatSearch`), denormalized
+ * from the session log as it is written. Deleted with its conversation.
+ */
+@Entity(
+    tableName = "conversation_text",
+    foreignKeys = [
+        ForeignKey(entity = Conversation::class, parentColumns = ["id"], childColumns = ["conversationId"], onDelete = ForeignKey.CASCADE),
+    ],
+)
+data class ConversationTextRow(
+    @PrimaryKey val conversationId: String,
+    val text: String,
+)
+
+/** A search candidate: a chat whose title or text contains the pre-filter term. */
+data class ConversationSearchRow(
+    val id: String,
+    val title: String,
+    val text: String?,
 )
 
 enum class MessageRole { SYSTEM, USER, ASSISTANT }

@@ -59,4 +59,17 @@ protocol AgentRuntime: AnyObject {
     func discard(_ conversationId: String)
     /// Panic wipe: stop everything and drop in-memory logs.
     func shutdown()
+    /// Undoes one file step of the agent (and later changes to the same files); idle sessions only.
+    func undoStep(_ conversationId: String, callId: String)
+    /// Undoes every file change of [turn].
+    func undoTurn(_ conversationId: String, turn: Int)
+    /// Re-applies what an undo ([revertId]) put back.
+    func redo(_ conversationId: String, revertId: String)
+}
+
+/// Runtimes without file tools have nothing to undo.
+extension AgentRuntime {
+    func undoStep(_ conversationId: String, callId: String) {}
+    func undoTurn(_ conversationId: String, turn: Int) {}
+    func redo(_ conversationId: String, revertId: String) {}
 }

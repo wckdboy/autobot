@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.feature.settings
 
+import dev.wckdboy.autobot.agent.runtime.ChatLibrary
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,9 +25,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -45,6 +46,7 @@ import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
+import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
@@ -68,6 +70,7 @@ data class SettingsUiState(
     val lockTimeoutMillis: Long = AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS,
     val incognitoByDefault: Boolean = false,
     val memoryEnabled: Boolean = false,
+    val vaultEnabled: Boolean = false,
     val quotaFallback: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.NONE,
     val offline: Boolean = false,
@@ -76,6 +79,7 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
+    private val chats: ChatLibrary,
     appLockManager: AppLockManager,
 ) : ViewModel() {
     private val lockAvailable = appLockManager.canAuthenticate()
@@ -90,6 +94,7 @@ class SettingsViewModel @Inject constructor(
             lockTimeoutMillis = it.lockTimeoutMillis,
             incognitoByDefault = it.incognitoByDefault,
             memoryEnabled = it.memoryEnabled,
+            vaultEnabled = it.vaultEnabled,
             quotaFallback = it.quotaFallback,
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
@@ -104,6 +109,9 @@ class SettingsViewModel @Inject constructor(
     fun setIncognitoByDefault(enabled: Boolean) = launch { settings.setIncognitoByDefault(enabled) }
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
+
+    /** Deletes every chat, stored and incognito, for good (running turns are stopped first). */
+    fun deleteAllChats() = launch { chats.deleteAll() }
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
@@ -121,11 +129,27 @@ fun SettingsRoute(
     onOpenImageBackends: () -> Unit = {},
     onOpenMcpServers: () -> Unit = {},
     onOpenMemory: () -> Unit = {},
+    onOpenVault: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showBackup by rememberSaveable { mutableStateOf(false) }
     var showSearch by rememberSaveable { mutableStateOf(false) }
+    var confirmDeleteChats by rememberSaveable { mutableStateOf(false) }
+    if (confirmDeleteChats) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteChats = false },
+            title = { Text("Delete all chats?") },
+            text = { Text("Every session, its encrypted history, tool calls, approvals and attached images is removed from this phone. Folders, memory notes and workspace files stay. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteAllChats()
+                    confirmDeleteChats = false
+                }) { Text("DELETE ALL", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { Text("CANCEL") } },
+        )
+    }
     if (showBackup) BackupDialog(onDismiss = { showBackup = false })
     if (showSearch) WebSearchDialog(onDismiss = { showSearch = false })
     SettingsScreen(
@@ -144,8 +168,10 @@ fun SettingsRoute(
         onOpenBackup = { showBackup = true },
         onMemoryEnabled = viewModel::setMemoryEnabled,
         onOpenMemory = onOpenMemory,
+        onOpenVault = onOpenVault,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
+        onDeleteAllChats = { confirmDeleteChats = true },
     )
 }
 
@@ -167,8 +193,10 @@ fun SettingsScreen(
     onOpenMcpServers: () -> Unit = {},
     onMemoryEnabled: (Boolean) -> Unit = {},
     onOpenMemory: () -> Unit = {},
+    onOpenVault: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
+    onDeleteAllChats: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -203,6 +231,11 @@ fun SettingsScreen(
                 onMemoryEnabled,
             )
             NavigationRow("Memory notes", "View, search, edit and delete what the agent remembers", onOpenMemory)
+            NavigationRow(
+                "Vault",
+                if (state.vaultEnabled) "On · your files, searched by meaning on this phone" else "Off · private search over your own files",
+                onOpenVault,
+            )
             SwitchRow(
                 "On limit, fall back",
                 "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",
@@ -231,17 +264,14 @@ fun SettingsScreen(
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             SectionHeader("Appearance")
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                ThemeMode.entries.forEachIndexed { index, mode ->
-                    SegmentedButton(
-                        selected = state.themeMode == mode,
-                        onClick = { onThemeMode(mode) },
-                        shape = SegmentedButtonDefaults.itemShape(index, ThemeMode.entries.size),
-                    ) {
-                        Text(mode.name.lowercase().replaceFirstChar(Char::titlecase))
-                    }
-                }
-            }
+            // The ink segmented control: its selection block slides and leaves a registration ghost.
+            Segmented(
+                ThemeMode.entries,
+                state.themeMode,
+                onThemeMode,
+                { it.name.lowercase() },
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
             SwitchRow("AMOLED black", "Pure black backgrounds in dark theme", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
             SwitchRow("Dynamic color", "Use wallpaper colors instead of the underground palette", state.dynamicColor, onDynamicColor)
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -283,6 +313,18 @@ fun SettingsScreen(
                 state.incognitoByDefault,
                 onIncognitoByDefault,
             )
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onDeleteAllChats).padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Column {
+                    Text("Delete all chats", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                    Text(
+                        "Remove every session from this phone; folders and memory stay",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

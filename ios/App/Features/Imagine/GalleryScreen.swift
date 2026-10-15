@@ -51,17 +51,19 @@ struct GalleryScreen: View {
             }
             .stamp(message) { $0 != nil }
             if items.isEmpty {
-                Spacer()
                 MicroLabel(all.isEmpty ? "nothing generated yet" : "no matches")
-                Spacer()
+                    .fixedSize()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .inkGround()
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 4)], spacing: 4) {
                         ForEach(items) { item in
-                            Thumb(item: item).onTapGesture { open = item.id }
+                            Thumb(item: item).onTapGesture { open = item.id }.transition(.inkDissolve)
                         }
                     }
                     .padding(8)
+                    .animation(.inkDissolve, value: items.map(\.id))
                 }
             }
         }
@@ -89,7 +91,7 @@ private struct Thumb: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.clear
-            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            if let image { Image(uiImage: image).resizable().scaledToFill().transition(.opacity) }
             if item.favorite {
                 Image(systemName: "star.fill").font(.system(size: 12)).foregroundStyle(AutobotColors.amber).padding(4)
             }
@@ -106,7 +108,7 @@ private struct Thumb: View {
             }
             guard let bytes = await app.gallery.thumbnail(item.id), let decoded = await decodeImage(bytes) else { return }
             ThumbCache.images[item.id] = decoded
-            image = decoded
+            withAnimation(.inkReduced) { image = decoded }
         }
     }
 }
@@ -124,6 +126,8 @@ private struct DetailView: View {
     @State private var confirmDelete = false
     @State private var confirmExport = false
     @State private var upscaling: String?
+    /// Tiles done / total while upscaling (nil until the first tile).
+    @State private var upscaleTiles: (done: Int, total: Int)?
     /// The "saved" stamp after an export.
     @State private var saved = false
     private let upscaler = LocalUpscale()
@@ -165,7 +169,7 @@ private struct DetailView: View {
                                 }.onEnded { _ in baseOffset = offset }),
                         )
                 } else {
-                    MicroLabel("decrypting…")
+                    InkLoader(.block, caption: "decrypting")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -209,12 +213,15 @@ private struct DetailView: View {
                             onMessage("Parameters copied")
                         }
                         if upscaling != nil || GalleryUpscale.canUpscale(item) {
-                            Tag(upscaling == nil ? "upscale 4×" : "upscaling…", accent: c.primary) { upscale(current) }
+                            Tag("upscale 4×", accent: c.primary, busy: upscaling != nil) { upscale(current) }
                         }
                         Tag("export", accent: AutobotColors.amber) { confirmExport = true }
                         Tag("delete", accent: c.error) { confirmDelete = true }
                     }
-                    if let upscaling { MicroLabel(upscaling, color: c.primary, lines: 2) }
+                    if let upscaling {
+                        InkProgressBar(upscaleTiles.map { .progress(Double($0.done) / Double(max($0.total, 1)), running: true) } ?? .indeterminate, height: 2)
+                        MicroLabel(upscaling, color: c.primary, lines: 2)
+                    }
                     Spacer().frame(height: 8)
                 }
                 .padding(14)
@@ -244,11 +251,15 @@ private struct DetailView: View {
     /// Upscales 4× on the Neural Engine and opens the new gallery item.
     private func upscale(_ item: GalleryItem) {
         guard upscaling == nil else { return }
-        upscaling = "upscaling 4× on the neural engine…"
+        upscaling = "upscaling 4× on the neural engine"
+        upscaleTiles = nil
         Task {
             do {
                 let copy = try await GalleryUpscale.run(item, app: app, upscale: upscaler) { done, total in
-                    Task { @MainActor in upscaling = "upscaling 4× on the neural engine · tile \(done)/\(total)" }
+                    Task { @MainActor in
+                        upscaling = "upscaling 4× on the neural engine · tile \(done)/\(total)"
+                        upscaleTiles = (done, total)
+                    }
                 }
                 upscaling = nil
                 onMessage("Upscaled to \(copy.width)×\(copy.height)")

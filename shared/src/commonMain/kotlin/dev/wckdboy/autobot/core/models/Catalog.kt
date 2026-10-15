@@ -169,5 +169,37 @@ object Catalog {
     /** Read-aloud voices this catalog's engines run (Android: Kokoro on ONNX Runtime; iOS's is [CoreMLCatalog.voices]). */
     val voiceModels: List<ModelPlan> = listOf(KokoroCatalog.onnx)
 
-    val all: List<ModelPlan> get() = chatModels + imageModels + speechModels + voiceModels
+    private const val QWEN3_EMBEDDING = "Qwen/Qwen3-Embedding-0.6B-GGUF"
+    private const val QWEN3_EMBEDDING_REVISION = "370f27d7550e0def9b39c1f16d3fbaa13aa67728"
+
+    /**
+     * Embeddings for the private vault (llama.cpp in embedding mode, last-token pooling, 100+
+     * languages). Pinned: revision, size and SHA-256 verified against the Hub (2026-10).
+     */
+    val embeddingModels: List<ModelPlan> = listOf(
+        ModelPlan(
+            id = "catalog:qwen3-embedding-0.6b-q8_0",
+            kind = ModelKind.EMBEDDING,
+            source = ModelSource.CATALOG,
+            title = "Qwen3 Embedding 0.6B",
+            subtitle = "Q8_0 · private vault search · 100+ languages",
+            format = ModelFormat.GGUF,
+            engine = EngineKind.LLAMA,
+            baseModel = "Qwen3-Embedding-0.6B",
+            license = "apache-2.0",
+            manifest = ModelManifest(
+                files = listOf(
+                    ModelFile(
+                        FileRole.MODEL, "Qwen3-Embedding-0.6B-Q8_0.gguf",
+                        "$HF/$QWEN3_EMBEDDING/resolve/$QWEN3_EMBEDDING_REVISION/Qwen3-Embedding-0.6B-Q8_0.gguf", 639_150_592,
+                        "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439", AuthHost.HUGGING_FACE,
+                    ),
+                ),
+                pageUrl = "$HF/$QWEN3_EMBEDDING",
+                notes = "Used by Settings › Vault; indexes and searches your files on this phone.",
+            ),
+        ),
+    )
+
+    val all: List<ModelPlan> get() = chatModels + imageModels + speechModels + voiceModels + embeddingModels
 }

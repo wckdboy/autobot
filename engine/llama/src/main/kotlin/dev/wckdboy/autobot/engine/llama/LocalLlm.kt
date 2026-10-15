@@ -9,11 +9,13 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.RemoteException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /** Events of one on-device completion. */
@@ -103,6 +105,27 @@ class LocalLlm(context: Context, private val idleMillis: Long = 5 * 60_000L) {
             runCatching { binder.unlinkToDeath(death, 0) }
             runCatching { if (binder.isBinderAlive) e.cancel() }
             synchronized(this@LocalLlm) {
+                active--
+                if (active == 0) main.postDelayed(unbindLater, idleMillis)
+            }
+        }
+    }
+
+    /**
+     * Embeds [texts] with the GGUF embedding model at [modelPath], in the engine process: one
+     * L2-normalised vector per text. Throws when the model cannot be loaded or run.
+     */
+    suspend fun embed(modelPath: String, texts: List<String>): List<FloatArray> {
+        if (texts.isEmpty()) return emptyList()
+        val e = connect()
+        synchronized(this) { active++ }
+        try {
+            val flat = withContext(Dispatchers.IO) { e.embed(modelPath, texts.toTypedArray()) }
+                ?: throw IllegalStateException("The embedding model could not be loaded or run")
+            val dims = flat.size / texts.size
+            return List(texts.size) { i -> flat.copyOfRange(i * dims, (i + 1) * dims) }
+        } finally {
+            synchronized(this) {
                 active--
                 if (active == 0) main.postDelayed(unbindLater, idleMillis)
             }

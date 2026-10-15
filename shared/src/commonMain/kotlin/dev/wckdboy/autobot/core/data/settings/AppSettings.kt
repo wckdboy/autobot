@@ -23,6 +23,8 @@ data class AppSettings(
     val onboarded: Boolean = false,
     /** Local memory: the agent may recall and save notes. Off by default. */
     val memoryEnabled: Boolean = false,
+    /** Private vault: the agent may search the user's indexed documents (`vault_search`). Off by default. */
+    val vaultEnabled: Boolean = false,
     /** `web_search` provider; [SearchProvider.NONE] keeps the tool away from the agent. */
     val searchProvider: SearchProvider = SearchProvider.NONE,
     /** SearXNG instance URL (Brave uses its fixed API host). The Brave key lives in the secret store. */
@@ -59,6 +61,7 @@ object SettingsSchema {
     const val INCOGNITO_DEFAULT = "incognito_default"
     const val ONBOARDED = "onboarded"
     const val MEMORY_ENABLED = "memory_enabled"
+    const val VAULT_ENABLED = "vault_enabled"
     const val SEARCH_PROVIDER = "search_provider"
     const val SEARCH_BASE_URL = "search_base_url"
     const val SEARCH_ROUTE = "search_route"
@@ -86,6 +89,7 @@ object SettingsSchema {
         INCOGNITO_DEFAULT to settings.incognitoByDefault.toString(),
         ONBOARDED to settings.onboarded.toString(),
         MEMORY_ENABLED to settings.memoryEnabled.toString(),
+        VAULT_ENABLED to settings.vaultEnabled.toString(),
         SEARCH_PROVIDER to settings.searchProvider.name,
         SEARCH_BASE_URL to settings.searchBaseUrl,
         SEARCH_ROUTE to settings.searchRoute.name,
@@ -106,6 +110,7 @@ object SettingsSchema {
             incognitoByDefault = bool(INCOGNITO_DEFAULT, defaults.incognitoByDefault),
             onboarded = bool(ONBOARDED, defaults.onboarded),
             memoryEnabled = bool(MEMORY_ENABLED, defaults.memoryEnabled),
+            vaultEnabled = bool(VAULT_ENABLED, defaults.vaultEnabled),
             searchProvider = searchProvider(values[SEARCH_PROVIDER]),
             searchBaseUrl = values[SEARCH_BASE_URL]?.trim().orEmpty(),
             searchRoute = searchRoute(values[SEARCH_ROUTE]),

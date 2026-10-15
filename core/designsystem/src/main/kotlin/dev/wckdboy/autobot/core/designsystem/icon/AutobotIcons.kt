@@ -161,6 +161,14 @@ object AutobotIcons {
         }
     }
 
+    /** Push pin: a chat pinned to the top of the list. */
+    val Pin: ImageVector by lazy {
+        icon("Pin") {
+            moveTo(9f, 3f); lineTo(15f, 3f); moveTo(10f, 3f); lineTo(10f, 9f); lineTo(6f, 14f); lineTo(18f, 14f)
+            lineTo(14f, 9f); lineTo(14f, 3f); moveTo(12f, 14f); lineTo(12f, 21f)
+        }
+    }
+
     /** Down arrow into tray: download / save. */
     val Download: ImageVector by lazy {
         icon("Download") {

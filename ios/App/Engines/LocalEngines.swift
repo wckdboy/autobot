@@ -166,7 +166,23 @@ final class LocalLlm: Sendable {
         #endif
     }
 
-    /// Frees the resident model (panic wipe; image generation does it through [EngineMemory]).
+    /// Embeds [texts] with the GGUF embedding model at [modelPath] (the private vault). It shares
+    /// llama.cpp with the chat model, so it counts as the chat engine for [EngineMemory].
+    func embed(modelPath: String, texts: [String]) async throws -> [[Float]] {
+        #if canImport(AutobotEngines)
+        do {
+            return try await EngineMemory.using(.llm) {
+                try await LlamaEngine.shared.embed(modelPath: modelPath, texts: texts)
+            }
+        } catch {
+            throw Engines.map(error)
+        }
+        #else
+        throw EngineUnavailable()
+        #endif
+    }
+
+    /// Frees the resident models (panic wipe; image generation does it through [EngineMemory]).
     func unload() async {
         await EngineMemory.shared.release([.llm])
     }

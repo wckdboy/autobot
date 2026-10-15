@@ -8,13 +8,17 @@ struct NavItem<K: Hashable>: Hashable {
 
 /**
  Bottom navigation as in the print mockups: mono labels only, a red dot above the active one,
- a hairline on top.
+ a hairline on top. The dot slides to a new tab with ease-out and leaves a one-frame
+ registration ghost.
  */
 struct AutobotNavBar<K: Hashable>: View {
     let items: [NavItem<K>]
     let selected: K?
     let onSelect: (K) -> Void
     @Environment(\.scheme) private var c
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var marker
+    @State private var ghost = InkSelectionGhost()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -22,9 +26,13 @@ struct AutobotNavBar<K: Hashable>: View {
                 let active = item.key == selected
                 Button { onSelect(item.key) } label: {
                     VStack(spacing: 0) {
-                        Circle()
-                            .fill(active ? c.primary : .clear)
-                            .frame(width: Tokens.Spacing.navDot, height: Tokens.Spacing.navDot)
+                        ZStack {
+                            if ghost.key == AnyHashable(item.key) {
+                                Circle().fill(c.primary.opacity(0.4)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
+                            }
+                            if active { Circle().fill(c.primary).matchedGeometryEffect(id: "dot", in: marker) }
+                        }
+                        .frame(width: Tokens.Spacing.navDot, height: Tokens.Spacing.navDot)
                         Spacer().frame(height: Tokens.Spacing.navDotGap)
                         Text(item.label.uppercased())
                             .textStyle(.labelMedium)
@@ -37,6 +45,8 @@ struct AutobotNavBar<K: Hashable>: View {
                 .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
             }
         }
+        .animation(reduceMotion ? .inkReduced : .inkSlide, value: selected)
+        .onChange(of: selected) { old, _ in if let old { ghost.moved(from: AnyHashable(old), reduceMotion: reduceMotion) } }
         .background(c.background)
         .hairlineEdge(top: true, bottom: false)
     }

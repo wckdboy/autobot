@@ -25,7 +25,7 @@ struct LocalChatProvider: ChatProvider {
 
     private func run(_ request: ChatRequest, emit: @escaping @Sendable (ChatEvent) -> Void) async {
         let resolved: (path: URL, mmproj: URL?, context: Int, backend: Backend)? = await MainActor.run {
-            guard let model = library.get(request.model), model.isReady, model.engine == .llama,
+            guard let model = library.get(request.model), model.isLocalChat,
                   let path = library.paths(model)[.model] else { return nil }
             let context = min(model.manifest.recommended?.contextLength ?? Self.defaultContext, Self.maxContext)
             return (path, library.paths(model)[.mmproj], context, compute.resolve(model))
@@ -73,7 +73,7 @@ struct LocalChatProvider: ChatProvider {
     func testConnection() async -> ConnectionTestResult {
         do {
             _ = try await engine.systemInfo()
-            let count = await MainActor.run { library.models.filter { $0.isReady && $0.engine == .llama }.count }
+            let count = await MainActor.run { library.models.filter(\.isLocalChat).count }
             return .success(modelCount: count)
         } catch {
             return .failure(.server, error.localizedDescription)

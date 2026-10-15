@@ -45,6 +45,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
+import dev.wckdboy.autobot.core.designsystem.component.InkLoader
+import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Panel
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
@@ -114,7 +116,7 @@ class ComputeViewModel @Inject constructor(
     private val device = MutableStateFlow<DeviceProfile?>(null)
 
     val uiState: StateFlow<ComputeUiState> = combine(library.models, profile.benchmarks, devices, running, device) { models, results, d, r, p ->
-        val runnable = models.filter { it.isReady && (it.engine == EngineKind.LLAMA || (it.engine == EngineKind.NPU && it.manifest.npu?.arch != "upscaler")) }
+        val runnable = models.filter { it.isReady && (it.isLocalChat || (it.engine == EngineKind.NPU && it.manifest.npu?.arch != "upscaler")) }
         ComputeUiState(
             device = p,
             devices = d,
@@ -196,7 +198,7 @@ class ComputeViewModel @Inject constructor(
         if (running.value != null) return
         viewModelScope.launch {
             val backends = devices.value?.llmBackends ?: setOf(Backend.CPU)
-            running.value = "starting…"
+            running.value = "starting"
             try {
                 bench.run(model, backends) { running.value = it }
             } finally {
@@ -231,7 +233,7 @@ fun ComputeRoute(onBack: () -> Unit, viewModel: ComputeViewModel = hiltViewModel
                 SectionLabel("this phone" + (state.device?.let { " · ${it.label}" } ?: ""))
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DeviceCard("cpu", state.device?.let { "${it.cores} cores" } ?: "…", true, Modifier.weight(1f))
+                    DeviceCard("cpu", state.device?.let { "${it.cores} cores" }, true, Modifier.weight(1f))
                     DeviceCard("gpu", state.devices?.gpu ?: "none", state.devices?.gpu != null, Modifier.weight(1f))
                     DeviceCard("npu", state.devices?.npu ?: "none", state.devices?.npu != null, Modifier.weight(1f))
                 }
@@ -242,7 +244,11 @@ fun ComputeRoute(onBack: () -> Unit, viewModel: ComputeViewModel = hiltViewModel
             }
             system?.let { s -> item { SystemModelRow(s, onDownload = viewModel::downloadSystemModel) } }
             item {
-                state.running?.let { MicroLabel("benchmarking · $it", color = MaterialTheme.colorScheme.primary) }
+                state.running?.let {
+                    MicroLabel("benchmarking · $it", color = MaterialTheme.colorScheme.primary)
+                    // The benchmark reports phases, not a fraction: the indeterminate ink bar.
+                    InkProgressBar(null, Modifier.fillMaxWidth().padding(vertical = 6.dp).height(2.dp))
+                }
                 SectionLabel("models · auto picks the fastest measured backend", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(state.models, key = { it.model.id }) { cm -> ModelCompute(cm, state, viewModel) }
@@ -304,9 +310,10 @@ private fun SystemModelRow(status: SystemModelStatus, onDownload: () -> Unit) {
 }
 
 @Composable
-private fun DeviceCard(label: String, value: String, present: Boolean, modifier: Modifier = Modifier) {
+private fun DeviceCard(label: String, value: String?, present: Boolean, modifier: Modifier = Modifier) {
     Panel(modifier, title = label, accent = if (present) MaterialTheme.colorScheme.primary else null) {
-        Text(value, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = if (present) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+        // Still probing the device: an inline loader instead of a placeholder.
+        if (value == null) InkLoader(Modifier.padding(vertical = 2.dp)) else Text(value, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = if (present) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -116,6 +116,7 @@ struct FileFetcher: Sendable {
             } else if step is FetchStepRestart {
                 try? FileManager.default.removeItem(at: part)
                 TransferResume.discard(TransferResume.file(for: part))
+                CompletedTransfer.discard(TransferResume.file(for: part))
                 step = FetchStepNext.shared
             } else if let fail = step as? FetchStepFail {
                 throw DownloadError(fail.error)
@@ -229,7 +230,12 @@ struct FileFetcher: Sendable {
         try out.seekToEnd()
         let input = try FileHandle(forReadingFrom: chunk)
         defer { try? input.close() }
-        while let data = try input.read(upToCount: 4 << 20), !data.isEmpty { try out.write(contentsOf: data) }
+        // One pool per chunk: a multi-gigabyte copy must not keep every chunk alive until it returns.
+        while try autoreleasepool(invoking: {
+            guard let data = try input.read(upToCount: 4 << 20), !data.isEmpty else { return false }
+            try out.write(contentsOf: data)
+            return true
+        }) {}
         try out.synchronize()
     }
 
@@ -237,7 +243,11 @@ struct FileFetcher: Sendable {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let data = try handle.read(upToCount: 4 << 20), !data.isEmpty { hasher.update(data: data) }
+        while try autoreleasepool(invoking: {
+            guard let data = try handle.read(upToCount: 4 << 20), !data.isEmpty else { return false }
+            hasher.update(data: data)
+            return true
+        }) {}
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
@@ -257,6 +267,13 @@ struct FileFetcher: Sendable {
  relaunch [reconnect] finds the transfers an earlier process left running; the fetch of the same
  part file adopts its transfer instead of starting a second one, and [dropOrphans] stops the
  rest (keeping their resume data).
+
+ The sessions send launch events: when a transfer finishes while the app is suspended or was
+ terminated by the system, iOS relaunches it in the background ([BackgroundEvents]). A body that
+ finishes with no fetch waiting for it is kept on disk next to its part file ([CompletedTransfer])
+ so it survives until the downloader (which needs the unlocked device for the model registry)
+ verifies and stores it, and then starts the next file in the same session. A transfer the user
+ cancelled by swiping the app away is reported to [ForceQuitNotice]; its resume data is kept.
  */
 final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelegate, Sendable {
     static let identifier = "ai.wckd.autobot.models"
@@ -318,6 +335,12 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
         progress: @escaping @Sendable (Int64) -> Void,
     ) async throws -> (URL, HTTPURLResponse) {
         let session = session(for: proxy)
+        if let resume, let done = CompletedTransfer.take(resume, matching: request) {
+            // Finished while no process was waiting for it (a background relaunch, or before this one).
+            let tag = TransferResume.tag(resume)
+            state.withLock { s in s.orphans = s.orphans.filter { $0.value.task.taskDescription != tag } }
+            return done
+        }
         if let resume, let adopted = await adoptable(resume, request: request, session: session, vetHop: vetHop) {
             return try await run(session, adopted.task, request: request, vetted: adopted.vetted, resume: resume, vetHop: vetHop, progress: progress)
         }
@@ -365,9 +388,14 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
                 if let finished {
                     var e = entry
                     e.file = finished.file
-                    continuation.resume(with: outcome(e, task, error: nil))
+                    if e.file == nil, let resume, let done = CompletedTransfer.take(resume, matching: request) {
+                        continuation.resume(returning: done)
+                    } else {
+                        continuation.resume(with: outcome(e, task, error: nil))
+                    }
                 } else {
                     task.resume()
+                    Task { @MainActor in BackgroundEvents.shared.check() }
                 }
             }
         } onCancel: {
@@ -517,7 +545,8 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
             if let existing = s[route] { return existing }
             let config = makeConfiguration("\(Self.identifier).\(route)")
             config.isDiscretionary = false
-            config.sessionSendsLaunchEvents = false
+            // Relaunch the app in the background when a transfer finishes, so the next file starts.
+            config.sessionSendsLaunchEvents = true
             config.urlCache = nil
             config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
             config.httpCookieStorage = nil
@@ -534,6 +563,16 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
             }
             return session
         }
+    }
+
+    /// Whether a transfer a fetch is waiting for is running (the queue goes on without the app).
+    var hasActiveTransfer: Bool { state.withLock { !$0.pending.isEmpty } }
+
+    /// iOS relaunched the app for [identifier]: recreate that session so its events are delivered.
+    func attach(identifier: String) {
+        let prefix = Self.identifier + "."
+        guard identifier.hasPrefix(prefix), let proxy = Self.proxy(route: String(identifier.dropFirst(prefix.count))) else { return }
+        _ = session(for: proxy)
     }
 
     /// The session key of a route (part of the background session identifier).
@@ -569,14 +608,18 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
                 s.pending[key]?.file = moved ? kept : nil
                 return true
             }
-            // Finished while no process was there: kept for the fetch that adopts it.
+            // Finished while no fetch was waiting: kept on disk for the fetch that adopts it.
             guard downloadTask.taskDescription != nil else { return false }
             var orphan = s.orphans[key] ?? Orphan(task: downloadTask)
-            orphan.file = moved ? kept : nil
+            orphan.file = nil
             s.orphans[key] = orphan
             return true
         }
-        if !owned, moved { try? FileManager.default.removeItem(at: kept) }
+        if owned, moved, let tag = downloadTask.taskDescription, state.withLock({ $0.pending[key] == nil }) {
+            if !CompletedTransfer.keep(kept, task: downloadTask, at: TransferResume.path(tag)) { try? FileManager.default.removeItem(at: kept) }
+        } else if !owned, moved {
+            try? FileManager.default.removeItem(at: kept)
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -590,6 +633,7 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
         guard let entry else {
             // An earlier process's transfer that failed: keep what it received.
             if let tag = task.taskDescription { Self.keep((error as? URLError)?.downloadTaskResumeData, task: task, request: nil, at: TransferResume.path(tag)) }
+            if ForceQuitNotice.isForceQuit(error) { ForceQuitNotice.record() }
             return
         }
         let outcome = outcome(entry, task, error: error)
@@ -602,6 +646,11 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
             return s.pending.removeValue(forKey: key)
         }
         deliver?.continuation.resume(with: outcome)
+    }
+
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        guard let identifier = session.configuration.identifier else { return }
+        Task { @MainActor in BackgroundEvents.shared.didFinishEvents(identifier) }
     }
 
     private func outcome(_ entry: Pending, _ task: URLSessionTask, error: Error?) -> Outcome {
@@ -626,5 +675,69 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
         } else {
             return .failure(DownloadError(message: "Download produced no data"))
         }
+    }
+}
+
+/**
+ A background transfer body that finished with no fetch waiting for it (the app was relaunched in
+ the background, or the device was locked so the model registry could not be read). The body is
+ kept next to the part file (`*.part.resume.body`, under the models directory's
+ until-first-unlock protection) with what it answered (`*.part.resume.done`: the resource, the
+ range, the status), so it survives until a fetch of the same part file takes it, even across
+ another relaunch. Only bodies that ended at the URL they were requested from are kept: a
+ redirect no kill switch vetted is discarded.
+ */
+struct CompletedTransfer: Codable, Equatable, Sendable {
+    /// [TransferResume.resource] of the request (no query: hub CDN signatures are not stored).
+    let resource: String
+    let range: String?
+    let status: Int
+
+    static func body(_ resume: URL) -> URL { resume.appendingPathExtension("body") }
+    static func record(_ resume: URL) -> URL { resume.appendingPathExtension("done") }
+
+    /// Keeps [file] (the finished body of [task]) for the part file of [resume]; false when it is not kept.
+    @discardableResult
+    static func keep(_ file: URL, task: URLSessionTask, at resume: URL) -> Bool {
+        guard let original = task.originalRequest, let response = task.response as? HTTPURLResponse,
+              let resource = TransferResume.resource(original.url), TransferResume.resource(response.url) == resource else { return false }
+        return keep(file, record: CompletedTransfer(resource: resource, range: original.value(forHTTPHeaderField: "Range"), status: response.statusCode), at: resume)
+    }
+
+    static func keep(_ file: URL, record: CompletedTransfer, at resume: URL) -> Bool {
+        let fm = FileManager.default
+        // Only into an existing model directory (a removed model stays removed).
+        guard fm.fileExists(atPath: resume.deletingLastPathComponent().path), let data = try? JSONEncoder().encode(record) else { return false }
+        try? fm.removeItem(at: body(resume))
+        do {
+            try fm.moveItem(at: file, to: body(resume))
+            try data.write(to: self.record(resume), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return true
+        } catch {
+            discard(resume)
+            return false
+        }
+    }
+
+    /// The kept body for [resume] when it answers [request] (same resource and range); removes it either way.
+    static func take(_ resume: URL, matching request: URLRequest) -> (URL, HTTPURLResponse)? {
+        let fm = FileManager.default
+        guard let data = try? Data(contentsOf: record(resume)) else { return nil }
+        try? fm.removeItem(at: record(resume))
+        guard let kept = try? JSONDecoder().decode(CompletedTransfer.self, from: data), let url = request.url,
+              kept.resource == TransferResume.resource(url), kept.range == request.value(forHTTPHeaderField: "Range"),
+              fm.fileExists(atPath: body(resume).path),
+              let response = HTTPURLResponse(url: url, statusCode: kept.status, httpVersion: "HTTP/1.1", headerFields: nil) else {
+            try? fm.removeItem(at: body(resume))
+            return nil
+        }
+        let out = AppPaths.models.appendingPathComponent(".transfer-\(UUID().uuidString)")
+        guard (try? fm.moveItem(at: body(resume), to: out)) != nil else { return nil }
+        return (out, response)
+    }
+
+    static func discard(_ resume: URL) {
+        try? FileManager.default.removeItem(at: body(resume))
+        try? FileManager.default.removeItem(at: record(resume))
     }
 }

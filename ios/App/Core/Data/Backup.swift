@@ -117,11 +117,15 @@ final class BackupService {
                 )
             },
             conversations: conversations.map {
-                BackupConversation(id: $0.id, title: $0.title, providerId: $0.providerId, model: $0.model, createdAt: $0.createdAt, updatedAt: $0.updatedAt)
+                BackupConversation(
+                    id: $0.id, title: $0.title, providerId: $0.providerId, model: $0.model, createdAt: $0.createdAt, updatedAt: $0.updatedAt,
+                    pinned: $0.pinned, archived: $0.archived, folderId: $0.folderId,
+                )
             },
             gallery: images.map(Self.backupImage),
             attachments: attachmentIds,
             memory: app.memory.notes.map(\.shared),
+            folders: app.conversations.folders.map { BackupFolder(id: $0.id, name: $0.name, createdAt: $0.createdAt) },
         )
         let version = Bundle.main.infoDictionary
         let label = "Autobot \(version?["CFBundleShortVersionString"] as? String ?? "?") (\(version?["CFBundleVersion"] as? String ?? "0"))"
@@ -188,9 +192,18 @@ final class BackupService {
             ))
             added.providers += 1
         }
+        // Folders that exist (by id or name) are merged; the rest are added (shared `FolderImport`).
+        let folders = FolderImport.companion.plan(
+            existing: app.conversations.folders.map { BackupFolder(id: $0.id, name: $0.name, createdAt: $0.createdAt) },
+            incoming: manifest.folders,
+        )
+        for f in folders.create { app.conversations.saveFolder(ChatFolder(id: f.id, name: f.name, createdAt: f.createdAt)) }
         var newConversations = Set<String>()
         for c in manifest.conversations where app.conversations.get(c.id) == nil && !app.conversations.isIncognito(c.id) {
-            app.conversations.update(Conversation(id: c.id, title: c.title, providerId: c.providerId, model: c.model, createdAt: c.createdAt, updatedAt: c.updatedAt))
+            app.conversations.update(Conversation(
+                id: c.id, title: c.title, providerId: c.providerId, model: c.model, createdAt: c.createdAt, updatedAt: c.updatedAt,
+                pinned: c.pinned, archived: c.archived, folderId: folders.localId(importedId: c.folderId),
+            ))
             newConversations.insert(c.id)
         }
         added.conversations = newConversations.count

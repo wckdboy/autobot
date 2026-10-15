@@ -65,6 +65,9 @@ import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.InkAmbient
+import dev.wckdboy.autobot.core.designsystem.component.InkBarState
+import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
@@ -79,7 +82,11 @@ import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Stepper
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
+import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
+import dev.wckdboy.autobot.core.designsystem.component.inkGround
+import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
+import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.diffusion.BackendKind
@@ -141,6 +148,9 @@ fun ImagineScreen(
     var showMask by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableIntStateOf(-1) }
     val request = state.request
+    // An empty studio is living paper; it holds still while an image is being made.
+    val ambient = rememberInkAmbient(heavyWork = state.running != null)
+    val empty = state.running == null && state.results.isEmpty()
     val onDevice = state.backend?.kind == BackendKind.ON_DEVICE
     val accelerator = state.chips.firstOrNull { it.onDevice && it.model == request.model }?.accelerator
     val route = state.backend?.let {
@@ -167,7 +177,13 @@ fun ImagineScreen(
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Column(
-            Modifier.padding(padding).imePadding().fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            Modifier
+                .padding(padding)
+                .imePadding()
+                .fillMaxSize()
+                .then(if (empty) Modifier.inkGround(ambient = ambient) else Modifier.ambientTouch(ambient))
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             state.error?.let { ErrorLine(it, actions::dismissError) }
@@ -226,7 +242,7 @@ fun ImagineScreen(
                 InitStrip(state, actions, onEditMask = { showMask = true })
             }
 
-            ProofGrid(state, selected, onSelect = { selected = it })
+            ProofGrid(state, selected, ambient, onSelect = { selected = it })
 
             state.results.getOrNull(selected.coerceAtLeast(0))?.takeIf { state.running == null }?.let { result ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -284,7 +300,7 @@ private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int) 
 
 /** 2×2 proofs: halftone while sampling, the image when done. */
 @Composable
-private fun ProofGrid(state: ImagineUiState, selected: Int, onSelect: (Int) -> Unit) {
+private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient, onSelect: (Int) -> Unit) {
     val running = state.running
     val count = if (running != null) running.batch.coerceAtLeast(1) else state.results.size
     val slots = count.coerceAtLeast(1).coerceAtMost(4)
@@ -327,15 +343,20 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, onSelect: (Int) -> U
                                 loading = !live || running.totalSteps == 0,
                                 seed = i.toFloat(),
                             )
-                            else -> HalftoneField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant)
+                            else -> HalftoneField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant, ambient = ambient)
                         }
                         if (running != null && i == running.image) {
-                            Tag(
-                                if (running.totalSteps > 0) "step ${running.step}/${running.totalSteps}" else "loading",
-                                Modifier.align(Alignment.BottomStart).padding(6.dp),
-                                accent = MaterialTheme.colorScheme.primary,
-                                filled = true,
-                            )
+                            if (running.totalSteps > 0) {
+                                Tag(
+                                    "step ${running.step}/${running.totalSteps}",
+                                    Modifier.align(Alignment.BottomStart).padding(6.dp),
+                                    accent = MaterialTheme.colorScheme.primary,
+                                    filled = true,
+                                )
+                            } else {
+                                // The model is still loading: no label, just the ink loader.
+                                InkLoader(Modifier.align(Alignment.BottomStart).padding(8.dp), contentDescription = "Loading the model")
+                            }
                         }
                     }
                 }
@@ -375,9 +396,10 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
             }
         }
         InkProgressBar(
-            progress = running?.let { if (it.totalSteps > 0) (it.image + it.step.toFloat() / it.totalSteps) / it.batch.coerceAtLeast(1) else 0f } ?: 0f,
+            // Indeterminate while the model loads (no steps yet).
+            progress = if (running == null) 0f else if (running.totalSteps > 0) (running.image + running.step.toFloat() / running.totalSteps) / running.batch.coerceAtLeast(1) else null,
             modifier = Modifier.fillMaxWidth().height(2.dp),
-            running = running != null,
+            state = if (running != null) InkBarState.Running else InkBarState.Idle,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when {
@@ -443,21 +465,21 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.inkStagger(0), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("tune", Modifier.weight(1f))
                 Tag("backends", onClick = { onDismiss(); onOpenBackends() })
             }
             val modes = caps?.modes?.let { m -> DiffusionMode.entries.filter { it in m } } ?: DiffusionMode.entries
-            Segmented(modes, request.mode, actions::setMode, { it.label }, Modifier.fillMaxWidth())
+            Segmented(modes, request.mode, actions::setMode, { it.label }, Modifier.fillMaxWidth().inkStagger(1))
 
-            ConsoleTextField(request.negativePrompt, actions::setNegative, Modifier.fillMaxWidth(), label = "Negative", minLines = 2, maxLines = 5, mono = true)
+            ConsoleTextField(request.negativePrompt, actions::setNegative, Modifier.fillMaxWidth().inkStagger(2), label = "Negative", minLines = 2, maxLines = 5, mono = true)
 
             val (samplers, value) = when (state.backend?.kind) {
                 BackendKind.ON_DEVICE -> OnDeviceEngine.SAMPLERS to OnDeviceEngine.samplerId(request.sampler).ifBlank { "model default" }
                 BackendKind.LOCAL_SSE -> LocalSseEngine.SCHEDULERS to LocalSseEngine.schedulerId(request.sampler, request.scheduler)
                 else -> state.catalog.samplers.ifEmpty { DEFAULT_SAMPLERS } to request.sampler
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.inkStagger(3), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SelectField("Sampler", value, samplers, { actions.setSampler(it, if (state.backend?.kind == BackendKind.SD_API) request.scheduler else null) }, Modifier.weight(1f))
                 val schedulers = when (state.backend?.kind) {
                     BackendKind.ON_DEVICE -> OnDeviceEngine.SCHEDULERS
@@ -468,8 +490,8 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
                     SelectField("Schedule", request.scheduler ?: "default", schedulers, { actions.setScheduler(it) }, Modifier.weight(1f))
                 }
             }
-            ValueSlider("Steps", request.steps.toFloat(), { actions.setSteps(it.toInt()) }, 1f..(caps?.maxSteps ?: 150).toFloat(), format = { it.toInt().toString() })
-            ValueSlider("CFG", request.cfgScale, actions::setCfg, 1f..20f, format = { String.format(Locale.ROOT, "%.1f", it) })
+            ValueSlider("Steps", request.steps.toFloat(), { actions.setSteps(it.toInt()) }, 1f..(caps?.maxSteps ?: 150).toFloat(), Modifier.inkStagger(4), format = { it.toInt().toString() })
+            ValueSlider("CFG", request.cfgScale, actions::setCfg, 1f..20f, Modifier.inkStagger(5), format = { String.format(Locale.ROOT, "%.1f", it) })
 
             MicroLabel("size · ${request.width}×${request.height}")
             var base by rememberSaveable { mutableIntStateOf(512) }
@@ -535,8 +557,8 @@ private fun LoraSheet(available: List<String>, selected: Set<String>, onPick: (S
     var query by rememberSaveable { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionLabel("lora library · ${available.size}")
-            ConsoleTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = "filter", singleLine = true, mono = true)
+            SectionLabel("lora library · ${available.size}", Modifier.inkStagger(0))
+            ConsoleTextField(query, { query = it }, Modifier.fillMaxWidth().inkStagger(1), placeholder = "filter", singleLine = true, mono = true)
             val filtered = available.filter { query.isBlank() || it.contains(query, ignoreCase = true) }
             if (filtered.isEmpty()) MicroLabel(if (available.isEmpty()) "no loras — download some from civitai in the models tab" else "no match")
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {

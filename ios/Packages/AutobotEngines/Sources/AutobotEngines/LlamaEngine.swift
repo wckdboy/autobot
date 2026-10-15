@@ -149,15 +149,36 @@ public actor LlamaEngine {
         return try LlamaResult.decode(json)
     }
 
+    /**
+     * Embeds [texts] with the GGUF embedding model at [modelPath] (the private vault), kept loaded
+     * next to the chat model: one L2-normalised vector per text, pooled the way the model was
+     * trained. Runs after any running completion; nothing leaves the device. Cancelling the
+     * calling task while it waits (or while the model loads) stops it before embedding.
+     */
+    public func embed(modelPath: String, texts: [String]) async throws -> [[Float]] {
+        try Task.checkCancellation()
+        let session = session
+        let token = session.begin()
+        defer { session.end(token) }
+        return try await worker.run({
+            try session.embed(path: modelPath, texts: texts, backend: metalUsable ? "auto" : "cpu", token: token)
+        }, onCancel: {
+            session.cancel(token)
+        })
+    }
+
     /// Stops the running completion and those waiting to run.
     public nonisolated func cancel() {
         session.cancelAll()
     }
 
-    /// Frees the resident model now (e.g. before image generation needs the memory).
+    /// Frees the resident models now (e.g. before image generation needs the memory).
     public func unload() async {
         let session = session
-        _ = try? await worker.run { session.release() }
+        _ = try? await worker.run {
+            session.release()
+            session.releaseEmbedder()
+        }
     }
 
     static func withMmproj(_ request: Data, _ mmproj: String?) throws -> Data {
@@ -180,6 +201,11 @@ private final class Session: @unchecked Sendable {
     private var loadedPath: String?
     private var loadedCtx = 0
     private var loadedBackend: String?
+    private let embedder = NativeHandle()
+    private var embedderPath: String?
+
+    /// Passages are about 512 tokens plus the file name; queries carry an instruction.
+    static let embedContext: Int32 = 1024
 
     private static let log = Logger(subsystem: "ai.wckd.autobot", category: "llama")
 
@@ -271,6 +297,43 @@ private final class Session: @unchecked Sendable {
             autobot_llama_cancel(pointer)
             for token in tokens { autobot_llama_cancel_request(pointer, token) }
         }
+    }
+
+    func embed(path: String, texts: [String], backend: String, token: UInt64) throws -> [[Float]] {
+        if isCancelled(token) { throw EngineError.cancelled }
+        initialize()
+        if devices == 0 {
+            throw EngineError("LOAD_FAILED", "no compute backend available")
+        }
+        if embedder.pointer == nil || embedderPath != path {
+            releaseEmbedder()
+            guard let loaded = autobot_llama_embed_load(path, Self.embedContext, inferenceThreads(), backend) else {
+                throw EngineError("LOAD_FAILED", "could not load the embedding model (corrupt file or not enough memory)")
+            }
+            embedder.set(loaded)
+            embedderPath = path
+        }
+        // The batch itself cannot be interrupted: a cancel that came during the load stops here.
+        if isCancelled(token) { throw EngineError.cancelled }
+        guard !texts.isEmpty else { return [] }
+        let dims = Int(autobot_llama_embed_dims(embedder.pointer))
+        guard dims > 0 else { throw EngineError("EMBED_FAILED", "the model has no embedding output") }
+        let strings = texts.map { strdup($0) }
+        defer { strings.forEach { free($0) } }
+        let pointers: [UnsafePointer<CChar>?] = strings.map { $0.map { UnsafePointer($0) } }
+        let lengths = texts.map { $0.utf8.count }
+        var out = [Float](repeating: 0, count: dims * texts.count)
+        let rc = out.withUnsafeMutableBufferPointer { buffer in
+            autobot_llama_embed(embedder.pointer, pointers, lengths, Int32(texts.count), buffer.baseAddress)
+        }
+        guard rc == 0 else { throw EngineError("EMBED_FAILED", "embedding failed (\(rc))") }
+        return (0 ..< texts.count).map { Array(out[($0 * dims) ..< (($0 + 1) * dims)]) }
+    }
+
+    func releaseEmbedder() {
+        guard let pointer = embedder.take() else { return }
+        autobot_llama_embed_free(pointer)
+        embedderPath = nil
     }
 
     func release() {
