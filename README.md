@@ -86,8 +86,9 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 - **iOS equivalents.** Data protection (`NSFileProtectionComplete`), Keychain + Secure Enclave key
   wrapping, a privacy cover in the app switcher, Face ID / passcode lock, backup exclusion, ATS with
   HTTPS only except loopback.
-- **Minimal permissions.** `INTERNET` and `USE_BIOMETRIC`, plus `FOREGROUND_SERVICE_DATA_SYNC` and
-  `POST_NOTIFICATIONS` so a model download can keep running with a progress notification. The
+- **Minimal permissions.** `INTERNET` and `USE_BIOMETRIC`, plus `RUN_USER_INITIATED_JOBS`,
+  `ACCESS_NETWORK_STATE` and `POST_NOTIFICATIONS` so a model download can keep running (as a
+  user-initiated data transfer job) with a progress notification. The
   notification permission is asked for only when the first download starts. `RECORD_AUDIO` is
   asked for only when you first tap the microphone; audio is transcribed on the phone and never
   stored or sent anywhere.
@@ -100,7 +101,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:core:designsystem` | Riso theme: one signal red on ink (dark) or paper (light), Antonio display + JetBrains Mono labels, halftone rendering (`HalftoneImage`, `HalftoneField`), `ModeCard`, `RouteTag`, `RunRow`, `BigReadout`, `Panel`, `Tag`, sliders, segmented controls, `AutobotNavBar`, stroke icons |
 | `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
 | `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
-| `:core:models` | Android side of model management: `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face / Civitai clients and NPU package plans over the shared hubs, `FileFetcher` (OkHttp bytes for the shared download state machine), `ModelDownloader` + foreground service, `ModelLibrary`, accounts |
+| `:core:models` | Android side of model management: `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face / Civitai clients and NPU package plans over the shared hubs, `FileFetcher` (OkHttp bytes for the shared download state machine), `ModelDownloader` + user-initiated transfer job, `ModelLibrary`, accounts |
 | `:engine:llama` | llama.cpp (MIT) via JNI in the `:llm` process: chat templates, tool-call parsing, KV prefix reuse, runtime CPU variant selection |
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
@@ -184,8 +185,11 @@ backend.
   is optional. Mature content is hidden unless you opt in (18+). Models flagged as depicting
   minors or real people are always filtered out.
 
-**Downloads.** Downloads run in a foreground service, resume with HTTP `Range`, and are verified
-against the SHA-256 published by the hub. A file that fails the check is deleted. Hub tokens are
+**Downloads.** Downloads run in a user-initiated data transfer job on Android (they keep going when
+you leave the app or swipe it away, wait for a network — or Wi-Fi only — and resume after the
+process dies) and in a background `URLSession` on iOS (swiping the app away there stops them; they
+resume on the next launch). They go through the kill switch like every request, resume with HTTP
+`Range`, and are verified against the SHA-256 published by the hub. A file that fails the check is deleted. Hub tokens are
 sent only to their own host (`huggingface.co`, `civitai.com` / `civitai.red`) and never to CDN
 redirects.
 

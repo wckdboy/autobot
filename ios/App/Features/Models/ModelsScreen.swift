@@ -220,7 +220,7 @@ struct ModelsScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     profile
-                    if let p = app.downloader.progress { progressPanel(p) }
+                    DownloadsPanel()
                     if !app.library.models.isEmpty {
                         SectionLabel("installed · \(app.library.models.count)")
                         ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) } }
@@ -263,24 +263,6 @@ struct ModelsScreen: View {
             )
         }
         Spacer().frame(height: 14)
-    }
-
-    private func progressPanel(_ p: DownloadProgress) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    MicroLabel("downloading", color: c.primary)
-                    Text(p.title).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Pause", color: c.primary) { app.downloader.pause(p.id) }
-            }
-            ProgressLine(fraction: p.fraction, running: true)
-            MicroLabel("\(formatBytes(p.downloaded)) / \(formatBytes(p.total)) · \(formatBytes(p.bytesPerSecond))/s")
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh))
-        .padding(.bottom, 14)
     }
 
     @ViewBuilder private func recommended(_ installed: Set<String>) -> some View {
@@ -411,8 +393,8 @@ private struct InstalledRow: View {
             ZStack {
                 switch model.status {
                 case .ready: Tag("ready", accent: c.primary, filled: true)
-                case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary)
-                case .queued: Tag("queued")
+                case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary) { app.downloader.pause(model.id) }
+                case .queued: Tag("queued") { app.downloader.pause(model.id) }
                 case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }
                 case .failed: Tag("retry", accent: c.error) { app.downloader.resume(model.id) }
                 }
