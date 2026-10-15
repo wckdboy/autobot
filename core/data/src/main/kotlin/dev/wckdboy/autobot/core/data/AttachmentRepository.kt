@@ -60,8 +60,13 @@ class AttachmentRepository @Inject constructor(
 
     suspend fun delete(id: String) = withContext(io) { file(id).delete() }
 
-    /** Removes decrypted copies left behind by a crashed request. */
-    suspend fun clearPlainCopies() = withContext(io) { plainDir.listFiles()?.forEach { it.delete() } }
+    /**
+     * Removes decrypted copies left behind by a crashed request (called at app start). Only copies
+     * written before [before] go, so one made for a request already under way is kept.
+     */
+    suspend fun clearPlainCopies(before: Long = Long.MAX_VALUE) = withContext(io) {
+        plainDir.listFiles()?.forEach { if (it.lastModified() < before) it.delete() }
+    }
 
     private fun file(id: String): File {
         require(id.matches(SAFE_ID)) { "Invalid attachment id" }

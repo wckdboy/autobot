@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data
 
+import androidx.room.withTransaction
 import dev.wckdboy.autobot.core.data.db.ConversationDao
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
@@ -106,9 +107,10 @@ class ConversationRepository @Inject constructor(
         } else {
             withContext(io) {
                 val db = database.get()
-                db.messageDao().upsert(message)
-                db.conversationDao().get(message.conversationId)?.let {
-                    db.conversationDao().upsert(it.copy(updatedAt = clock()))
+                // One transaction (one fsync, one invalidation) instead of upsert + read + upsert.
+                db.withTransaction {
+                    db.messageDao().upsert(message)
+                    db.conversationDao().touch(message.conversationId, clock())
                 }
             }
         }

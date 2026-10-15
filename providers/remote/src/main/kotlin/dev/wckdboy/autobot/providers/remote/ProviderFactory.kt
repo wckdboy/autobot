@@ -32,6 +32,8 @@ class ProviderFactory @Inject constructor(
     private val systemModel: SystemModel,
     private val profiler: DeviceProfiler,
 ) {
+    // Cached for the process: only its RAM-based fit() is used here (free storage, which would go
+    // stale, is never read from it).
     private val device by lazy { profiler.profile() }
 
     /** Creates a provider, decrypting its API key from the SecretStore. */

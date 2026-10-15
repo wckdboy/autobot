@@ -37,13 +37,19 @@ object EngineMemoryPolicy {
         Engine.VOICE -> emptySet()
     }
 
-    /** Engines to release for an `onTrimMemory(level)`; [busy] ones keep running. */
+    /**
+     * Engines to release for an `onTrimMemory(level)`; [busy] ones keep running. Being put in the
+     * background list (every app switch) frees the voice, speech, image and audio engines but
+     * keeps the chat model, so coming back to a chat does not reload gigabytes; real pressure
+     * (running low, moderate/complete, `onLowMemory`) frees the chat model too.
+     */
+    @Suppress("DEPRECATION")
     fun onTrim(level: Int, busy: Set<Engine>): Set<Engine> {
         val free = when {
-            // Real pressure (or we are in the background list): give everything back.
-            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> Engine.entries.toSet()
-            @Suppress("DEPRECATION")
+            level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE -> Engine.entries.toSet()
             level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW || level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> Engine.entries.toSet()
+            // In the background list: everything but the chat model.
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> Engine.entries.toSet() - Engine.LLM
             // The UI is gone: the in-app voice goes; models stay for an agent turn running on.
             level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> setOf(Engine.VOICE, Engine.SPEECH)
             else -> setOf(Engine.VOICE)

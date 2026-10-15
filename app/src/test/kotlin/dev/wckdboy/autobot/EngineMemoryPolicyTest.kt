@@ -30,4 +30,15 @@ class EngineMemoryPolicyTest {
         @Suppress("DEPRECATION")
         assertEquals(all, EngineMemoryPolicy.onTrim(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL, busy = emptySet()))
     }
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun appSwitchKeepsTheChatModelRealPressureFreesIt() {
+        val all = Engine.entries.toSet()
+        assertEquals(all - Engine.LLM, EngineMemoryPolicy.onTrim(ComponentCallbacks2.TRIM_MEMORY_BACKGROUND, busy = emptySet()))
+        assertEquals(all, EngineMemoryPolicy.onTrim(ComponentCallbacks2.TRIM_MEMORY_MODERATE, busy = emptySet()))
+        assertEquals(all, EngineMemoryPolicy.onTrim(ComponentCallbacks2.TRIM_MEMORY_COMPLETE, busy = emptySet()))
+        assertEquals(all, EngineMemoryPolicy.onTrim(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW, busy = emptySet()))
+        assertEquals(all - Engine.LLM, EngineMemoryPolicy.onTrim(ComponentCallbacks2.TRIM_MEMORY_COMPLETE, busy = setOf(Engine.LLM)))
+    }
 }

@@ -8,8 +8,11 @@ import dev.wckdboy.autobot.core.models.SystemModel
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -25,11 +28,25 @@ class LocalProviderSync @Inject constructor(
     private val systemModel: SystemModel,
 ) {
     fun start(scope: CoroutineScope) {
-        scope.launch { systemModel.refresh() }
+        // Whether the OS model's status is known: at once in builds without one. Until it is, the
+        // provider is left alone (an unknown status must not delete it or move its default).
+        val known = MutableStateFlow(systemModel.llm == null)
+        if (!known.value) {
+            scope.launch {
+                // Binding the OS model service (Play services) is slow: not during cold start.
+                delay(SYSTEM_STATUS_DELAY_MS)
+                try {
+                    systemModel.refresh()
+                } finally {
+                    known.value = true
+                }
+            }
+        }
         scope.launch {
             val installed = library.models
                 .map { list -> list.filter { it.isLocalChat }.sortedBy { it.addedAt }.map { it.id } }
-            combine(installed, systemModel.status) { ids, status -> localModels(ids, status) }
+            combine(installed, systemModel.status, known) { ids, status, ready -> if (ready) localModels(ids, status) else null }
+                .filterNotNull()
                 .distinctUntilChanged()
                 .collect { ids -> sync(ids) }
         }
@@ -56,6 +73,9 @@ class LocalProviderSync @Inject constructor(
 
     companion object {
         const val LOCAL_PROVIDER_ID = "local-this-phone"
+
+        /** How long after start the OS model's status is first asked for. */
+        private const val SYSTEM_STATUS_DELAY_MS = 5_000L
 
         /** Models "This phone" offers: installed ones first, then the OS's model when it can run. */
         internal fun localModels(installed: List<String>, system: SystemModelStatus?): List<String> =
