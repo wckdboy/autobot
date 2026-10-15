@@ -9,7 +9,7 @@ import Observation
 @MainActor
 @Observable
 final class ModelLibrary {
-    private static let collection = "models"
+    private nonisolated static let collection = "models"
 
     /// Newest first.
     private(set) var models: [InstalledModel] = []
@@ -21,8 +21,14 @@ final class ModelLibrary {
         self.store = store
     }
 
-    func load() {
-        models = ((try? store.all(Self.collection, as: InstalledModel.self)) ?? []).sorted { $0.addedAt > $1.addedAt }
+    func load() { load(Self.read(store)) }
+
+    nonisolated static func read(_ store: EncryptedStore) -> [InstalledModel] {
+        (try? store.all(collection, as: InstalledModel.self)) ?? []
+    }
+
+    func load(_ rows: [InstalledModel]) {
+        models = rows.sorted { $0.addedAt > $1.addedAt }
         onChange?()
     }
 

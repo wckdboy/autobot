@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -29,6 +30,8 @@ struct autobot_llama_session {
     common_chat_templates_ptr templates;
     std::vector<llama_token> cached;  // tokens currently in the KV cache (sequence 0)
     std::atomic<bool> cancel{false};
+    uint64_t token = 0;                       // the running request's token (0: none or untokened)
+    std::atomic<uint64_t> cancel_token{0};    // last token asked to stop; kept until reused
     int n_ctx = 0;
     int n_batch = 512;
     std::string backend;  // "cpu", "gpu" or "npu": where the model actually loaded
@@ -158,6 +161,10 @@ void emit_extension(Sink & sink, int kind, std::string & emitted, const std::str
     sink.delta(kind, tail);
 }
 
+bool cancelled(const Session & s) {
+    return s.cancel.load() || (s.token != 0 && s.cancel_token.load() == s.token);
+}
+
 int decode_tokens(Session & s, const std::vector<llama_token> & tokens, size_t from, bool last_logits) {
     common_batch batch(s.ctx);
     for (size_t i = from; i < tokens.size(); i += s.n_batch) {
@@ -166,7 +173,7 @@ int decode_tokens(Session & s, const std::vector<llama_token> & tokens, size_t f
         for (size_t j = i; j < end; ++j) {
             batch.add(tokens[j], (llama_pos) j, 0, last_logits && j == tokens.size() - 1);
         }
-        if (s.cancel.load()) return -2;
+        if (cancelled(s)) return -2;
         const int rc = llama_process(s.ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
         if (rc != 0) return rc;
     }
@@ -333,7 +340,7 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         const int64_t t_gen = ggml_time_us();
         common_batch batch(s->ctx);
         while (n_gen < max_tokens) {
-            if (s->cancel.load()) {
+            if (cancelled(*s)) {
                 finish = "cancelled";
                 break;
             }
@@ -402,14 +409,15 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         result["content"] = msg.content;
         result["reasoning"] = msg.reasoning_content;
         auto calls = common_json::array();
-        int i = 0;
         for (const auto & call : msg.tool_calls) {
             auto c = common_json::object();
-            c["id"] = call.id.empty() ? ("local_" + std::to_string(n_gen) + "_" + std::to_string(i)) : call.id;
+            // Unique across steps, turns and restarts: the session log keys tool results by call id.
+            static std::atomic<uint64_t> next_call_id{(uint64_t) std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count()};
+            c["id"] = call.id.empty() ? ("local_" + std::to_string(next_call_id.fetch_add(1))) : call.id;
             c["name"] = call.name;
             c["arguments"] = call.arguments;
             calls.push_back(c);
-            ++i;
         }
         result["tool_calls"] = calls;
         result["finish_reason"] = msg.tool_calls.empty() ? finish : std::string("tool_calls");
@@ -530,14 +538,26 @@ char * autobot_llama_model_info(autobot_llama_session * s) {
 
 char * autobot_llama_chat(autobot_llama_session * s, const char * request, size_t request_len,
                           autobot_llama_delta_fn on_delta, void * user) {
+    return autobot_llama_chat_request(s, 0, request, request_len, on_delta, user);
+}
+
+char * autobot_llama_chat_request(autobot_llama_session * s, uint64_t token, const char * request, size_t request_len,
+                                  autobot_llama_delta_fn on_delta, void * user) {
     std::lock_guard<std::mutex> guard(s->lock);
     s->cancel.store(false);
+    s->token = token;
     Sink sink{on_delta, user};
-    return dup(chat(s, std::string(request, request_len), sink));
+    char * result = dup(chat(s, std::string(request, request_len), sink));
+    s->token = 0;
+    return result;
 }
 
 void autobot_llama_cancel(autobot_llama_session * s) {
     if (s) s->cancel.store(true);
+}
+
+void autobot_llama_cancel_request(autobot_llama_session * s, uint64_t token) {
+    if (s && token != 0) s->cancel_token.store(token);
 }
 
 void autobot_llama_free(autobot_llama_session * s) {

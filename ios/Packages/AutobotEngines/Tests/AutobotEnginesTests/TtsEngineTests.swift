@@ -12,6 +12,14 @@ import Testing
         #expect(TtsEngine.frames([3], speed: 0) == [3])
     }
 
+    /// A broken prediction must not trap in Int(NaN) or grow a piece without bound.
+    @Test func framesSurviveNonFiniteDurations() {
+        #expect(TtsEngine.frames([.nan, .infinity, -.infinity, 1e30, -5], speed: 1) == [1, 1, 1, TtsEngine.maxFramesPerToken, 1])
+        #expect(TtsEngine.frames([4], speed: .nan) == [4])
+        #expect(TtsEngine.frames([4], speed: .infinity) == [4])
+        #expect(TtsEngine.frames([4], speed: 1e-30) == [TtsEngine.maxFramesPerToken])
+    }
+
     @Test func splitsLongPiecesAtTheMiddleWord() {
         let s = TtsEngine.spaceId
         #expect(TtsEngine.splitPoint([50, 51, s, 52, 53, s, 54, 55, 56, 57]) == 6)

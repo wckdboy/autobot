@@ -3,6 +3,7 @@ package dev.wckdboy.autobot.engine.tts
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -29,29 +30,45 @@ class VoicePlayer(private val sampleRate: Int = LocalVoice.SAMPLE_RATE) {
     suspend fun play(audio: Flow<FloatArray>) = withContext(Dispatchers.IO) {
         stopped = false
         val min = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_FLOAT)
-        val t = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-            .setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate).setEncoding(AudioFormat.ENCODING_PCM_FLOAT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(maxOf(min, PIECE * 2 * 4))
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+        val t = try {
+            AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                .setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate).setEncoding(AudioFormat.ENCODING_PCM_FLOAT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setBufferSizeInBytes(maxOf(min, PIECE * 2 * 4))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } catch (e: Exception) {
+            // UnsupportedOperationException / IllegalArgumentException: no audio output for this format now.
+            throw VoiceException("Cannot play audio right now", e)
+        }
         track = t
         var written = 0L
         try {
-            t.play()
+            try {
+                t.play()
+            } catch (e: IllegalStateException) {
+                throw VoiceException("Cannot play audio right now", e)
+            }
             audio.buffer(2).collect { block ->
                 var at = 0
                 while (at < block.size && !stopped && currentCoroutineContext().isActive) {
                     // Small writes: after stop() (pause + flush) the next one fits the emptied buffer and returns.
                     val n = t.write(block, at, minOf(block.size - at, PIECE), AudioTrack.WRITE_BLOCKING)
-                    if (n <= 0) return@collect
+                    // The track died (output changed, error): stop instead of waiting for audio that never plays.
+                    if (n <= 0) throw StopPlayback()
                     at += n
                 }
                 written += at
                 if (stopped) throw StopPlayback()
             }
-            // Let the tail play out: the track reports frames actually rendered.
-            while (!stopped && currentCoroutineContext().isActive && (t.playbackHeadPosition.toLong() and 0xffffffffL) < written) delay(20)
+            // Let the tail play out: the track reports frames actually rendered. Bounded, in case
+            // the track stops advancing (a dead output must not leave the app "speaking").
+            val deadline = SystemClock.elapsedRealtime() + tailMillis(written - (t.playbackHeadPosition.toLong() and 0xffffffffL), sampleRate)
+            while (!stopped && currentCoroutineContext().isActive && (t.playbackHeadPosition.toLong() and 0xffffffffL) < written &&
+                SystemClock.elapsedRealtime() < deadline
+            ) {
+                delay(20)
+            }
         } catch (_: StopPlayback) {
             // Stopped by the user.
         } finally {
@@ -71,8 +88,14 @@ class VoicePlayer(private val sampleRate: Int = LocalVoice.SAMPLE_RATE) {
 
     private class StopPlayback : Exception()
 
-    private companion object {
+    companion object {
         /** Samples per write: 100 ms at 24 kHz. */
-        const val PIECE = 2_400
+        private const val PIECE = 2_400
+
+        /** How long [remainingSamples] may take to play out: their duration plus a margin. */
+        fun tailMillis(remainingSamples: Long, sampleRate: Int): Long =
+            remainingSamples.coerceAtLeast(0) * 1000 / sampleRate.coerceAtLeast(1) + TAIL_MARGIN_MS
+
+        private const val TAIL_MARGIN_MS = 1_000L
     }
 }

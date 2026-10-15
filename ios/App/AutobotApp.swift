@@ -57,11 +57,11 @@ struct RootView: View {
         }
         .onChange(of: busy) { _, now in grace.workChanged(busy: now) }
         .onChange(of: app.lock.state) { _, state in
-            if state == .unlocked { app.unlockData() }
+            if state == .unlocked { Task { await app.unlockData() } }
         }
         .task {
             if let inbox = SharedInbox.defaultRoot { SharedInbox.sweep(root: inbox) }
-            if app.lock.state == .unlocked { app.unlockData() }
+            if app.lock.state == .unlocked { await app.unlockData() }
             #if DEBUG
             // `-AutobotOpen chat|agent` (UI work): open the newest plain / tool session.
             let args = ProcessInfo.processInfo.arguments

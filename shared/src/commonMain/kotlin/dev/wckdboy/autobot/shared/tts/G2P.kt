@@ -49,8 +49,9 @@ internal fun mergeTokens(tokens: List<MToken>, unk: String? = null): MToken {
         }
         sb.toString()
     }
+    if (tokens.isEmpty()) return MToken("", "", "", phonemes = phonemes)
     val text = tokens.dropLast(1).joinToString("") { it.text + it.whitespace } + tokens.last().text
-    val tag = tokens.maxByOrNull { tk -> tk.text.sumOf { c -> if (c == c.lowercaseChar()) 1 else 2 } }!!.tag
+    val tag = tokens.maxBy { tk -> tk.text.sumOf { c -> if (c == c.lowercaseChar()) 1 else 2 } }.tag
     return MToken(
         text = text,
         tag = tag,
@@ -74,26 +75,50 @@ private sealed interface Word {
 /** English text to phonemes with misaki's rules; [fallback] reads words the lexicon lacks. */
 internal class G2P(private val lexicon: Lexicon, private val fallback: Fallback? = Fallback(lexicon), private val unk: String = "") {
 
+    /**
+     * Total: any text reads without throwing. A word the rules trip over is silent ([unk]) rather
+     * than failing the sentence; text that cannot be tokenized at all reads as nothing.
+     */
     fun phonemize(text: String): List<Phonemized> {
-        val tokens = EnglishTokenizer.tokenize(text)
+        val tokens = try {
+            EnglishTokenizer.tokenize(text)
+        } catch (_: Exception) {
+            return emptyList()
+        }
         if (tokens.isEmpty()) return emptyList()
-        val words = retokenize(tokens)
+        val words = try {
+            retokenize(tokens)
+        } catch (_: Exception) {
+            tokens.map { Word.One(it) }
+        }
         var ctx = TokenContext()
         for (w in words.asReversed()) {
             when (w) {
                 is Word.One -> {
                     val tk = w.tk
-                    if (tk.phonemes == null) lexicon(tk, ctx)?.let { tk.phonemes = it.ps; tk.rating = it.rating }
-                    if (tk.phonemes == null && fallback != null) fallback(tk.alias ?: tk.text)?.let { tk.phonemes = it.ps; tk.rating = it.rating }
+                    try {
+                        if (tk.phonemes == null) lexicon(tk, ctx)?.let { tk.phonemes = it.ps; tk.rating = it.rating }
+                        if (tk.phonemes == null && fallback != null) fallback(tk.alias ?: tk.text)?.let { tk.phonemes = it.ps; tk.rating = it.rating }
+                    } catch (_: Exception) {
+                        tk.phonemes = null
+                    }
                     ctx = tokenContext(ctx, tk.phonemes, tk)
                 }
-                is Word.Group -> ctx = resolveGroup(w.tks, ctx)
+                is Word.Group -> ctx = try {
+                    resolveGroup(w.tks, ctx)
+                } catch (_: Exception) {
+                    ctx
+                }
             }
         }
         return words.map { w ->
             val tk = when (w) {
                 is Word.One -> w.tk
-                is Word.Group -> mergeTokens(w.tks, unk)
+                is Word.Group -> try {
+                    mergeTokens(w.tks, unk)
+                } catch (_: Exception) {
+                    MToken(w.tks.joinToString("") { it.text + it.whitespace }.trimEnd(), "", w.tks.lastOrNull()?.whitespace.orEmpty(), phonemes = unk)
+                }
             }
             val ps = (tk.phonemes ?: unk).replace('ɾ', 'T').replace('ʔ', 't')
             Phonemized(tk.text, ps, tk.whitespace)
@@ -139,7 +164,7 @@ internal class G2P(private val lexicon: Lexicon, private val fallback: Fallback?
         }
         if (shouldFallback) {
             val tk = mergeTokens(w)
-            val found = fallback!!(tk.text)
+            val found = fallback?.invoke(tk.text)
             w[0].phonemes = found?.ps
             w[0].rating = found?.rating
             for (j in 1 until w.size) {
@@ -210,6 +235,7 @@ internal class G2P(private val lexicon: Lexicon, private val fallback: Fallback?
         }
 
         fun resolveTokens(tokens: List<MToken>) {
+            if (tokens.isEmpty()) return
             val text = tokens.dropLast(1).joinToString("") { it.text + it.whitespace } + tokens.last().text
             val prespace = ' ' in text || '/' in text ||
                 text.filter { it !in SUBTOKEN_JUNKS }.map { c -> if (c.isLetter()) 0 else if (c in '0'..'9') 1 else 2 }.toSet().size > 1
@@ -228,7 +254,7 @@ internal class G2P(private val lexicon: Lexicon, private val fallback: Fallback?
             }
             if (prespace) return
             val indices = tokens.withIndex().filter { !it.value.phonemes.isNullOrEmpty() }
-                .map { (i, tk) -> Triple(PRIMARY_STRESS in tk.phonemes!!, stressWeight(tk.phonemes), i) }
+                .map { (i, tk) -> Triple(PRIMARY_STRESS in tk.phonemes.orEmpty(), stressWeight(tk.phonemes), i) }
             if (indices.size == 2 && tokens[indices[0].third].text.length == 1) {
                 val i = indices[1].third
                 tokens[i].phonemes = applyStress(tokens[i].phonemes, -0.5)

@@ -3,7 +3,13 @@ package dev.wckdboy.autobot.agent.runtime
 import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.NetworkPolicy
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.junit.After
@@ -72,5 +78,27 @@ class OkHttpWebFetcherTest {
         assertEquals(0, server.requestCount)
         assertTrue(audit.entries.value.single().blocked)
         assertNull(audit.entries.value.single().status)
+    }
+
+    @Test
+    fun cancellingTheTurnCancelsAHangingRequest() = runBlocking {
+        server.enqueue(MockResponse.Builder().code(200).headersDelay(30, TimeUnit.SECONDS).body("late").build())
+        val fetch = async { fetcher.get(url("/slow"), "*/*", 100) }
+        delay(300)
+        // Stop must not wait for the server: the call is cancelled with the coroutine.
+        withTimeout(2_000) {
+            fetch.cancel()
+            fetch.join()
+        }
+        assertTrue(fetch.isCancelled)
+    }
+
+    @Test
+    fun aStalledServerTimesOut() = runBlocking {
+        val quick = OkHttpWebFetcher(HttpClientFactory(policy, audit), callTimeoutSeconds = 1)
+        server.enqueue(MockResponse.Builder().code(200).headersDelay(30, TimeUnit.SECONDS).body("late").build())
+        val error = withTimeout(5_000) { runCatching { quick.get(url("/stall"), "*/*", 100) }.exceptionOrNull() }
+        assertTrue(error !is CancellationException)
+        assertEquals("TRANSPORT", (error as WebFetchException).code)
     }
 }

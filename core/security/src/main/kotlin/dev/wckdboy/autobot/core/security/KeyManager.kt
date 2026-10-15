@@ -56,6 +56,10 @@ class KeyManager @Inject constructor(
             generateKey(alias, strongBox = true).also { lastKeyStrongBoxBacked = true }
         } catch (_: StrongBoxUnavailableException) {
             generateKey(alias, strongBox = false).also { lastKeyStrongBoxBacked = false }
+        } catch (_: Exception) {
+            // Some StrongBox implementations fail with ProviderException / KeyStoreException instead.
+            runCatching { keyStore.deleteEntry(alias) }
+            generateKey(alias, strongBox = false).also { lastKeyStrongBoxBacked = false }
         }
     }
 
@@ -97,6 +101,18 @@ class KeyManager @Inject constructor(
         } finally {
             raw.fill(0)
         }
+    }
+
+    /**
+     * Forgets the database key (Keystore alias and wrapped passphrase) so the next open starts a
+     * new, empty database. Only for an unreadable database the user chose to reset.
+     */
+    @Synchronized
+    fun resetDatabaseKey() {
+        runCatching { if (keyStore.containsAlias(ALIAS_DATABASE)) keyStore.deleteEntry(ALIAS_DATABASE) }
+        File(keyDirectory, DB_PASSPHRASE_FILE).delete()
+        File(keyDirectory, "$DB_PASSPHRASE_FILE.new").delete()
+        File(keyDirectory, "$DB_PASSPHRASE_FILE.bak").delete()
     }
 
     /**

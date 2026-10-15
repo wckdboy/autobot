@@ -58,13 +58,19 @@ open class OpenAICompatibleProvider(
             send(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid tool schema: ${e.message}"))
             return@channelFlow
         }
-        val httpRequest = Request.Builder().url(url)
-            .apply { wire.headers(apiKey?.takeUnless { it.isBlank }?.reveal()).forEach { (k, v) -> header(k, v) } }
-            .apply { ProviderSessions.header(preset, request)?.let { (k, v) -> header(k, v) } }
-            .header("Accept", "text/event-stream")
-            .post(body.toRequestBody(JSON))
-            .turnTrace()
-            .build()
+        val httpRequest = try {
+            Request.Builder().url(url)
+                .apply { wire.headers(key()).forEach { (k, v) -> header(k, v) } }
+                .apply { ProviderSessions.header(preset, request)?.let { (k, v) -> header(k, v) } }
+                .header("Accept", "text/event-stream")
+                .post(body.toRequestBody(JSON))
+                .turnTrace()
+                .build()
+        } catch (e: IllegalArgumentException) {
+            // A header OkHttp refuses (a key with characters no key has): an error, not a crash.
+            send(ChatEvent.Error(ErrorKind.UNAUTHORIZED, keyProblem() ?: "Invalid request header: ${e.message}"))
+            return@channelFlow
+        }
         val call = client.newCall(httpRequest)
 
         launch(Dispatchers.IO) {
@@ -94,11 +100,15 @@ open class OpenAICompatibleProvider(
 
     override suspend fun listModels(): ModelListResult = withContext(Dispatchers.IO) {
         if (base == null) return@withContext ModelListResult.Failure(ErrorKind.BAD_REQUEST, "Invalid base URL")
-        val spec = ModelLists.request(preset, baseText, apiKey?.takeUnless { it.isBlank }?.reveal())
+        val spec = ModelLists.request(preset, baseText, key())
             ?: return@withContext ModelLists.documented(preset)
         val url = spec.url.toHttpUrlOrNull() ?: return@withContext ModelListResult.Failure(ErrorKind.BAD_REQUEST, "Invalid models URL")
-        val request = Request.Builder().url(url).apply { spec.headers.forEach { (k, v) -> header(k, v) } }.get().build()
         try {
+            val request = try {
+                Request.Builder().url(url).apply { spec.headers.forEach { (k, v) -> header(k, v) } }.get().build()
+            } catch (e: IllegalArgumentException) {
+                return@withContext ModelListResult.Failure(ErrorKind.UNAUTHORIZED, keyProblem() ?: "Invalid request header: ${e.message}")
+            }
             client.newCall(request).execute().use { response ->
                 val body = if (response.isSuccessful) response.body.source().let { it.request(MAX_MODELS_BYTES); it.buffer.readUtf8() } else errorBody(response)
                 ModelLists.result(preset, response.code, body)
@@ -109,6 +119,11 @@ open class OpenAICompatibleProvider(
             ModelListResult.Failure(ErrorKind.NETWORK, e.message ?: e.javaClass.simpleName)
         }
     }
+
+    /** The key as sent: pasted whitespace, invisible characters and quotes removed ([ApiKeys]). */
+    private fun key(): String? = apiKey?.takeUnless { it.isBlank }?.reveal()?.let(ApiKeys::clean)?.takeIf { it.isNotEmpty() }
+
+    private fun keyProblem(): String? = key()?.let(ApiKeys::problem)
 
     private fun endpoint(path: String): HttpUrl? = base?.newBuilder()?.addPathSegments(path)?.build()
 

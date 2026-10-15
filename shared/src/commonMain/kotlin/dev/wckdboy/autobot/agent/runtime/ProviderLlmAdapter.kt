@@ -17,12 +17,14 @@ import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ChatRequest
 import dev.wckdboy.autobot.providers.remote.ChatRole
 import dev.wckdboy.autobot.providers.remote.ErrorKind
+import dev.wckdboy.autobot.providers.remote.LocalLlmCodec
 import dev.wckdboy.autobot.providers.remote.ModelCache
 import dev.wckdboy.autobot.providers.remote.ProviderSessions
 import dev.wckdboy.autobot.providers.remote.RemoteModel
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.providers.remote.ToolCall
 import dev.wckdboy.autobot.providers.remote.ToolSpec
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -91,7 +93,9 @@ class ProviderLlmAdapter(
                         StreamChunk.Usage(TokenUsage(event.promptTokens, event.completionTokens, event.totalTokens)),
                     )
                     is ChatEvent.Finish -> emit(StreamChunk.Finish(event.reason))
-                    is ChatEvent.Error -> throw LlmException(event.toFailure())
+                    // A stopped engine stops the turn: what streamed so far is kept as interrupted.
+                    is ChatEvent.Error ->
+                        if (event.code == LocalLlmCodec.CANCELLED) throw CancellationException(event.message) else throw LlmException(event.toFailure())
                     is ChatEvent.ServedBy -> emit(StreamChunk.ServedBy(event.model, event.fallback))
                     ChatEvent.Done -> Unit
                 }

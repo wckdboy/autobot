@@ -72,13 +72,20 @@ class GeminiNano @Inject constructor() : SystemLlm {
             if (download?.isActive == true) return
             progress = null
             download = scope.launch {
-                client.download().collect { s ->
-                    progress = when (s) {
-                        is DownloadStatus.DownloadStarted -> Download(s.bytesToDownload, 0)
-                        is DownloadStatus.DownloadProgress -> Download(progress?.total ?: 0, s.totalBytesDownloaded)
-                        is DownloadStatus.DownloadFailed -> Download(0, 0, GeminiNanoMapping.describe(s.e.errorCode, s.e.message))
-                        else -> null
+                try {
+                    client.download().collect { s ->
+                        progress = when (s) {
+                            is DownloadStatus.DownloadStarted -> Download(s.bytesToDownload, 0)
+                            is DownloadStatus.DownloadProgress -> Download(progress?.total ?: 0, s.totalBytesDownloaded)
+                            is DownloadStatus.DownloadFailed -> Download(0, 0, GeminiNanoMapping.describe(s.e.errorCode, s.e.message))
+                            else -> null
+                        }
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // AICore unreachable or the download refused: shown as the model's status, never a crash.
+                    progress = Download(0, 0, e.message ?: "AICore download failed")
                 }
             }
         }

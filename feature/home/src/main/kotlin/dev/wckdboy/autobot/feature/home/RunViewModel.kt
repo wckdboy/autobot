@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.feature.home
 
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -11,6 +12,7 @@ import dev.wckdboy.autobot.agent.runtime.AgentHost
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
@@ -109,7 +111,7 @@ class RunViewModel @Inject constructor(
     val navigation: Flow<RunEvent> = events.receiveAsFlow()
 
     init {
-        viewModelScope.launch { device.value = withContext(Dispatchers.IO) { profiler.profile() } }
+        viewModelScope.launch { device.value = withContext(Dispatchers.IO) { runCatching { profiler.profile() }.getOrNull() } }
     }
 
     private val inputs = combine(providers.observeProviders(), library.models, backends.backends, backends.defaultBackendId) { p, m, b, d ->
@@ -149,7 +151,7 @@ class RunViewModel @Inject constructor(
 
         val providerById = input.providers.associateBy { it.id }
         val recent = (
-            convs.take(12).map { c ->
+            convs.filterNot { it.archived }.take(12).map { c ->
                 RecentRun(
                     key = "c-${c.id}",
                     title = c.title,
@@ -200,7 +202,8 @@ class RunViewModel @Inject constructor(
             RunMode.AGENT -> state.agent
             RunMode.CODE -> state.code
         } ?: return
-        viewModelScope.launch {
+        // Storage errors (disk full, database unavailable) must not crash the home screen.
+        viewModelScope.launchSafely({ Log.w("Run", "cannot start a session", it) }) {
             val incognito = settings.settings.first().incognitoByDefault
             val conversation = conversations.createConversation(incognito, target.providerId, target.model)
             host.setToolsEnabled(conversation.id, mode != RunMode.CHAT)
@@ -209,7 +212,7 @@ class RunViewModel @Inject constructor(
     }
 
     suspend fun thumbnail(galleryId: String): ImageBitmap? {
-        val bytes = gallery.thumbnail(galleryId) ?: return null
+        val bytes = runCatching { gallery.thumbnail(galleryId) }.getOrNull() ?: return null
         return withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
     }
 

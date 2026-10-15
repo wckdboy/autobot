@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.SessionEventRepository
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
+import dev.wckdboy.autobot.core.data.model.ChatFolderRow
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.Provider
@@ -22,6 +23,8 @@ import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.shared.backup.BackupConversation
 import dev.wckdboy.autobot.shared.backup.BackupException
+import dev.wckdboy.autobot.shared.backup.BackupFolder
+import dev.wckdboy.autobot.shared.backup.FolderImport
 import dev.wckdboy.autobot.shared.backup.BackupImage
 import dev.wckdboy.autobot.shared.backup.BackupManifest
 import dev.wckdboy.autobot.shared.backup.BackupProvider
@@ -39,9 +42,14 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import okio.Buffer
+import okio.BufferedSource
+import okio.Source
+import okio.Timeout
 import okio.buffer
 import okio.sink
 import okio.source
+import okio.utf8Size
 
 /** What an import added (existing items with the same id are kept, not overwritten). */
 data class ImportSummary(val conversations: Int, val providers: Int, val images: Int, val attachments: Int, val memories: Int = 0)
@@ -70,27 +78,35 @@ class BackupService @Inject constructor(
         val db = database.get()
         val conversations = db.conversationDao().observeAll().first()
         val images = db.galleryDao().observeAll().first()
-        val logs = conversations.associate { c -> c.id to sessions.load(c.id) }
-        val attachmentIds = logs.values.flatten()
-            .mapNotNull { row -> runCatching { SessionJson.decodeFromString(LogEntry.serializer(), row.json) }.getOrNull() }
-            .flatMap { (it.event as? SessionEvent.UserMessage)?.images.orEmpty() }
-            .distinct()
+        // One conversation's log in memory at a time: here for its attachments, below to write it.
+        val attachmentIds = LinkedHashSet<String>()
+        conversations.forEach { c ->
+            sessions.load(c.id).forEach { row ->
+                runCatching { SessionJson.decodeFromString(LogEntry.serializer(), row.json) }.getOrNull()
+                    ?.let { (it.event as? SessionEvent.UserMessage)?.images }?.let(attachmentIds::addAll)
+            }
+        }
         val manifest = BackupManifest(
             settings = SettingsSchema.encode(settings.settings.first()),
             providers = providers.observeProviders().first().map {
                 BackupProvider(it.id, it.kind.name, it.displayName, it.baseUrl, it.defaultModel, it.routing.name, it.presetId, it.helperModel)
             },
-            conversations = conversations.map { BackupConversation(it.id, it.title, it.providerId, it.model, it.createdAt, it.updatedAt) },
+            conversations = conversations.map {
+                BackupConversation(it.id, it.title, it.providerId, it.model, it.createdAt, it.updatedAt, it.pinned, it.archived, it.folderId)
+            },
+            folders = db.chatFolderDao().all().map { BackupFolder(it.id, it.name, it.createdAt) },
             gallery = images.map { it.toBackup() },
-            attachments = attachmentIds,
+            attachments = attachmentIds.toList(),
             memory = memory.all(),
         )
         val sink = out.sink().buffer()
         onProgress("deriving key…")
         val writer = BackupWriter(sink, JvmBackupCrypto, passphrase, app, "android", System.currentTimeMillis())
         writer.entry(MANIFEST, BackupManifest.encode(manifest))
-        logs.forEach { (id, rows) ->
-            writer.entry(BackupManifest.sessionEntry(id), rows.joinToString("") { it.json + "\n" }.encodeToByteArray())
+        conversations.forEachIndexed { i, c ->
+            onProgress("chats ${i + 1}/${conversations.size}")
+            val rows = sessions.load(c.id)
+            writer.entry(BackupManifest.sessionEntry(c.id), rows.sumOf { it.json.utf8Size() + 1 }, RowsSource(rows))
         }
         images.forEachIndexed { i, item ->
             onProgress("images ${i + 1}/${images.size}")
@@ -121,9 +137,12 @@ class BackupService @Inject constructor(
                                 added = added.copy(providers = added.providers + 1)
                             }
                         }
+                        val folders = importFolders(m)
                         m.conversations.forEach { c ->
                             if (db.conversationDao().get(c.id) == null) {
-                                db.conversationDao().upsert(Conversation(c.id, c.title, c.providerId, c.model, c.createdAt, c.updatedAt))
+                                db.conversationDao().upsert(
+                                    Conversation(c.id, c.title, c.providerId, c.model, c.createdAt, c.updatedAt, c.pinned, c.archived, folders.localId(c.folderId)),
+                                )
                                 newConversations += c.id
                             }
                         }
@@ -132,13 +151,7 @@ class BackupService @Inject constructor(
                     manifest == null -> throw BackupException("Damaged export: manifest missing")
                     name.startsWith("sessions/") -> {
                         val id = name.removePrefix("sessions/").removeSuffix(".jsonl")
-                        if (id in newConversations) {
-                            val rows = data.readUtf8(size).lineSequence().filter { it.isNotBlank() }.mapNotNull { line ->
-                                runCatching { SessionJson.decodeFromString(LogEntry.serializer(), line) }.getOrNull()
-                                    ?.let { SessionEventRow(id, it.seq, it.time, line) }
-                            }.toList()
-                            sessions.append(rows)
-                        }
+                        if (id in newConversations) importSession(id, size, data)
                     }
                     name.startsWith("gallery/") -> {
                         val item = manifest!!.gallery.firstOrNull { it.file == name }
@@ -161,6 +174,52 @@ class BackupService @Inject constructor(
         }
         if (manifest == null) throw BackupException("Damaged export: manifest missing")
         added
+    }
+
+    /** Reads one conversation's log line by line and stores it in batches (a long chat need not fit in memory at once). */
+    private suspend fun importSession(id: String, size: Long, data: BufferedSource) {
+        var remaining = size
+        val batch = ArrayList<SessionEventRow>(SESSION_BATCH)
+        while (remaining > 0) {
+            val newline = data.indexOf('\n'.code.toByte(), 0, remaining)
+            val length = if (newline < 0) remaining else newline + 1
+            val line = data.readUtf8(length).trimEnd('\n')
+            remaining -= length
+            if (line.isBlank()) continue
+            runCatching { SessionJson.decodeFromString(LogEntry.serializer(), line) }.getOrNull()
+                ?.let { batch += SessionEventRow(id, it.seq, it.time, line) }
+            if (batch.size >= SESSION_BATCH) {
+                sessions.append(batch.toList())
+                batch.clear()
+            }
+        }
+        if (batch.isNotEmpty()) sessions.append(batch)
+    }
+
+    /** Streams log rows as JSON lines without building the whole text. */
+    private class RowsSource(rows: List<SessionEventRow>) : Source {
+        private val iterator = rows.iterator()
+        private val pending = Buffer()
+
+        override fun read(sink: Buffer, byteCount: Long): Long {
+            while (pending.size == 0L) {
+                if (!iterator.hasNext()) return -1
+                pending.writeUtf8(iterator.next().json).writeByte('\n'.code)
+            }
+            return pending.read(sink, byteCount)
+        }
+
+        override fun timeout(): Timeout = Timeout.NONE
+
+        override fun close() = Unit
+    }
+
+    /** Adds the export's folders, merging those that exist by id or name ([FolderImport]). */
+    private suspend fun importFolders(manifest: BackupManifest): FolderImport {
+        val dao = database.get().chatFolderDao()
+        val plan = FolderImport.plan(dao.all().map { BackupFolder(it.id, it.name, it.createdAt) }, manifest.folders)
+        plan.create.forEach { dao.upsert(ChatFolderRow(it.id, it.name, it.createdAt)) }
+        return plan
     }
 
     /** Adds notes whose id is new, up to the memory cap; existing notes are kept as they are. */
@@ -212,9 +271,14 @@ class BackupService @Inject constructor(
 
     private fun imageEntry(id: String) = "gallery/$id.png"
 
-    /** JPEG thumbnail whose longer side is 384 px (the gallery grid). */
+    /** JPEG thumbnail whose longer side is 384 px (the gallery grid), decoded subsampled. */
     private fun thumbnail(bytes: ByteArray): ByteArray? {
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 384) sample *= 2
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
         val scale = 384f / maxOf(bitmap.width, bitmap.height)
         val scaled = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true) else bitmap
         return ByteArrayOutputStream().also { scaled.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
@@ -222,5 +286,8 @@ class BackupService @Inject constructor(
 
     private companion object {
         val SAFE_ID = Regex("[A-Za-z0-9-]{1,64}")
+
+        /** Log rows stored per insert while importing. */
+        const val SESSION_BATCH = 500
     }
 }

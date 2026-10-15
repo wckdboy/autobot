@@ -171,7 +171,9 @@ public actor DiffusionEngine {
      * compute units (`.npu` = CPU + Neural Engine, `.gpu` = CPU + GPU, `.auto` = the model's
      * preferred one). With [previewEvery] > 0 a low-resolution JPEG preview is approximated from
      * the latents every N steps (no VAE pass, so it costs next to nothing).
-     * Cancelling the calling task (or [cancel]) stops after the current step.
+     * Cancelling the calling task (or [cancel]) stops after the current step; a cancel that arrives
+     * while the pipeline loads (the first Neural Engine compile cannot be interrupted) stops the
+     * request as soon as loading is done.
      */
     public func generate(
         model: CoreMLDiffusionModel,
@@ -184,15 +186,18 @@ public actor DiffusionEngine {
         try Task.checkCancellation()
         let state = state
         let units = (backend == .auto ? model.preferredBackend : backend).computeUnits
+        let token = state.begin()
+        defer { state.end(token) }
         return try await worker.run({
-            try state.generate(model: model, units: units, request: request, inputs: inputs, previewEvery: previewEvery, onEvent: onEvent)
+            try state.generate(model: model, units: units, request: request, inputs: inputs, previewEvery: previewEvery, token: token, onEvent: onEvent)
         }, onCancel: {
-            state.cancel()
+            state.cancel(token)
         })
     }
 
+    /// Stops the running generation and those waiting to run.
     public nonisolated func cancel() {
-        state.cancel()
+        state.cancelAll()
     }
 
     /// Frees the loaded pipeline.
@@ -212,14 +217,40 @@ public actor DiffusionEngine {
     }
 }
 
-/// The loaded pipeline, confined to the diffusion thread except for the cancel flag.
+/// The loaded pipeline, confined to the diffusion thread except for the requests' cancel flags.
 private final class PipelineState: @unchecked Sendable {
     private var pipeline: (any StableDiffusionPipelineProtocol)?
     private var key: (URL, MLComputeUnits)?
-    private let cancelled = Atomic<Bool>(false)
+    /// Requests issued and not finished, by token; true once cancelled.
+    private let requests = Mutex<(next: UInt64, cancelled: [UInt64: Bool])>((1, [:]))
 
-    func cancel() {
-        cancelled.store(true, ordering: .relaxed)
+    func begin() -> UInt64 {
+        requests.withLock { r in
+            let token = r.next
+            r.next += 1
+            r.cancelled[token] = false
+            return token
+        }
+    }
+
+    func end(_ token: UInt64) {
+        _ = requests.withLock { $0.cancelled.removeValue(forKey: token) }
+    }
+
+    func cancel(_ token: UInt64) {
+        requests.withLock { r in
+            if r.cancelled[token] != nil { r.cancelled[token] = true }
+        }
+    }
+
+    func cancelAll() {
+        requests.withLock { r in
+            for key in r.cancelled.keys { r.cancelled[key] = true }
+        }
+    }
+
+    private func isCancelled(_ token: UInt64) -> Bool {
+        requests.withLock { $0.cancelled[token] ?? true }
     }
 
     func unload() {
@@ -264,10 +295,13 @@ private final class PipelineState: @unchecked Sendable {
         request: DiffusionRequest,
         inputs: DiffusionInputs,
         previewEvery: Int,
+        token: UInt64,
         onEvent: @Sendable (DiffusionEvent) -> Void,
     ) throws -> [DiffusionImage] {
-        cancelled.store(false, ordering: .relaxed)
+        if isCancelled(token) { throw EngineError.cancelled }
         let pipeline = try load(model, units: units, onEvent: onEvent)
+        // Loading (the first compile for the Neural Engine takes minutes) cannot be interrupted.
+        if isCancelled(token) { throw EngineError.cancelled }
         let w = model.width, h = model.height
 
         var initImage: CGImage?
@@ -323,9 +357,9 @@ private final class PipelineState: @unchecked Sendable {
                     preview = Images.encode(image, type: .jpeg)
                 }
                 onEvent(.progress(image: index, step: progress.step + 1, totalSteps: progress.stepCount, preview: preview))
-                return !cancelled.load(ordering: .relaxed)
+                return !isCancelled(token)
             }
-            if cancelled.load(ordering: .relaxed) { throw EngineError.cancelled }
+            if isCancelled(token) { throw EngineError.cancelled }
             guard var image = images.first ?? nil else { throw EngineError("BACKEND", "the model produced no image") }
             if let initImage, let mask, let blended = Images.blend(image, over: initImage, mask: mask) {
                 image = blended

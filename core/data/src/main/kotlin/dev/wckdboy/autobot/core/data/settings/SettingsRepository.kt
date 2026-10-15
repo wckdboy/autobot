@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
+import dev.wckdboy.autobot.shared.chats.ChatSort
 import dev.wckdboy.autobot.shared.search.SearchProvider
 import java.io.IOException
 import javax.inject.Inject
@@ -62,6 +63,14 @@ class SettingsRepository @Inject constructor(
     suspend fun setVaultEnabled(enabled: Boolean) = edit { it[Keys.VAULT_ENABLED] = enabled }
     suspend fun setQuotaFallback(enabled: Boolean) = edit { it[Keys.QUOTA_FALLBACK] = enabled }
 
+    /** How the chat list is sorted. */
+    val chatSort: Flow<ChatSort> = dataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { ChatSort.parse(it[Keys.CHAT_SORT]) }
+        .distinctUntilChanged()
+
+    suspend fun setChatSort(sort: ChatSort) = edit { it[Keys.CHAT_SORT] = sort.name }
+
     suspend fun setWebSearch(provider: SearchProvider, baseUrl: String, route: RouteOverride) = edit {
         it[Keys.SEARCH_PROVIDER] = provider.name
         it[Keys.SEARCH_BASE_URL] = baseUrl.trim()
@@ -88,5 +97,8 @@ class SettingsRepository @Inject constructor(
         val SEARCH_BASE_URL = stringPreferencesKey(SettingsSchema.SEARCH_BASE_URL)
         val SEARCH_ROUTE = stringPreferencesKey(SettingsSchema.SEARCH_ROUTE)
         val QUOTA_FALLBACK = booleanPreferencesKey(SettingsSchema.QUOTA_FALLBACK)
+
+        /** Device-local view preference, not part of [AppSettings] (and not exported). */
+        val CHAT_SORT = stringPreferencesKey("chat_sort")
     }
 }

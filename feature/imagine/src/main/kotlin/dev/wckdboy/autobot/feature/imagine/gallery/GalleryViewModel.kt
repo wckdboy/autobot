@@ -54,7 +54,10 @@ class GalleryViewModel @Inject constructor(
     )
 
     private val local = MutableStateFlow(Local())
-    private val thumbs = LruCache<String, ImageBitmap>(THUMB_CACHE)
+    /** Sized by memory, not count: a few large thumbnails must not pin hundreds of megabytes. */
+    private val thumbs = object : LruCache<String, ImageBitmap>(THUMB_CACHE_KB) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = (value.width * value.height * 4 / 1024).coerceAtLeast(1)
+    }
 
     val uiState: StateFlow<GalleryUiState> = combine(gallery.observe(), local) { all, l ->
         val filtered = all.filter { item ->
@@ -76,7 +79,7 @@ class GalleryViewModel @Inject constructor(
     /** Decrypts and decodes a thumbnail (cached). */
     suspend fun thumbnail(id: String): ImageBitmap? {
         thumbs.get(id)?.let { return it }
-        val bytes = gallery.thumbnail(id) ?: return null
+        val bytes = runCatching { gallery.thumbnail(id) }.getOrNull() ?: return null
         return withContext(Dispatchers.Default) { ImageCodec.decode(bytes)?.asImageBitmap() }?.also { thumbs.put(id, it) }
     }
 
@@ -86,7 +89,7 @@ class GalleryViewModel @Inject constructor(
     fun open(id: String) {
         local.update { it.copy(openId = id, openImage = null) }
         viewModelScope.launch {
-            val image = gallery.image(id)?.let { withContext(Dispatchers.Default) { ImageCodec.decode(it, 2048)?.asImageBitmap() } }
+            val image = runCatching { gallery.image(id) }.getOrNull()?.let { withContext(Dispatchers.Default) { ImageCodec.decode(it, 2048)?.asImageBitmap() } }
             local.update { if (it.openId == id) it.copy(openImage = image) else it }
         }
     }
@@ -144,23 +147,28 @@ class GalleryViewModel @Inject constructor(
     fun export(item: GalleryItem) {
         viewModelScope.launch {
             val ok = withContext(Dispatchers.IO) {
-                val bytes = gallery.image(item.id) ?: return@withContext false
-                val png = bytes.size > 8 && bytes[1] == 'P'.code.toByte() && bytes[2] == 'N'.code.toByte()
-                val resolver = getApplication<Application>().contentResolver
-                val values = ContentValues().apply {
-                    put(MediaStore.Images.Media.DISPLAY_NAME, "autobot_${item.createdAt}_${item.seed}.${if (png) "png" else "jpg"}")
-                    put(MediaStore.Images.Media.MIME_TYPE, if (png) "image/png" else "image/jpeg")
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Autobot")
-                    put(MediaStore.Images.Media.IS_PENDING, 1)
-                }
-                val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext false
-                runCatching {
-                    resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no stream")
-                    resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-                }.onFailure { resolver.delete(uri, null, null) }.isSuccess
+                // Storage can refuse the new entry (full, no Pictures volume): a message, not a crash.
+                runCatching { exportNow(item) }.getOrDefault(false)
             }
             local.update { it.copy(message = if (ok) "Exported to Pictures/Autobot" else "Export failed") }
         }
+    }
+
+    private suspend fun exportNow(item: GalleryItem): Boolean {
+        val bytes = gallery.image(item.id) ?: return false
+        val png = bytes.size > 8 && bytes[1] == 'P'.code.toByte() && bytes[2] == 'N'.code.toByte()
+        val resolver = getApplication<Application>().contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "autobot_${item.createdAt}_${item.seed}.${if (png) "png" else "jpg"}")
+            put(MediaStore.Images.Media.MIME_TYPE, if (png) "image/png" else "image/jpeg")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Autobot")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
+        return runCatching {
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no stream")
+            resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+        }.onFailure { runCatching { resolver.delete(uri, null, null) } }.isSuccess
     }
 
     /** A1111-style "parameters" text, for pasting into other tools. */
@@ -178,6 +186,6 @@ class GalleryViewModel @Inject constructor(
     fun consumeMessage() = local.update { it.copy(message = null) }
 
     private companion object {
-        const val THUMB_CACHE = 240
+        const val THUMB_CACHE_KB = 32 * 1024
     }
 }

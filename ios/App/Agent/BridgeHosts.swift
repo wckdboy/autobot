@@ -178,23 +178,21 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
         let epoch = AppActivity.shared.epoch
         let task = Task.detached {
             do {
-                let result = try await withTaskCancellationHandler {
-                    try await llm.chatJSON(
-                        modelPath: model.path,
-                        mmprojPath: model.mmproj,
-                        contextLength: model.contextLength,
-                        backend: model.backend,
-                        requestJSON: Data(requestJson.utf8),
-                        onDelta: { delta in
-                            switch delta {
-                            case .content(let t): sink.onContent(text: t)
-                            case .reasoning(let t): sink.onReasoning(text: t)
-                            }
-                        },
-                    )
-                } onCancel: {
-                    llm.cancel()
-                }
+                // Cancelling the task stops this request only (the engine's per-request token),
+                // even while it waits behind another session's or for the model to load.
+                let result = try await llm.chatJSON(
+                    modelPath: model.path,
+                    mmprojPath: model.mmproj,
+                    contextLength: model.contextLength,
+                    backend: model.backend,
+                    requestJSON: Data(requestJson.utf8),
+                    onDelta: { delta in
+                        switch delta {
+                        case .content(let t): sink.onContent(text: t)
+                        case .reasoning(let t): sink.onReasoning(text: t)
+                        }
+                    },
+                )
                 // A reply the GPU stopped because the app went to the background ends with a notice,
                 // not as if the model had finished.
                 let stopped = AppActivity.shared.interrupted(since: epoch) && Self.finishReason(result) == "error"

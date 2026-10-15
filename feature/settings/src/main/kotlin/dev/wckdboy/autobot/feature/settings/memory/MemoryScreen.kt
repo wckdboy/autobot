@@ -45,6 +45,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.MemoryRepository
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
@@ -60,7 +62,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 @Immutable
 data class MemoryUiState(
@@ -87,10 +88,10 @@ class MemoryViewModel @Inject constructor(
         query.value = value
     }
 
-    fun setEnabled(enabled: Boolean) = viewModelScope.launch { settings.setMemoryEnabled(enabled) }
+    fun setEnabled(enabled: Boolean) = viewModelScope.launchSafely(::failed) { settings.setMemoryEnabled(enabled) }
 
     /** Saves a new note ([id] null) or an edit; the same rules as the agent's `memory_save`. */
-    fun save(id: String?, text: String, tags: String) = viewModelScope.launch {
+    fun save(id: String?, text: String, tags: String) = viewModelScope.launchSafely(::failed) {
         message.value = when (val r = repository.memory.save(text, MemoryRules.parseTags(tags), id = id)) {
             is SaveResult.Duplicate -> "Already in memory (${r.note.id}); tags merged."
             SaveResult.Full -> "Memory is full (${MemoryRules.MAX_NOTES} notes). Delete some first."
@@ -100,9 +101,13 @@ class MemoryViewModel @Inject constructor(
         }
     }
 
-    fun delete(id: String) = viewModelScope.launch { repository.delete(id) }
+    fun delete(id: String) = viewModelScope.launchSafely(::failed) { repository.delete(id) }
 
-    fun deleteAll() = viewModelScope.launch { repository.deleteAll() }
+    fun deleteAll() = viewModelScope.launchSafely(::failed) { repository.deleteAll() }
+
+    private fun failed(e: Throwable) {
+        message.value = userMessage(e)
+    }
 
     fun dismissMessage() {
         message.value = null

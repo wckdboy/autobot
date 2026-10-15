@@ -55,7 +55,7 @@ struct DeviceProfile: Equatable, Sendable {
     /// `fits` / `tight` / `too big` by the same rules as Android (weights + KV cache / buffers
     /// within about half of physical RAM; engines this build lacks are unsupported).
     func fit(_ kind: ModelKind, bytes: Int64, engine: EngineKind) -> Fit {
-        Fit(capabilities.fit(kind: kind.kotlin, bytes: bytes, engine: engine.kotlin))
+        Fit(capabilities.fit(kind: kind.kotlin, bytes: bytes, engine: engine.kotlin, contextTokens: 0))
     }
 
     static func current() -> DeviceProfile {

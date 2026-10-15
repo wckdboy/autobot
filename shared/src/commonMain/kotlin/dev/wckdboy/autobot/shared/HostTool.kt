@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.agent.core.tools.ToolRunContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlin.coroutines.resume
 
@@ -42,7 +43,9 @@ interface HostTool {
 internal class HostToolDefinition(private val host: HostTool) : ToolDefinition {
     override val name: String = host.name
     override val description: String = host.description
-    override val parameters: JsonObject = Json.parseToJsonElement(host.parametersJson).jsonObject
+    // A schema that does not parse must not crash the host registering it: the tool takes no arguments then.
+    override val parameters: JsonObject =
+        runCatching { Json.parseToJsonElement(host.parametersJson).jsonObject }.getOrElse { JsonObject(mapOf("type" to JsonPrimitive("object"))) }
     override val kind: ToolKind = ToolKind.entries.firstOrNull { it.name == host.kind } ?: ToolKind.OTHER
     override val timeoutMs: Long? = host.timeoutMs.takeIf { it > 0 }
 

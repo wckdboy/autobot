@@ -83,6 +83,8 @@ class BackupViewModel @Inject constructor(
                 BackupState.Done(block())
             } catch (e: Exception) {
                 BackupState.Failed(e.message ?: "$what failed")
+            } catch (e: OutOfMemoryError) {
+                BackupState.Failed("Not enough memory to $what this file")
             }
         }
     }

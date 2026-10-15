@@ -88,11 +88,13 @@ struct ChatScreen: View {
     @State private var ledger = InkLedger()
 
     var body: some View {
-        let session = app.agent.session(conversationId)
-        let state = session.state
+        // Opened in .task: opening repoints the conversation and starts the agent, which must not
+        // happen while the view renders. A previewed (or already open) session shows at once.
+        let state = app.agent.existingSession(conversationId)?.state ?? ChatSessionState(sessionId: conversationId)
         let routing = ChatRouting(app: app, conversationId: conversationId)
         let toolItems = state.projection.items.compactMap { item -> String? in if case .tool(let t) = item { t.key } else { nil } }
-        let stepNumbers = Dictionary(uniqueKeysWithValues: toolItems.enumerated().map { ($0.element, $0.offset + 1) })
+        // A repeated key (a model that reuses tool-call ids) must not trap: the first one keeps its number.
+        let stepNumbers = Dictionary(toolItems.enumerated().map { ($0.element, $0.offset + 1) }, uniquingKeysWith: { first, _ in first })
         let firstPrompt = state.projection.items.first { if case .user = $0 { true } else { false } }?.key
         let usage = state.projection.lastUsage
         let contextUsed = usage.map { ($0.inputTokens ?? 0) + ($0.cacheReadTokens ?? 0) + ($0.outputTokens ?? 0) }
@@ -122,7 +124,7 @@ struct ChatScreen: View {
                         if app.dataLoaded && state.projection.items.isEmpty && state.live == nil {
                             EmptySession(toolsEnabled: state.toolsEnabled)
                         }
-                        ForEach(state.projection.items) { item in
+                        ForEach(state.projection.items.uniqueKeys) { item in
                             row(item, state: state, routing: routing, contextUsed: contextUsed, stepNumbers: stepNumbers, firstPrompt: firstPrompt)
                                 .inkEnter(ledger.isNew(item.key)) { ledger.entered(item.key) }
                         }
@@ -157,7 +159,7 @@ struct ChatScreen: View {
             ModelSheet(conversationId: conversationId, routing: routing) { showModels = false }
         }
         .sheet(isPresented: $showSession) {
-            SessionSheet(conversationId: conversationId, state: state, onChanges: {
+            SessionSheet(conversationId: conversationId, state: state, onDelete: deleteChat, onChanges: {
                 showSession = false
                 showChanges = true
             }) { showSession = false }
@@ -171,12 +173,28 @@ struct ChatScreen: View {
             )
         }
         .onChange(of: state) { _, new in model.sessionChanged(new) }
-        .task { await start() }
+        .task {
+            _ = app.agent.session(conversationId)
+            await start()
+        }
         .onDisappear {
             model.setVoiceMode(false, app: app, conversationId: conversationId)
             model.stopSpeaking()
             model.stopRecording(app: app)
+            // Nothing shows this chat now: stop streaming its state (a running turn goes on) and
+            // free the voice and dictation models.
+            app.agent.close(conversationId)
+            Task { await EngineMemory.shared.release([.tts, .whisper]) }
         }
+    }
+
+    /// Deletes this chat (undoable from the list for a few seconds); a running turn is cancelled first.
+    private func deleteChat() {
+        showSession = false
+        model.setVoiceMode(false, app: app, conversationId: conversationId)
+        let title = app.conversations.get(conversationId)?.title ?? ""
+        app.chats.trash([conversationId], label: title.isEmpty ? "Chat deleted" : "Deleted “\(title)”")
+        nav.back()
     }
 
     @ViewBuilder
@@ -1192,15 +1210,40 @@ private struct ModelSheet: View {
 private struct SessionSheet: View {
     let conversationId: String
     let state: ChatSessionState
+    let onDelete: () -> Void
     /// Opens the "files changed" sheet.
     var onChanges: () -> Void = {}
     let onDismiss: () -> Void
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
+    @State private var renaming = false
+    @State private var name = ""
 
     var body: some View {
-        let session = app.agent.session(conversationId)
+        let session = app.agent.existingSession(conversationId)
+        let conversation = app.conversations.get(conversationId)
         InkStack(alignment: .leading, spacing: 14) {
+            SectionLabel("chat")
+            HStack(spacing: 12) {
+                Text(conversation?.title ?? "").textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                TextAction("Rename", color: c.primary) {
+                    name = conversation?.title ?? ""
+                    renaming = true
+                }
+            }
+            HStack(spacing: 12) {
+                Text("Pin to top").textStyle(.titleMedium).foregroundStyle(c.onSurface)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                RisoToggle(isOn: Binding(get: { conversation?.pinned ?? false }, set: { app.conversations.setPinned([conversationId], $0) }))
+            }
+            HStack(spacing: 16) {
+                TextAction(conversation?.archived == true ? "Unarchive" : "Archive", color: c.primary) {
+                    app.conversations.setArchived([conversationId], !(conversation?.archived ?? false))
+                    onDismiss()
+                }
+                TextAction("Delete chat", color: c.error, action: onDelete)
+            }
             SectionLabel("session")
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1213,11 +1256,11 @@ private struct SessionSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                RisoToggle(isOn: Binding(get: { session.state.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) }))
+                RisoToggle(isOn: Binding(get: { session?.state.toolsEnabled ?? state.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) }))
             }
             VStack(alignment: .leading, spacing: 6) {
                 MicroLabel("permission preset")
-                Segmented(options: PermissionPreset.allCases, selected: session.state.permissionPreset, label: \.label) {
+                Segmented(options: PermissionPreset.allCases, selected: (session?.state ?? state).permissionPreset, label: \.label) {
                     app.agent.setPermission(conversationId, $0)
                 }
             }
@@ -1228,14 +1271,14 @@ private struct SessionSheet: View {
                         .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Compact", color: c.primary, enabled: !session.state.running) {
+                TextAction("Compact", color: c.primary, enabled: !(session?.state ?? state).running) {
                     app.agent.compact(conversationId)
                     onDismiss()
                 }
             }
             HStack(spacing: 12) {
-                let files = session.state.projection.changes.reduce(0) { $0 + $1.files.count }
-                let turns = session.state.projection.changes.count
+                let files = (session?.state ?? state).projection.changes.reduce(0) { $0 + $1.files.count }
+                let turns = (session?.state ?? state).projection.changes.count
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Files changed").textStyle(.titleMedium).foregroundStyle(c.onSurface)
                     Text(files == 0 ? "Nothing yet. Every file the agent changes can be undone."
@@ -1250,9 +1293,15 @@ private struct SessionSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 20)
         .padding(.bottom, 24)
-        .presentationDetents([.height(410), .medium])
+        .presentationDetents([.height(560), .large])
         .presentationBackground(c.surfaceContainerLow)
         .presentationDragIndicator(.visible)
+        .alert("Rename chat", isPresented: $renaming) {
+            TextField("Name", text: $name)
+            Button("Rename") { app.conversations.rename(conversationId, name) }
+                .disabled(ChatNames.shared.title(title: name) == nil)
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 

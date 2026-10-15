@@ -10,6 +10,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.agent.runtime.AgentHost
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.models.AccountState
 import dev.wckdboy.autobot.core.models.Catalog
@@ -153,7 +155,7 @@ class ModelsViewModel @Inject constructor(
 
     fun refreshDevice() {
         viewModelScope.launch {
-            val profile = withContext(Dispatchers.IO) { profiler.profile() }
+            val profile = withContext(Dispatchers.IO) { runCatching { profiler.profile() }.getOrNull() } ?: return@launch
             local.update { it.copy(device = profile) }
         }
     }
@@ -198,18 +200,18 @@ class ModelsViewModel @Inject constructor(
      * the image studio set up for image models, the gallery for upscalers.
      */
     fun use(model: InstalledModel) {
-        viewModelScope.launch {
+        viewModelScope.launchSafely({ e -> local.update { it.copy(message = userMessage(e)) } }) {
             val files = withContext(Dispatchers.IO) { model.paths.values.all { File(it).exists() } }
             val target = launchOf(model.kind, model.engine, model.isReady, local.value.device?.fit(model.kind, model.totalBytes, model.engine), files)
             target.problem?.let { problem ->
                 local.update { it.copy(message = problem) }
-                return@launch
+                return@launchSafely
             }
             when (target.task) {
                 ModelTask.CHAT -> {
                     if (providers.getProvider(LocalProviderSync.LOCAL_PROVIDER_ID) == null) {
                         local.update { it.copy(message = "\"This phone\" isn't ready as a provider yet — try again in a moment") }
-                        return@launch
+                        return@launchSafely
                     }
                     val incognito = settings.settings.first().incognitoByDefault
                     val conversation = conversations.createConversation(incognito, LocalProviderSync.LOCAL_PROVIDER_ID, model.id)
@@ -314,8 +316,24 @@ class ModelsViewModel @Inject constructor(
         install(plan)
     }
 
-    suspend fun preview(url: String): ImageBitmap? = previews.load(url)?.let { bytes ->
-        withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+    /** A card preview, decoded at most [PREVIEW_PX] on its long side (Civitai serves full-size images). */
+    suspend fun preview(url: String): ImageBitmap? {
+        val bytes = try {
+            previews.load(url)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return withContext(Dispatchers.Default) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= PREVIEW_PX) sample *= 2
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap() }.getOrNull()
+        }
     }
 
     private suspend fun <T> guarded(block: suspend () -> T): T? = try {
@@ -325,12 +343,18 @@ class ModelsViewModel @Inject constructor(
     } catch (e: HubException) {
         local.update { it.copy(message = e.message) }
         null
+    } catch (e: Exception) {
+        // Transport errors that were not mapped (IOException, the kill switch, a malformed reply).
+        local.update { it.copy(message = "Could not reach the hub: ${e.message ?: e.javaClass.simpleName}") }
+        null
     }
 
     companion object {
         /** Base models stable-diffusion.cpp runs well on a phone. */
         /** Publisher of the NPU/GPU packages the NPU scope lists. */
         const val NPU_PUBLISHER = "xororz"
+
+        private const val PREVIEW_PX = 512
 
         val SUPPORTED_BASES = listOf("SD 1.5", "SD 1.5 LCM", "SD 1.5 Hyper", "SDXL 1.0", "SDXL Turbo", "SDXL Lightning", "Pony", "Illustrious", "NoobAI")
     }

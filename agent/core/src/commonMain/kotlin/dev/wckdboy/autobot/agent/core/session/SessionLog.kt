@@ -11,7 +11,16 @@ import kotlinx.coroutines.sync.withLock
 interface SessionStore {
     suspend fun load(sessionId: String): List<LogEntry>
     suspend fun append(sessionId: String, entries: List<LogEntry>)
+
+    /**
+     * [load] plus the highest seq stored. A store that skips rows it cannot decode must count
+     * them here, or the next append reuses their seq and conflicts with them.
+     */
+    suspend fun loadLog(sessionId: String): StoredLog = load(sessionId).let { StoredLog(it, it.maxOfOrNull { e -> e.seq } ?: 0L) }
 }
+
+/** A session's readable entries and the highest seq stored for it (readable or not). */
+class StoredLog(val entries: List<LogEntry>, val lastSeq: Long)
 
 /** Volatile store for tests and incognito sessions. */
 class InMemorySessionStore : SessionStore {
@@ -33,13 +42,17 @@ class SessionLog private constructor(
     val sessionId: String,
     private val store: SessionStore,
     initial: List<LogEntry>,
+    storedSeq: Long,
     private val clock: () -> Long,
 ) {
     private val mutex = Mutex()
     private val _entries = MutableStateFlow(initial)
     val entries: StateFlow<List<LogEntry>> = _entries.asStateFlow()
 
-    val lastSeq: Long get() = _entries.value.lastOrNull()?.seq ?: 0L
+    /** Seqs up to this one are taken in the store: unreadable rows, or a failed append that may have landed. */
+    private var seqFloor = storedSeq
+
+    val lastSeq: Long get() = maxOf(_entries.value.lastOrNull()?.seq ?: 0L, seqFloor)
 
     suspend fun append(event: SessionEvent, surface: SurfaceOp = SurfaceOp.Append): LogEntry =
         appendAll(listOf(event), surface).single()
@@ -49,7 +62,13 @@ class SessionLog private constructor(
         val now = clock()
         val created = events.map { LogEntry(++seq, now, it, surface) }
         if (created.isNotEmpty()) {
-            store.append(sessionId, created)
+            try {
+                store.append(sessionId, created)
+            } catch (t: Throwable) {
+                // Part of the batch may be stored: the next append starts above it.
+                seqFloor = seq
+                throw t
+            }
             _entries.value = _entries.value + created
         }
         created
@@ -58,7 +77,9 @@ class SessionLog private constructor(
     inline fun <reified T : SessionEvent> latest(): T? = entries.value.asReversed().firstNotNullOfOrNull { it.event as? T }
 
     companion object {
-        suspend fun open(sessionId: String, store: SessionStore, clock: () -> Long = ::currentTimeMillis): SessionLog =
-            SessionLog(sessionId, store, store.load(sessionId).sortedBy { it.seq }, clock)
+        suspend fun open(sessionId: String, store: SessionStore, clock: () -> Long = ::currentTimeMillis): SessionLog {
+            val stored = store.loadLog(sessionId)
+            return SessionLog(sessionId, store, stored.entries.sortedBy { it.seq }, stored.lastSeq, clock)
+        }
     }
 }

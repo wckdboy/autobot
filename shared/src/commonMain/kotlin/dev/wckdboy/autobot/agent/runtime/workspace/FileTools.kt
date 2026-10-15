@@ -12,9 +12,12 @@ import dev.wckdboy.autobot.agent.core.tools.int
 import dev.wckdboy.autobot.agent.core.tools.schema
 import dev.wckdboy.autobot.agent.core.tools.string
 import dev.wckdboy.autobot.agent.core.Lock
+import dev.wckdboy.autobot.agent.runtime.InterruptibleChars
+import dev.wckdboy.autobot.agent.runtime.RegexTimeoutException
 import dev.wckdboy.autobot.shared.IoDispatcher
 import dev.wckdboy.autobot.shared.session.ChangeOp
 import dev.wckdboy.autobot.shared.session.FileChange
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -281,18 +284,28 @@ class FileTools(private val workspace: Workspace, private val journal: Workspace
             val out = StringBuilder()
             var matches = 0
             val files = if (base.isFile) sequenceOf(base) else walk(base).filter { it.isFile }
-            for (file in files) {
-                ensureActive()
-                if (include != null && !include.matches(file.name)) continue
-                if (file.length() > MAX_READ_BYTES) continue
-                val text = decodeUtf8(file.readBytes()) ?: continue
-                text.lineSequence().forEachIndexed { i, line ->
-                    if (matches < MAX_GREP && regex.containsMatchIn(line)) {
-                        out.append(workspace.display(file)).append(':').append(i + 1).append(": ").append(line.take(300)).append('\n')
-                        matches++
+            // The pattern is the model's: matching stops with the turn, and after a time budget.
+            val job = coroutineContext[Job]
+            val deadline = InterruptibleChars.deadline(GREP_BUDGET_MS)
+            try {
+                for (file in files) {
+                    ensureActive()
+                    if (include != null && !include.matches(file.name)) continue
+                    if (file.length() > MAX_READ_BYTES) continue
+                    val text = decodeUtf8(file.readBytes()) ?: continue
+                    text.lineSequence().forEachIndexed { i, line ->
+                        if (matches < MAX_GREP && regex.containsMatchIn(InterruptibleChars(line.take(MAX_GREP_LINE), job, deadline))) {
+                            out.append(workspace.display(file)).append(':').append(i + 1).append(": ").append(line.take(300)).append('\n')
+                            matches++
+                        }
                     }
+                    if (matches >= MAX_GREP) break
                 }
-                if (matches >= MAX_GREP) break
+            } catch (_: RegexTimeoutException) {
+                return@withContext ToolOutput.error(
+                    "the pattern took longer than ${GREP_BUDGET_MS / 1000} s (nested repetition such as (a+)+ backtracks); simplify it",
+                    "TIMEOUT",
+                )
             }
             ToolOutput(if (matches == 0) "No matches." else out.toString().trimEnd() + if (matches >= MAX_GREP) "\n… (capped at $MAX_GREP)" else "")
         }
@@ -334,6 +347,12 @@ class FileTools(private val workspace: Workspace, private val journal: Workspace
         const val DEFAULT_LIMIT = 2000
         const val MAX_GLOB = 100
         const val MAX_GREP = 250
+
+        /** Characters of one line a grep pattern is matched against. */
+        const val MAX_GREP_LINE = 10_000
+
+        /** Time one grep may spend matching. */
+        const val GREP_BUDGET_MS = 10_000L
 
         /** Taint label of workspace file contents (`read`, `grep`). */
         const val PRIVATE_LABEL = "workspace file"

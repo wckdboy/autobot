@@ -7,14 +7,19 @@ import android.content.ServiceConnection
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.RemoteException
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface LocalSdEvent {
     data class Status(val status: String) : LocalSdEvent
@@ -42,12 +47,26 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
     @Volatile
     private var engine: ISdEngine? = null
     private var connection: ServiceConnection? = null
+
+    /** Calls and jobs in flight; guarded by `this`, as are [engine] and [connection] changes. */
     private var active = 0
     private val unbindLater = Runnable { unbindIfIdle() }
 
-    private suspend fun connect(): ISdEngine = mutex.withLock {
+    /** Called before each job so the app can free other engines' memory first. */
+    @Volatile
+    var beforeJob: () -> Unit = {}
+
+    val isBusy: Boolean get() = synchronized(this) { active > 0 }
+
+    /** Connects and counts one use; pair with [done]. */
+    private suspend fun acquire(): ISdEngine = mutex.withLock {
         main.removeCallbacks(unbindLater)
-        engine?.takeIf { it.asBinder().isBinderAlive }?.let { return it }
+        synchronized(this) {
+            engine?.takeIf { it.asBinder().isBinderAlive }?.let {
+                active++
+                return it
+            }
+        }
         val ready = CompletableDeferred<ISdEngine>()
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -63,22 +82,45 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
             override fun onBindingDied(name: ComponentName) {
                 engine = null
                 runCatching { app.unbindService(this) }
-                if (connection === this) connection = null
+                synchronized(this@LocalSd) { if (connection === this) connection = null }
             }
         }
-        if (!app.bindService(Intent(app, SdService::class.java), conn, Context.BIND_AUTO_CREATE)) {
+        if (!runCatching { app.bindService(Intent(app, SdService::class.java), conn, Context.BIND_AUTO_CREATE) }.getOrDefault(false)) {
+            runCatching { app.unbindService(conn) }
             throw SdEngineException("Cannot start the on-device image engine")
         }
-        connection = conn
-        withTimeout(15_000) { ready.await() }
+        synchronized(this) { connection = conn }
+        val e = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { ready.await() }
+        if (e == null) {
+            // A domain error, not a cancellation: callers must show it, and the binding must not linger.
+            synchronized(this) { if (connection === conn) connection = null }
+            runCatching { app.unbindService(conn) }
+            throw SdEngineException("The image engine did not start in time")
+        }
+        synchronized(this) { active++ }
+        e
     }
 
-    suspend fun systemInfo(): String = connect().systemInfo()
+    private fun done() {
+        synchronized(this) {
+            active--
+            if (active == 0) main.postDelayed(unbindLater, idleMillis)
+        }
+    }
+
+    suspend fun systemInfo(): String {
+        val e = acquire()
+        try {
+            return withContext(Dispatchers.IO) { e.systemInfo() }
+        } finally {
+            done()
+        }
+    }
 
     /** Runs one request. Cancelling the collector cancels sampling. */
     fun generate(request: SdRequest): Flow<LocalSdEvent> = callbackFlow {
-        val e = connect()
-        synchronized(this@LocalSd) { active++ }
+        beforeJob()
+        val e = acquire()
         val binder = e.asBinder()
         val death = IBinder.DeathRecipient {
             close(SdEngineException("The image engine stopped (likely out of memory). Try a smaller size or model."))
@@ -105,16 +147,19 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
                 if (error == null) close() else close(SdEngineException(error))
             }
         }
-        e.generate(request.toBundle(), callback)
+        try {
+            e.generate(request.toBundle(), callback)
+        } catch (t: RemoteException) {
+            runCatching { binder.unlinkToDeath(death, 0) }
+            done()
+            throw SdEngineException("The image engine stopped")
+        }
         awaitClose {
             runCatching { binder.unlinkToDeath(death, 0) }
             runCatching { if (binder.isBinderAlive) e.cancel() }
-            synchronized(this@LocalSd) {
-                active--
-                if (active == 0) main.postDelayed(unbindLater, idleMillis)
-            }
+            done()
         }
-    }
+    }.buffer(Channel.UNLIMITED) // never drop an image
 
     fun unloadModel() {
         runCatching { engine?.unload() }
@@ -133,10 +178,20 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
         }
     }
 
-    private fun unbindIfIdle() {
-        synchronized(this) { if (active > 0) return }
+    /** Ends the engine process now if nothing runs (memory pressure); the next job restarts it. */
+    fun releaseIfIdle() {
+        main.removeCallbacks(unbindLater)
+        main.post(unbindLater)
+    }
+
+    private fun unbindIfIdle() = synchronized(this) {
+        if (active > 0) return@synchronized
         connection?.let { runCatching { app.unbindService(it) } }
         connection = null
         engine = null
+    }
+
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 15_000L
     }
 }

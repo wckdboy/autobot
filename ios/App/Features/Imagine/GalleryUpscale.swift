@@ -17,12 +17,18 @@ enum GalleryUpscale {
         app.library.models.first { $0.isReady && $0.kind == .upscaler && $0.engine == .coreML }
     }
 
+    /// Whether [item] can be upscaled now: not an upscaled copy already (that would be 16×), and
+    /// small enough for the memory this process has left.
+    static func canUpscale(_ item: GalleryItem) -> Bool {
+        !item.engine.contains(label) && LocalUpscale.fits(width: item.width, height: item.height)
+    }
+
     static func run(_ item: GalleryItem, app: AppContainer, upscale: LocalUpscale, onProgress: @escaping @Sendable (Int, Int) -> Void) async throws -> GalleryItem {
         guard let model = upscaler(app) else { throw Failure(message: "Get the upscaler in Models → upscale first") }
         guard !app.generator.isBusy else { throw Failure(message: "An image is being generated; try again when it is done") }
+        guard canUpscale(item) else { throw Failure(message: "This image is too large to upscale on this phone") }
         guard let bytes = await app.gallery.image(item.id) else { throw Failure(message: "image unavailable") }
-        // The chat model and the upscaler should not compete for memory.
-        await app.llm.unload()
+        // The other engines are unloaded first (EngineMemory) so they never compete for memory.
         let started = Date()
         let result = try await upscale.upscale(folder: ModelLibrary.dir(of: model.id), image: bytes, onProgress: onProgress)
         let thumb = await Task.detached { ImageCodec.thumbnail(result.png) }.value ?? result.png

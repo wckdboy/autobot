@@ -50,15 +50,23 @@ internal object NativeSd {
 class SdService : Service() {
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "sd-worker") }
 
+    /** The loaded model; written by the worker, read by [ISdEngine.cancel] on a binder thread, both under [handleLock]. */
     @Volatile
     private var handle = 0L
+    private val handleLock = Any()
     private var loadedKey: String? = null
 
     private val outDir: File by lazy { File(cacheDir, "sd-out").apply { mkdirs() } }
 
-    override fun onCreate() {
-        super.onCreate()
-        NativeSd.init()
+    /** Native init on first use, not in onCreate: a failure there would crash every restart. */
+    private val initError: String? by lazy {
+        try {
+            NativeSd.init()
+            null
+        } catch (t: Throwable) {
+            Log.e(TAG, "engine init failed", t)
+            "The image engine cannot run on this phone (${t.javaClass.simpleName})"
+        }
     }
 
     override fun onBind(intent: Intent): IBinder = binder
@@ -70,14 +78,15 @@ class SdService : Service() {
     }
 
     private val binder = object : ISdEngine.Stub() {
-        override fun systemInfo(): String = NativeSd.systemInfo()
+        override fun systemInfo(): String = initError ?: NativeSd.systemInfo()
 
         override fun generate(request: Bundle, callback: ISdCallback) {
             worker.execute { run(request, callback) }
         }
 
-        override fun cancel() {
+        override fun cancel() = synchronized(handleLock) {
             handle.takeIf { it != 0L }?.let(NativeSd::cancel)
+            Unit
         }
 
         override fun unload() {
@@ -87,16 +96,21 @@ class SdService : Service() {
 
     private fun run(r: Bundle, callback: ISdCallback) {
         try {
+            initError?.let {
+                callback.onDone(it)
+                return
+            }
             val key = SdRequest.BUNDLE_KEYS.joinToString("|") { r.getString(it).orEmpty() } + "|" + r.getBoolean(SdRequest.K_FLASH)
             if (handle == 0L || key != loadedKey) {
                 release()
                 callback.onStatus("loading")
                 val threads = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(2, 6)
-                handle = NativeSd.load(
+                val loaded = NativeSd.load(
                     r.getString(SdRequest.K_MODEL), r.getString(SdRequest.K_DIFFUSION), r.getString(SdRequest.K_LLM),
                     r.getString(SdRequest.K_CLIP_L), r.getString(SdRequest.K_CLIP_G), r.getString(SdRequest.K_T5),
                     r.getString(SdRequest.K_VAE), r.getString(SdRequest.K_TAESD), threads, r.getBoolean(SdRequest.K_FLASH),
                 )
+                synchronized(handleLock) { handle = loaded }
                 if (handle == 0L) {
                     callback.onDone("Could not load the model (unsupported format, missing component or not enough memory)")
                     return
@@ -150,10 +164,13 @@ class SdService : Service() {
     }
 
     private fun release() {
-        if (handle != 0L) {
-            NativeSd.free(handle)
-            handle = 0L
-            loadedKey = null
+        // Under the lock: a cancel() from a binder thread must never see a freed handle.
+        synchronized(handleLock) {
+            if (handle != 0L) {
+                NativeSd.free(handle)
+                handle = 0L
+                loadedKey = null
+            }
         }
     }
 

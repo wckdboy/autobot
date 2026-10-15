@@ -64,10 +64,11 @@ final class EncryptedStore: Sendable {
     /// Appends JSON log entries; an entry whose `seq` is already stored is skipped (a retried
     /// append after the device was locked repeats nothing).
     func appendEvents(sessionId: String, _ entries: [(seq: Int64, json: Data)]) throws {
-        try transaction {
-            for entry in entries {
-                let payload = try seal(entry.json, aad: "event:\(sessionId):\(entry.seq)")
-                try execute("INSERT OR IGNORE INTO session_events (session_id, seq, payload) VALUES (?, ?, ?)", [.text(sessionId), .int(entry.seq), .blob(payload)])
+        // Sealed before the transaction so the connection is held only for the inserts.
+        let sealed = try entries.map { entry in (entry.seq, try seal(entry.json, aad: "event:\(sessionId):\(entry.seq)")) }
+        try transaction { execute in
+            for (seq, payload) in sealed {
+                try execute("INSERT OR IGNORE INTO session_events (session_id, seq, payload) VALUES (?, ?, ?)", [.text(sessionId), .int(seq), .blob(payload)])
             }
         }
     }
@@ -147,16 +148,18 @@ final class EncryptedStore: Sendable {
     }
 
     private func execute(_ sql: String, _ values: [Value] = []) throws {
-        try db.withLock { handle in
-            let h = try connection(&handle)
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(h, sql, -1, &statement, nil) == SQLITE_OK, let s = statement else {
-                throw StoreError(message: "SQL prepare failed: \(String(cString: sqlite3_errmsg(h)))")
-            }
-            defer { sqlite3_finalize(s) }
-            bind(s, values)
-            guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError(message: "SQL failed: \(String(cString: sqlite3_errmsg(h)))") }
+        try db.withLock { handle in try run(connection(&handle), sql, values) }
+    }
+
+    /// One statement on [h]; the caller holds [db].
+    private func run(_ h: OpaquePointer, _ sql: String, _ values: [Value]) throws {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(h, sql, -1, &statement, nil) == SQLITE_OK, let s = statement else {
+            throw StoreError(message: "SQL prepare failed: \(String(cString: sqlite3_errmsg(h)))")
         }
+        defer { sqlite3_finalize(s) }
+        bind(s, values)
+        guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError(message: "SQL failed: \(String(cString: sqlite3_errmsg(h)))") }
     }
 
     /// Rows of column values as raw bytes (text columns as UTF-8).
@@ -189,14 +192,22 @@ final class EncryptedStore: Sendable {
         }
     }
 
-    private func transaction(_ body: () throws -> Void) throws {
-        try execute("BEGIN IMMEDIATE")
-        do {
-            try body()
-            try execute("COMMIT")
-        } catch {
-            try? execute("ROLLBACK")
-            throw error
+    /**
+     Runs [body] in one transaction with the connection held throughout, so no statement from
+     another thread lands inside it (or starts a second BEGIN on the shared connection).
+     [body] gets the statement runner to use instead of [execute].
+     */
+    private func transaction(_ body: (_ execute: (String, [Value]) throws -> Void) throws -> Void) throws {
+        try db.withLock { handle in
+            let h = try connection(&handle)
+            try run(h, "BEGIN IMMEDIATE", [])
+            do {
+                try body { sql, values in try run(h, sql, values) }
+                try run(h, "COMMIT", [])
+            } catch {
+                try? run(h, "ROLLBACK", [])
+                throw error
+            }
         }
     }
 }

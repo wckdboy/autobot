@@ -3,6 +3,7 @@ package dev.wckdboy.autobot.engine.llama
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import android.os.RemoteException
 import android.system.Os
 import android.util.Log
@@ -44,24 +45,33 @@ internal object NativeLlama {
 class LlamaService : Service() {
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "llama-worker") }
 
+    /** The loaded model; written by the worker, read by [ILlamaEngine.cancel] on a binder thread, both under [handleLock]. */
     @Volatile
     private var handle = 0L
+    private val handleLock = Any()
     private var loadedPath: String? = null
     private var loadedCtx = 0
     private var loadedBackend: String? = null
     private var embedder = 0L
     private var embedderPath: String? = null
-    private var devices = 0
 
-    override fun onCreate() {
-        super.onCreate()
-        // Compiled OpenCL kernels are cached across launches (the first GPU load compiles them).
-        Os.setenv("GGML_OPENCL_KERNEL_CACHE_DIR", File(codeCacheDir, "opencl").path, true)
-        // The Hexagon backend's DSP side (libggml-htp-v73…v81.so) is loaded by FastRPC from
-        // ADSP_LIBRARY_PATH; the vendor directories keep the system's own DSP libraries reachable.
-        val dsp = listOf(applicationInfo.nativeLibraryDir, "/vendor/dsp/cdsp", "/vendor/lib/rfsa/adsp", "/system/lib/rfsa/adsp", "/vendor/dsp/dsp", "/vendor/dsp")
-        Os.setenv("ADSP_LIBRARY_PATH", dsp.joinToString(";"), true)
-        devices = NativeLlama.init(applicationInfo.nativeLibraryDir)
+    /**
+     * Backends are initialized on first use, not in onCreate: a native failure there (OpenCL,
+     * Vulkan or QNN on an unsupported SoC) would crash the service on every restart. 0 = none.
+     */
+    private val devices: Int by lazy {
+        try {
+            // Compiled OpenCL kernels are cached across launches (the first GPU load compiles them).
+            Os.setenv("GGML_OPENCL_KERNEL_CACHE_DIR", File(codeCacheDir, "opencl").path, true)
+            // The Hexagon backend's DSP side (libggml-htp-v73…v81.so) is loaded by FastRPC from
+            // ADSP_LIBRARY_PATH; the vendor directories keep the system's own DSP libraries reachable.
+            val dsp = listOf(applicationInfo.nativeLibraryDir, "/vendor/dsp/cdsp", "/vendor/lib/rfsa/adsp", "/system/lib/rfsa/adsp", "/vendor/dsp/dsp", "/vendor/dsp")
+            Os.setenv("ADSP_LIBRARY_PATH", dsp.joinToString(";"), true)
+            NativeLlama.init(applicationInfo.nativeLibraryDir)
+        } catch (t: Throwable) {
+            Log.e(TAG, "engine init failed", t)
+            0
+        }
     }
 
     override fun onBind(intent: Intent): IBinder = binder
@@ -73,16 +83,24 @@ class LlamaService : Service() {
     }
 
     private val binder = object : ILlamaEngine.Stub() {
-        override fun systemInfo(): String = NativeLlama.systemInfo()
+        override fun systemInfo(): String = if (devices == 0) "unavailable" else NativeLlama.systemInfo()
 
-        override fun devices(): String = String(NativeLlama.devices(), Charsets.UTF_8)
+        override fun devices(): String = if (devices == 0) "[]" else String(NativeLlama.devices(), Charsets.UTF_8)
 
-        override fun chat(modelPath: String, nCtx: Int, backend: String, request: ByteArray, callback: ILlamaCallback) {
-            worker.execute { run(modelPath, nCtx, backend, request, callback) }
+        override fun chat(modelPath: String, nCtx: Int, backend: String, request: ParcelFileDescriptor, callback: ILlamaCallback) {
+            // Read now, on the binder thread: the descriptor is closed when this call returns.
+            val bytes = try {
+                ParcelFileDescriptor.AutoCloseInputStream(request).use { it.readBytes() }
+            } catch (e: Exception) {
+                runCatching { callback.onResult(errorJson("BAD_REQUEST", "cannot read the request: ${e.message}")) }
+                return
+            }
+            worker.execute { run(modelPath, nCtx, backend, bytes, callback) }
         }
 
-        override fun cancel() {
+        override fun cancel() = synchronized(handleLock) {
             handle.takeIf { it != 0L }?.let(NativeLlama::cancel)
+            Unit
         }
 
         override fun unload() {
@@ -125,7 +143,8 @@ class LlamaService : Service() {
                 release()
                 callback.onStatus("loading")
                 val threads = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(2, 6)
-                handle = NativeLlama.load(path, nCtx, threads, backend)
+                val loaded = NativeLlama.load(path, nCtx, threads, backend)
+                synchronized(handleLock) { handle = loaded }
                 if (handle == 0L) {
                     callback.onResult(errorJson("LOAD_FAILED", "could not load model (corrupt file or not enough memory)"))
                     return
@@ -140,7 +159,7 @@ class LlamaService : Service() {
                     try {
                         callback.onDelta(kind, String(text, Charsets.UTF_8))
                     } catch (_: RemoteException) {
-                        // Client is gone: stop generating for nobody.
+                        // Client is gone: stop generating for nobody (same thread as release: no race).
                         NativeLlama.cancel(handle)
                     }
                 }
@@ -157,10 +176,13 @@ class LlamaService : Service() {
 
     private fun release() {
         releaseEmbedder()
-        if (handle != 0L) {
-            NativeLlama.free(handle)
-            handle = 0L
-            loadedPath = null
+        // Under the lock: a cancel() from a binder thread must never see a freed handle.
+        synchronized(handleLock) {
+            if (handle != 0L) {
+                NativeLlama.free(handle)
+                handle = 0L
+                loadedPath = null
+            }
         }
     }
 

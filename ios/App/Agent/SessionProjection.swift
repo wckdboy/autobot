@@ -226,6 +226,18 @@ struct Receipt: Codable, Equatable, Sendable {
     }
 }
 
+extension [SessionItem] {
+    /// The items with each key once (the first wins): `ForEach` needs unique ids, and a model
+    /// that repeats a tool-call id would otherwise give two rows the same one.
+    var uniqueKeys: [SessionItem] {
+        var seen = Set<String>()
+        seen.reserveCapacity(count)
+        guard contains(where: { !seen.insert($0.key).inserted }) else { return self }
+        seen.removeAll(keepingCapacity: true)
+        return filter { seen.insert($0.key).inserted }
+    }
+}
+
 enum ChangeOp: String, Codable, Sendable { case created, modified, deleted }
 
 /**
@@ -400,10 +412,11 @@ func projectSession(
                 items.append(.assistant(key: key, text: e.text, reasoning: e.reasoning, interrupted: e.interrupted, outputTokens: e.usage?.outputTokens, model: e.model))
             }
             if let u = e.usage { usage = u }
-            for call in e.toolCalls {
+            for (i, call) in e.toolCalls.enumerated() {
                 toolIndex[call.id] = items.count
                 let state: ToolState = pendingApprovals.contains(call.id) ? .waitingApproval : running.contains(call.id) ? .running : .streaming
-                items.append(.tool(.init(key: "t\(call.id)", callId: call.id, name: call.name, summary: describe(call.name, call.arguments),
+                // Keyed by position, not call id (as the shared projection): a model can repeat ids.
+                items.append(.tool(.init(key: "t\(entry.seq)_\(i)", callId: call.id, name: call.name, summary: describe(call.name, call.arguments),
                                          state: state, output: nil, code: nil, galleryIds: [], durationMs: nil)))
             }
         case .toolCall(let callId, _, _):

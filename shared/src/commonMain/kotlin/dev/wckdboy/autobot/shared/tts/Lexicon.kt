@@ -81,8 +81,8 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
 
     private fun gold(word: String): String = when (val e = golds[word]) {
         is Entry.One -> e.ps
-        is Entry.ByTag -> e.byTag["DEFAULT"]!!
-        null -> error("missing gold entry $word")
+        is Entry.ByTag -> e.byTag["DEFAULT"] ?: e.byTag.values.firstOrNull().orEmpty()
+        null -> "" // only for lexicons missing a core word: that word is silent
     }
 
     fun getNNP(word: String): Ps? {
@@ -93,7 +93,7 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
                 null -> null
             } ?: return null
         }
-        val ps = applyStress(parts.joinToString(""), 0.0)!!
+        val ps = applyStress(parts.joinToString(""), 0.0) ?: return null
         val at = ps.lastIndexOf(SECONDARY_STRESS)
         return Ps(if (at < 0) ps else ps.substring(0, at) + PRIMARY_STRESS + ps.substring(at + 1), 3)
     }
@@ -127,8 +127,8 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
             word == "the" || word == "The" || (word == "THE" && tag == "DT") -> Ps(if (ctx.futureVowel == true) "ði" else "ðə", 4)
             tag == "IN" && VS.matches(word) -> lookup("versus", null, null, ctx)
             word == "used" || word == "Used" || word == "USED" -> {
-                val e = golds["used"] as Entry.ByTag
-                Ps((if ((tag == "VBD" || tag == "JJ") && ctx.futureTo) e.byTag["VBD"] else e.byTag["DEFAULT"])!!, 4)
+                val e = golds["used"] as? Entry.ByTag ?: return null
+                Ps((if ((tag == "VBD" || tag == "JJ") && ctx.futureTo) e.byTag["VBD"] else e.byTag["DEFAULT"]) ?: return null, 4)
             }
             else -> null
         }
@@ -170,7 +170,7 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
             null -> null
         }
         if (ps == null || (isNNP == true && PRIMARY_STRESS !in ps)) return getNNP(word)
-        return Ps(applyStress(ps, stress)!!, rating)
+        return Ps(applyStress(ps, stress) ?: ps, rating)
     }
 
     private fun s(stem: String?): String? = when {
@@ -250,6 +250,10 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
         }
     }
 
+    /** [digits] as words; runs too long for a [Long] (a 30-digit id) are read digit by digit. */
+    private fun spellNumber(digits: String): String = digits.toLongOrNull()?.let(EnglishNumbers::cardinal)
+        ?: digits.mapNotNull { it.digitToIntOrNull()?.let { d -> EnglishNumbers.cardinal(d.toLong()) } }.joinToString(" ")
+
     private fun getNumber(word0: String, currency: String?, isHead: Boolean): Ps? {
         val suffix = NUMBER_SUFFIX.find(word0)?.value
         var word = if (suffix != null) word0.dropLast(suffix.length) else word0
@@ -259,13 +263,13 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
             word = word.substring(1)
         }
         fun extend(num: String, escape: Boolean = false) {
-            val words = if (escape) num else EnglishNumbers.cardinal(num.toLong())
+            val words = if (escape) num else spellNumber(num)
             for (w in words.split(NON_LETTERS)) {
                 if (w != "and") result += lookup(w, null, if (w == "point") -2.0 else null, null)
             }
         }
         when {
-            isDigits(word) && suffix in ORDINALS -> extend(EnglishNumbers.ordinal(word.toLong()), escape = true)
+            isDigits(word) && suffix in ORDINALS -> word.toLongOrNull()?.let { extend(EnglishNumbers.ordinal(it), escape = true) } ?: extend(word)
             result.isEmpty() && word.length == 4 && currency !in CURRENCIES && isDigits(word) -> extend(EnglishNumbers.year(word.toLong()), escape = true)
             !isHead && '.' !in word -> {
                 val num = word.replace(",", "")
@@ -307,11 +311,11 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
             }
             else -> {
                 val text = when {
-                    isDigits(word) -> EnglishNumbers.cardinal(word.toLong())
+                    isDigits(word) -> spellNumber(word)
                     '.' !in word -> word.replace(",", "").toLongOrNull()?.let { if (suffix in ORDINALS) EnglishNumbers.ordinal(it) else EnglishNumbers.cardinal(it) }
                     else -> word.replace(",", "").let { w ->
                         if (w.startsWith(".")) {
-                            "point " + w.substring(1).map { EnglishNumbers.cardinal(it.digitToInt().toLong()) }.joinToString(" ")
+                            "point " + w.substring(1).mapNotNull { it.digitToIntOrNull()?.let { d -> EnglishNumbers.cardinal(d.toLong()) } }.joinToString(" ")
                         } else {
                             EnglishNumbers.decimal(w)
                         }
@@ -342,9 +346,12 @@ internal class Lexicon(val british: Boolean, golds: Map<String, Entry>, silvers:
     operator fun invoke(tk: MToken, ctx: TokenContext): Ps? {
         val word = (tk.alias ?: tk.text).replace('‘', '\'').replace('’', '\'')
         val stress = if (word == word.lowercase()) null else if (word == word.uppercase()) capStresses.second else capStresses.first
-        getWord(word, tk.tag, stress, ctx)?.let { return Ps(applyStress(appendCurrency(it.ps, tk.currency), tk.stress)!!, it.rating) }
+        getWord(word, tk.tag, stress, ctx)?.let {
+            val ps = appendCurrency(it.ps, tk.currency)
+            return Ps(applyStress(ps, tk.stress) ?: ps, it.rating)
+        }
         if (isNumber(word, tk.isHead)) {
-            return getNumber(word, tk.currency, tk.isHead)?.let { Ps(applyStress(it.ps, tk.stress)!!, it.rating) }
+            return getNumber(word, tk.currency, tk.isHead)?.let { Ps(applyStress(it.ps, tk.stress) ?: it.ps, it.rating) }
         }
         return null
     }

@@ -40,6 +40,7 @@ import dev.wckdboy.autobot.providers.remote.ChatRoutes
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
+import dev.wckdboy.autobot.shared.chats.ChatNames
 import dev.wckdboy.autobot.providers.remote.vault.OnDeviceVault
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
@@ -52,6 +53,7 @@ import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -145,8 +147,13 @@ class AgentHost @Inject constructor(
     }
 
     private val mutex = Mutex()
-    private val agents = HashMap<String, Agent>()
+
+    /** Open agents, least recently used first; idle ones beyond [MAX_OPEN_AGENTS] are closed. */
+    private val agents = LinkedHashMap<String, Agent>(16, 0.75f, true)
     private val watchers = HashMap<String, Job>()
+
+    /** Conversations on screen (see [retain]): their agents are never evicted. */
+    private val retained = HashMap<String, Int>()
 
     private val _interactions = MutableStateFlow<List<Interaction>>(emptyList())
     val interactions: StateFlow<List<Interaction>> = _interactions.asStateFlow()
@@ -278,7 +285,34 @@ class AgentHost @Inject constructor(
             }
         }
         agents[conversationId] = agent
+        evictIdle()
         agent
+    }
+
+    /** Keeps [conversationId]'s agent open while a screen shows it; pair with [release]. */
+    fun retain(conversationId: String) = synchronized(retained) {
+        retained[conversationId] = (retained[conversationId] ?: 0) + 1
+    }
+
+    fun release(conversationId: String) = synchronized(retained) {
+        val n = (retained[conversationId] ?: return@synchronized) - 1
+        if (n <= 0) retained.remove(conversationId) else retained[conversationId] = n
+    }
+
+    /** Closes the least recently used agents that are idle, unwatched and not waiting on the user. */
+    private fun evictIdle() {
+        val waiting = _interactions.value.mapTo(HashSet()) { it.sessionId }
+        val pinned = synchronized(retained) { retained.keys.toSet() }
+        val idle = AgentEviction.evictable(
+            openLru = agents.keys.toList(),
+            busy = agents.filterValues { it.status.value != AgentStatus.IDLE }.keys + waiting + pinned,
+            max = MAX_OPEN_AGENTS,
+        )
+        for (id in idle) {
+            val agent = agents.remove(id) ?: continue
+            watchers.remove(id)?.cancel()
+            scope.launch { agent.dispose() }
+        }
     }
 
     /** Phase-1 conversations stored plain messages; replay them as log events once. */
@@ -305,8 +339,8 @@ class AgentHost @Inject constructor(
         if (prompt.isEmpty() && images.isEmpty()) return
         val agent = agent(conversationId)
         conversations.getConversation(conversationId)?.let { c ->
-            val first = prompt.lineSequence().first().ifBlank { "Image" }
-            val title = if (c.title == ConversationRepository.DEFAULT_TITLE) first.take(TITLE_LENGTH) else c.title
+            // Only an untitled chat is named after its prompt; a renamed one keeps its name.
+            val title = if (c.title == ConversationRepository.DEFAULT_TITLE) ChatNames.fromPrompt(prompt) else c.title
             conversations.updateConversation(c.copy(title = title, updatedAt = System.currentTimeMillis()))
         }
         agent.followup(prompt, images)
@@ -329,11 +363,17 @@ class AgentHost @Inject constructor(
     suspend fun setPermission(conversationId: String, preset: PermissionPreset) = agent(conversationId).setPermission(preset)
 
     /** Manual `/compact`. */
-    fun compact(conversationId: String) {
+    fun compact(conversationId: String, onError: (Throwable) -> Unit = {}) {
         scope.launch {
-            val agent = agent(conversationId)
-            agent.log.append(SessionEvent.CommandRun("compact"))
-            agent.ctx[Compactor.Key]?.compact(agent, "manual")
+            try {
+                val agent = agent(conversationId)
+                agent.log.append(SessionEvent.CommandRun("compact"))
+                agent.ctx[Compactor.Key]?.compact(agent, "manual")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onError(e)
+            }
         }
     }
 
@@ -345,6 +385,11 @@ class AgentHost @Inject constructor(
 
     /** Re-applies what an undo ([revertId]) put back. */
     suspend fun redo(conversationId: String, revertId: String) = journal.redo(agent(conversationId), revertId)
+
+    /** Cancels [conversationId]'s running turn, if its agent is open (it stays open). */
+    suspend fun cancel(conversationId: String) {
+        mutex.withLock { agents[conversationId] }?.cancel()
+    }
 
     /** Stops and forgets the agent (before deleting its conversation). */
     suspend fun discard(conversationId: String) {
@@ -373,6 +418,8 @@ class AgentHost @Inject constructor(
     companion object {
         const val WORKSPACE_DIR = "workspace"
         const val JOURNAL_DIR = "workspace-undo"
-        private const val TITLE_LENGTH = 48
+
+        /** Open agents kept beyond the ones running or on screen (each holds its whole log in memory). */
+        const val MAX_OPEN_AGENTS = 4
     }
 }

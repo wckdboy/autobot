@@ -135,19 +135,53 @@ class AppLockManager @Inject constructor(
         prompt.authenticate(info)
     }
 
+    /** When the app last opened another app's screen for a result (see [expectReturn]). */
+    @Volatile
+    private var pickerOpenedAt: Long? = null
+
+    @Volatile
+    private var inPicker = false
+
+    /**
+     * The app is opening a system screen for a result (photo picker, file picker). Coming back
+     * from it soon does not re-lock even with a timeout of 0: the lock would tear down the
+     * screen waiting for the result and lose it.
+     */
+    fun expectReturn() {
+        pickerOpenedAt = SystemClock.elapsedRealtime()
+    }
+
     override fun onStop(owner: LifecycleOwner) {
-        backgroundedAt = SystemClock.elapsedRealtime()
-        if (timeoutMillis == 0L) lock()
+        val now = SystemClock.elapsedRealtime()
+        backgroundedAt = now
+        inPicker = pickerOpenedAt?.let { now - it < PICKER_START_MILLIS } == true
+        pickerOpenedAt = null
+        if (timeoutMillis == 0L && !inPicker) lock()
     }
 
     override fun onStart(owner: LifecycleOwner) {
         val since = backgroundedAt ?: return
         backgroundedAt = null
-        if (SystemClock.elapsedRealtime() - since >= timeoutMillis) lock()
+        val picker = inPicker
+        inPicker = false
+        if (shouldLock(SystemClock.elapsedRealtime() - since, timeoutMillis, picker)) lock()
     }
 
     companion object {
         const val AUTHENTICATORS = BIOMETRIC_STRONG or DEVICE_CREDENTIAL
         const val DEFAULT_TIMEOUT_MILLIS = 60_000L
+
+        /** How soon after [expectReturn] the app must leave the foreground for it to count as a picker trip. */
+        private const val PICKER_START_MILLIS = 5_000L
+
+        /** With a timeout of 0, a picker trip longer than this still locks. */
+        const val PICKER_GRACE_MILLIS = 2 * 60_000L
+
+        /**
+         * Whether coming back after [awayMillis] locks: the timeout, except that "lock at once" (0)
+         * allows a short trip to a system picker. A set timeout applies to picker trips as well.
+         */
+        fun shouldLock(awayMillis: Long, timeoutMillis: Long, fromPicker: Boolean): Boolean =
+            awayMillis >= if (fromPicker && timeoutMillis == 0L) PICKER_GRACE_MILLIS else timeoutMillis
     }
 }

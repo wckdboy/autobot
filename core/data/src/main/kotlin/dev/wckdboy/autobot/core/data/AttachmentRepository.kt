@@ -7,7 +7,6 @@ import dev.wckdboy.autobot.core.security.KeyManager
 import dev.wckdboy.autobot.core.security.crypto.AesGcmEnvelope
 import java.io.File
 import java.io.IOException
-import java.security.GeneralSecurityException
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,7 +47,7 @@ class AttachmentRepository @Inject constructor(
         if (!f.isFile) return@withContext null
         try {
             AesGcmEnvelope.open(keyManager.mediaKey(), f.readBytes(), aad(id))
-        } catch (_: GeneralSecurityException) {
+        } catch (_: Exception) { // wrong key, truncated or unreadable file (require() in the envelope, IO)
             null
         }
     }

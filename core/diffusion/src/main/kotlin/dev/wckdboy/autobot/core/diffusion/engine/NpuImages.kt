@@ -14,6 +14,7 @@ import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.engine.npu.LocalNpu
 import dev.wckdboy.autobot.engine.npu.NpuEngineDiedException
+import dev.wckdboy.autobot.engine.npu.NpuEngineUnavailableException
 import dev.wckdboy.autobot.engine.npu.NpuEvent
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -89,6 +90,8 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
             }
         } catch (e: NpuEngineDiedException) {
             throw DiffusionException("The NPU engine stopped (likely out of memory). Close other apps and try again.", DiffusionException.Code.BACKEND)
+        } catch (e: NpuEngineUnavailableException) {
+            throw DiffusionException(e.message ?: "The NPU engine is not available", DiffusionException.Code.BACKEND)
         } finally {
             temp.forEach { it.delete() }
         }
@@ -96,6 +99,11 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
 
     /** Upscales an encoded image with an NPU upscaler model; returns PNG bytes. */
     suspend fun upscale(upscaler: InstalledModel, image: ByteArray, onProgress: (Int, Int) -> Unit): ByteArray {
+        // Check the size before decoding: the 4× result is assembled in this process.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(image, 0, image.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw DiffusionException("Unreadable image", DiffusionException.Code.UNSUPPORTED)
+        upscaleProblem(bounds.outWidth, bounds.outHeight)?.let { throw DiffusionException(it, DiffusionException.Code.UNSUPPORTED) }
         val bitmap = BitmapFactory.decodeByteArray(image, 0, image.size) ?: throw DiffusionException("Unreadable image", DiffusionException.Code.UNSUPPORTED)
         scratchDir.mkdirs()
         val input = File.createTempFile("up", ".rgb", scratchDir)
@@ -134,6 +142,22 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
     }
 
     companion object {
+        /** NPU upscalers enlarge 4×. */
+        const val UPSCALE = 4
+
+        /** Longest side of an upscaled image (4096² ARGB is 64 MB; 16384² would be 1 GB). */
+        const val MAX_UPSCALED_SIDE = 4096
+
+        /** Why a [width]×[height] image cannot be upscaled (too large, e.g. already upscaled), or null. */
+        fun upscaleProblem(width: Int, height: Int): String? {
+            val side = maxOf(width, height)
+            return if (side.toLong() * UPSCALE > MAX_UPSCALED_SIDE) {
+                "This image is already ${width}×$height — upscaling works up to ${MAX_UPSCALED_SIDE / UPSCALE} px on the long side"
+            } else {
+                null
+            }
+        }
+
         private val ROLES = mapOf(
             FileRole.TOKENIZER to "tokenizer",
             FileRole.TOKEN_EMB to "token_emb",

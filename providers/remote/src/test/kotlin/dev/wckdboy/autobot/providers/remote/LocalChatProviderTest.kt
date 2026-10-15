@@ -60,6 +60,7 @@ class LocalChatProviderTest {
     fun mapsEngineErrors() {
         val overflow = LocalChatProvider.decodeResult("""{"error":{"code":"CONTEXT_WINDOW_EXCEEDED","message":"prompt has 9000 tokens"}}""").single()
         assertTrue((overflow as ChatEvent.Error).message.contains("context length"))
-        assertTrue(LocalChatProvider.decodeResult("""{"error":{"code":"CANCELLED","message":"cancelled"}}""").isEmpty())
+        val cancelled = LocalChatProvider.decodeResult("""{"error":{"code":"CANCELLED","message":"cancelled"}}""").single()
+        assertEquals("CANCELLED", (cancelled as ChatEvent.Error).code)
     }
 }

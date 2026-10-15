@@ -59,8 +59,8 @@ struct OnDeviceEngine: DiffusionEngine {
         if request.mode != .txt2img && !info.supportsImageToImage {
             throw DiffusionError(message: "This model has no image encoder; it only does txt2img", code: .unsupported)
         }
-        // The chat model and the pipeline never share memory on a phone.
-        await llm.unload()
+        // The chat model and the pipeline never share memory on a phone: LocalDiffusion unloads it
+        // (EngineMemory) before the pipeline loads.
         var sized = request
         sized.width = info.width
         sized.height = info.height

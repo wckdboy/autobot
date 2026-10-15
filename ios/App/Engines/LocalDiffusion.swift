@@ -93,7 +93,8 @@ final class LocalDiffusion: Sendable {
         )
         let engine = AutobotEngines.DiffusionEngine.shared
         do {
-            _ = try await withTaskCancellationHandler {
+            // Cancelling this task cancels this request only (the engine's per-request token).
+            _ = try await EngineMemory.using(.diffusion) {
                 try await engine.generate(
                     model: engineModel,
                     request: r,
@@ -112,8 +113,6 @@ final class LocalDiffusion: Sendable {
                         onEvent(.result(index: img.index, image: img.image, seed: img.seed, width: img.width, height: img.height, durationMs: img.durationMs, info: img.info))
                     }
                 }
-            } onCancel: {
-                engine.cancel()
             }
         } catch {
             throw Engines.map(error)
@@ -124,8 +123,6 @@ final class LocalDiffusion: Sendable {
     }
 
     func unload() async {
-        #if canImport(AutobotEngines)
-        await AutobotEngines.DiffusionEngine.shared.unload()
-        #endif
+        await EngineMemory.shared.release([.diffusion])
     }
 }
