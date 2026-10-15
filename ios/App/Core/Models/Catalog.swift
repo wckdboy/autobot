@@ -29,4 +29,7 @@ enum CoreMLCatalog {
 
     /// Kokoro, the on-device neural voice for read-aloud and voice mode (Android runs it on ONNX Runtime).
     static let voices: [ModelPlan] = AutobotShared.CoreMLCatalog.shared.voices.map(ModelPlan.init)
+
+    /// Stable Audio Open Small, text to music and sound for the Studio (Android runs it on ONNX Runtime).
+    static let audio: [ModelPlan] = AutobotShared.CoreMLCatalog.shared.audio.map(ModelPlan.init)
 }

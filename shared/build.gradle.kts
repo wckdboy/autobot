@@ -48,6 +48,8 @@ kotlin {
 
 // Optional: `-Pkokoro.dir=<folder with the misaki lexicons>` runs the frontend against the full
 // lexicons (KokoroFrontendTest.fullLexicons); skipped otherwise.
+// `-Paudiogen.dir=<Stable Audio folder with tokenizer.json>` checks T5Tokenizer against the full vocabulary.
 tasks.withType<Test>().configureEach {
     providers.gradleProperty("kokoro.dir").orNull?.let { systemProperty("kokoro.dir", it) }
+    providers.gradleProperty("audiogen.dir").orNull?.let { systemProperty("audiogen.dir", it) }
 }

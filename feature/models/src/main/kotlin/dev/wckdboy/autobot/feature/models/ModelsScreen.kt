@@ -194,6 +194,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                         "image · cpu" to actions.recommended.filter { it.kind == ModelKind.IMAGE },
                         "speech · dictation" to actions.recommended.filter { it.kind == ModelKind.SPEECH },
                         "voice · read aloud" to actions.recommended.filter { it.kind == ModelKind.VOICE },
+                        "audio · studio" to actions.recommended.filter { it.kind == ModelKind.AUDIO },
                         "embedding · vault" to actions.recommended.filter { it.kind == ModelKind.EMBEDDING },
                     ).forEach { (label, plans) ->
                         item(key = "h-$label") {

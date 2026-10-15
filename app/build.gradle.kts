@@ -155,6 +155,7 @@ dependencies {
     implementation(projects.engine.npu)
     implementation(projects.engine.speech)
     implementation(projects.engine.tts)
+    implementation(projects.engine.audiogen)
     // Gemini Nano: only in the opt-in flavor, never on the default (foss) classpath.
     "playServicesImplementation"(projects.engine.systemllm)
 
