@@ -273,13 +273,21 @@ enum Tokens {
     }
 
     enum Motion {
+        static let ambientBreathSeconds: CGFloat = 8.0
+        static let ambientCycleSeconds: CGFloat = 48.0
+        static let ambientFrameIntervalMillis: CGFloat = 100.0
+        static let ambientIdleStopSeconds: CGFloat = 60.0
+        static let ambientOpacity: CGFloat = 0.1
         static let developMillis: CGFloat = 900.0
         static let developStagger: CGFloat = 0.5
+        static let dissolveMillis: CGFloat = 200.0
         static let enterMillis: CGFloat = 180.0
         static let enterRise: CGFloat = 4.0
         static let flowCyclesPerSecond: CGFloat = 0.18
         static let flowMinFill: CGFloat = 0.35
         static let frameIntervalMillis: CGFloat = 33.0
+        static let indeterminateSweepMillis: CGFloat = 1400.0
+        static let loaderCycleMillis: CGFloat = 1100.0
         static let lowPowerFrameIntervalMillis: CGFloat = 66.0
         static let printMergeScale: CGFloat = 1.7
         static let printMillis: CGFloat = 900.0
@@ -287,10 +295,12 @@ enum Tokens {
         static let reducedMotionMillis: CGFloat = 150.0
         static let registerMillis: CGFloat = 420.0
         static let registerOffset: CGFloat = 3.0
+        static let staggerMillis: CGFloat = 35.0
         static let stampMillis: CGFloat = 260.0
         static let stampRotationDegrees: CGFloat = -6.0
         static let stampScale: CGFloat = 1.35
         static let statusDotPulseMillis: CGFloat = 700.0
         static let statusDotPulseMinAlpha: CGFloat = 0.25
+        static let transitionMillis: CGFloat = 240.0
     }
 }

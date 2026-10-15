@@ -24,6 +24,16 @@ object Motion {
     const val enterRise = 4f
     const val progressMillis = 240
     const val reducedMotionMillis = 150
+    const val ambientFrameIntervalMillis = 100
+    const val ambientCycleSeconds = 48
+    const val ambientOpacity = 0.10f
+    const val ambientBreathSeconds = 8
+    const val ambientIdleStopSeconds = 60
+    const val loaderCycleMillis = 1100
+    const val transitionMillis = 240
+    const val staggerMillis = 35
+    const val dissolveMillis = 200
+    const val indeterminateSweepMillis = 1400
 
     /** Every token by its tokens.json name (for the parity test). */
     val all: Map<String, Number> = mapOf(
@@ -46,5 +56,15 @@ object Motion {
         "enterRise" to enterRise,
         "progressMillis" to progressMillis,
         "reducedMotionMillis" to reducedMotionMillis,
+        "ambientFrameIntervalMillis" to ambientFrameIntervalMillis,
+        "ambientCycleSeconds" to ambientCycleSeconds,
+        "ambientOpacity" to ambientOpacity,
+        "ambientBreathSeconds" to ambientBreathSeconds,
+        "ambientIdleStopSeconds" to ambientIdleStopSeconds,
+        "loaderCycleMillis" to loaderCycleMillis,
+        "transitionMillis" to transitionMillis,
+        "staggerMillis" to staggerMillis,
+        "dissolveMillis" to dissolveMillis,
+        "indeterminateSweepMillis" to indeterminateSweepMillis,
     )
 }
