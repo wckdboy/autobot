@@ -77,6 +77,12 @@ session exported on Android opens on iOS.
 - **Web search tool**: opt-in, through a provider the user configures (SearXNG, Brave and others),
   routed and audited like `web_fetch`.
 - **Voice mode**: push-to-talk dictation → agent → read-aloud loop, all on the device.
+- **Every provider, live model lists**: all major clouds plus open-model hosts and niche
+  providers (e.g. abliteration.ai), each verified against its docs; model ids fetched from the
+  provider when a key is added (through the kill switch and audit log), never stale hard-coded slugs.
+- **OS models as fallback**: "This phone" falls back to the system's on-device model (Apple
+  Foundation Models on iOS 26+; Gemini Nano via AICore on Android only where it does not pull Google
+  Play Services into the default build) when no downloaded model fits or loads, always labelled.
 
 **Exit:** an agent can use an MCP server, delegate to a subagent and recall a memory, offline
 where possible, on both platforms.
@@ -86,8 +92,6 @@ where possible, on both platforms.
 - **Hexagon tuning**: Q4_0 catalog variants that repack well for HTP, flash attention on HTP,
   benchmark-driven defaults per SoC.
 - **Speculative decoding** with a small draft model, on the GPU or NPU.
-- **Apple on-device models**: the system Foundation Models framework as a "This iPhone (Apple)"
-  provider where available.
 - **Images**: LoRA on the NPU, SDXL resolutions beyond 1024, Anima packages, Core ML LoRA merge
   tooling.
 - **Speech**: whisper encoder on QNN (Android) and Core ML (iOS); streaming dictation.
