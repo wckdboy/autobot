@@ -239,7 +239,7 @@ private struct AudioPreview: View {
     var body: some View {
         let playing = player.playingId == asset.id
         VStack(alignment: .leading, spacing: 8) {
-            WaveformView(peaks: peaks, progress: playing && player.duration > 0 ? player.position / player.duration : 0) { f in if playing { player.seek(f) } }
+            PlayheadWaveform(id: asset.id, peaks: peaks, player: player)
                 .frame(height: 96)
             HStack {
                 IconAction(symbol: playing ? "stop.fill" : "play.fill", label: playing ? "Stop" : "Play") {
@@ -344,7 +344,7 @@ struct CompareView: View {
             }
             .buttonStyle(PressStyle())
             .accessibilityLabel("Play \(name)")
-            WaveformView(peaks: peaks, progress: playing && player.duration > 0 ? player.position / player.duration : 0).frame(height: 52)
+            PlayheadWaveform(id: asset.id, peaks: peaks, player: player).frame(height: 52)
         }
     }
 }

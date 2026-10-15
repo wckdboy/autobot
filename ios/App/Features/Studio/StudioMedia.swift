@@ -56,20 +56,33 @@ struct AudioFileDocument: FileDocument {
 }
 
 /**
- Plays Studio audio from memory (no plain file): loop, a playhead for the waveform, and A/B
- switching that keeps the position (compare two clips). One per screen.
+ Plays Studio audio from memory (no plain file): loop, the playhead for the waveform (read on the
+ shared ink clock, see [PlayheadWaveform]), and A/B switching that keeps the position.
  */
 @MainActor
 @Observable
 final class StudioAudioPlayer {
     private(set) var playingId: String?
-    private(set) var position: Double = 0
-    private(set) var duration: Double = 0
-    var loop = true
+    private(set) var loop = true
     @ObservationIgnored private var player: AVAudioPlayer?
-    @ObservationIgnored private var ticker: Task<Void, Never>?
+    @ObservationIgnored private let ended = PlaybackEnd()
 
-    var isPlaying: Bool { player?.isPlaying == true }
+    init() {
+        ended.onEnd = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.loop else { return }
+                self.playingId = nil
+            }
+        }
+    }
+
+    var isPlaying: Bool { playingId != nil }
+
+    /// Played fraction of [id] (0 when it is not the clip playing).
+    func fraction(_ id: String) -> Double {
+        guard playingId == id, let p = player, p.duration > 0 else { return 0 }
+        return p.currentTime / p.duration
+    }
 
     /// Plays [data] as [id]; [keepPosition] continues from where the last clip was (A/B).
     func play(_ id: String, data: Data, keepPosition: Bool = false) {
@@ -78,20 +91,12 @@ final class StudioAudioPlayer {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
         guard let p = try? AVAudioPlayer(data: data) else { return }
+        p.delegate = ended
         p.numberOfLoops = loop ? -1 : 0
         p.currentTime = min(at, p.duration)
         p.play()
         player = p
         playingId = id
-        duration = p.duration
-        ticker = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(50))
-                guard let self, let p = self.player else { return }
-                self.position = p.currentTime
-                if !p.isPlaying && !self.loop && p.currentTime == 0 { self.playingId = nil; return }
-            }
-        }
     }
 
     func setLoop(_ on: Bool) {
@@ -102,15 +107,37 @@ final class StudioAudioPlayer {
     func seek(_ fraction: Double) {
         guard let p = player else { return }
         p.currentTime = max(0, min(1, fraction)) * p.duration
-        position = p.currentTime
     }
 
     func stop() {
-        ticker?.cancel()
         player?.stop()
         player = nil
         playingId = nil
-        position = 0
+    }
+}
+
+/// AVAudioPlayer's end of playback (no loop), back on main.
+private final class PlaybackEnd: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    var onEnd: (@Sendable () -> Void)?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        let end = onEnd
+        DispatchQueue.main.async { end?() }
+    }
+}
+
+/// A waveform whose playhead follows [player] on the shared ink clock while [id] plays.
+struct PlayheadWaveform: View {
+    let id: String
+    let peaks: [Float]
+    let player: StudioAudioPlayer
+    var trim: Binding<ClosedRange<Double>>? = nil
+
+    var body: some View {
+        let playing = player.playingId == id
+        InkTimeline(active: playing) { _ in
+            WaveformView(peaks: peaks, progress: player.fraction(id), trim: trim) { f in if playing { player.seek(f) } }
+        }
     }
 }
 

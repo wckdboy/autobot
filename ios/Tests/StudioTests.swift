@@ -83,7 +83,7 @@ struct StudioTests {
         #expect(back.prompt == q.prompt)
         #expect(back.negativePrompt == "blurry")
         #expect(back.steps == 28 && back.cfgScale == 6.5 && back.width == 832 && back.height == 1216)
-        #expect(back.loras == q.loras)
+        #expect(back.loras.sorted { $0.name < $1.name } == q.loras.sorted { $0.name < $1.name })
         #expect(back.mode == .txt2img)
         let inpaint = r.withInput(asset: "a-1", role: "image").with(name: "mask", value: .text("AAAA"))
         #expect(StudioRecipes.request(inpaint).mode == .inpaint)
@@ -91,6 +91,9 @@ struct StudioTests {
         #expect(StudioRecipes.request(outpaint).mode == .inpaint)
         #expect(StudioRecipes.request(outpaint).denoiseStrength == 1)
         #expect(StudioRecipes.request(r.withInput(asset: "a-1", role: "image")).mode == .img2img)
+        // Android's vocabulary: one `lora.<name>` per LoRA, the mask as an input asset.
+        #expect(r.params["lora.film"]?.asDouble()?.doubleValue == 0.75)
+        #expect(StudioRecipes.request(r.withInput(asset: "a-1", role: "image").withInput(asset: "a-2", role: "mask")).mode == .inpaint)
         #expect(StudioRecipes.Margins("1, 2,3,4") == StudioRecipes.Margins(left: 1, top: 2, right: 3, bottom: 4))
         #expect(StudioRecipes.Margins("1,2") == nil)
     }
@@ -123,6 +126,20 @@ struct StudioTests {
         #expect(peaks.last! > peaks.first!) // the ramp grows
         let trimmed = try #require(StudioAudio.trim(file: url, start: 0.25, end: 0.75))
         #expect(abs(trimmed.durationMs - 500) <= 2)
+    }
+
+    /// The queue reports from Kotlin's threads; the hub mirrors it on main (no isolation trap).
+    @Test func queueReachesTheHubFromKotlinThreads() async throws {
+        let app = AppContainer()
+        await app.unlockData()
+        let studio = app.studio
+        #expect(studio.project != nil)
+        let recipe = Recipe(engine: "no-such-engine", backendId: nil, model: nil, params: [:], inputs: [], workflowId: nil, workflowVersion: nil, seed: nil, output: .image)
+        let job = try #require(studio.submit(recipe, label: "test"))
+        for _ in 0 ..< 100 where studio.job(job.id)?.state != .failed { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(studio.job(job.id)?.state == .failed)
+        #expect(studio.job(job.id)?.error?.contains("no-such-engine") == true)
+        studio.clearFinished()
     }
 
     @Test func sharedWorkflowTextOpensTheImport() {

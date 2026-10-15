@@ -108,7 +108,7 @@ final class ImageRoomModel: MaskEditing {
     }
 
     var projectImages: [StudioAsset] {
-        app.studio.library.assets.filter { $0.type == .image && $0.projectId == app.studio.projectId }
+        app.studio.library.assets.filter { $0.type == .image && $0.projectId == app.studio.projectId && !StudioRecipes.hiddenEngines.contains($0.recipe.engine) }
     }
 
     var canvasAsset: StudioAsset? {
@@ -313,6 +313,7 @@ final class ImageRoomModel: MaskEditing {
         let samplers = backend?.kind == .onDevice ? LocalDiffusion.samplers : catalog.samplers
         if !samplers.isEmpty { p.append(GridParam(name: "sampler", label: "sampler", integer: false, hint: samplers.prefix(3).joined(separator: ", "))) }
         if mode != .txt2img { p.append(GridParam(name: "strength", label: "denoise", integer: false, hint: "0.3-0.9 (+0.2)")) }
+        for l in request.loras { p.append(GridParam(name: StudioRecipes.loraPrefix + l.name, label: "lora \(l.name)", integer: false, hint: "0.2-1 (+0.2)")) }
         if backend?.kind != .onDevice, !catalog.models.isEmpty { p.append(GridParam(name: "model", label: "model", integer: false, hint: catalog.models.prefix(2).joined(separator: ", "))) }
         return p
     }
@@ -351,7 +352,9 @@ struct ImageRoom: View {
                 canvas
                     .frame(maxHeight: .infinity)
                 StudioPanel(title: "controls", collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) { controls }
-                    .frame(maxHeight: session.collapsed ? nil : 380)
+                    .frame(maxHeight: session.collapsed ? nil : 320)
+                    // The controls get their height first; the canvas takes the rest.
+                    .layoutPriority(1)
                 runBar
             }
             .fullScreenCover(isPresented: $showMask) {
@@ -405,7 +408,7 @@ struct ImageRoom: View {
                     } else if let asset {
                         CanvasImage(asset: asset)
                     } else {
-                        InkPlate(ink: .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary)
+                        Color.clear.inkCard(seed: 0.6, fade: .bottomLeading, cornerRadius: 0)
                         MicroLabel("the canvas · results print here").padding(10)
                     }
                     if let running {
@@ -413,6 +416,7 @@ struct ImageRoom: View {
                             accent: c.primary, filled: true, busy: running.steps == 0 && running.state == .running).padding(8)
                     }
                 }
+                .frame(minHeight: 170)
                 .clipped()
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.top, 6)

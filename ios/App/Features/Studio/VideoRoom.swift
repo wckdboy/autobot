@@ -87,9 +87,11 @@ struct VideoRoom: View {
             }
         } else {
             VStack(spacing: 0) {
-                stage.frame(maxHeight: .infinity)
+                stage.frame(minHeight: 170, maxHeight: .infinity)
                 StudioPanel(title: "shot", collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) { controls }
-                    .frame(maxHeight: session.collapsed ? nil : 380)
+                    .frame(maxHeight: session.collapsed ? nil : 320)
+                    // The controls get their height first; the canvas takes the rest.
+                    .layoutPriority(1)
                 runBar
             }
         }
@@ -107,7 +109,7 @@ struct VideoRoom: View {
                     VideoStage(asset: v)
                 } else {
                     ZStack(alignment: .bottomLeading) {
-                        InkPlate(ink: .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary)
+                        Color.clear.inkCard(seed: 2.4, fade: .bottomLeading, cornerRadius: 0)
                         MicroLabel("takes print here · runs on \(model.server?.name ?? "your pc")").padding(10)
                     }
                     .aspectRatio(16 / 9, contentMode: .fit)

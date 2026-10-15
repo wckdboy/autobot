@@ -142,9 +142,11 @@ struct AudioRoom: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            stage.frame(maxHeight: .infinity)
+            stage.frame(minHeight: 170, maxHeight: .infinity)
             StudioPanel(title: model.tab == .sound ? "sound" : "voiceover", collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) { controls }
-                .frame(maxHeight: session.collapsed ? nil : 400)
+                .frame(maxHeight: session.collapsed ? nil : 340)
+                    // The controls get their height first; the canvas takes the rest.
+                    .layoutPriority(1)
             runBar
         }
     }
@@ -303,11 +305,10 @@ private struct ClipStage: View {
 
     var body: some View {
         let playing = player.playingId == clip.id
-        let progress = playing && player.duration > 0 ? player.position / player.duration : 0
         VStack(alignment: .leading, spacing: 8) {
             Text(clip.recipe.text("prompt") ?? clip.recipe.text("text") ?? "clip").textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(2)
             MicroLabel(StudioText.meta(clip))
-            WaveformView(peaks: peaks, progress: progress, trim: trimming ? $trim : nil) { f in if playing { player.seek(f) } }
+            PlayheadWaveform(id: clip.id, peaks: peaks, player: player, trim: trimming ? $trim : nil)
                 .frame(height: 96)
                 .padding(.vertical, 4)
             HStack(spacing: 8) {

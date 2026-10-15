@@ -201,7 +201,9 @@ final class StudioLibrary {
     func workflow(_ id: String?) -> StudioWorkflow? { id.flatMap { id in workflows.first { $0.id == id } } }
 
     func assets(in projectId: String?, types: Set<AssetType>, favoritesOnly: Bool) -> [StudioAsset] {
-        assets.filter { a in (projectId == nil || a.projectId == projectId) && types.contains(a.type) && (!favoritesOnly || a.favorite) }
+        assets.filter { a in
+            (projectId == nil || a.projectId == projectId) && types.contains(a.type) && (!favoritesOnly || a.favorite) && !StudioRecipes.hiddenEngines.contains(a.recipe.engine)
+        }
     }
 
     private static func sorted(_ list: [StudioProject]) -> [StudioProject] { list.sorted { $0.updatedAt > $1.updatedAt } }

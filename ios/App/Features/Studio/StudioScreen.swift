@@ -321,8 +321,6 @@ struct StudioPanel<Content: View>: View {
             }
         }
         .background(c.surfaceContainerLow)
-        // The controls get their height first; the canvas takes the rest.
-        .layoutPriority(1)
     }
 }
 
@@ -356,6 +354,9 @@ struct StudioEmpty: View {
         }
         .padding(Tokens.Spacing.gutter)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .inkCard(seed: 1.7, fade: .topLeading)
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
     }
 }
 

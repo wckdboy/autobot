@@ -35,8 +35,19 @@ extension ParamValue {
     static func flag(_ v: Bool) -> ParamValue { ParamValue.BoolValue(value: v) }
 }
 
-/// Studio recipe ↔ the app's image request (shared names: `prompt`, `negative`, `steps`, `cfg`, …).
+/**
+ Studio recipe ↔ the app's image request, in the same vocabulary as Android's `StudioRecipes` (so
+ "reuse recipe" works on an export from either): `prompt`, `negative`, `steps`, `cfg`, `sampler`,
+ `scheduler`, `width`, `height`, `strength`, `mask_blur`, `clip_skip`, one `lora.<name>` per LoRA
+ with its weight (a grid can vary it). Inputs: role `image` (img2img) and role `mask` (a mask
+ asset, Android's inpaint). iOS also writes the inpaint mask inline (`mask`, an alpha PNG in
+ base64) and the outpaint margins (`outpaint`, `left,top,right,bottom`).
+ */
 enum StudioRecipes {
+    static let loraPrefix = "lora."
+    /// Helper assets (Android's masks and extended canvases) the library hides.
+    static let hiddenEngines: Set<String> = ["mask"]
+
     /// A recipe's LoRA stack: `name:0.80,other:0.50`.
     static func encodeLoras(_ loras: [LoraRef]) -> String {
         loras.map { "\($0.name):\(String(format: "%.2f", $0.weight))" }.joined(separator: ",")
@@ -84,12 +95,14 @@ enum StudioRecipes {
         q.denoiseStrength = r.double("strength") ?? q.denoiseStrength
         q.maskBlur = r.int("mask_blur") ?? q.maskBlur
         q.clipSkip = r.int("clip_skip")
-        q.loras = decodeLoras(r.text("loras"))
+        let loras = r.params.filter { $0.key.hasPrefix(loraPrefix) }.sorted { $0.key < $1.key }
+            .map { LoraRef(name: String($0.key.dropFirst(loraPrefix.count)), weight: $0.value.asDouble()?.doubleValue ?? 1) }
+        q.loras = loras.isEmpty ? decodeLoras(r.text("loras")) : loras
         q.model = r.model
         q.seed = r.seedValue ?? -1
         q.batchCount = 1
         if r.input("image") != nil {
-            q.mode = r.text("mask") != nil || Margins(r.text("outpaint")).map { !$0.isEmpty } == true ? .inpaint : .img2img
+            q.mode = r.text("mask") != nil || r.input("mask") != nil || Margins(r.text("outpaint")).map { !$0.isEmpty } == true ? .inpaint : .img2img
             if Margins(r.text("outpaint")).map({ !$0.isEmpty }) == true { q.denoiseStrength = r.double("strength") ?? 1 }
         }
         return q
@@ -107,7 +120,7 @@ enum StudioRecipes {
         ]
         if !q.negativePrompt.isEmpty { params[Recipe.companion.NEGATIVE] = .text(q.negativePrompt) }
         if let s = q.scheduler { params["scheduler"] = .text(s) }
-        if !q.loras.isEmpty { params["loras"] = .text(encodeLoras(q.loras)) }
+        for l in q.loras { params[loraPrefix + l.name] = .double(l.weight) }
         if let clip = q.clipSkip { params["clip_skip"] = .int(clip) }
         return Recipe(engine: EngineKinds.shared.DIFFUSION, backendId: backendId, model: q.model, params: params, inputs: [], workflowId: nil,
                       workflowVersion: nil, seed: q.seed >= 0 ? KotlinLong(value: q.seed) : nil, output: .image)
@@ -259,6 +272,10 @@ final class DiffusionStudioEngine: StudioHostEngine, @unchecked Sendable {
         var mask: Data?
         if let encoded = recipe.text("mask"), let png = Data(base64Encoded: encoded) {
             mask = encoding == .opaqueBlackWhite ? Outpaint.opaque(png, width: request.width, height: request.height) : png
+        } else if let maskId = recipe.input("mask"), let png = files.bytes(maskId) {
+            // A mask asset (Android): white = repaint, opaque or with alpha.
+            mask = encoding == .opaqueBlackWhite ? Outpaint.opaque(png, width: request.width, height: request.height)
+                : Outpaint.alpha(png, width: request.width, height: request.height)
         }
         return DiffusionInputs(initImage: ImageCodec.png(covered), mask: mask)
     }
@@ -299,6 +316,20 @@ enum Outpaint {
             ctx.clear(keep)
         }
         return ctx.makeImage()
+    }
+
+    /// A white-on-black (or alpha) mask PNG as alpha-white: coverage from the luminance.
+    static func alpha(_ png: Data, width: Int, height: Int) -> Data? {
+        guard let opaquePng = opaque(png, width: width, height: height), let source = UIImage(data: opaquePng)?.cgImage,
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue), let data = ctx.data else { return nil }
+        ctx.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let p = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        for i in 0 ..< width * height {
+            let v = p[i * 4]
+            p[i * 4 + 3] = v
+        }
+        return ctx.makeImage().flatMap(ImageCodec.png)
     }
 
     /// An alpha mask PNG as an opaque black / white one (A1111).
