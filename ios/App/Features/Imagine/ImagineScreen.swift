@@ -18,6 +18,7 @@ struct ImagineScreen: View {
     var handoffId: String? = nil
     var asInit = false
     var modelId: String? = nil
+    var prompt: String? = nil
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
@@ -43,6 +44,7 @@ struct ImagineScreen: View {
                 model = m
                 m.onAppear()
                 if let modelId { m.useModel(modelId) }
+                if let prompt { m.setPrompt(prompt) }
                 if let handoffId {
                     m.reuseParams(handoffId)
                     if asInit { await m.useAsInit(handoffId) }

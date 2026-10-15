@@ -1,11 +1,13 @@
 package dev.wckdboy.autobot
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -18,7 +20,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation3.runtime.rememberNavBackStack
 import dagger.hilt.android.AndroidEntryPoint
 import dev.wckdboy.autobot.core.data.settings.AppSettings
@@ -27,6 +31,7 @@ import dev.wckdboy.autobot.core.data.settings.ThemeMode
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.core.security.LockState
+import dev.wckdboy.autobot.entry.EntryViewModel
 import dev.wckdboy.autobot.feature.home.WelcomeScreen
 import dev.wckdboy.autobot.navigation.AutobotNavDisplay
 import dev.wckdboy.autobot.navigation.Models
@@ -35,6 +40,7 @@ import dev.wckdboy.autobot.navigation.Remote
 import dev.wckdboy.autobot.navigation.Run
 import dev.wckdboy.autobot.ui.LockScreen
 import javax.inject.Inject
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
 /**
@@ -42,6 +48,10 @@ import kotlinx.coroutines.launch
  *
  * `FLAG_SECURE` blocks screenshots, screen recording and the recents thumbnail, and is set
  * before any content is attached.
+ *
+ * System entry points (share sheet, "Ask Autobot" in the text selection menu, the Quick Settings
+ * tile, launcher shortcuts, the widget) arrive as intents; [EntryViewModel] holds them until the
+ * app is unlocked and set up, so a locked app always shows its lock screen first.
  */
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
@@ -51,6 +61,8 @@ class MainActivity : FragmentActivity() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
+
+    private val entry: EntryViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -65,6 +77,9 @@ class MainActivity : FragmentActivity() {
             window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
             setRecentsScreenshotEnabled(false)
         }
+
+        // Not on recreation (rotation): the request was already taken or is still pending.
+        if (savedInstanceState == null) entry.receive(intent)
 
         setContent {
             val loaded by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
@@ -126,11 +141,29 @@ class MainActivity : FragmentActivity() {
                             },
                         )
                     } else if (loaded != null) {
+                        // Only while unlocked, set up and resumed (the lock re-arms on start, before
+                        // this runs); taking a request does not cancel it.
+                        LaunchedEffect(entry) {
+                            lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                                entry.pending.filterNotNull().collect {
+                                    entry.open()?.let { keys ->
+                                        backStack.clear()
+                                        backStack.addAll(keys)
+                                    }
+                                }
+                            }
+                        }
                         AutobotNavDisplay(backStack)
                     }
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        entry.receive(intent)
     }
 }
 
