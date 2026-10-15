@@ -78,6 +78,19 @@ sealed interface RunEvent {
     data class OpenSession(val conversationId: String) : RunEvent
 }
 
+/**
+ * Where a plain chat starts: this phone with its first downloaded chat model, else the first
+ * remote provider. Shared by the RUN card and the system entry points.
+ */
+fun defaultChatTarget(providers: List<Provider>, models: List<InstalledModel>): Pair<Provider, String>? {
+    val local = providers.firstOrNull { it.kind == ProviderKind.LOCAL }
+    if (local != null) {
+        val model = models.firstOrNull { it.isReady && it.engine == EngineKind.LLAMA && it.kind == ModelKind.CHAT }?.id
+        return local to (model ?: local.defaultModel)
+    }
+    return providers.firstOrNull { it.kind != ProviderKind.LOCAL }?.let { it to it.defaultModel }
+}
+
 @HiltViewModel
 class RunViewModel @Inject constructor(
     private val conversations: ConversationRepository,
@@ -122,7 +135,7 @@ class RunViewModel @Inject constructor(
         fun target(p: Provider, model: String = p.defaultModel) =
             RunTarget(p.id, model, titles[model] ?: model.ifBlank { p.displayName }, routeOf(p))
 
-        val chat = local?.let { target(it, readyChat.firstOrNull { m -> m.kind == ModelKind.CHAT }?.id ?: it.defaultModel) } ?: remote.firstOrNull()?.let(::target)
+        val chat = defaultChatTarget(input.providers, models)?.let { (p, m) -> target(p, m) }
         val agent = remote.firstOrNull()?.let(::target) ?: chat
         val code = if (local != null && codeModel != null) target(local, codeModel.id) else remote.firstOrNull()?.let(::target) ?: chat
 

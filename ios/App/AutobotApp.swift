@@ -10,6 +10,8 @@ struct AutobotApp: App {
             RootView()
                 .environment(container)
                 .environment(navigator)
+                // Widgets, the Control Center control and the share extension (see EntryRouter).
+                .onOpenURL { EntryRouter.shared.receive(url: $0) }
         }
     }
 }
@@ -57,6 +59,7 @@ struct RootView: View {
             if state == .unlocked { app.unlockData() }
         }
         .task {
+            if let inbox = SharedInbox.defaultRoot { SharedInbox.sweep(root: inbox) }
             if app.lock.state == .unlocked { app.unlockData() }
             #if DEBUG
             // `-AutobotOpen chat|agent` (UI work): open the newest plain / tool session.
@@ -109,10 +112,35 @@ struct RootView: View {
                     )
                 } else {
                     AutobotNavHost()
+                        .modifier(EntryPoints())
                 }
             }
             .background(c.background.ignoresSafeArea())
             .animation(reduceMotion ? .inkReduced : .linear(duration: Double(Tokens.Motion.printMillis) / 1000), value: app.lock.state)
+        }
+    }
+}
+
+/**
+ Opens what a system entry point asked for, once the app is unlocked, set up, loaded and active
+ (the lock re-arms when the app becomes active, before this runs).
+ */
+private struct EntryPoints: ViewModifier {
+    @Environment(AppContainer.self) private var app
+    @Environment(Navigator.self) private var nav
+    @Environment(\.scenePhase) private var phase
+
+    private struct Trigger: Equatable {
+        let pending: EntryRequest?
+        let loaded: Bool
+        let active: Bool
+    }
+
+    func body(content: Content) -> some View {
+        let router = EntryRouter.shared
+        content.task(id: Trigger(pending: router.pending, loaded: app.dataLoaded, active: phase == .active)) {
+            guard phase == .active, router.pending != nil else { return }
+            router.open(app: app, nav: nav)
         }
     }
 }

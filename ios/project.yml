@@ -54,6 +54,9 @@ targets:
       - framework: Frameworks/AutobotShared.xcframework
         embed: false
         link: true
+      # System entry points (ROADMAP Phase 2.5 item 8): share sheet, widgets and the control.
+      - target: AutobotShare
+      - target: AutobotWidgets
     preBuildScripts:
       - name: Verify AutobotShared
         basedOnDependencyAnalysis: false
@@ -71,6 +74,9 @@ targets:
         com.apple.developer.default-data-protection: NSFileProtectionComplete
         # Image and chat models need more than the default per-app memory limit.
         com.apple.developer.kernel.increased-memory-limit: true
+        # Share extension → app hand-off (SharedInbox).
+        com.apple.security.application-groups:
+          - group.ai.wckd.autobot
     info:
       path: App/Info.plist
       properties:
@@ -78,6 +84,11 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
+        # autobot:// links from the widgets, the control and the share extension (EntryLink).
+        CFBundleURLTypes:
+          - CFBundleURLName: ai.wckd.autobot
+            CFBundleURLSchemes:
+              - autobot
         UIAppFonts:
           - antonio.ttf
           - jetbrains_mono.ttf
@@ -115,6 +126,63 @@ targets:
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
         # Apple Intelligence (iOS 26+) is optional: iOS 18–25 launch without FoundationModels.
         OTHER_LDFLAGS: ["$(inherited)", "-weak_framework", "FoundationModels"]
+
+  # "Autobot" in the share sheet: hands text, links and images to the app via the App Group.
+  AutobotShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      # Also in the app (App/Entry), the reader side.
+      - path: App/Entry/SharedInbox.swift
+    entitlements:
+      path: ShareExtension/AutobotShare.entitlements
+      properties:
+        com.apple.developer.default-data-protection: NSFileProtectionComplete
+        com.apple.security.application-groups:
+          - group.ai.wckd.autobot
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Autobot
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 4
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wckd.autobot.share
+        PRODUCT_NAME: AutobotShare
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+
+  # Launcher widget, lock screen voice widget and the Control Center voice control. Static: they
+  # never show anything from a conversation.
+  AutobotWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Autobot
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wckd.autobot.widgets
+        PRODUCT_NAME: AutobotWidgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
 
   AutobotTests:
     type: bundle.unit-test

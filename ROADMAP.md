@@ -133,15 +133,30 @@ models, shared core). Ordered by value.
    own cloud"; sessions and the vault sync without a server.
 7. **On-device agents on a schedule.** Recipes ("every morning: summarise these feeds over Tor") run
    with BGTaskScheduler / WorkManager on local models, with results as notifications and receipts.
-8. **System entry points.** App Intents / Shortcuts, the Action button, widgets, Android
+8. ✅ **System entry points.** App Intents / Shortcuts, the Action button, widgets, Android
    Quick Settings tile and share targets: "Ask Autobot" about a screenshot, a selection or a photo,
-   answered on device.
+   answered on device. *(done, both apps: iOS App Intents "Ask Autobot" / "Start Voice Chat" /
+   "Generate Image" with Siri phrases, a share extension, a launcher widget, a lock screen voice
+   widget and a Control Center voice control (also on the Action button); Android share target,
+   "Ask Autobot" in the text selection menu, a Quick Settings voice tile, launcher shortcuts and a
+   launcher widget. Requests wait behind the app lock; widgets, tiles and controls are static and
+   never show chat content. Only an App Intent the user runs sends a prompt; shared, selected or
+   linked text only fills the composer. New chats follow "incognito by default" and start with
+   tools off. Shared content goes through the App Group with complete file protection, metadata
+   stripped, deleted on pickup and swept after an hour. No background answers: that would hand a
+   transcript to Shortcuts past the app lock.)*
 9. **Wake word on device.** A tiny always-on keyword model on the NPU for hands-free voice, off by
    default, with a visible indicator.
 10. **Your own arena.** Blind side-by-side answers from two models; your votes build a local
     preference profile that tunes the cascade and model suggestions. Never uploaded.
-11. **Undo for agents.** Workspace snapshots per turn, a timeline of what the agent changed, and
-    one-tap revert.
+11. ✅ **Undo for agents.** Workspace snapshots per turn, a timeline of what the agent changed, and
+    one-tap revert. *(done, both apps: `write`, `edit` and `delete` keep the file's previous
+    content in a copy-on-write journal next to the workspace (session · turn · call; 50 MB per
+    chat, oldest turns dropped with a notice, files over 10 MB not copied); step rows show a line
+    diff with "Undo", a turn's last answer "Undo turn (N files)", and a "Files changed" sheet
+    groups the session's changes by turn. Undoing a step also undoes later edits to the same file;
+    a revert is journaled so it can be redone, and a `workspace/revert` event tells the model
+    which files moved back. Subagent changes count for the parent's turn.)*
 12. **Spend and quota board.** Tokens, money and subscription windows (OpenCode Go 5 h / week /
     month) per provider, computed locally from responses.
 

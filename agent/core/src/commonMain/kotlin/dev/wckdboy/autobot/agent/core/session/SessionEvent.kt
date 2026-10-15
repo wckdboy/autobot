@@ -144,6 +144,34 @@ sealed interface SessionEvent {
     @Serializable
     @SerialName("command/run")
     data class CommandRun(val name: String, val input: String? = null) : SessionEvent
+
+    /**
+     * The user undid (or, with [redoOf], re-applied) file changes the agent made in the
+     * workspace. Model-visible as a context line, so the next turn knows the files moved back.
+     *
+     * @property id the revert's journal id; a later redo names it in [redoOf].
+     * @property callIds the tool calls whose changes this undid (or re-applied).
+     * @property turn set when the user undid a whole turn.
+     * @property restored workspace-relative paths put back to earlier content.
+     * @property deleted paths removed (the agent had created them).
+     * @property missing paths that could not be put back (no copy kept: too large or pruned).
+     */
+    @Serializable
+    @SerialName("workspace/revert")
+    data class WorkspaceRevert(
+        val id: String,
+        val callIds: List<String> = emptyList(),
+        val turn: Int? = null,
+        val redoOf: String? = null,
+        val restored: List<String> = emptyList(),
+        val deleted: List<String> = emptyList(),
+        val missing: List<String> = emptyList(),
+    ) : SessionEvent
+
+    /** The undo journal dropped the copies of these turns to stay under its size cap. Not model-visible. */
+    @Serializable
+    @SerialName("workspace/pruned")
+    data class WorkspacePruned(val turns: List<Int>, val reason: String? = null) : SessionEvent
 }
 
 @Serializable

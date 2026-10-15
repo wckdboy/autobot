@@ -71,6 +71,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -181,6 +182,7 @@ fun ChatScreen(
     var showModels by rememberSaveable { mutableStateOf(false) }
     var showSession by rememberSaveable { mutableStateOf(false) }
     var openReceipt by remember { mutableStateOf<Receipt?>(null) }
+    var showChanges by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val newest = state.items.lastOrNull()?.key to (state.live != null)
     LaunchedEffect(newest) {
@@ -237,7 +239,12 @@ fun ChatScreen(
                                 if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
                                 if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
                             }
-                            is SessionItem.Assistant -> AssistantMessage(item, speaking = state.speakingKey == item.key, onReceipt = { openReceipt = it }) {
+                            is SessionItem.Assistant -> AssistantMessage(
+                                item,
+                                speaking = state.speakingKey == item.key,
+                                onReceipt = { openReceipt = it },
+                                undo = { UndoTurnLine(item.turnChanges, state.running, actions::undoTurn, actions::redo) },
+                            ) {
                                 actions.speak(item.key, item.text)
                             }
                             is SessionItem.Tool -> {
@@ -246,7 +253,7 @@ fun ChatScreen(
                                     val ghost = remember(item.callId) { enter.claim("approval:${item.callId}") }
                                     ApprovalCard(stepNumbers[item.key] ?: 0, item, approval, actions, ghost)
                                 } else {
-                                    StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery)
+                                    StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery, state.running)
                                 }
                             }
                             is SessionItem.Notice -> NoticeRow(item)
@@ -287,6 +294,7 @@ fun ChatScreen(
         )
     }
     openReceipt?.let { ReceiptSheet(it) { openReceipt = null } }
+    if (showChanges) ChangesSheet(state.changes, state.running, actions::undoStep, actions::undoTurn) { showChanges = false }
     if (showSession) {
         SessionSheet(
             state = state,
@@ -296,6 +304,10 @@ fun ChatScreen(
             onCompact = {
                 actions.compact()
                 showSession = false
+            },
+            onChanges = {
+                showSession = false
+                showChanges = true
             },
         )
     }
@@ -327,7 +339,13 @@ private fun FollowUp(text: String) {
 }
 
 @Composable
-private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onReceipt: (Receipt) -> Unit, onSpeak: () -> Unit) {
+private fun AssistantMessage(
+    item: SessionItem.Assistant,
+    speaking: Boolean,
+    onReceipt: (Receipt) -> Unit,
+    undo: @Composable () -> Unit = {},
+    onSpeak: () -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item.reasoning?.takeIf { it.isNotEmpty() }?.let { ThinkingDisclosure(reasoning = it) }
         if (item.text.isNotEmpty()) {
@@ -352,6 +370,7 @@ private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onR
             )
         }
         ReceiptLine(item.receipt, onReceipt)
+        undo()
     }
 }
 
@@ -382,14 +401,15 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
 
 /** `01  Read file / read · notes.md   ✓ 0.4 s` */
 @Composable
-private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel, onOpenGallery: () -> Unit) {
+private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel, onOpenGallery: () -> Unit, running: Boolean = false) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
     // Images this row saw being made get printed in; older ones just show.
     val watched = remember(item.key) { booleanArrayOf(false) }
     val generating = item.name == "generate_image" && item.state == ToolState.RUNNING
     if (generating) watched[0] = true
+    val change = item.change
     val (mark, markColor) = when (item.state) {
-        ToolState.OK -> "✓" to MaterialTheme.colorScheme.onSurfaceVariant
+        ToolState.OK -> (if (item.undone) "undone" else "✓") to MaterialTheme.colorScheme.onSurfaceVariant
         ToolState.ERROR -> "×" to MaterialTheme.colorScheme.error
         ToolState.DENIED -> "denied" to MaterialTheme.colorScheme.onSurfaceVariant
         ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "…" to MaterialTheme.colorScheme.primary
@@ -402,14 +422,22 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
         ) {
             Text(String.format(Locale.ROOT, "%02d", number), style = AutobotTheme.styles.readout, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(stepTitle(item.name), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
-                    style = AutobotTheme.styles.micro,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    stepTitle(item.name),
+                    style = MaterialTheme.typography.titleMedium,
+                    textDecoration = if (item.undone) TextDecoration.LineThrough else null,
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
+                        modifier = Modifier.weight(1f, fill = false),
+                        style = AutobotTheme.styles.micro,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (change != null) ChangeCounts(change)
+                }
                 // Why a step failed shouldn't take a tap to find out.
                 // (a bare "denied" only repeats the mark)
                 val reason = item.output?.lineSequence()?.firstOrNull { it.isNotBlank() }?.removePrefix("Error: ")?.takeIf { !it.equals("denied", ignoreCase = true) }
@@ -426,7 +454,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
             if (item.state == ToolState.RUNNING) StatusDot(MaterialTheme.colorScheme.primary, live = true)
             Text(
                 mark + (item.durationMs?.let { " ${String.format(Locale.ROOT, "%.1f", it / 1000f)} s" } ?: ""),
-                modifier = Modifier.stamp(item.state, enabled = item.state == ToolState.OK || item.state == ToolState.ERROR || item.state == ToolState.DENIED),
+                modifier = Modifier.stamp(item.state to item.undone, enabled = item.state == ToolState.OK || item.state == ToolState.ERROR || item.state == ToolState.DENIED),
                 style = AutobotTheme.styles.readout,
                 color = markColor,
             )
@@ -439,7 +467,16 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
                 }
             }
         }
-        if (expanded && output != null) {
+        if (expanded && change != null) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                DiffBlock(change)
+                val redoId = item.revertId
+                when {
+                    item.undone && redoId != null -> Tag("↷ redo", accent = MaterialTheme.colorScheme.primary, onClick = { if (!running) actions.redo(redoId) })
+                    !item.undone && change.undoable -> Tag("↶ undo step", accent = MaterialTheme.colorScheme.primary, onClick = { if (!running) actions.undoStep(item.callId) })
+                }
+            }
+        } else if (expanded && output != null) {
             Text(
                 output.take(4000),
                 modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(10.dp),
@@ -968,6 +1005,7 @@ private fun SessionSheet(
     onTools: (Boolean) -> Unit,
     onPermission: (PermissionPreset) -> Unit,
     onCompact: () -> Unit,
+    onChanges: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -989,6 +1027,18 @@ private fun SessionSheet(
                     Text("Summarize older turns now (also automatic near the limit).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(onClick = onCompact, enabled = !state.running) { Text("COMPACT") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val files = state.changes.sumOf { it.files.size }
+                Column(Modifier.weight(1f)) {
+                    Text("Files changed", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (files == 0) "Nothing yet. Every file the agent changes can be undone." else "$files file${if (files == 1) "" else "s"} across ${state.changes.size} turn${if (state.changes.size == 1) "" else "s"}; undo a step or a turn.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onChanges) { Text("VIEW") }
             }
         }
     }

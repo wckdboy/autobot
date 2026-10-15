@@ -13,7 +13,8 @@ const val ABORTED_BEFORE_DISPATCH = "Error: tool call aborted before dispatch."
  * - the latest [SessionEvent.SystemMessage] becomes message 0;
  * - compaction summaries ([SurfaceOp.Replace]) stand in for the range they replace, at the
  *   position of its first entry; summaries replaced by a later compaction disappear;
- * - [UserMessageKind.CONTEXT] messages are wrapped in `<system-reminder>`;
+ * - [UserMessageKind.CONTEXT] messages are wrapped in `<system-reminder>`, and so is the line
+ *   telling the model the user undid file changes ([SessionEvent.WorkspaceRevert]);
  * - every assistant tool call is answered: a missing result becomes [TOOL_OUTCOME_UNKNOWN] so the
  *   history stays valid for providers that require call/result pairing.
  *
@@ -71,6 +72,10 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
                     out += ModelMessage(ModelRole.TOOL, event.content, toolCallId = event.callId, toolName = event.name)
                 }
             }
+            is SessionEvent.WorkspaceRevert -> {
+                closeOpenCalls()
+                out += ModelMessage(ModelRole.USER, "<system-reminder>\n${revertText(event)}\n</system-reminder>")
+            }
             else -> Unit
         }
     }
@@ -106,3 +111,19 @@ fun visibleEntries(entries: List<LogEntry>): List<LogEntry> {
 }
 
 private fun summaryText(text: String) = "<compacted-summary>\n$text\n</compacted-summary>"
+
+/**
+ * The context line for a [SessionEvent.WorkspaceRevert]:
+ * `The user reverted turn 3's file changes: notes/a.md restored, notes/b.md deleted.`
+ */
+fun revertText(event: SessionEvent.WorkspaceRevert): String {
+    val what = when {
+        event.redoOf != null -> if (event.turn != null) "re-applied turn ${event.turn}'s file changes" else "re-applied file changes they had undone"
+        event.turn != null -> "reverted turn ${event.turn}'s file changes"
+        event.callIds.size == 1 -> "undid the file change of tool call ${event.callIds.single()}"
+        else -> "undid the file changes of tool calls ${event.callIds.joinToString()}"
+    }
+    val files = event.restored.map { "$it restored" } + event.deleted.map { "$it deleted" } + event.missing.map { "$it could not be restored" }
+    val list = if (files.isEmpty()) "no files changed" else files.joinToString()
+    return "The user $what: $list. Read a file again before editing it."
+}

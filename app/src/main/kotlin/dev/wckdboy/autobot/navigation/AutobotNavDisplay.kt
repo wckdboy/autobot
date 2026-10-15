@@ -142,6 +142,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                                 onOpenModels = { switchTo(Models) },
                                 handoff = key.handoffId?.let { GalleryHandoff(it, key.asInit) },
                                 modelId = key.modelId,
+                                prompt = key.prompt,
                             )
                         }
                     }
