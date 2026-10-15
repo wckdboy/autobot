@@ -1,0 +1,92 @@
+# Every push and pull request: the Android / shared JVM test suites on Linux, and the Kotlin/Native
+# compile plus the iOS app and engine test suites on macOS.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', '**/*.gradle.kts') }}
+
+      - name: SDK packages
+        shell: bash
+        run: |
+          ndk=$(grep -E '^ndk *=' gradle/libs.versions.toml | cut -d'"' -f2)
+          cmake=$(grep -E '^cmake *=' gradle/libs.versions.toml | cut -d'"' -f2)
+          sdk=$(grep -E '^compileSdk *=' gradle/libs.versions.toml | cut -d'"' -f2)
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "platforms;android-$sdk.0" "ndk;$ndk" "cmake;$cmake" > /dev/null
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Tests
+        run: ./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest --no-configuration-cache --continue
+
+      - name: Test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: "**/build/reports/tests/"
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.konan
+          key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', '**/*.gradle.kts') }}
+
+      - name: Tools
+        run: brew install xcodegen
+
+      - name: Kotlin/Native
+        run: ./gradlew --configure-on-demand --no-configuration-cache :shared:compileKotlinIosArm64 :shared:assembleAutobotSharedDebugXCFramework
+
+      - name: Engine frameworks
+        run: ios/Packages/AutobotEngines/scripts/build-xcframeworks.sh
+
+      - name: iOS tests
+        shell: bash
+        run: |
+          cd ios && xcodegen generate
+          sim=$(xcrun simctl list devices available | grep -E "iPhone [0-9]+( Pro)? \(" | grep -oE "[0-9A-F-]{36}" | tail -1)
+          echo "simulator: $sim"
+          xcodebuild -project Autobot.xcodeproj -scheme Autobot -destination "id=$sim" test CODE_SIGNING_ALLOWED=NO
+          cd Packages/AutobotEngines && xcodebuild -scheme AutobotEngines -destination "id=$sim" test

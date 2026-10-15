@@ -3,20 +3,52 @@
 A privacy-first AI agent for Android and iOS. Autobot is built to run models **on the device** (NPU/GPU) and
 treats every network request as something the user has to opt into, can see, and can switch off.
 
-> Status: **1.2 — every accelerator, and an iPhone app.** Chats, agent and code sessions run
-> on-device through llama.cpp on the CPU, the Adreno GPU (OpenCL) or the Hexagon NPU; images run
-> through stable-diffusion.cpp, QNN on the NPU or MNN on the GPU, each engine in its own sandboxed
-> process. The iOS app ([ios/](ios/README.md)) runs the same agent runtime (Kotlin Multiplatform)
-> with llama.cpp on Metal and Stable Diffusion on the Apple Neural Engine.
+> Status: **1.3 — one core, two apps.** Chats, agent and code sessions run on the device through
+> llama.cpp: on Android on the CPU, the Adreno GPU (OpenCL) or the Hexagon NPU, on iOS on Metal.
+> Images run through stable-diffusion.cpp, QNN on the Snapdragon NPU or MNN on its GPU (Android),
+> and Core ML on the Apple Neural Engine (iOS). Both apps run the same Kotlin Multiplatform core:
+> the agent runtime, network policy, settings, model management and the encrypted export format.
 >
-> **Needs verification on real hardware:** the accelerator paths were built and wired against the
-> Snapdragon 8 Elite Gen 5 (Hexagon V81, Adreno 840) but have not yet been run on one. The Compute
-> screen benchmarks CPU vs GPU vs NPU per model and falls back to the CPU when an accelerator fails.
+> **Needs verification on real hardware:** the Snapdragon accelerator paths were built for the
+> 8 Elite Gen 5 (Hexagon V81, Adreno 840) but have not yet been run on one. Models → Compute →
+> `report` produces the diagnostics that would confirm it.
+
+## Install
+
+- **Android 14+ (arm64):** signed APKs on [GitHub releases](https://github.com/wckdboy/autobot/releases).
+  The app id is `ai.wckd.autobot`; releases are signed with the certificate whose SHA-256 is
+  `9a1378acf9587885e7920355558c85a1ec0e89304f58c153feebf90fdee7f3f1` (verify with
+  `apksigner verify --print-certs`). Each release lists `SHA256SUMS.txt`.
+- **iOS 18+:** TestFlight (`ai.wckd.autobot`). See [ios/README.md](ios/README.md) to build it yourself.
+
+Versions move together: Android and iOS ship the same version and build number.
+
+## Two apps, one core
+
+```
+ Android (Compose, Hilt, Room+SQLCipher, OkHttp)      iOS (SwiftUI, SQLite+CryptoKit, URLSession)
+        │  thin platform adapters: storage, HTTP bytes, engines, UI  │
+        └──────────────────────────┬─────────────────────────────────┘
+                     :shared + :agent:core (Kotlin Multiplatform)
+   agent runtime · tools · providers wire format · network policy · settings schema ·
+   model catalog + fit rules + hub clients + download state machine · .autobot export · diagnostics
+                                   │
+        native engines (shared C cores): llama.cpp · whisper.cpp · [Android] sd.cpp, QNN, MNN · [iOS] Core ML
+```
+
+A behaviour fix in the core lands on both platforms at once; the platforms only move bytes, store
+data and draw the riso UI from the same design tokens (`shared/design/tokens.json`, checked by
+`TokensParityTest` on Android and `TokensTests` on iOS). The parity table is in
+[ios/README.md](ios/README.md).
 
 ## Privacy stance
 
-- **Offline by default.** The global network mode starts as `Offline`. A kill switch
-  (`KillSwitchInterceptor`) rejects every request before DNS or socket I/O. Loopback servers
+Both apps make the same guarantees; the rules below are shared code (`:shared`
+`dev.wckdboy.autobot.core.network`), and the platform specifics are listed per item.
+
+- **Offline by default.** The global network mode starts as `Offline`. A kill switch (the shared
+  `KillSwitch`, enforced by OkHttp's `KillSwitchInterceptor` and the iOS URLSession client) rejects
+  every request before DNS or socket I/O. Loopback servers
   such as a local Ollama at `127.0.0.1` can still be reached; you can turn that off too.
 - **You choose the route.** The modes are Offline, Direct, Tor (Orbot SOCKS `127.0.0.1:9050`, remote DNS)
   and SOCKS5. Each provider can override the route, but a `Direct` override can never downgrade a
@@ -44,6 +76,16 @@ treats every network request as something the user has to opt into, can see, and
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,
   secrets and caches. The process is then killed.
+- **Export you control.** Settings → Export & import writes one `.autobot` file sealed with your
+  passphrase (PBKDF2-HMAC-SHA256, 600k iterations; AES-256-GCM in 1 MiB chunks with the header,
+  chunk index and final flag authenticated, so tampering, reordering and truncation are rejected).
+  API keys are never exported, and an import never switches the app online or changes the app lock.
+  The other platform's app opens the same file.
+- **Diagnostics without identifiers.** Models → Compute → `report` shows the device, accelerators
+  and benchmark results for bug reports. No prompts, file paths or identifiers; nothing is sent.
+- **iOS equivalents.** Data protection (`NSFileProtectionComplete`), Keychain + Secure Enclave key
+  wrapping, a privacy cover in the app switcher, Face ID / passcode lock, backup exclusion, ATS with
+  HTTPS only except loopback.
 - **Minimal permissions.** `INTERNET` and `USE_BIOMETRIC`, plus `FOREGROUND_SERVICE_DATA_SYNC` and
   `POST_NOTIFICATIONS` so a model download can keep running with a progress notification. The
   notification permission is asked for only when the first download starts. `RECORD_AUDIO` is
@@ -63,17 +105,20 @@ treats every network request as something the user has to opt into, can see, and
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
 | `:engine:speech` | whisper.cpp (MIT) in the `:asr` process: on-device dictation |
-| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
+| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, host tools (`HostTool`), OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, network policy (`NetworkMode`, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`), `SettingsSchema`, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), the `.autobot` backup format, `DiagnosticsReport`, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
 | `:agent:core` | Kotlin Multiplatform (JVM + iOS) port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
 | `:feature:imagine` | Imagine screen (txt2img / img2img / inpaint, LoRA stack, sampler, canvas, seed, batch), mask editor, encrypted gallery, backends manager, `generate_image` agent tool |
 | `:core:security` | `KeyManager` (Keystore AES-GCM, StrongBox fallback, wrapped DB passphrase), `SecretStore`, `AppLockManager`, `PanicWipe`, pure-JVM `AesGcmEnvelope` |
-| `:core:network` | `NetworkPolicy`, `KillSwitchInterceptor`, `HeaderScrubInterceptor`, `AuditLog`, `RouteResolver`, `HttpClientFactory` |
-| `:core:data` | Room + SQLCipher (`Conversation`, `Message`, `Provider`), repositories, DataStore settings, `IncognitoSession`, settings→policy sync |
+| `:core:network` | Android glue for the shared policy: `NetworkPolicy` state, `KillSwitchInterceptor`, `HeaderScrubInterceptor`, `HttpClientFactory`, `java.net.Proxy` routes, `OkHttpTransport` |
+| `:core:data` | Room + SQLCipher (`Conversation`, `Message`, `Provider`), repositories, DataStore settings under the shared `SettingsSchema`, `IncognitoSession`, settings→policy sync, `BackupService` (`.autobot` export/import) |
 | `:providers:remote` | `ChatProvider` SSE streaming: OpenAI-compatible, DeepSeek (`reasoning_content`), OpenRouter, Ollama, and the on-device `LocalChatProvider`; `ProviderFactory` |
 | `:feature:chat` | Session list (live indicators, incognito) and agent session screen (streaming, reasoning, tool cards with inline approvals, plan/todos, questions, context gauge, slash commands, model switcher) |
 | `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection) |
+| `ios/App` | The SwiftUI app: riso design system from the shared tokens, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
+| `ios/Packages/AutobotEngines` | Swift package over the shared llama.cpp / whisper.cpp C cores (Metal, Core ML encoder) and Apple's ml-stable-diffusion; built into `AutobotLlama` / `AutobotWhisper` xcframeworks with dSYMs |
+| `scripts/` | `bump-version.sh` (one version for both apps), `release.sh` (test, build, sign, TestFlight, GitHub release) |
 | `build-logic/` | Convention plugins: `autobot.android.application`, `autobot.android.library`, `autobot.android.compose`, `autobot.hilt` |
 
 ## On-device models
@@ -162,8 +207,9 @@ Kotlin so it runs inside the app process, under the app's network policy:
 | `dsh-llm-retry`, tool-result pruner, `dsh-compaction-basic` | `llmRetryPlugin`, `toolResultPrunerPlugin`, `Compactor` (same summary sections) |
 | `read`, `write`, `edit`, `glob`, `grep`, `web_fetch`, `todo_write`, `ask_user_question`, `skill`, `AGENTS.md` | Same names, confined to a private `/workspace` (real paths are never shown to the model) |
 
-Not ported (no equivalent on a phone, or later): `bash`/`pwsh` sandboxes, subagents, MCP, hooks
-bridges, web search. The runtime is pure Kotlin and covered by JVM tests.
+Not ported (no equivalent on a phone): `bash`/`pwsh` sandboxes and hooks bridges. MCP servers,
+subagents, local memory and web search are Phase 2 of the [roadmap](ROADMAP.md). The runtime is
+Kotlin Multiplatform, so the iOS app runs exactly this code; it is covered by JVM tests.
 
 ## Image generation
 
@@ -245,6 +291,25 @@ keyPassword=…
 
 When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; otherwise the output stays
 `app-release-unsigned.apk`.
+
+### Tests
+
+```sh
+./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest          # Android + shared core
+cd ios && xcodegen generate && xcodebuild -project Autobot.xcodeproj -scheme Autobot \
+    -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test           # iOS app
+```
+
+The shared core's tests run on the JVM; the iOS suite re-runs the network, settings and backup
+rules through the Kotlin framework, and decrypts `shared/backup/testvector.autobot` (written on the
+JVM) with CryptoKit to prove both platforms read the same format. CI (`.github/workflows/ci.yml`)
+runs the Android/shared suites on Linux and the iOS suites on macOS for every push and pull request.
+
+### Releasing
+
+`scripts/release.sh X.Y.Z [notes.md]` bumps both apps, runs every suite, builds the signed APK,
+uploads the iOS build to TestFlight, tags `vX.Y.Z` and publishes the GitHub release with
+`SHA256SUMS.txt`. It stops before tagging if anything fails.
 
 ### iOS
 
