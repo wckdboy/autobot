@@ -28,13 +28,13 @@ import dev.wckdboy.autobot.core.data.MemoryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.MessageRole
-import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.WebSearchRepository
 import dev.wckdboy.autobot.core.data.toSpec
 import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.core.network.HttpClientFactory
+import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.providers.remote.ChatRoutes
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
@@ -62,6 +62,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -122,6 +123,7 @@ class AgentHost @Inject constructor(
     search: WebSearchRepository,
     clients: HttpClientFactory,
     audit: AuditLog,
+    networkPolicy: NetworkPolicy,
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
     val workspace = Workspace(File(context.filesDir, WORKSPACE_DIR).toOkioPath())
@@ -155,8 +157,18 @@ class AgentHost @Inject constructor(
     /** Conversations on screen (see [retain]): their agents are never evicted. */
     private val retained = HashMap<String, Int>()
 
-    private val _interactions = MutableStateFlow<List<Interaction>>(emptyList())
-    val interactions: StateFlow<List<Interaction>> = _interactions.asStateFlow()
+    private val board = InteractionBoard()
+    val interactions: StateFlow<List<Interaction>> get() = board.items
+
+    /** One adapter per provider, shared by every step and agent until the provider, its models or the route change. */
+    private val adapters = AdapterCache { id ->
+        providers.getProvider(id)?.let {
+            ProviderLlmAdapter(
+                it.id, providerFactory.create(it), it.kind, images, it.preset()::echoesReasoning, providers.modelCache(it.id),
+                helperModel = it.helperModel?.takeIf { m -> m.isNotBlank() },
+            )
+        }
+    }
 
     private val _running = MutableStateFlow<Set<String>>(emptySet())
 
@@ -164,13 +176,18 @@ class AgentHost @Inject constructor(
     val running: StateFlow<Set<String>> = _running.asStateFlow()
 
     init {
-        harness.llm.setResolver { id ->
-            providers.getProvider(id)?.let {
-                ProviderLlmAdapter(
-                    it.id, providerFactory.create(it), it.kind, images, it.preset()::echoesReasoning, providers.modelCache(it.id),
-                    helperModel = it.helperModel?.takeIf { m -> m.isNotBlank() },
-                )
-            }
+        harness.llm.setResolver { id -> adapters.get(id) }
+        // A cached adapter's client is bound to the route at build time (the kill switch rejects
+        // it after a change), its key and settings to the provider row, its context windows to
+        // the model list: any change rebuilds on the next step.
+        scope.launch {
+            combine(
+                providers.observeProviders(),
+                providers.observeModelCaches(),
+                networkPolicy.mode,
+                networkPolicy.socksFallback,
+                networkPolicy.allowLoopbackWhenOffline,
+            ) { _, _, _, _, _ -> Unit }.collect { adapters.clear() }
         }
         val root = harness.root
         // "On limit, fall back" (Settings, off by default): helper model, else the on-device one.
@@ -205,7 +222,7 @@ class AgentHost @Inject constructor(
         toggle(settings.settings.map { it.searchProvider != SearchProvider.NONE }) { webSearchPlugin(searchTransport) { search.config() } }
 
         root.intercept(Hooks.ApprovalRequest) { request, _ ->
-            await(
+            board.await(
                 Interaction.Approval(
                     request.agent.id, request.callId, request.toolName, request.summary, request.reason, CompletableDeferred(),
                     request.privateData,
@@ -213,16 +230,25 @@ class AgentHost @Inject constructor(
             )
         }
         root.intercept(Hooks.UserQuestion) { request, _ ->
-            await(Interaction.Question(request.agent.id, request.callId, request.question, CompletableDeferred()))
+            board.await(Interaction.Question(request.agent.id, request.callId, request.question, CompletableDeferred()))
         }
         scope.launch { mcpServers.observeServers().collect { list -> mcp.update(list.map { it.toSpec() }) } }
         // A chat whose provider was deleted (or that had none yet) moves to the first provider.
-        scope.launch { providers.observeProviders().collect { list -> repoint(list) } }
+        // Only a change that can move a chat scans them (not every edit of a provider row).
+        scope.launch {
+            var previous: List<RouteTarget>? = null
+            providers.observeProviders()
+                .map { list -> list.map { RouteTarget(it.id, it.defaultModel) } }
+                .distinctUntilChanged()
+                .collect { targets ->
+                    if (RepointGate.needsScan(previous, targets)) repoint(targets)
+                    previous = targets
+                }
+        }
     }
 
-    /** Re-points every conversation (and its open agent) whose provider is not in [list] (shared `ChatRoutes`). */
-    private suspend fun repoint(list: List<Provider>) {
-        val targets = list.map { RouteTarget(it.id, it.defaultModel) }
+    /** Re-points every conversation (and its open agent) whose provider is not in [targets] (shared `ChatRoutes`). */
+    private suspend fun repoint(targets: List<RouteTarget>) {
         for (c in conversations.observeConversations().first()) {
             val route = ChatRoutes.repoint(c.providerId, c.model, targets) ?: continue
             conversations.updateConversation(c.copy(providerId = route.providerId, model = route.model))
@@ -240,25 +266,14 @@ class AgentHost @Inject constructor(
         }
     }
 
-    private suspend fun <T> await(interaction: Interaction): T {
-        _interactions.update { it + interaction }
-        try {
-            @Suppress("UNCHECKED_CAST")
-            return when (interaction) {
-                is Interaction.Approval -> interaction.answer.await() as T
-                is Interaction.Question -> interaction.answer.await() as T
-            }
-        } finally {
-            _interactions.update { list -> list.filterNot { it === interaction } }
-        }
+    /** Answers [conversationId]'s approval for [callId] (call ids repeat across chats). */
+    fun answerApproval(conversationId: String, callId: String, outcome: ApprovalOutcome) {
+        board.answerApproval(conversationId, callId, outcome)
     }
 
-    fun answerApproval(callId: String, outcome: ApprovalOutcome) {
-        _interactions.value.filterIsInstance<Interaction.Approval>().firstOrNull { it.callId == callId }?.answer?.complete(outcome)
-    }
-
-    fun answerQuestion(callId: String, answers: List<String>?) {
-        _interactions.value.filterIsInstance<Interaction.Question>().firstOrNull { it.callId == callId }?.answer?.complete(answers)
+    /** Answers [conversationId]'s question [callId]; null answers skip it. */
+    fun answerQuestion(conversationId: String, callId: String, answers: List<String>?) {
+        board.answerQuestion(conversationId, callId, answers)
     }
 
     /** The agent for [conversationId], opening (and seeding legacy history into) its log on first use. */
@@ -301,7 +316,7 @@ class AgentHost @Inject constructor(
 
     /** Closes the least recently used agents that are idle, unwatched and not waiting on the user. */
     private fun evictIdle() {
-        val waiting = _interactions.value.mapTo(HashSet()) { it.sessionId }
+        val waiting = board.items.value.mapTo(HashSet()) { it.sessionId }
         val pinned = synchronized(retained) { retained.keys.toSet() }
         val idle = AgentEviction.evictable(
             openLru = agents.keys.toList(),
@@ -411,6 +426,7 @@ class AgentHost @Inject constructor(
         }
         _running.value = emptySet()
         all.forEach { runCatching { it.dispose() } }
+        adapters.clear()
         runCatching { mcp.close() }
         store.clearIncognito()
     }

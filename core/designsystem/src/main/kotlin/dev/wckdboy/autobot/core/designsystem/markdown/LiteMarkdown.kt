@@ -50,6 +50,38 @@ object LiteMarkdown {
         return Parsed(normalized, previous.blocks.dropLast(1) + tail.blocks, tail.lastStart)
     }
 
+    /** Recent parses, most recent last; guarded by itself. */
+    private val recent = ArrayDeque<Parsed>()
+
+    /**
+     * [text] parsed through a small shared cache: a bubble that was already parsed (history
+     * warmed off the main thread, a scrolled-back message) is not parsed again, and the final
+     * reply continues from the last streamed frame's parse instead of starting over, so the
+     * end of a reply costs one block's parse, not the whole answer's, in the frame it lands.
+     */
+    fun cached(text: String): Parsed {
+        val normalized = text.replace("\r\n", "\n")
+        val base = synchronized(recent) {
+            recent.lastOrNull { it.text == normalized }?.let { hit ->
+                recent.remove(hit)
+                recent.addLast(hit)
+                return hit
+            }
+            // The longest earlier parse this text extends (a streamed frame of the same reply).
+            recent.filter { it.blocks.isNotEmpty() && normalized.startsWith(it.text) }.maxByOrNull { it.text.length }
+        }
+        val parsed = parse(normalized, base)
+        synchronized(recent) {
+            // A streamed frame is superseded by the longer text: keep one entry per reply.
+            if (base != null && parsed !== base) recent.remove(base)
+            recent.addLast(parsed)
+            while (recent.size > MAX_CACHED) recent.removeFirst()
+        }
+        return parsed
+    }
+
+    private const val MAX_CACHED = 96
+
     private class Result(val blocks: List<MdBlock>, val lastStart: Int)
 
     /** Parses [text] from offset [from], which must be the start of a top-level block (or 0). */

@@ -54,10 +54,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -140,10 +142,16 @@ fun ChatRoute(
         factory.create(conversationId)
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    ChatScreen(state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery)
+    // Streamed frames and microphone levels are read only where they show (see ChatScreen).
+    val live = viewModel.live.collectAsStateWithLifecycle()
+    val levels = viewModel.micLevels.collectAsStateWithLifecycle()
+    ChatScreen(state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery, live = { live.value }, micLevels = { levels.value })
 }
 
 private const val MAX_ATTACHMENTS = 4
+
+/** Test hook: told about each composition of the screen ("screen"), a transcript row ("row"), the live reply ("live") and the level meter ("meter"). Null in the app. */
+internal var chatCompositionProbe: ((String) -> Unit)? = null
 
 /** Saved instance state keeps at most this much typed text (it all travels in one binder transaction). */
 private const val MAX_SAVED_TEXT = 4_000
@@ -187,25 +195,36 @@ private fun stepTitle(name: String): String = when (name) {
 @Composable
 fun ChatScreen(
     state: ChatUiState,
-    actions: ChatViewModel,
+    actions: ChatActions,
     onBack: () -> Unit,
     onOpenPrivacyCenter: () -> Unit,
     onOpenProviders: () -> Unit,
     onOpenGallery: () -> Unit,
+    /** The streaming reply: read by the live message only, so its frames do not recompose the screen. */
+    live: () -> LiveUi? = { null },
+    /** Voice mode's microphone levels: read by the level meter only. */
+    micLevels: () -> List<Float> = { emptyList() },
 ) {
+    chatCompositionProbe?.invoke("screen")
     var showModels by rememberSaveable { mutableStateOf(false) }
     var showSession by rememberSaveable { mutableStateOf(false) }
     var renaming by rememberSaveable { mutableStateOf(false) }
     var openReceipt by remember { mutableStateOf<Receipt?>(null) }
     var showChanges by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val newest = state.items.lastOrNull()?.key to (state.live != null)
+    val currentLive by rememberUpdatedState(live)
+    // Read here (the screen recomposes when a reply starts or ends), never inside the list's
+    // content block: a derived state read there re-runs it, and every row, on each frame.
+    val hasLive = remember { derivedStateOf { currentLive() != null } }.value
+    val newest = state.items.lastOrNull()?.key to hasLive
     LaunchedEffect(newest) {
         if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }
     // Step numbers in transcript order (computed with the projection, off the main thread).
     val stepNumbers = state.stepNumbers
     val firstPromptKey = state.items.firstOrNull { it is SessionItem.User }?.key
+    val runLabel = listOfNotNull("run", state.modelLabel ?: state.selectedModel, state.contextUsed?.let { "${compact(it)} tok" }).joinToString(" · ")
+    val onReceipt = remember { { receipt: Receipt -> openReceipt = receipt } }
     // Items added after the transcript loaded ink in; history just appears.
     val enter = rememberInkEnterTracker(state.loaded) { state.items.map { it.key } }
 
@@ -234,7 +253,7 @@ fun ChatScreen(
             if (state.loaded && state.providers.isEmpty()) Banner("No model yet — download one or add a provider.", "ADD", onOpenProviders)
             state.notice?.let { Banner(it, "OK", actions::dismissNotice) }
 
-            val empty = state.loaded && state.items.isEmpty() && state.live == null
+            val empty = state.loaded && state.items.isEmpty() && !hasLive
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxWidth().then(if (empty) Modifier.inkGround(heavyWork = state.running) else Modifier),
@@ -242,36 +261,33 @@ fun ChatScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                state.live?.let { live -> item(key = "live", contentType = "live") { LiveMessage(live, Modifier.inkEnter(enter.armed)) } }
+                if (hasLive) {
+                    item(key = "live", contentType = "live") {
+                        val frame = currentLive() ?: return@item
+                        chatCompositionProbe?.invoke("live")
+                        LiveMessage(frame, Modifier.inkEnter(enter.armed))
+                    }
+                }
                 items(state.items.asReversed(), key = { it.key }, contentType = { it::class }) { item ->
+                    chatCompositionProbe?.invoke("row")
                     // An assistant reply replaces the live message already on screen: no entrance.
                     val fresh = remember(item.key) { enter.claim(item.key) } && item !is SessionItem.Assistant
-                    Box(Modifier.inkEnter(fresh)) {
-                        when (item) {
-                            is SessionItem.User -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
-                                if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
-                            }
-                            is SessionItem.Assistant -> AssistantMessage(
-                                item,
-                                speaking = state.speakingKey == item.key,
-                                onReceipt = { openReceipt = it },
-                                undo = { UndoTurnLine(item.turnChanges, state.running, actions::undoTurn, actions::redo) },
-                            ) {
-                                actions.speak(item.key, item.text)
-                            }
-                            is SessionItem.Tool -> {
-                                val approval = state.approvals[item.callId]
-                                if (approval != null) {
-                                    val ghost = remember(item.callId) { enter.claim("approval:${item.callId}") }
-                                    ApprovalCard(stepNumbers[item.key] ?: 0, item, approval, actions, ghost)
-                                } else {
-                                    StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery, state.running)
-                                }
-                            }
-                            is SessionItem.Notice -> NoticeRow(item)
-                        }
-                    }
+                    val approval = (item as? SessionItem.Tool)?.let { state.approvals[it.callId] }
+                    val ghost = if (approval != null) remember(approval.callId) { enter.claim("approval:${approval.callId}") } else false
+                    // Plain values only: a row skips unless its own item, step or flags changed.
+                    TranscriptRow(
+                        item = item,
+                        fresh = fresh,
+                        runLabel = if (item.key == firstPromptKey) runLabel else null,
+                        stepNumber = stepNumbers[item.key] ?: 0,
+                        approval = approval,
+                        ghost = ghost,
+                        speaking = state.speakingKey == item.key,
+                        running = state.running,
+                        actions = actions,
+                        onReceipt = onReceipt,
+                        onOpenGallery = onOpenGallery,
+                    )
                 }
                 if (empty) {
                     item(key = "empty") { EmptySession(state) }
@@ -283,7 +299,7 @@ fun ChatScreen(
             PolicyLine(state)
             val voice = state.voice
             if (voice != null) {
-                VoicePanel(voice, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
+                VoicePanel(voice, micLevels, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
             } else {
                 InputBar(
                     state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation,
@@ -358,16 +374,50 @@ fun ChatScreen(
 // ---------------------------------------------------------------------------------------------
 // Transcript
 
+/** One transcript item; [runLabel] is set on the run's first prompt (it shows as the run header). */
 @Composable
-private fun RunHeader(state: ChatUiState, prompt: String) {
+private fun TranscriptRow(
+    item: SessionItem,
+    fresh: Boolean,
+    runLabel: String?,
+    stepNumber: Int,
+    approval: ApprovalUi?,
+    ghost: Boolean,
+    speaking: Boolean,
+    running: Boolean,
+    actions: ChatActions,
+    onReceipt: (Receipt) -> Unit,
+    onOpenGallery: () -> Unit,
+) {
+    chatCompositionProbe?.invoke("rowBody")
+    Box(Modifier.inkEnter(fresh)) {
+        when (item) {
+            is SessionItem.User -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (runLabel != null) RunHeader(runLabel, item.text) else FollowUp(item.text)
+                if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
+            }
+            is SessionItem.Assistant -> AssistantMessage(
+                item,
+                speaking = speaking,
+                onReceipt = onReceipt,
+                undo = { UndoTurnLine(item.turnChanges, running, actions::undoTurn, actions::redo) },
+            ) {
+                actions.speak(item.key, item.text)
+            }
+            is SessionItem.Tool -> if (approval != null) {
+                ApprovalCard(stepNumber, item, approval, actions, ghost)
+            } else {
+                StepRow(stepNumber, item, actions, onOpenGallery, running)
+            }
+            is SessionItem.Notice -> NoticeRow(item)
+        }
+    }
+}
+
+@Composable
+private fun RunHeader(label: String, prompt: String) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-        SectionLabel(
-            listOfNotNull(
-                "run",
-                state.modelLabel ?: state.selectedModel,
-                state.contextUsed?.let { "${compact(it)} tok" },
-            ).joinToString(" · "),
-        )
+        SectionLabel(label)
         Text(prompt, style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
     }
 }
@@ -443,7 +493,7 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
 
 /** `01  Read file / read · notes.md   ✓ 0.4 s` */
 @Composable
-private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel, onOpenGallery: () -> Unit, running: Boolean = false) {
+private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, onOpenGallery: () -> Unit, running: Boolean = false) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
     // Images this row saw being made get printed in; older ones just show.
     val watched = remember(item.key) { booleanArrayOf(false) }
@@ -556,7 +606,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
  * fragment is printed in reverse, in the arguments and in the reason.
  */
 @Composable
-private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatViewModel, ghost: Boolean) {
+private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatActions, ghost: Boolean) {
     val privateData = approval.privateData
     val mark = SpanStyle(background = MaterialTheme.colorScheme.onPrimary, color = MaterialTheme.colorScheme.primary)
     Surface(
@@ -845,6 +895,7 @@ private fun InputBar(
 @Composable
 private fun VoicePanel(
     voice: VoiceUi,
+    levels: () -> List<Float>,
     onTap: () -> Unit,
     onDenied: () -> Unit,
     onHandsFree: (Boolean) -> Unit,
@@ -886,7 +937,7 @@ private fun VoicePanel(
                         // A slow flow strip while the answer is read aloud.
                         HalftoneField(Modifier.fillMaxWidth().height(36.dp), cell = 6.dp, flowing = true, fill = 0.8f, speed = 1.5f)
                     } else {
-                        LevelMeter(voice.levels, Modifier.fillMaxWidth().height(36.dp), live = voice.phase == VoicePhase.LISTENING)
+                        LevelMeter(levels, Modifier.fillMaxWidth().height(36.dp), live = voice.phase == VoicePhase.LISTENING)
                     }
                     MicroLabel(hint)
                 }
@@ -923,7 +974,10 @@ private fun VoicePanel(
 
 /** Microphone peaks as riso bars, newest on the right, easing to each new reading; a flat rule when not listening. */
 @Composable
-private fun LevelMeter(levels: List<Float>, modifier: Modifier = Modifier, live: Boolean = true) {
+private fun LevelMeter(readings: () -> List<Float>, modifier: Modifier = Modifier, live: Boolean = true) {
+    // Read here, not by the panel: each reading recomposes the meter only.
+    val levels = readings()
+    chatCompositionProbe?.invoke("meter")
     val ink = MaterialTheme.colorScheme.primary
     val rule = MaterialTheme.colorScheme.outlineVariant
     val animated = live && !LocalInkMotion.current.reduced
