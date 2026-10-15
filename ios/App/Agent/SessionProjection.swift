@@ -213,6 +213,18 @@ struct Receipt: Codable, Equatable, Sendable {
     }
 }
 
+extension [SessionItem] {
+    /// The items with each key once (the first wins): `ForEach` needs unique ids, and a model
+    /// that repeats a tool-call id would otherwise give two rows the same one.
+    var uniqueKeys: [SessionItem] {
+        var seen = Set<String>()
+        seen.reserveCapacity(count)
+        guard contains(where: { !seen.insert($0.key).inserted }) else { return self }
+        seen.removeAll(keepingCapacity: true)
+        return filter { seen.insert($0.key).inserted }
+    }
+}
+
 struct SessionProjection: Codable, Equatable, Sendable {
     var items: [SessionItem] = []
     var todos: [TodoItem] = []

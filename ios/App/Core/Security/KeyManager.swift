@@ -73,6 +73,9 @@ final class KeyManager: Sendable {
     private static let wrapInfo = Data("autobot:wrap:v1".utf8)
 
     private let cache = Mutex<[String: SymmetricKey]>([:])
+    /// Serializes read-or-create (two first uses must not each write a different key) and
+    /// records [destroyAllKeys], after which no key is created again.
+    private let creation = Mutex<Bool>(false)
 
     init() {}
 
@@ -87,15 +90,19 @@ final class KeyManager: Sendable {
 
     func key(_ alias: String) throws -> SymmetricKey {
         if let cached = cache.withLock({ $0[alias] }) { return cached }
-        let key: SymmetricKey
-        if let stored = try Keychain.read(alias) {
-            key = try unwrap(stored, alias: alias)
-        } else {
-            key = SymmetricKey(size: .bits256)
-            try Keychain.write(try wrap(key, alias: alias), alias)
+        return try creation.withLock { destroyed in
+            guard !destroyed else { throw EnvelopeError(message: "The keys were destroyed") }
+            if let cached = cache.withLock({ $0[alias] }) { return cached }
+            let key: SymmetricKey
+            if let stored = try Keychain.read(alias) {
+                key = try unwrap(stored, alias: alias)
+            } else {
+                key = SymmetricKey(size: .bits256)
+                try Keychain.write(try wrap(key, alias: alias), alias)
+            }
+            cache.withLock { $0[alias] = key }
+            return key
         }
-        cache.withLock { $0[alias] = key }
-        return key
     }
 
     /**
@@ -103,8 +110,11 @@ final class KeyManager: Sendable {
      this, previously encrypted data is cryptographically unrecoverable.
      */
     func destroyAllKeys() {
-        cache.withLock { $0.removeAll() }
-        Keychain.deleteAll()
+        creation.withLock { destroyed in
+            destroyed = true
+            cache.withLock { $0.removeAll() }
+            Keychain.deleteAll()
+        }
     }
 
     // MARK: Wrapping
@@ -127,10 +137,12 @@ final class KeyManager: Sendable {
         guard let first = bytes.first, let format = Format(rawValue: first) else { throw EnvelopeError(message: "Unknown key format") }
         switch format {
         case .plain:
+            guard bytes.count == 1 + 32 else { throw EnvelopeError(message: "Stored key has the wrong length") }
             return SymmetricKey(data: Data(bytes.dropFirst()))
         case .enclave:
             guard bytes.count > 2 else { throw EnvelopeError(message: "Wrapped key truncated") }
             let pubLen = Int(bytes[1])
+            guard pubLen > 0, bytes.count > 2 + pubLen else { throw EnvelopeError(message: "Wrapped key truncated") }
             let pub = try P256.KeyAgreement.PublicKey(x963Representation: Data(bytes[2 ..< 2 + pubLen]))
             let enclave = try enclaveKeyPair()
             let kek = try derive(enclave.sharedSecretFromKeyAgreement(with: pub), pub)

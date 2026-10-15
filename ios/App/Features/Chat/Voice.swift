@@ -52,20 +52,30 @@ extension Speaker {
 /// The installed speech engines.
 @MainActor
 enum Speakers {
-    private static var all: [any Speaker] = [SystemSpeaker()]
+    private static var registered: [any Speaker] = []
+    /// Created on first use: an `AVSpeechSynthesizer` must not be built at launch.
+    private static var system: SystemSpeaker?
+
+    private static var systemSpeaker: SystemSpeaker {
+        if let system { return system }
+        let created = SystemSpeaker()
+        system = created
+        return created
+    }
 
     /// The engine with [id] (a setting, later), else the neural voice when one is downloaded,
     /// else the system one.
     static func pick(_ id: String? = nil) -> any Speaker {
-        all.first { $0.id == id }
-            ?? all.first { $0.id == KokoroSpeaker.kokoroId && $0.isAvailable }
-            ?? all.first { $0.id == SystemSpeaker.systemId }!
+        if id == SystemSpeaker.systemId { return systemSpeaker }
+        return registered.first { $0.id == id }
+            ?? registered.first { $0.id == KokoroSpeaker.kokoroId && $0.isAvailable }
+            ?? systemSpeaker
     }
 
     /// Adds an engine (a neural voice) next to the system one.
     static func register(_ speaker: any Speaker) {
-        all.removeAll { $0.id == speaker.id }
-        all.append(speaker)
+        registered.removeAll { $0.id == speaker.id }
+        registered.append(speaker)
     }
 }
 
@@ -130,6 +140,13 @@ final class SystemSpeaker: Speaker {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
         let key = ObjectIdentifier(utterance)
+        // The synthesizer can drop an utterance without calling its delegate (audio session
+        // interrupted, speech services restarted): never wait for it forever.
+        let watchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.timeout(for: text))
+            self?.timedOut(key)
+        }
+        defer { watchdog.cancel() }
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 waiting[key] = continuation
@@ -138,6 +155,17 @@ final class SystemSpeaker: Speaker {
         } onCancel: {
             Task { @MainActor in self.stop() }
         }
+    }
+
+    /// The longest [text] may take to speak: slow speech is ~5 characters a second.
+    nonisolated static func timeout(for text: String) -> Duration {
+        .seconds(10 + Double(text.count) / 5)
+    }
+
+    private func timedOut(_ key: ObjectIdentifier) {
+        guard let continuation = waiting.removeValue(forKey: key) else { return }
+        synthesizer.stopSpeaking(at: .immediate)
+        continuation.resume()
     }
 
     func stop() {

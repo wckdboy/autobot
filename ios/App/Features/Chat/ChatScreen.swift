@@ -86,11 +86,13 @@ struct ChatScreen: View {
     @State private var ledger = InkLedger()
 
     var body: some View {
-        let session = app.agent.session(conversationId)
-        let state = session.state
+        // Opened in .task: opening repoints the conversation and starts the agent, which must not
+        // happen while the view renders. A previewed (or already open) session shows at once.
+        let state = app.agent.existingSession(conversationId)?.state ?? ChatSessionState(sessionId: conversationId)
         let routing = ChatRouting(app: app, conversationId: conversationId)
         let toolItems = state.projection.items.compactMap { item -> String? in if case .tool(let t) = item { t.key } else { nil } }
-        let stepNumbers = Dictionary(uniqueKeysWithValues: toolItems.enumerated().map { ($0.element, $0.offset + 1) })
+        // A repeated key (a model that reuses tool-call ids) must not trap: the first one keeps its number.
+        let stepNumbers = Dictionary(toolItems.enumerated().map { ($0.element, $0.offset + 1) }, uniquingKeysWith: { first, _ in first })
         let firstPrompt = state.projection.items.first { if case .user = $0 { true } else { false } }?.key
         let usage = state.projection.lastUsage
         let contextUsed = usage.map { ($0.inputTokens ?? 0) + ($0.cacheReadTokens ?? 0) + ($0.outputTokens ?? 0) }
@@ -120,7 +122,7 @@ struct ChatScreen: View {
                         if app.dataLoaded && state.projection.items.isEmpty && state.live == nil {
                             EmptySession(toolsEnabled: state.toolsEnabled)
                         }
-                        ForEach(state.projection.items) { item in
+                        ForEach(state.projection.items.uniqueKeys) { item in
                             row(item, state: state, routing: routing, contextUsed: contextUsed, stepNumbers: stepNumbers, firstPrompt: firstPrompt)
                                 .inkEnter(ledger.isNew(item.key)) { ledger.entered(item.key) }
                         }
@@ -158,11 +160,18 @@ struct ChatScreen: View {
         }
         .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
         .onChange(of: state) { _, new in model.sessionChanged(new) }
-        .task { await start() }
+        .task {
+            _ = app.agent.session(conversationId)
+            await start()
+        }
         .onDisappear {
             model.setVoiceMode(false, app: app, conversationId: conversationId)
             model.stopSpeaking()
             model.stopRecording(app: app)
+            // Nothing shows this chat now: stop streaming its state (a running turn goes on) and
+            // free the voice and dictation models.
+            app.agent.close(conversationId)
+            Task { await EngineMemory.shared.release([.tts, .whisper]) }
         }
     }
 
@@ -1145,7 +1154,7 @@ private struct SessionSheet: View {
     @Environment(\.scheme) private var c
 
     var body: some View {
-        let session = app.agent.session(conversationId)
+        let session = app.agent.existingSession(conversationId)
         VStack(alignment: .leading, spacing: 14) {
             SectionLabel("session")
             HStack(spacing: 12) {
@@ -1159,11 +1168,11 @@ private struct SessionSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                RisoToggle(isOn: Binding(get: { session.state.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) }))
+                RisoToggle(isOn: Binding(get: { session?.state.toolsEnabled ?? state.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) }))
             }
             VStack(alignment: .leading, spacing: 6) {
                 MicroLabel("permission preset")
-                Segmented(options: PermissionPreset.allCases, selected: session.state.permissionPreset, label: \.label) {
+                Segmented(options: PermissionPreset.allCases, selected: (session?.state ?? state).permissionPreset, label: \.label) {
                     app.agent.setPermission(conversationId, $0)
                 }
             }
@@ -1174,7 +1183,7 @@ private struct SessionSheet: View {
                         .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Compact", color: c.primary, enabled: !session.state.running) {
+                TextAction("Compact", color: c.primary, enabled: !(session?.state ?? state).running) {
                     app.agent.compact(conversationId)
                     onDismiss()
                 }

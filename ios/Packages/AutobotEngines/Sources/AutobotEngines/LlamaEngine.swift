@@ -1,6 +1,7 @@
 import AutobotLlama
 import Foundation
 import os
+import Synchronization
 
 /// Kinds of streamed text (AUTOBOT_LLAMA_DELTA_*).
 public enum DeltaKind: Int32, Sendable {
@@ -123,7 +124,9 @@ public actor LlamaEngine {
      * Runs one completion. [requestJSON] is OpenAI-shaped ({messages, tools?, temperature?, top_p?,
      * max_tokens?, seed?, enable_thinking?}); image parts are `{type:"image", path}` and need
      * [mmprojPath]. In the Simulator everything runs on the CPU. Deltas arrive on the engine thread. Cancelling the calling task stops
-     * generation; the partial result then finishes "cancelled".
+     * generation; the partial result then finishes "cancelled". A cancel that arrives while the
+     * request waits for the thread or for the model to load is not lost: the request then fails
+     * with `CANCELLED` once the model is loaded, before generating anything.
      */
     public func chat(
         modelPath: String,
@@ -136,17 +139,19 @@ public actor LlamaEngine {
         try Task.checkCancellation()
         let request = try Self.withMmproj(requestJSON, mmprojPath)
         let session = session
+        let token = session.begin()
+        defer { session.end(token) }
         let json = try await worker.run({
-            try session.chat(path: modelPath, nCtx: contextLength, backend: metalUsable ? backend.rawValue : "cpu", request: request, onDelta: onDelta)
+            try session.chat(path: modelPath, nCtx: contextLength, backend: metalUsable ? backend.rawValue : "cpu", request: request, token: token, onDelta: onDelta)
         }, onCancel: {
-            session.cancel()
+            session.cancel(token)
         })
         return try LlamaResult.decode(json)
     }
 
-    /// Stops the running completion, if any.
+    /// Stops the running completion and those waiting to run.
     public nonisolated func cancel() {
-        session.cancel()
+        session.cancelAll()
     }
 
     /// Frees the resident model now (e.g. before image generation needs the memory).
@@ -165,9 +170,11 @@ public actor LlamaEngine {
     }
 }
 
-/// Native session state, confined to the engine thread except for [handle] (read by cancel).
+/// Native session state, confined to the engine thread except for [handle] and [requests] (used by cancel).
 private final class Session: @unchecked Sendable {
     let handle = NativeHandle()
+    /// Requests issued and not finished, by token; true once cancelled.
+    private let requests = Mutex<(next: UInt64, cancelled: [UInt64: Bool])>((1, [:]))
     private var initialized = false
     private var devices: Int32 = 0
     private var loadedPath: String?
@@ -193,7 +200,26 @@ private final class Session: @unchecked Sendable {
         initialized = true
     }
 
-    func chat(path: String, nCtx: Int, backend: String, request: Data, onDelta: @escaping @Sendable (DeltaKind, String) -> Void) throws -> String {
+    /// A token for a new request (see [cancel]); [end] it when the request is over.
+    func begin() -> UInt64 {
+        requests.withLock { r in
+            let token = r.next
+            r.next += 1
+            r.cancelled[token] = false
+            return token
+        }
+    }
+
+    func end(_ token: UInt64) {
+        _ = requests.withLock { $0.cancelled.removeValue(forKey: token) }
+    }
+
+    private func isCancelled(_ token: UInt64) -> Bool {
+        requests.withLock { $0.cancelled[token] ?? true }
+    }
+
+    func chat(path: String, nCtx: Int, backend: String, request: Data, token: UInt64, onDelta: @escaping @Sendable (DeltaKind, String) -> Void) throws -> String {
+        if isCancelled(token) { throw EngineError.cancelled }
         initialize()
         if devices == 0 {
             throw EngineError("LOAD_FAILED", "no compute backend available")
@@ -208,11 +234,13 @@ private final class Session: @unchecked Sendable {
             loadedCtx = nCtx
             loadedBackend = backend
         }
+        // Loading takes seconds and cannot be interrupted: a cancel that came meanwhile stops here.
+        if isCancelled(token) { throw EngineError.cancelled }
         let sink = DeltaSink(onDelta)
         let user = Unmanaged.passRetained(sink)
         defer { user.release() }
         let result = request.withUnsafeBytes { raw -> UnsafeMutablePointer<CChar>? in
-            autobot_llama_chat(handle.pointer, raw.baseAddress?.assumingMemoryBound(to: CChar.self), raw.count, { kind, bytes, len, user in
+            autobot_llama_chat_request(handle.pointer, token, raw.baseAddress?.assumingMemoryBound(to: CChar.self), raw.count, { kind, bytes, len, user in
                 guard let bytes, let user else { return 0 }
                 let sink = Unmanaged<DeltaSink>.fromOpaque(user).takeUnretainedValue()
                 let text = String(decoding: UnsafeRawBufferPointer(start: bytes, count: len), as: UTF8.self)
@@ -223,8 +251,26 @@ private final class Session: @unchecked Sendable {
         return takeString(result, free: autobot_llama_string_free)
     }
 
-    func cancel() {
-        handle.withPointer { autobot_llama_cancel($0) }
+    /// Cancels request [token]: before it starts (it then never generates), or while it runs.
+    func cancel(_ token: UInt64) {
+        let known = requests.withLock { r -> Bool in
+            guard r.cancelled[token] != nil else { return false }
+            r.cancelled[token] = true
+            return true
+        }
+        if known { handle.withPointer { autobot_llama_cancel_request($0, token) } }
+    }
+
+    /// Cancels every request issued and not finished.
+    func cancelAll() {
+        let tokens = requests.withLock { r -> [UInt64] in
+            for key in r.cancelled.keys { r.cancelled[key] = true }
+            return Array(r.cancelled.keys)
+        }
+        handle.withPointer { pointer in
+            autobot_llama_cancel(pointer)
+            for token in tokens { autobot_llama_cancel_request(pointer, token) }
+        }
     }
 
     func release() {

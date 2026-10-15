@@ -128,6 +128,8 @@ final class ModelsModel {
     }
 
     func searchHf() {
+        // Searches can be triggered before the screen's .task created the clients.
+        guard let hub else { return }
         let scope = hfScope, query = hfQuery
         searchTask?.cancel()
         searchTask = Task {
@@ -135,9 +137,9 @@ final class ModelsModel {
             defer { hfLoading = false }
             let results = await guarded {
                 if scope == .image {
-                    try await hub!.search(query.isEmpty ? "stable diffusion" : query, gguf: false, coreML: true)
+                    try await hub.search(query.isEmpty ? "stable diffusion" : query, gguf: false, coreML: true)
                 } else {
-                    try await hub!.search(query.isEmpty ? "instruct" : query, gguf: true)
+                    try await hub.search(query.isEmpty ? "instruct" : query, gguf: true)
                 }
             }
             if !Task.isCancelled { hfResults = results ?? [] }
@@ -145,10 +147,11 @@ final class ModelsModel {
     }
 
     func open(_ id: String) {
+        guard let hub else { return }
         Task {
             openLoading = true
             defer { openLoading = false }
-            if let repo = await guarded({ try await hub!.repo(id) }) { openRepo = OpenRepo(repo: repo) }
+            if let repo = await guarded({ try await hub.repo(id) }) { openRepo = OpenRepo(repo: repo) }
         }
     }
 
@@ -173,12 +176,13 @@ final class ModelsModel {
 
     func searchCivitai(reset: Bool = true) {
         if !reset && civitaiCursor == nil { return }
+        guard let civitai else { return }
         let scope = civitaiScope, query = civitaiQuery, cursor = reset ? nil : civitaiCursor
         searchTask?.cancel()
         searchTask = Task {
             civitaiLoading = true
             defer { civitaiLoading = false }
-            let page = await guarded { try await civitai!.search(query, types: scope.types, baseModels: Self.supportedBases, cursor: cursor) }
+            let page = await guarded { try await civitai.search(query, types: scope.types, baseModels: Self.supportedBases, cursor: cursor) }
             guard !Task.isCancelled else { return }
             civitaiResults = reset ? (page?.items ?? []) : civitaiResults + (page?.items ?? [])
             civitaiCursor = page?.nextCursor

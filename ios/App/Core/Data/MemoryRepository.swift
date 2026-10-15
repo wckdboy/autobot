@@ -97,7 +97,9 @@ final class MemoryRepository {
         host.setOnChange { [weak self] in Task { @MainActor in self?.load() } }
     }
 
-    func load() { notes = host.records() }
+    func load() { load(host.records()) }
+
+    func load(_ records: [MemoryRecord]) { notes = records }
 
     /// Notes matching the search field (text or `#tag`), newest first.
     func filtered(_ query: String) -> [MemoryRecord] {

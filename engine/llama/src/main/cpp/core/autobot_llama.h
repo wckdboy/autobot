@@ -10,6 +10,7 @@
 #define AUTOBOT_LLAMA_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #if defined(_WIN32)
 #define AUTOBOT_LLAMA_API
@@ -80,8 +81,19 @@ AUTOBOT_LLAMA_API char * autobot_llama_model_info(autobot_llama_session * sessio
 AUTOBOT_LLAMA_API char * autobot_llama_chat(autobot_llama_session * session, const char * request, size_t request_len,
                                             autobot_llama_delta_fn on_delta, void * user);
 
+/**
+ * autobot_llama_chat for one request identified by `token` (non-zero, unique per request): a
+ * cancel for that token sent before the chat starts still stops it (autobot_llama_cancel is
+ * cleared when a chat starts, so it only reaches a chat already running).
+ */
+AUTOBOT_LLAMA_API char * autobot_llama_chat_request(autobot_llama_session * session, uint64_t token, const char * request,
+                                                    size_t request_len, autobot_llama_delta_fn on_delta, void * user);
+
 /** Asks a running chat on `session` to stop at the next token. Safe from any thread. */
 AUTOBOT_LLAMA_API void autobot_llama_cancel(autobot_llama_session * session);
+
+/** Asks the chat started with `token` to stop, whether it is running or still to start. Safe from any thread. */
+AUTOBOT_LLAMA_API void autobot_llama_cancel_request(autobot_llama_session * session, uint64_t token);
 
 /** Frees the session (waits for a running chat to return). */
 AUTOBOT_LLAMA_API void autobot_llama_free(autobot_llama_session * session);

@@ -208,7 +208,9 @@ private struct DetailView: View {
                             UIPasteboard.general.setItems([[UTType.plainText.identifier: parametersText(item)]], options: [.localOnly: true])
                             onMessage("Parameters copied")
                         }
-                        Tag(upscaling == nil ? "upscale 4×" : "upscaling…", accent: c.primary) { upscale(current) }
+                        if upscaling != nil || GalleryUpscale.canUpscale(item) {
+                            Tag(upscaling == nil ? "upscale 4×" : "upscaling…", accent: c.primary) { upscale(current) }
+                        }
                         Tag("export", accent: AutobotColors.amber) { confirmExport = true }
                         Tag("delete", accent: c.error) { confirmDelete = true }
                     }

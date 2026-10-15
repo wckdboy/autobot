@@ -76,7 +76,11 @@ actor LocalVoice {
     func prepare(folder: URL) async throws {
         _ = try load(folder)
         #if canImport(AutobotEngines)
-        do { try await TtsEngine.shared.prepare(folder: folder) } catch { throw Engines.map(error) }
+        do {
+            try await EngineMemory.using(.tts) { try await TtsEngine.shared.prepare(folder: folder) }
+        } catch {
+            throw Engines.map(error)
+        }
         #endif
     }
 
@@ -111,7 +115,9 @@ actor LocalVoice {
     private static func speak(folder: URL, piece: Piece, voice: String, speed: Float) async throws -> [Float] {
         #if canImport(AutobotEngines)
         do {
-            return try await TtsEngine.shared.synthesize(folder: folder, tokens: piece.tokens, styleRow: piece.styleRow, voice: voice, speed: speed)
+            return try await EngineMemory.using(.tts) {
+                try await TtsEngine.shared.synthesize(folder: folder, tokens: piece.tokens, styleRow: piece.styleRow, voice: voice, speed: speed)
+            }
         } catch {
             throw Engines.map(error)
         }
@@ -121,11 +127,19 @@ actor LocalVoice {
     }
 }
 
+/// Playback stopped because the audio system took the output away; [message] is user-facing.
+struct VoiceInterrupted: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 /**
  Plays mono float PCM (Kokoro's 24 kHz) as it arrives: each block is scheduled on an
  `AVAudioPlayerNode` right away, so the first sentence plays while the next is synthesized.
- [play] returns when everything has been heard, or right after [stop] / cancellation. The caller
- sets up the audio session.
+ [play] returns when everything has been heard, or right after [stop] / cancellation. It throws
+ [VoiceInterrupted] when an audio interruption (a call, Siri), a route or configuration change
+ that stops the engine, or a media services reset cuts playback, and gives up waiting once the
+ scheduled audio should long have finished. The caller sets up the audio session.
  */
 @MainActor
 final class VoicePlayer {
@@ -133,6 +147,10 @@ final class VoicePlayer {
     private let node = AVAudioPlayerNode()
     private let format: AVAudioFormat
     private var stopped = false
+    private var interruption: VoiceInterrupted?
+
+    /// Grace after the scheduled audio's length before [play] stops waiting for it.
+    static let drainGrace: Duration = .seconds(3)
 
     private final class Pending: Sendable {
         let count = Atomic<Int>(0)
@@ -146,6 +164,9 @@ final class VoicePlayer {
 
     func play(_ audio: AsyncThrowingStream<[Float], Error>) async throws {
         stopped = false
+        interruption = nil
+        let observers = observe()
+        defer { observers.forEach { NotificationCenter.default.removeObserver($0) } }
         try engine.start()
         node.play()
         defer {
@@ -153,24 +174,61 @@ final class VoicePlayer {
             engine.stop()
         }
         let pending = Pending()
+        var scheduled: Double = 0
         for try await block in audio {
+            if let interruption { throw interruption }
             if stopped || Task.isCancelled { return }
             guard !block.isEmpty, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(block.count)) else { continue }
             buffer.frameLength = AVAudioFrameCount(block.count)
             block.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: block.count) }
             pending.count.add(1, ordering: .relaxed)
-            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
-                pending.count.subtract(1, ordering: .relaxed)
-            }
+            scheduled += Double(block.count) / format.sampleRate
+            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: Self.completion(pending))
         }
+        let deadline = ContinuousClock.now + .seconds(scheduled) + Self.drainGrace
         while !stopped, !Task.isCancelled, pending.count.load(ordering: .relaxed) > 0 {
+            if let interruption { throw interruption }
+            if ContinuousClock.now >= deadline { return }
             try? await Task.sleep(for: .milliseconds(20))
         }
+        if let interruption { throw interruption }
     }
 
     /// Stops playback now; a suspended [play] returns.
     func stop() {
         stopped = true
         node.stop()
+    }
+
+    /**
+     The completion of one buffer, built outside the main actor: Core Audio calls it on its render
+     thread, and a closure formed in a main-actor method would be main-actor isolated (Swift 6
+     traps when it runs anywhere else).
+     */
+    private nonisolated static func completion(_ pending: Pending) -> @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void {
+        { @Sendable _ in pending.count.subtract(1, ordering: .relaxed) }
+    }
+
+    private func interrupted(_ message: String) {
+        guard interruption == nil, !stopped else { return }
+        interruption = VoiceInterrupted(message: message)
+        node.stop()
+    }
+
+    private func observe() -> [any NSObjectProtocol] {
+        let center = NotificationCenter.default
+        return [
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+                let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+                guard type == .began else { return }
+                MainActor.assumeIsolated { self?.interrupted("Playback was interrupted") }
+            },
+            center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.interrupted("The audio output changed") }
+            },
+            center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.interrupted("The audio system restarted") }
+            },
+        ]
     }
 }

@@ -26,7 +26,7 @@ struct Benchmark: Codable, Identifiable, Equatable, Sendable {
 @MainActor
 @Observable
 final class ComputeProfile {
-    private static let collection = "benchmarks"
+    private nonisolated static let collection = "benchmarks"
 
     private(set) var benchmarks: [Benchmark] = []
     @ObservationIgnored private let store: EncryptedStore
@@ -37,8 +37,14 @@ final class ComputeProfile {
         self.library = library
     }
 
-    func load() {
-        benchmarks = ((try? store.all(Self.collection, as: Benchmark.self)) ?? []).sorted { $0.createdAt > $1.createdAt }
+    func load() { load(Self.read(store)) }
+
+    nonisolated static func read(_ store: EncryptedStore) -> [Benchmark] {
+        (try? store.all(collection, as: Benchmark.self)) ?? []
+    }
+
+    func load(_ rows: [Benchmark]) {
+        benchmarks = rows.sorted { $0.createdAt > $1.createdAt }
     }
 
     func setBackend(_ modelId: String, _ backend: Backend) { library.setBackend(modelId, backend) }

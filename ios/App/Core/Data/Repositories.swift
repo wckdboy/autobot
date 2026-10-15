@@ -33,8 +33,15 @@ final class ConversationRepository {
     }
 
     /// Loads persisted conversations (needs the device to be unlocked).
-    func load() {
-        stored = Dictionary(((try? store.all(Self.collection, as: Conversation.self)) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    func load() { load(Self.read(store)) }
+
+    /// The persisted rows (decrypting: call off the main thread when there are many).
+    nonisolated static func read(_ store: EncryptedStore) -> [Conversation] {
+        (try? store.all(collection, as: Conversation.self)) ?? []
+    }
+
+    func load(_ rows: [Conversation]) {
+        stored = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         publish()
     }
 
@@ -164,10 +171,15 @@ final class ProviderRepository {
         self.secrets = secrets
     }
 
-    func load() {
-        providers = sorted((try? store.all(Self.collection, as: Provider.self)) ?? [])
-        let lists = (try? store.all(Self.modelsCollection, as: ProviderModels.self)) ?? []
-        modelLists = Dictionary(lists.map { ($0.providerId, $0) }, uniquingKeysWith: { a, _ in a })
+    func load() { load(Self.read(store)) }
+
+    nonisolated static func read(_ store: EncryptedStore) -> (providers: [Provider], lists: [ProviderModels]) {
+        ((try? store.all(collection, as: Provider.self)) ?? [], (try? store.all(modelsCollection, as: ProviderModels.self)) ?? [])
+    }
+
+    func load(_ rows: (providers: [Provider], lists: [ProviderModels])) {
+        providers = sorted(rows.providers)
+        modelLists = Dictionary(rows.lists.map { ($0.providerId, $0) }, uniquingKeysWith: { a, _ in a })
         onChange?(providers)
     }
 
@@ -254,8 +266,14 @@ final class McpServerRepository {
         self.clock = clock
     }
 
-    func load() {
-        servers = sorted((try? store.all(Self.collection, as: McpServer.self)) ?? [])
+    func load() { load(Self.read(store)) }
+
+    nonisolated static func read(_ store: EncryptedStore) -> [McpServer] {
+        (try? store.all(collection, as: McpServer.self)) ?? []
+    }
+
+    func load(_ rows: [McpServer]) {
+        servers = sorted(rows)
         onChange?(servers)
     }
 
@@ -329,8 +347,14 @@ final class GalleryRepository {
         self.keys = keys
     }
 
-    func load() {
-        items = ((try? store.all(Self.collection, as: GalleryItem.self)) ?? []).sorted { $0.createdAt > $1.createdAt }
+    func load() { load(Self.read(store)) }
+
+    nonisolated static func read(_ store: EncryptedStore) -> [GalleryItem] {
+        (try? store.all(collection, as: GalleryItem.self)) ?? []
+    }
+
+    func load(_ rows: [GalleryItem]) {
+        items = rows.sorted { $0.createdAt > $1.createdAt }
     }
 
     func get(_ id: String) -> GalleryItem? { items.first { $0.id == id } }
@@ -363,25 +387,30 @@ final class GalleryRepository {
     func delete(_ id: String) {
         try? store.delete(Self.collection, id: id)
         items.removeAll { $0.id == id }
-        try? FileManager.default.removeItem(at: Self.file(id, Self.image))
-        try? FileManager.default.removeItem(at: Self.file(id, Self.thumb))
+        if let image = Self.file(id, Self.image), let thumb = Self.file(id, Self.thumb) {
+            try? FileManager.default.removeItem(at: image)
+            try? FileManager.default.removeItem(at: thumb)
+        }
     }
 
     private func read(_ id: String, _ suffix: String) async -> Data? {
         guard let key = try? keys.mediaKey() else { return nil }
         return await Task.detached {
-            guard let sealed = try? Data(contentsOf: Self.file(id, suffix)) else { return nil }
+            guard let file = Self.file(id, suffix), let sealed = try? Data(contentsOf: file) else { return nil }
             return try? AesGcmEnvelope.open(key, sealed, aad: Data((id + suffix).utf8))
         }.value
     }
 
-    private nonisolated static func file(_ id: String, _ suffix: String) -> URL {
-        precondition(id.range(of: "^[A-Za-z0-9-]{1,64}$", options: .regularExpression) != nil, "Invalid gallery id")
+    /// The sealed file of [id], or nil for an id that is not a plain file name (ids also come
+    /// from session logs and imports).
+    private nonisolated static func file(_ id: String, _ suffix: String) -> URL? {
+        guard StoredId.isValid(id) else { return nil }
         return AppPaths.gallery.appendingPathComponent(id + suffix)
     }
 
     private nonisolated static func write(_ key: SymmetricKey, _ bytes: Data, id: String, suffix: String) throws {
-        try AppPaths.write(try AesGcmEnvelope.seal(key, bytes, aad: Data((id + suffix).utf8)), to: file(id, suffix))
+        guard let file = file(id, suffix) else { throw StoredId.Invalid() }
+        try AppPaths.write(try AesGcmEnvelope.seal(key, bytes, aad: Data((id + suffix).utf8)), to: file)
     }
 }
 
@@ -398,17 +427,18 @@ final class AttachmentRepository: Sendable {
     /// Seals [bytes] (an encoded image) and returns its id.
     func put(_ bytes: Data) throws -> String {
         let id = UUID().uuidString.lowercased()
-        try AppPaths.write(try AesGcmEnvelope.seal(keys.mediaKey(), bytes, aad: aad(id)), to: file(id))
+        try restore(id, bytes)
         return id
     }
 
     /// Stores [bytes] under an existing [id] (import of an export bundle).
     func restore(_ id: String, _ bytes: Data) throws {
-        try AppPaths.write(try AesGcmEnvelope.seal(keys.mediaKey(), bytes, aad: aad(id)), to: file(id))
+        guard let file = file(id) else { throw StoredId.Invalid() }
+        try AppPaths.write(try AesGcmEnvelope.seal(keys.mediaKey(), bytes, aad: aad(id)), to: file)
     }
 
     func bytes(_ id: String) -> Data? {
-        guard let sealed = try? Data(contentsOf: file(id)), let key = try? keys.mediaKey() else { return nil }
+        guard let file = file(id), let sealed = try? Data(contentsOf: file), let key = try? keys.mediaKey() else { return nil }
         return try? AesGcmEnvelope.open(key, sealed, aad: aad(id))
     }
 
@@ -419,12 +449,28 @@ final class AttachmentRepository: Sendable {
         return (try? AppPaths.write(data, to: url)) != nil ? url : nil
     }
 
-    func delete(_ id: String) { try? FileManager.default.removeItem(at: file(id)) }
+    func delete(_ id: String) {
+        guard let file = file(id) else { return }
+        try? FileManager.default.removeItem(at: file)
+    }
 
-    private func file(_ id: String) -> URL {
-        precondition(id.range(of: "^[A-Za-z0-9-]{1,64}$", options: .regularExpression) != nil, "Invalid attachment id")
+    /// The sealed file of [id], or nil for an id that is not a plain file name (ids come from
+    /// session logs, which an import can bring in).
+    private func file(_ id: String) -> URL? {
+        guard StoredId.isValid(id) else { return nil }
         return AppPaths.attachments.appendingPathComponent(id + ".img")
     }
 
     private func aad(_ id: String) -> Data { Data("attachment:\(id)".utf8) }
+}
+
+/// Ids that name files on disk (gallery items, attachments): letters, digits and dashes only.
+enum StoredId {
+    struct Invalid: LocalizedError {
+        var errorDescription: String? { "Invalid id" }
+    }
+
+    static func isValid(_ id: String) -> Bool {
+        id.range(of: "^[A-Za-z0-9-]{1,64}$", options: .regularExpression) != nil
+    }
 }

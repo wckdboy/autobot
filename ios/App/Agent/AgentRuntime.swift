@@ -33,6 +33,11 @@ protocol AgentRuntime: AnyObject {
     /// The session for [conversationId], opening it on first use with the conversation's
     /// provider and model.
     func session(_ conversationId: String) -> AgentSession
+    /// The session if it is open or previewed, without opening it (safe while a view renders).
+    func existingSession(_ conversationId: String) -> AgentSession?
+    /// No screen shows [conversationId] any more: stop streaming its state (a running turn goes
+    /// on). The next [session] call resumes it.
+    func close(_ conversationId: String)
     /// Shows [state] for [conversationId] without opening it on the runtime, so nothing replaces
     /// it (snapshots and demo data).
     func preview(_ conversationId: String, state: ChatSessionState)

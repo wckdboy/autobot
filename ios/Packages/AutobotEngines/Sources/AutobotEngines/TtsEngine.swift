@@ -51,12 +51,22 @@ public actor TtsEngine {
     /// Phoneme ids per piece the predictor takes (256 with the two pads).
     public static let maxTokens = 254
     static let spaceId: Int32 = 16
+    /// Most frames one phoneme may take (Kokoro predicts a few dozen at most).
+    static let maxFramesPerToken = 1000
 
     private var folder: URL?
     private var predictor: MLModel?
     private var decoders: [Int: MLModel] = [:]
     private var buckets: [Int] = []
     private var voices: [String: KokoroVoicePack] = [:]
+    /// Decoder lengths in use order, least recent first (the cache keeps [decoderLimit]).
+    private var decoderOrder: [Int] = []
+    /// The one load in flight: concurrent callers (speak and prepare-next) wait for it instead of
+    /// compiling and moving the same packages twice.
+    private var loading: (folder: URL, task: Task<Void, Error>)?
+    private var decoderLoads: [Int: Task<LoadedModel, Error>] = [:]
+    /// Bumped by [unload]: a load that finishes afterwards keeps nothing.
+    private var epoch = 0
 
     public init() {}
 
@@ -84,10 +94,14 @@ public actor TtsEngine {
 
     /// Frees the models and voices.
     public func unload() {
+        epoch += 1
         predictor = nil
         decoders = [:]
+        decoderOrder = []
         voices = [:]
         folder = nil
+        loading = nil
+        decoderLoads = [:]
     }
 
     // MARK: Pipeline
@@ -140,10 +154,15 @@ public actor TtsEngine {
         try model.prediction(from: input)
     }
 
-    /// Frames per id: Kokoro's `round(duration / speed)`, at least 1 (round half to even, as torch).
+    /// Frames per id: Kokoro's `round(duration / speed)` (round half to even, as torch), between 1
+    /// and [maxFramesPerToken]; a NaN or infinite prediction (a broken model) counts as 1.
     static func frames(_ duration: [Float], speed: Float) -> [Int] {
-        let s = speed > 0 ? speed : 1
-        return duration.map { max(1, Int(($0 / s).rounded(.toNearestOrEven))) }
+        let s = speed.isFinite && speed > 0 ? speed : 1
+        return duration.map { d in
+            let f = (d / s).rounded(.toNearestOrEven)
+            guard f.isFinite else { return 1 }
+            return Int(min(max(f, 1), Float(maxFramesPerToken)))
+        }
     }
 
     /// Where to split an over-long piece: the space nearest its middle (else the middle).
@@ -200,20 +219,52 @@ public actor TtsEngine {
 
     private func load(_ folder: URL) async throws {
         if self.folder == folder, predictor != nil { return }
+        if let loading, loading.folder == folder { return try await loading.task.value }
         unload()
-        predictor = try await Self.model(folder, "Kokoro_Predictor")
-        buckets = Self.decoderBuckets(in: folder)
-        guard !buckets.isEmpty else { throw EngineError("UNSUPPORTED", "no Kokoro decoder in \(folder.lastPathComponent)") }
+        let started = epoch
+        let task = Task {
+            let model = try await Self.model(folder, "Kokoro_Predictor")
+            let buckets = Self.decoderBuckets(in: folder)
+            guard !buckets.isEmpty else { throw EngineError("UNSUPPORTED", "no Kokoro decoder in \(folder.lastPathComponent)") }
+            self.loaded(folder, model, buckets, epoch: started)
+        }
+        loading = (folder, task)
+        defer { if loading?.task == task { loading = nil } }
+        try await task.value
+        guard epoch == started else { throw EngineError.cancelled }
+    }
+
+    private func loaded(_ folder: URL, _ model: MLModel, _ buckets: [Int], epoch: Int) {
+        guard epoch == self.epoch else { return }
+        predictor = model
+        self.buckets = buckets
         self.folder = folder
     }
 
+    /// Each decoder holds ~250 MB of float32 weights: two stay loaded, one on phones with less memory.
+    private static var decoderLimit: Int { ProcessInfo.processInfo.physicalMemory < 7_000_000_000 ? 1 : 2 }
+
     private func decoder(_ frames: Int) async throws -> MLModel {
-        if let m = decoders[frames] { return m }
+        if let m = decoders[frames] {
+            decoderOrder.removeAll { $0 == frames }
+            decoderOrder.append(frames)
+            return m
+        }
+        if let pending = decoderLoads[frames] { return try await pending.value.model }
         guard let folder else { throw EngineError("UNSUPPORTED", "the voice is not loaded") }
-        // Each decoder holds ~250 MB of float32 weights: keep one on phones with less memory.
-        if ProcessInfo.processInfo.physicalMemory < 7_000_000_000 { decoders = [:] }
-        let m = try await Self.model(folder, "Kokoro_Decoder_\(frames)")
+        while decoders.count >= Self.decoderLimit, let oldest = decoderOrder.first {
+            decoderOrder.removeFirst()
+            decoders[oldest] = nil
+        }
+        let started = epoch
+        let task = Task { LoadedModel(model: try await Self.model(folder, "Kokoro_Decoder_\(frames)")) }
+        decoderLoads[frames] = task
+        defer { if decoderLoads[frames] == task { decoderLoads[frames] = nil } }
+        let m = try await task.value.model
+        guard epoch == started else { throw EngineError.cancelled }
         decoders[frames] = m
+        decoderOrder.removeAll { $0 == frames }
+        decoderOrder.append(frames)
         return m
     }
 
@@ -226,6 +277,12 @@ public actor TtsEngine {
         let pack = try KokoroVoicePack(contentsOf: url)
         voices[voice] = pack
         return pack
+    }
+
+    /// A loaded model handed from its loading task to the actor (Core ML models are not Sendable;
+    /// this one is only ever used on the actor).
+    struct LoadedModel: @unchecked Sendable {
+        let model: MLModel
     }
 
     /// Decoder lengths (frames) whose package is in [folder], ascending.

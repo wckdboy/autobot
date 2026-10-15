@@ -51,7 +51,9 @@ final class AppContainer {
     #endif
 
     private(set) var dataLoaded = false
+    @ObservationIgnored private var unlocking = false
     @ObservationIgnored private var activeObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var observers: [any NSObjectProtocol] = []
 
     init() {
         AppPaths.prepare()
@@ -108,6 +110,19 @@ final class AppContainer {
         activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.becameActive() }
         }
+        let center = NotificationCenter.default
+        // The engines' models are the bulk of the app's memory: free them before the system
+        // terminates the app (and in the background, where it is first in line).
+        for name in [UIApplication.didReceiveMemoryWarningNotification, UIApplication.didEnterBackgroundNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { await EngineMemory.shared.releaseAll() }
+            })
+        }
+        // Preferences unreadable at launch (before the first unlock) are read now.
+        let preferences = preferences
+        observers.append(center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { _ in
+            preferences.reloadIfNeeded()
+        })
     }
 
     /// Back in the foreground: re-check what "This phone" can run.
@@ -170,16 +185,35 @@ final class AppContainer {
         #endif
     }
 
-    /// Loads the encrypted repositories (after the device and the app lock are unlocked).
-    func unlockData() {
+    /**
+     Loads the encrypted repositories (after the device and the app lock are unlocked). The rows
+     are read and decrypted off the main thread (SQLite, AES-GCM, the Keychain and the Secure
+     Enclave unwrap of the data key), then published here.
+     */
+    func unlockData() async {
+        guard !dataLoaded, !unlocking else { return }
+        unlocking = true
+        defer { unlocking = false }
+        let store = store, memoryHost = memory.host
+        let rows = await Task.detached(priority: .userInitiated) {
+            (
+                conversations: ConversationRepository.read(store),
+                providers: ProviderRepository.read(store),
+                mcpServers: McpServerRepository.read(store),
+                gallery: GalleryRepository.read(store),
+                memory: memoryHost.records(),
+                library: ModelLibrary.read(store),
+                compute: ComputeProfile.read(store),
+            )
+        }.value
         guard !dataLoaded else { return }
-        conversations.load()
-        providers.load()
-        mcpServers.load()
-        gallery.load()
-        memory.load()
-        library.load()
-        compute.load()
+        conversations.load(rows.conversations)
+        providers.load(rows.providers)
+        mcpServers.load(rows.mcpServers)
+        gallery.load(rows.gallery)
+        memory.load(rows.memory)
+        library.load(rows.library)
+        compute.load(rows.compute)
         downloader.recoverAfterRestart()
         #if DEBUG
         DemoSeed.seedIfEmpty(self)

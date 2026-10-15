@@ -199,12 +199,7 @@ final class BackupService {
             if name.hasPrefix("sessions/") {
                 let id = String(name.dropFirst("sessions/".count).dropLast(".jsonl".count))
                 guard newConversations.contains(id), let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
-                let lines = text.split(separator: "\n").compactMap { line -> (seq: Int64, json: Data)? in
-                    let data = Data(line.utf8)
-                    guard let entry = try? SessionJSON.decode(data) else { return nil }
-                    return (entry.seq, data)
-                }
-                try? app.sessions.appendJSON(id, lines)
+                try? app.sessions.appendJSON(id, Self.importableLines(text))
             } else if name.hasPrefix("gallery/") {
                 guard let item = manifest.gallery.first(where: { $0.file == name }), Self.isSafe(item.id), app.gallery.get(item.id) == nil,
                       let bytes = try? Data(contentsOf: file) else { continue }
@@ -243,6 +238,16 @@ final class BackupService {
     }
 
     static func imageEntry(_ id: String) -> String { "gallery/\(id).png" }
+
+    /// The readable entries of an imported session log. An entry that refers to an attachment by
+    /// an id that is not a plain file name is dropped (it would point outside `attachments/`).
+    static func importableLines(_ text: String) -> [(seq: Int64, json: Data)] {
+        text.split(separator: "\n").compactMap { line -> (seq: Int64, json: Data)? in
+            let data = Data(line.utf8)
+            guard let entry = try? SessionJSON.decode(data), attachmentIds([data]).allSatisfy(isSafe) else { return nil }
+            return (entry.seq, data)
+        }
+    }
 
     private static func isSafe(_ id: String) -> Bool { safeId.firstMatch(in: id, range: NSRange(id.startIndex..., in: id)) != nil }
 
