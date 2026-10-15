@@ -21,6 +21,7 @@ struct GalleryScreen: View {
     @State private var message: String?
 
     var body: some View {
+        let _ = InkProbe.hit("body.gallery")
         let all = app.gallery.items
         let items = all.filter { item in
             (!favoritesOnly || item.favorite) &&
@@ -54,7 +55,7 @@ struct GalleryScreen: View {
                 MicroLabel(all.isEmpty ? "nothing generated yet" : "no matches")
                     .fixedSize()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .inkGround()
+                    .inkGround(fade: .center)
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 4)], spacing: 4) {

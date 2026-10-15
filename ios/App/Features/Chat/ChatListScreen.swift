@@ -129,6 +129,7 @@ struct ChatListScreen: View {
     }
 
     var body: some View {
+        let _ = InkProbe.hit("body.chatList")
         let m = model
         let loaded = app.dataLoaded
         VStack(spacing: 0) {
@@ -419,7 +420,7 @@ struct ChatListScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
-        .inkGround()
+        .inkGround(fade: .center)
     }
 
     @ViewBuilder private var undoToast: some View {
