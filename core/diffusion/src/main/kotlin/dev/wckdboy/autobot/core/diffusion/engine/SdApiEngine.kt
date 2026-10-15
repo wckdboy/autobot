@@ -68,6 +68,8 @@ class SdApiEngine(
         modelSwitching = true,
         livePreview = true,
         maskEncoding = MaskEncoding.OPAQUE_BLACK_WHITE,
+        hires = true,
+        vae = true,
     )
 
     override suspend fun catalog(): EngineCatalog = withContext(Dispatchers.IO) {
@@ -84,6 +86,8 @@ class SdApiEngine(
             loras = names("sdapi/v1/loras", "name"),
             samplers = names("sdapi/v1/samplers", "name"),
             schedulers = names("sdapi/v1/schedulers", "label"),
+            vaes = names("sdapi/v1/sd-vae", "model_name"),
+            upscalers = names("sdapi/v1/upscalers", "name") + names("sdapi/v1/latent-upscale-modes", "name"),
         )
     }
 
@@ -170,10 +174,19 @@ class SdApiEngine(
             buildJsonObject {
                 request.model?.let { put("sd_model_checkpoint", it) }
                 request.clipSkip?.let { put("CLIP_stop_at_last_layers", it) }
+                request.vae?.let { put("sd_vae", it) }
                 put("return_grid", false)
             },
         )
         put("override_settings_restore_afterwards", false)
+        val hires = request.hires
+        if (request.mode == DiffusionMode.TXT2IMG && hires != null) {
+            put("enable_hr", true)
+            put("hr_scale", hires.scale)
+            put("hr_upscaler", hires.upscaler)
+            put("hr_second_pass_steps", hires.steps)
+            put("denoising_strength", hires.denoise)
+        }
         if (request.mode != DiffusionMode.TXT2IMG) {
             put("init_images", buildJsonArray { add(JsonPrimitive(encodeBase64(inputs.initImage!!))) })
             put("denoising_strength", request.denoiseStrength)

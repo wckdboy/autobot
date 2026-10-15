@@ -49,6 +49,7 @@ import dev.wckdboy.autobot.feature.settings.memory.MemoryRoute
 import dev.wckdboy.autobot.feature.settings.vault.VaultRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
 import dev.wckdboy.autobot.feature.settings.providers.ProvidersRoute
+import dev.wckdboy.autobot.feature.studio.ui.StudioRoute
 import kotlinx.coroutines.delay
 
 private enum class Tab(val label: String, val root: TopLevel) {
@@ -143,6 +144,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                         RunRoute(
                             onOpenSession = { navigate(Chat(it)) },
                             onOpenImagine = { navigate(Imagine()) },
+                            onOpenStudio = { navigate(Studio()) },
                             onOpenAllRuns = { navigate(ChatList) },
                             onOpenGalleryItem = { navigate(Gallery(it)) },
                             onOpenModels = { switchTo(Models) },
@@ -200,11 +202,21 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                                 onOpenGallery = { navigate(Gallery()) },
                                 onOpenBackends = { navigate(ImageBackends) },
                                 onOpenModels = { switchTo(Models) },
+                                onOpenStudio = { navigate(Studio()) },
                                 handoff = key.handoffId?.let { GalleryHandoff(it, key.asInit) },
                                 modelId = key.modelId,
                                 prompt = key.prompt,
                             )
                         }
+                    }
+                    // Studio mode: its own bar replaces the app's (no tab root, so the app bar hides).
+                    entry<Studio> { key ->
+                        StudioRoute(
+                            onBack = ::back,
+                            onOpenModels = { switchTo(Models) },
+                            onOpenImageBackends = { navigate(ImageBackends) },
+                            initialRoom = key.room,
+                        )
                     }
                     entry<Gallery> { key ->
                         GalleryRoute(

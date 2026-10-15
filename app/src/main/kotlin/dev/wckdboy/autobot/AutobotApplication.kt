@@ -8,6 +8,7 @@ import dev.wckdboy.autobot.core.data.settings.SettingsSync
 import dev.wckdboy.autobot.core.diffusion.OnDeviceBackendSync
 import dev.wckdboy.autobot.core.models.ModelDownloader
 import dev.wckdboy.autobot.core.security.AppLockManager
+import dev.wckdboy.autobot.feature.studio.engine.StudioHost
 import dev.wckdboy.autobot.providers.remote.LocalProviderSync
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +41,9 @@ class AutobotApplication : Application() {
     @Inject
     lateinit var engineMemory: Lazy<EngineMemoryCoordinator>
 
+    @Inject
+    lateinit var studio: Lazy<StudioHost>
+
     override fun onCreate() {
         super.onCreate()
         if (getProcessName() != packageName) return
@@ -49,5 +53,7 @@ class AutobotApplication : Application() {
         localProviderSync.get().start(scope.get())
         onDeviceBackendSync.get().start(scope.get())
         scope.get().launch { downloader.get().recoverAfterRestart() }
+        // The Studio queue: engines registered, then jobs queued before the app closed run on.
+        studio.get().start()
     }
 }

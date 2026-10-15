@@ -294,6 +294,25 @@ fun PaperTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = GraphiteLightColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
 }
 
+/**
+ * The darkroom: ink (dark) surface regardless of the app theme — the Studio's image and video
+ * rooms, where the picture is the only bright thing on screen. Light status bar icons while shown.
+ */
+@Composable
+fun DarkroomTheme(content: @Composable () -> Unit) {
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        DisposableEffect(view) {
+            val window = view.context.findActivity()?.window
+            val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+            val previous = controller?.isAppearanceLightStatusBars
+            controller?.isAppearanceLightStatusBars = false
+            onDispose { if (controller != null && previous != null) controller.isAppearanceLightStatusBars = previous }
+        }
+    }
+    MaterialTheme(colorScheme = GraphiteDarkColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
+}
+
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
