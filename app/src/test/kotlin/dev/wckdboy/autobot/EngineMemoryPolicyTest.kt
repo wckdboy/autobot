@@ -9,14 +9,15 @@ import org.junit.Test
 class EngineMemoryPolicyTest {
     @Test
     fun largeEnginesExcludeEachOther() {
-        assertEquals(setOf(Engine.IMAGE, Engine.NPU, Engine.SPEECH), EngineMemoryPolicy.before(Engine.LLM))
-        assertEquals(setOf(Engine.LLM, Engine.NPU, Engine.SPEECH), EngineMemoryPolicy.before(Engine.IMAGE))
-        assertEquals(setOf(Engine.LLM, Engine.IMAGE, Engine.SPEECH), EngineMemoryPolicy.before(Engine.NPU))
+        assertEquals(setOf(Engine.IMAGE, Engine.NPU, Engine.AUDIO, Engine.SPEECH), EngineMemoryPolicy.before(Engine.LLM))
+        assertEquals(setOf(Engine.LLM, Engine.NPU, Engine.AUDIO, Engine.SPEECH), EngineMemoryPolicy.before(Engine.IMAGE))
+        assertEquals(setOf(Engine.LLM, Engine.IMAGE, Engine.AUDIO, Engine.SPEECH), EngineMemoryPolicy.before(Engine.NPU))
+        assertEquals(setOf(Engine.LLM, Engine.IMAGE, Engine.NPU, Engine.SPEECH), EngineMemoryPolicy.before(Engine.AUDIO))
     }
 
     @Test
     fun dictationKeepsTheChatModelAndTheVoiceEvictsNothing() {
-        assertEquals(setOf(Engine.IMAGE, Engine.NPU), EngineMemoryPolicy.before(Engine.SPEECH))
+        assertEquals(setOf(Engine.IMAGE, Engine.NPU, Engine.AUDIO), EngineMemoryPolicy.before(Engine.SPEECH))
         assertTrue(EngineMemoryPolicy.before(Engine.VOICE).isEmpty())
     }
 

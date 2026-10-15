@@ -10,7 +10,7 @@ import AutobotEngines
  `T5Tokenizer` (`tokenizer.json` in the model folder); the models run on Core ML
  (`AutobotEngines.AudioGenEngine`). [folder] is an installed bundle (`ModelLibrary.dir(of:)` of
  `StableAudioCatalog.coreML`). Cancelling the calling task stops between model calls. Nothing is
- fetched or sent. The Studio's audio room drives it (through its `StudioEngine` adapter).
+ fetched or sent. The Studio's audio room is meant to drive it through a `StudioEngine` adapter.
  */
 actor LocalAudioGen {
     static let shared = LocalAudioGen()

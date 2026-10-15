@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.Configuration
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
+import dev.wckdboy.autobot.engine.audiogen.LocalAudioGen
 import dev.wckdboy.autobot.engine.diffusion.LocalSd
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import dev.wckdboy.autobot.engine.npu.LocalNpu
@@ -16,22 +17,23 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /** The on-device engines that hold model weights in memory. */
-enum class Engine { LLM, IMAGE, NPU, SPEECH, VOICE }
+enum class Engine { LLM, IMAGE, NPU, SPEECH, VOICE, AUDIO }
 
 /**
  * Which engines to free, and when. The chat model, the image models (stable-diffusion.cpp and
  * the NPU/GPU engine) are each large enough that two resident at once can get the app killed,
- * so they exclude each other. Whisper is freed before any of them works, but does not evict the
+ * so they exclude each other, and so does text to audio (Stable Audio: ~3 GB at its peak, in the
+ * app process). Whisper is freed before any of them works, but does not evict the
  * chat model (dictation runs between turns). The Kokoro voice is small and is freed only under
  * memory pressure.
  */
 object EngineMemoryPolicy {
-    private val EXCLUSIVE = setOf(Engine.LLM, Engine.IMAGE, Engine.NPU)
+    private val EXCLUSIVE = setOf(Engine.LLM, Engine.IMAGE, Engine.NPU, Engine.AUDIO)
 
     /** Engines to unload before [starting] runs a job. */
     fun before(starting: Engine): Set<Engine> = when (starting) {
-        Engine.LLM, Engine.IMAGE, Engine.NPU -> EXCLUSIVE - starting + Engine.SPEECH
-        Engine.SPEECH -> setOf(Engine.IMAGE, Engine.NPU)
+        Engine.LLM, Engine.IMAGE, Engine.NPU, Engine.AUDIO -> EXCLUSIVE - starting + Engine.SPEECH
+        Engine.SPEECH -> setOf(Engine.IMAGE, Engine.NPU, Engine.AUDIO)
         Engine.VOICE -> emptySet()
     }
 
@@ -63,6 +65,7 @@ class EngineMemoryCoordinator @Inject constructor(
     private val npu: LocalNpu,
     private val speech: LocalSpeech,
     private val voice: LocalVoice,
+    private val audio: LocalAudioGen,
 ) : ComponentCallbacks2 {
 
     fun install() {
@@ -70,6 +73,7 @@ class EngineMemoryCoordinator @Inject constructor(
         sd.beforeJob = { free(EngineMemoryPolicy.before(Engine.IMAGE)) }
         npu.beforeJob = { free(EngineMemoryPolicy.before(Engine.NPU)) }
         speech.beforeJob = { free(EngineMemoryPolicy.before(Engine.SPEECH)) }
+        audio.beforeJob = { free(EngineMemoryPolicy.before(Engine.AUDIO)) }
         context.registerComponentCallbacks(this)
     }
 
@@ -79,6 +83,7 @@ class EngineMemoryCoordinator @Inject constructor(
         if (npu.isBusy) add(Engine.NPU)
         if (speech.isBusy) add(Engine.SPEECH)
         if (voice.isBusy) add(Engine.VOICE)
+        if (audio.isBusy) add(Engine.AUDIO)
     }
 
     /** Unloads [engines]' models (a running job finishes first: engines run jobs serially) and ends idle processes. */
@@ -90,6 +95,7 @@ class EngineMemoryCoordinator @Inject constructor(
                 Engine.NPU -> npu.run { unloadModels(); releaseIfIdle() }
                 Engine.SPEECH -> if (!speech.isBusy) speech.run { unloadModel(); releaseIfIdle() }
                 Engine.VOICE -> if (voice.isLoaded) scope.launch { voice.unload() }
+                Engine.AUDIO -> if (audio.isLoaded && !audio.isBusy) scope.launch { audio.unload() }
             }
         }
     }

@@ -30,9 +30,19 @@ class LocalAudioGen(private val keepLoaded: Boolean = false, private val lowMemo
 
     private class Loaded(val folder: File, val models: StableAudioOnnx, val tokenizer: T5Tokenizer)
 
+    /** Called before each generation (the app's `EngineMemoryCoordinator` frees the other large models). */
+    @Volatile
+    var beforeJob: () -> Unit = {}
+
+    /** Whether a generation is running (memory pressure only frees an idle engine). */
+    val isBusy: Boolean get() = mutex.isLocked
+
+    val isLoaded: Boolean get() = loaded != null
+
     /** Audio for [request]; [onProgress] is called from the worker thread per stage and DiT step. Throws [AudioGenException]. */
-    suspend fun generate(folder: File, request: AudioGenRequest, onProgress: (AudioGenProgress) -> Unit = {}): StereoAudio =
-        mutex.withLock {
+    suspend fun generate(folder: File, request: AudioGenRequest, onProgress: (AudioGenProgress) -> Unit = {}): StereoAudio {
+        beforeJob()
+        return mutex.withLock {
             withContext(Dispatchers.Default) {
                 val l = load(folder)
                 try {
@@ -41,11 +51,14 @@ class LocalAudioGen(private val keepLoaded: Boolean = false, private val lowMemo
                     throw e
                 } catch (e: Exception) {
                     throw AudioGenException("Audio generation failed: ${e.message}", e)
+                } catch (e: OutOfMemoryError) {
+                    throw AudioGenException("Not enough memory to generate audio", e)
                 } finally {
-                    if (!keepLoaded) l.models.close()
+                    if (!keepLoaded) runCatching { l.models.close() }
                 }
             }
         }
+    }
 
     /** Reads the tokenizer and embedder now (sessions still open on first use). */
     suspend fun prepare(folder: File) {
@@ -54,7 +67,7 @@ class LocalAudioGen(private val keepLoaded: Boolean = false, private val lowMemo
 
     /** Frees the sessions and the tokenizer. */
     suspend fun unload() = mutex.withLock {
-        loaded?.models?.close()
+        runCatching { loaded?.models?.close() }
         loaded = null
     }
 
