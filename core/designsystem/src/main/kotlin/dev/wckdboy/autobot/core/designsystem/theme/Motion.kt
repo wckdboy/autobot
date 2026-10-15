@@ -34,6 +34,15 @@ object Motion {
     const val staggerMillis = 35
     const val dissolveMillis = 200
     const val indeterminateSweepMillis = 1400
+    const val barDotPitch = 1.6f
+    const val barEmptyDotScale = 0.15f
+    const val barFillStartScale = 0.45f
+    const val barWaveSlots = 7
+    const val barRunningWaveAmplitude = 0.10f
+    const val cardDotPitch = 11
+    const val cardDotOpacity = 0.12f
+    const val cardWavePeriodSeconds = 12
+    const val cardMaxDots = 600
 
     /** Every token by its tokens.json name (for the parity test). */
     val all: Map<String, Number> = mapOf(
@@ -66,5 +75,14 @@ object Motion {
         "staggerMillis" to staggerMillis,
         "dissolveMillis" to dissolveMillis,
         "indeterminateSweepMillis" to indeterminateSweepMillis,
+        "barDotPitch" to barDotPitch,
+        "barEmptyDotScale" to barEmptyDotScale,
+        "barFillStartScale" to barFillStartScale,
+        "barWaveSlots" to barWaveSlots,
+        "barRunningWaveAmplitude" to barRunningWaveAmplitude,
+        "cardDotPitch" to cardDotPitch,
+        "cardDotOpacity" to cardDotOpacity,
+        "cardWavePeriodSeconds" to cardWavePeriodSeconds,
+        "cardMaxDots" to cardMaxDots,
     )
 }
