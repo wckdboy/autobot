@@ -43,6 +43,10 @@ interface ConversationDao {
     @Query("SELECT id FROM conversations")
     suspend fun allIds(): List<String>
 
+    /** Marks activity: bumps [Conversation.updatedAt] without reading the row. */
+    @Query("UPDATE conversations SET updatedAt = :now WHERE id = :id")
+    suspend fun touch(id: String, now: Long)
+
     /** Renaming does not count as activity: [Conversation.updatedAt] stays. */
     @Query("UPDATE conversations SET title = :title WHERE id = :id")
     suspend fun rename(id: String, title: String)

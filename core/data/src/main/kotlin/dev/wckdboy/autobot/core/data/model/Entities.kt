@@ -137,7 +137,8 @@ data class McpServer(
 
 /**
  * One agent session log row (see `:agent:core` `LogEntry`). The JSON payload is opaque to this
- * layer. Rows cascade with their conversation.
+ * layer. Rows cascade with their conversation. The primary key (`sessionId`, `seq`) already
+ * indexes `sessionId` for the cascade and per-session reads (a separate index was dropped in 11).
  */
 @Entity(
     tableName = "session_events",
@@ -150,7 +151,6 @@ data class McpServer(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("sessionId")],
 )
 data class SessionEventRow(
     val sessionId: String,
