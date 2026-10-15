@@ -1,0 +1,13 @@
+{
+  "object": "list",
+  "data": [
+    {"id": "gpt-6-astra", "object": "model", "created": 1776000000, "owned_by": "system", "shutdown_date": null},
+    {"id": "gpt-6.1-sol", "object": "model", "created": 1778000000, "owned_by": "system", "shutdown_date": null},
+    {"id": "gpt-6-luna", "object": "model", "created": 1776000000, "owned_by": "system", "shutdown_date": null},
+    {"id": "gpt-5.5", "object": "model", "created": 1770000000, "owned_by": "system", "shutdown_date": null},
+    {"id": "text-embedding-3-small", "object": "model", "created": 1705948997, "owned_by": "system", "shutdown_date": null},
+    {"id": "gpt-4o-mini-tts", "object": "model", "created": 1742403959, "owned_by": "system", "shutdown_date": null},
+    {"id": "gpt-image-2", "object": "model", "created": 1774000000, "owned_by": "system", "shutdown_date": null},
+    {"id": "omni-moderation-latest", "object": "model", "created": 1731689265, "owned_by": "system", "shutdown_date": "2026-10-23"}
+  ]
+}

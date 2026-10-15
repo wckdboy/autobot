@@ -1,0 +1,10 @@
+{
+  "object": "list",
+  "data": [
+    { "id": "google/gemma-4-26b-a4b", "object": "model", "owned_by": "organization_owner" },
+    { "id": "openai/gpt-oss-20b", "object": "model", "owned_by": "organization_owner" },
+    { "id": "qwen/qwen3-8b", "object": "model", "owned_by": "organization_owner" },
+    { "id": "deepseek-r1", "object": "model", "owned_by": "organization_owner" },
+    { "id": "text-embedding-nomic-embed-text-v1.5-embedding", "object": "model", "owned_by": "organization_owner" }
+  ]
+}

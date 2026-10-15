@@ -1,0 +1,96 @@
+{
+  "models": [
+    {
+      "name": "gemma4:latest",
+      "model": "gemma4:latest",
+      "modified_at": "2025-10-03T23:34:03.409490317-07:00",
+      "size": 9608350245,
+      "digest": "c6eb396dbd5992bbe3f5cdb947e8bbc0ee413d7c17e2beaae69f5d569cf982eb",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "gemma4",
+        "families": ["gemma4"],
+        "parameter_size": "8.0B",
+        "quantization_level": "Q4_K_M"
+      }
+    },
+    {
+      "name": "gpt-oss:20b",
+      "model": "gpt-oss:20b",
+      "modified_at": "2026-09-21T10:12:44.118204-07:00",
+      "size": 13780173724,
+      "digest": "aa4295ac10c3afb60e6d711289fc6896f5aef82258997b9efdaed6d0cc4cd8b8",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "gptoss",
+        "families": ["gptoss"],
+        "parameter_size": "20.9B",
+        "quantization_level": "MXFP4"
+      }
+    },
+    {
+      "name": "qwen3:8b",
+      "model": "qwen3:8b",
+      "modified_at": "2026-08-30T08:41:02.55317-07:00",
+      "size": 5225388164,
+      "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen3",
+        "families": ["qwen3"],
+        "parameter_size": "8.2B",
+        "quantization_level": "Q4_K_M"
+      }
+    },
+    {
+      "name": "llama3.2:latest",
+      "model": "llama3.2:latest",
+      "modified_at": "2026-07-14T19:03:27.98221-07:00",
+      "size": 2019393189,
+      "digest": "a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "llama",
+        "families": ["llama"],
+        "parameter_size": "3.2B",
+        "quantization_level": "Q4_K_M"
+      }
+    },
+    {
+      "name": "nomic-embed-text:latest",
+      "model": "nomic-embed-text:latest",
+      "modified_at": "2026-06-02T11:20:15.402871-07:00",
+      "size": 274302450,
+      "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "nomic-bert",
+        "families": ["nomic-bert"],
+        "parameter_size": "137M",
+        "quantization_level": "F16"
+      }
+    },
+    {
+      "name": "gpt-oss:120b-cloud",
+      "model": "gpt-oss:120b-cloud",
+      "remote_model": "gpt-oss:120b",
+      "remote_host": "https://ollama.com:443",
+      "modified_at": "2026-09-30T16:05:11.774112-07:00",
+      "size": 384,
+      "digest": "569662207105e5b8e6b1e1d7a2a3e5c6f1f04e2b7f6ee0d8f0c7c9b2a1d3e4f5",
+      "details": {
+        "parent_model": "",
+        "format": "",
+        "family": "gptoss",
+        "families": ["gptoss"],
+        "parameter_size": "116.8B",
+        "quantization_level": "MXFP4"
+      }
+    }
+  ]
+}

@@ -1,0 +1,212 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "deepseek-ai/DeepSeek-V4-Pro",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "deepseek-ai/DeepSeek-V4-Pro",
+      "parent": null,
+      "metadata": {
+        "description": "DeepSeek V4 Pro is an MoE model with 1.6T total parameters (49B active) and a 1M-token context window. It's built for advanced reasoning, coding, and long-running agent tasks, and performs well on knowledge, math, and software engineering benchmarks.",
+        "context_length": 1048576,
+        "max_tokens": 1048576,
+        "pricing": {
+          "input_tokens": 1.2999999999999998,
+          "output_tokens": 2.5999999999999996,
+          "cache_read_tokens": 0.10000000399999999
+        },
+        "discount": null,
+        "tags": [
+          "chat",
+          "prompt_cache"
+        ],
+        "default_width": null,
+        "default_height": null,
+        "default_iterations": null
+      }
+    },
+    {
+      "id": "moonshotai/Kimi-K3",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "moonshotai/Kimi-K3",
+      "parent": null,
+      "metadata": {
+        "description": "Kimi K3 is Moonshot AI's 2.8T-parameter open-weight multimodal reasoning model. Built for complex coding, knowledge work, and long-horizon agentic workflows, it excels at navigating large repositories, calling tools, debugging, and iterating on images, logs, tests, and runtime feedback. Its architecture relies on KDA and Attention Residuals for computational efficiency.",
+        "context_length": 1048576,
+        "max_tokens": 1048576,
+        "pricing": {
+          "input_tokens": 2.8499999999999996,
+          "output_tokens": 14.25,
+          "cache_read_tokens": 0.285
+        },
+        "discount": null,
+        "tags": [
+          "chat",
+          "vlm",
+          "vision",
+          "prompt_cache",
+          "reasoning"
+        ],
+        "default_width": null,
+        "default_height": null,
+        "default_iterations": null
+      }
+    },
+    {
+      "id": "zai-org/GLM-5.3",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "zai-org/GLM-5.3",
+      "parent": null,
+      "metadata": {
+        "description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves on GLM-5.2 in coding and in the balance between performance and token efficiency.",
+        "context_length": 1048576,
+        "max_tokens": 1048576,
+        "pricing": {
+          "input_tokens": 0.9,
+          "output_tokens": 4.0,
+          "cache_read_tokens": 0.199999998
+        },
+        "discount": 0.375,
+        "tags": [
+          "chat",
+          "prompt_cache",
+          "reasoning"
+        ],
+        "default_width": null,
+        "default_height": null,
+        "default_iterations": null
+      }
+    },
+    {
+      "id": "Qwen/Qwen3.8-27B",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "Qwen/Qwen3.8-27B",
+      "parent": null,
+      "metadata": {
+        "description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be enabled or disabled.",
+        "context_length": 262144,
+        "max_tokens": 262144,
+        "pricing": {
+          "input_tokens": 0.2,
+          "output_tokens": 2.5,
+          "cache_read_tokens": 0.05
+        },
+        "discount": 0.25,
+        "tags": [
+          "chat",
+          "vlm",
+          "vision",
+          "prompt_cache",
+          "reasoning_effort",
+          "reasoning"
+        ],
+        "default_width": null,
+        "default_height": null,
+        "default_iterations": null
+      }
+    },
+    {
+      "id": "openai/gpt-oss-120b",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "openai/gpt-oss-120b",
+      "parent": null,
+      "metadata": {
+        "description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. The model supports configurable reasoning depth, full chain-of-thought access, and native tool use, including function calling, browsing, and structured output generation.",
+        "context_length": 131072,
+        "max_tokens": 131072,
+        "pricing": {
+          "input_tokens": 0.037,
+          "output_tokens": 0.16999999999999998
+        },
+        "discount": null,
+        "tags": [
+          "chat",
+          "reasoning_effort",
+          "reasoning"
+        ],
+        "default_width": null,
+        "default_height": null,
+        "default_iterations": null
+      }
+    },
+    {
+      "id": "Qwen/Qwen3-Embedding-8B",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "Qwen/Qwen3-Embedding-8B",
+      "parent": null,
+      "metadata": {
+        "description": "The Qwen3 Embedding model series is the latest proprietary model of the Qwen family, specifically designed for text embedding and ranking tasks. Building upon the dense foundational models of the Qwen3 series, it provides a comprehensive range of text embeddings and reranking models in various sizes (0.6B, 4B, and 8B).",
+        "context_length": 32768,
+        "max_tokens": 32768,
+        "pricing": {
+          "input_tokens": 0.01
+        },
+        "discount": null,
+        "tags": [
+          "embed"
+        ],
+        "default_width": null,
+        "default_height": null,
+        "default_iterations": null
+      }
+    },
+    {
+      "id": "openai/whisper-large-v3-turbo",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "openai/whisper-large-v3-turbo",
+      "parent": null,
+      "metadata": {
+        "description": "Whisper is a state-of-the-art model for automatic speech recognition (ASR) and speech translation, proposed in the paper \"Robust Speech Recognition via Large-Scale Weak Supervision\" by Alec Radford et al. from OpenAI. Trained on >5M hours of labeled data, Whisper demonstrates a strong ability to generalise to many datasets and domains in a zero-shot setting. Whisper large-v3-turbo is a finetuned version of a pruned Whisper large-v3. In other words, it's the exact same model, except that the number of decoding layers have reduced from 32 to 4. As a result, the model is way faster, at the expense of a minor quality degradation.",
+        "context_length": null,
+        "max_tokens": null,
+        "pricing": {
+          "input_seconds": 3.3300000000000003e-06
+        },
+        "discount": null,
+        "tags": [
+          "stt"
+        ],
+        "default_width": null,
+        "default_height": null,
+        "default_iterations": null
+      }
+    },
+    {
+      "id": "black-forest-labs/FLUX-2-dev",
+      "object": "model",
+      "created": 0,
+      "owned_by": "deepinfra",
+      "root": "black-forest-labs/FLUX-2-dev",
+      "parent": null,
+      "metadata": {
+        "description": "Brand-new Flux2 Dev introduces a faster, more modular architecture for next-generation image generation pipelines. It delivers improved performance, cleaner control APIs, and a significantly more flexible development workflow for custom inference setups.",
+        "context_length": null,
+        "max_tokens": null,
+        "pricing": {
+          "per_image_unit": 0.01
+        },
+        "discount": null,
+        "tags": [
+          "image-gen"
+        ],
+        "default_width": 1024,
+        "default_height": 1024,
+        "default_iterations": 28
+      }
+    }
+  ]
+}

@@ -1,0 +1,335 @@
+{
+  "data": [
+    {
+      "created": 1787105676,
+      "id": "zai-org/glm-5.3",
+      "object": "model",
+      "owned_by": "novita",
+      "permission": null,
+      "root": "",
+      "parent": "",
+      "input_token_price_per_m": 14000,
+      "output_token_price_per_m": 44000,
+      "pricing": {
+        "prompt": {
+          "origin_price_per_m": 14000,
+          "price_per_m": 14000,
+          "origin_price_per_m_decimal": "1.4",
+          "price_per_m_decimal": "1.4"
+        },
+        "completion": {
+          "origin_price_per_m": 44000,
+          "price_per_m": 44000,
+          "origin_price_per_m_decimal": "4.4",
+          "price_per_m_decimal": "4.4"
+        },
+        "input_cache_read": {
+          "origin_price_per_m": 2600,
+          "price_per_m": 2600,
+          "origin_price_per_m_decimal": "0.26",
+          "price_per_m_decimal": "0.26"
+        }
+      },
+      "is_tiered_billing": false,
+      "title": "zai-org/glm-5.3",
+      "description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves on GLM-5.2 in coding and in the balance between performance and token efficiency.\nReasoning is always on and cannot be disabled. Reasoning efforts low, high, and max are supported; max is the default.",
+      "tags": [],
+      "context_size": 1048576,
+      "status": 1,
+      "display_name": "GLM 5.3",
+      "model_type": "chat",
+      "max_output_tokens": 131072,
+      "features": [
+        "function-calling",
+        "structured-outputs",
+        "reasoning",
+        "serverless"
+      ],
+      "endpoints": [
+        "chat/completions",
+        "anthropic",
+        "responses"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ]
+    },
+    {
+      "created": 1777000931,
+      "id": "deepseek/deepseek-v4-pro",
+      "object": "model",
+      "owned_by": "novita",
+      "permission": null,
+      "root": "",
+      "parent": "",
+      "input_token_price_per_m": 16000,
+      "output_token_price_per_m": 32000,
+      "pricing": {
+        "prompt": {
+          "origin_price_per_m": 16000,
+          "price_per_m": 16000,
+          "origin_price_per_m_decimal": "1.6",
+          "price_per_m_decimal": "1.6"
+        },
+        "completion": {
+          "origin_price_per_m": 32000,
+          "price_per_m": 32000,
+          "origin_price_per_m_decimal": "3.2",
+          "price_per_m_decimal": "3.2"
+        },
+        "input_cache_read": {
+          "origin_price_per_m": 1350,
+          "price_per_m": 1350,
+          "origin_price_per_m_decimal": "0.135",
+          "price_per_m_decimal": "0.135"
+        }
+      },
+      "is_tiered_billing": false,
+      "title": "deepseek/deepseek-v4-pro",
+      "description": "DeepSeek-V4-Pro is the next-generation flagship open-source large language model developed by DeepSeek, delivering comprehensive performance that rivals the world's premier closed-source models. Compared to its predecessor, V4-Pro achieves a breakthrough evolution in Agentic capabilities. It firmly holds the top position among open-source models in Agentic Coding, providing a high-quality, end-to-end code delivery experience that surpasses mainstream industry benchmarks (such as Sonnet 4.5). Furthermore, the model not only boasts an expansive repository of world knowledge that leads the open-source community, but it also demonstrates ultimate logical reasoning prowess in highly demanding evaluations\u2014including mathematics, STEM, and competitive programming. In these rigorous domains, V4-Pro outperforms all publicly evaluated open-source models and matches the capabilities of global closed-source giants. As the ideal foundational model for building complex agentic workflows, professional-grade software developm",
+      "tags": [],
+      "context_size": 1048576,
+      "status": 1,
+      "display_name": "DeepSeek V4 Pro",
+      "model_type": "chat",
+      "max_output_tokens": 393216,
+      "features": [
+        "serverless",
+        "function-calling",
+        "structured-outputs",
+        "reasoning"
+      ],
+      "endpoints": [
+        "chat/completions",
+        "anthropic",
+        "responses"
+      ],
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ]
+    },
+    {
+      "created": 1784168859,
+      "id": "moonshotai/kimi-k3",
+      "object": "model",
+      "owned_by": "novita",
+      "permission": null,
+      "root": "",
+      "parent": "",
+      "input_token_price_per_m": 30000,
+      "output_token_price_per_m": 150000,
+      "pricing": {
+        "prompt": {
+          "origin_price_per_m": 30000,
+          "price_per_m": 30000,
+          "origin_price_per_m_decimal": "3",
+          "price_per_m_decimal": "3"
+        },
+        "completion": {
+          "origin_price_per_m": 150000,
+          "price_per_m": 150000,
+          "origin_price_per_m_decimal": "15",
+          "price_per_m_decimal": "15"
+        },
+        "input_cache_read": {
+          "origin_price_per_m": 3000,
+          "price_per_m": 3000,
+          "origin_price_per_m_decimal": "0.3",
+          "price_per_m_decimal": "0.3"
+        }
+      },
+      "is_tiered_billing": false,
+      "title": "moonshotai/kimi-k3",
+      "description": "Kimi K3 is Kimi\u2019s most capable model to date, with 2.8 trillion parameters. Built on Kimi Delta Attention, a hybrid linear attention mechanism, and Attention Residuals, it offers native visual understanding and a 1M-token context window for frontier intelligence scenarios such as software engineering, knowledge work, and deep reasoning.",
+      "tags": [],
+      "context_size": 1048576,
+      "status": 1,
+      "display_name": "Kimi K3",
+      "model_type": "chat",
+      "max_output_tokens": 1048576,
+      "features": [
+        "serverless",
+        "function-calling",
+        "structured-outputs",
+        "reasoning"
+      ],
+      "endpoints": [
+        "chat/completions",
+        "anthropic",
+        "responses"
+      ],
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ]
+    },
+    {
+      "created": 1785494178,
+      "id": "qwen/qwen3.8-max",
+      "object": "model",
+      "owned_by": "novita",
+      "permission": null,
+      "root": "",
+      "parent": "",
+      "input_token_price_per_m": 20000,
+      "output_token_price_per_m": 60000,
+      "pricing": {
+        "prompt": {
+          "origin_price_per_m": 20000,
+          "price_per_m": 20000,
+          "origin_price_per_m_decimal": "2",
+          "price_per_m_decimal": "2"
+        },
+        "completion": {
+          "origin_price_per_m": 60000,
+          "price_per_m": 60000,
+          "origin_price_per_m_decimal": "6",
+          "price_per_m_decimal": "6"
+        },
+        "input_cache_read": {
+          "origin_price_per_m": 2500,
+          "price_per_m": 2500,
+          "origin_price_per_m_decimal": "0.25",
+          "price_per_m_decimal": "0.25"
+        }
+      },
+      "is_tiered_billing": false,
+      "title": "qwen/qwen3.8-max",
+      "description": " A 2.4T-parameter MoE flagship for coding and knowledge work. Programs autonomously for days to deliver complete projects end to end, with native visual understanding across planning, execution, and verification, plus deep semantic analysis of ultra-long documents and video.",
+      "tags": [],
+      "context_size": 1000000,
+      "status": 1,
+      "display_name": "Qwen3.8 Max",
+      "model_type": "chat",
+      "max_output_tokens": 131072,
+      "features": [
+        "serverless",
+        "reasoning",
+        "structured-outputs",
+        "function-calling"
+      ],
+      "endpoints": [
+        "chat/completions",
+        "anthropic",
+        "responses"
+      ],
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "output_modalities": [
+        "text"
+      ]
+    },
+    {
+      "created": 1754438873,
+      "id": "openai/gpt-oss-120b",
+      "object": "model",
+      "owned_by": "novita",
+      "permission": null,
+      "root": "",
+      "parent": "",
+      "input_token_price_per_m": 500,
+      "output_token_price_per_m": 2500,
+      "pricing": {
+        "prompt": {
+          "origin_price_per_m": 500,
+          "price_per_m": 500,
+          "origin_price_per_m_decimal": "0.05",
+          "price_per_m_decimal": "0.05"
+        },
+        "completion": {
+          "origin_price_per_m": 2500,
+          "price_per_m": 2500,
+          "origin_price_per_m_decimal": "0.25",
+          "price_per_m_decimal": "0.25"
+        }
+      },
+      "is_tiered_billing": false,
+      "title": "openai/gpt-oss-120b",
+      "description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized to run on a single H100 GPU with native MXFP4 quantization. The model supports configurable reasoning depth, full chain-of-thought access, and native tool use, including function calling, browsing, and structured output generation.",
+      "tags": [],
+      "context_size": 131072,
+      "status": 1,
+      "display_name": "OpenAI GPT OSS 120B",
+      "model_type": "chat",
+      "max_output_tokens": 32768,
+      "features": [
+        "function-calling",
+        "structured-outputs",
+        "reasoning",
+        "serverless"
+      ],
+      "endpoints": [
+        "chat/completions",
+        "completions",
+        "batch-api"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ]
+    },
+    {
+      "created": 1769499613,
+      "id": "deepseek/deepseek-ocr-2",
+      "object": "model",
+      "owned_by": "novita",
+      "permission": null,
+      "root": "",
+      "parent": "",
+      "input_token_price_per_m": 300,
+      "output_token_price_per_m": 300,
+      "pricing": {
+        "prompt": {
+          "origin_price_per_m": 300,
+          "price_per_m": 300,
+          "origin_price_per_m_decimal": "0.03",
+          "price_per_m_decimal": "0.03"
+        },
+        "completion": {
+          "origin_price_per_m": 300,
+          "price_per_m": 300,
+          "origin_price_per_m_decimal": "0.03",
+          "price_per_m_decimal": "0.03"
+        }
+      },
+      "is_tiered_billing": false,
+      "title": "deepseek/deepseek-ocr-2",
+      "description": "DeepSeek-OCR 2 is a multimodal document recognition model released by DeepSeek AI, serving as an upgrade to DeepSeek-OCR. By introducing the DeepEncoder V2 architecture, it achieves a paradigm shift in visual encoding from \"fixed scanning\" to \"semantic reasoning.\" The model replaces the original CLIP encoder with a lightweight language model (Qwen2-0.5B) and incorporates a causal flow query mechanism, while retaining the DeepSeek-3B-MoE decoder. The model requires only 256 to 1120 visual tokens to cover complex document pages. On the OmniDocBench v1.5 benchmark, it achieves an overall score of 91.09%, a 3.73% improvement over its predecessor, with reading order recognition edit distance reduced from 0.085 to 0.057.",
+      "tags": [],
+      "context_size": 8192,
+      "status": 1,
+      "display_name": "DeepSeek OCR 2",
+      "model_type": "chat",
+      "max_output_tokens": 8192,
+      "features": [
+        "serverless"
+      ],
+      "endpoints": [
+        "chat/completions"
+      ],
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "output_modalities": [
+        "text"
+      ]
+    }
+  ]
+}
