@@ -67,7 +67,7 @@ Move the remaining duplicated logic into `:shared`, so a fix lands on both platf
 **Exit:** `:shared` holds network, settings and model logic; both apps pass the same test suite. A
 session exported on Android opens on iOS.
 
-## Phase 2 · 1.4: a stronger agent *(1.4.0: MCP, memory, search, providers, OS fallback; 1.4.1: subagents; voice next)*
+## Phase 2 · 1.4: a stronger agent *(1.4.0: MCP, memory, search, providers, OS fallback; 1.4.1: subagents; 1.4.2: voice)*
 
 - ✅ **MCP client** (streamable HTTP) in `:shared`. Each server gets its own approval scope and
   network route, and every call appears in the audit log. *(implemented on both platforms against
@@ -80,7 +80,13 @@ session exported on Android opens on iOS.
   Off by default.
 - ✅ **Web search tool**: opt-in, through a provider the user configures (SearXNG, Brave and others),
   routed and audited like `web_fetch`.
-- **Voice mode**: push-to-talk dictation → agent → read-aloud loop, all on the device.
+- ✅ **Voice mode**: push-to-talk dictation → agent → read-aloud loop, all on the device.
+  *(both apps; hands-free end-of-speech detection; offline voices only. In progress: Kokoro-82M
+  as a neural voice, Core ML on iOS and ONNX on Android, with an Apache-licensed English frontend
+  and no espeak-ng)*
+- **Subscriptions used well**: OpenCode Go as a verified preset, per-model data-policy labels
+  (no retention / retention / trains on your data), a cheaper *helper model* per provider for
+  subagents, summaries and titles, and clear quota-window messages with an opt-in fallback.
 - ✅ **Every provider, live model lists**: all major clouds plus open-model hosts and niche
   providers (e.g. abliteration.ai), each verified against its docs; model ids fetched from the
   provider when a key is added (through the kill switch and audit log), never stale hard-coded slugs.
@@ -90,6 +96,48 @@ session exported on Android opens on iOS.
 
 **Exit:** an agent can use an MCP server, delegate to a subagent and recall a memory, offline
 where possible, on both platforms.
+
+## Phase 2.5: privacy you can see *(planned; runs alongside Phase 3)*
+
+What no other client does, built on what Autobot already has (kill switch, audit log, on-device
+models, shared core). Ordered by value.
+
+1. **Privacy receipts.** Every answer carries a receipt: which hosts were contacted, how many bytes
+   left, the provider's retention policy for that model, and which tools ran. One tap from the
+   message; built from the audit log, never sent anywhere.
+2. **Redaction gateway.** Before a cloud call, an on-device model finds names, emails, phone
+   numbers, addresses, account numbers and the user's own memory facts, swaps them for stable
+   placeholders, and puts the real values back into the answer locally. The provider sees
+   `[PERSON_1]`, the user sees their own words. Visible in the receipt.
+3. **Local-first cascade.** "This phone" answers first; a small on-device judge decides whether the
+   answer is good enough, and only then offers to escalate to the cloud (with the redacted prompt).
+   Per-chat policy: never / ask / auto for low-risk prompts.
+4. **Taint tracking for tools.** Data that came from memory, attachments or private files is
+   tagged; when the agent tries to put tainted data into a network tool (web_fetch, web_search,
+   MCP), the approval card highlights exactly which private fragment would leave. Defends against
+   prompt-injection exfiltration without blocking normal browsing.
+5. **Private vault (on-device RAG).** Encrypted embeddings of the user's notes, files, PDFs and OCR'd
+   photos, built on the NPU/Neural Engine, searchable by the agent (`vault_search`) and by the user.
+   Nothing indexed leaves the phone.
+6. **Pair your own devices.** End-to-end encrypted (Noise) pairing between the user's phones and
+   computers over LAN or Tailscale: an iPhone can borrow the OnePlus NPU or a desktop GPU as "my
+   own cloud"; sessions and the vault sync without a server.
+7. **On-device agents on a schedule.** Recipes ("every morning: summarise these feeds over Tor") run
+   with BGTaskScheduler / WorkManager on local models, with results as notifications and receipts.
+8. **System entry points.** App Intents / Shortcuts, the Action button, widgets, Android
+   Quick Settings tile and share targets: "Ask Autobot" about a screenshot, a selection or a photo,
+   answered on device.
+9. **Wake word on device.** A tiny always-on keyword model on the NPU for hands-free voice, off by
+   default, with a visible indicator.
+10. **Your own arena.** Blind side-by-side answers from two models; your votes build a local
+    preference profile that tunes the cascade and model suggestions. Never uploaded.
+11. **Undo for agents.** Workspace snapshots per turn, a timeline of what the agent changed, and
+    one-tap revert.
+12. **Spend and quota board.** Tokens, money and subscription windows (OpenCode Go 5 h / week /
+    month) per provider, computed locally from responses.
+
+**Exit:** a cloud answer comes with a receipt and a redacted prompt by default; the vault and the
+cascade work fully offline on the 8 Elite Gen 5 and a current iPhone.
 
 ## Phase 3 · 1.5: faster on the metal
 
