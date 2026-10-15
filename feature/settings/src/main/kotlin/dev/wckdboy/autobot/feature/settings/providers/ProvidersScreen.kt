@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,18 +25,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,10 +52,21 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
+import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
+import dev.wckdboy.autobot.core.designsystem.component.GhostButton
+import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelLists
+import dev.wckdboy.autobot.providers.remote.ModelsApi
+import dev.wckdboy.autobot.providers.remote.PresetGroup
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 
 @Composable
@@ -66,19 +74,37 @@ fun ProvidersRoute(onBack: () -> Unit, viewModel: ProvidersViewModel = hiltViewM
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     ProvidersScreen(
         state = state,
-        onBack = onBack,
-        onAdd = { viewModel.startAdd() },
-        onEdit = viewModel::startEdit,
-        onDelete = viewModel::delete,
-        onKind = viewModel::changeKind,
-        onDraftChange = viewModel::updateDraft,
-        onSave = viewModel::save,
-        onTest = viewModel::testConnection,
-        onDismissEditor = viewModel::dismissEditor,
+        actions = object : ProvidersActions {
+            override fun back() = onBack()
+            override fun add() = viewModel.startAdd()
+            override fun search(query: String) = viewModel.search(query)
+            override fun choosePreset(id: String) = viewModel.choosePreset(id)
+            override fun dismissPicker() = viewModel.dismissPicker()
+            override fun edit(id: String) = viewModel.startEdit(id)
+            override fun delete(id: String) = viewModel.delete(id)
+            override fun change(transform: (ProviderDraft) -> ProviderDraft) = viewModel.updateDraft(transform)
+            override fun refreshModels() = viewModel.refreshModels()
+            override fun save() = viewModel.save()
+            override fun test() = viewModel.testConnection()
+            override fun dismissEditor() = viewModel.dismissEditor()
+        },
     )
 }
 
-private val ProviderKind.label: String get() = ProviderPresets.forKind(this).displayName
+interface ProvidersActions {
+    fun back()
+    fun add()
+    fun search(query: String)
+    fun choosePreset(id: String)
+    fun dismissPicker()
+    fun edit(id: String)
+    fun delete(id: String)
+    fun change(transform: (ProviderDraft) -> ProviderDraft)
+    fun refreshModels()
+    fun save()
+    fun test()
+    fun dismissEditor()
+}
 
 private val ProviderRouting.label: String
     get() = when (this) {
@@ -90,35 +116,25 @@ private val ProviderRouting.label: String
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProvidersScreen(
-    state: ProvidersUiState,
-    onBack: () -> Unit,
-    onAdd: () -> Unit,
-    onEdit: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    onKind: (ProviderKind) -> Unit,
-    onDraftChange: ((ProviderDraft) -> ProviderDraft) -> Unit,
-    onSave: () -> Unit,
-    onTest: () -> Unit,
-    onDismissEditor: () -> Unit,
-) {
+fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Providers") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = actions::back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = "Add provider") }
+            FloatingActionButton(onClick = actions::add) { Icon(Icons.Filled.Add, contentDescription = "Add provider") }
         },
     ) { padding ->
         if (state.providers.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(
-                    "No providers yet. Tap + to add DeepSeek, OpenRouter, Ollama or any OpenAI-compatible endpoint.\nAPI keys are encrypted with a hardware-backed key.",
+                    "No providers yet. Tap + to pick one of ${ProviderPresets.all.size - 2} providers or local servers, or any OpenAI-compatible endpoint.\n" +
+                        "API keys are encrypted with a hardware-backed key.",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -128,18 +144,21 @@ fun ProvidersScreen(
             LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 items(state.providers, key = { it.id }, contentType = { "provider" }) { row ->
                     ListItem(
-                        modifier = Modifier.clickable { onEdit(row.id) },
+                        modifier = Modifier.clickable { actions.edit(row.id) },
                         headlineContent = { Text(row.name) },
                         supportingContent = {
-                            Text(
-                                "${row.kind.label} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Column {
+                                Text(
+                                    "${row.presetName} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                row.models?.let { MicroLabel(it) }
+                            }
                         },
                         overlineContent = { Text(row.baseUrl, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingContent = {
-                            IconButton(onClick = { onDelete(row.id) }) {
+                            IconButton(onClick = { actions.delete(row.id) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
                             }
                         },
@@ -149,35 +168,57 @@ fun ProvidersScreen(
         }
     }
 
-    state.editor?.let { draft ->
-        ProviderEditorSheet(
-            draft = draft,
-            test = state.test,
-            saving = state.saving,
-            onKind = onKind,
-            onDraftChange = onDraftChange,
-            onSave = onSave,
-            onTest = onTest,
-            onDismiss = onDismissEditor,
-        )
+    state.pickerQuery?.let { query -> PresetPickerSheet(query, actions) }
+    state.editor?.let { draft -> ProviderEditorSheet(draft, state, actions) }
+}
+
+/** "Add provider": every preset, searchable, grouped Cloud · Open-model hosts · Local servers · This phone. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PresetPickerSheet(query: String, actions: ProvidersActions) {
+    ModalBottomSheet(onDismissRequest = actions::dismissPicker, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).imePadding().padding(horizontal = 16.dp)) {
+            SectionLabel("add provider")
+            Spacer(Modifier.height(8.dp))
+            ConsoleTextField(query, actions::search, Modifier.fillMaxWidth(), placeholder = "Search providers or hosts", singleLine = true)
+            Spacer(Modifier.height(8.dp))
+            val groups = ProviderPresets.search(query)
+            LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+                if (groups.isEmpty()) item { MicroLabel("no match · try “Other OpenAI-compatible”", Modifier.padding(vertical = 16.dp)) }
+                groups.forEach { (group, presets) ->
+                    item(key = "g-${group.name}") { MicroLabel("// ${group.label} · ${presets.size}", Modifier.padding(top = 14.dp, bottom = 4.dp), MaterialTheme.colorScheme.primary) }
+                    items(presets, key = { it.id }) { preset ->
+                        val selectable = preset.group != PresetGroup.THIS_PHONE
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .then(if (selectable) Modifier.clickable { actions.choosePreset(preset.id) } else Modifier)
+                                .padding(vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(preset.displayName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f, fill = false))
+                                if (preset.kind == ProviderKind.ANTHROPIC) Tag("native")
+                                if (!preset.requiresApiKey && selectable) Tag("no key")
+                            }
+                            MicroLabel(if (selectable) preset.host else "added automatically")
+                            preset.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
+                        Hairline()
+                    }
+                }
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun ProviderEditorSheet(
-    draft: ProviderDraft,
-    test: TestState,
-    saving: Boolean,
-    onKind: (ProviderKind) -> Unit,
-    onDraftChange: ((ProviderDraft) -> ProviderDraft) -> Unit,
-    onSave: () -> Unit,
-    onTest: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val preset = ProviderPresets.forKind(draft.kind)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, actions: ProvidersActions) {
+    val preset = draft.preset
+    val test = state.test
+    val models = state.models
+    ModalBottomSheet(onDismissRequest = actions::dismissEditor, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         NoPersonalizedLearning {
             Column(
                 Modifier
@@ -188,77 +229,52 @@ private fun ProviderEditorSheet(
                     .padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(if (draft.isNew) "Add provider" else "Edit provider", style = MaterialTheme.typography.titleLarge)
+                SectionLabel(if (draft.isNew) "add provider" else "edit provider")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(preset.displayName, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    Tag(preset.group.label)
+                }
+                preset.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
-                Text("Type", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ProviderKind.entries.filter { it != ProviderKind.LOCAL }.forEach { kind ->
-                        FilterChip(selected = draft.kind == kind, onClick = { onKind(kind) }, label = { Text(kind.label) })
-                    }
+                ConsoleTextField(draft.displayName, { v -> actions.change { it.copy(displayName = v) } }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ConsoleTextField(
+                        draft.baseUrl, { v -> actions.change { it.copy(baseUrl = v) } }, Modifier.fillMaxWidth(),
+                        label = "Base URL", singleLine = true, mono = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                    )
+                    MicroLabel(
+                        if (draft.baseUrl.isNotBlank() && !draft.baseUrlValid) "invalid url" else "cleartext http only for 127.0.0.1 / localhost",
+                        color = if (draft.baseUrl.isNotBlank() && !draft.baseUrlValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
-                OutlinedTextField(
-                    value = draft.displayName,
-                    onValueChange = { v -> onDraftChange { it.copy(displayName = v) } },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = draft.baseUrl,
-                    onValueChange = { v -> onDraftChange { it.copy(baseUrl = v) } },
-                    label = { Text("Base URL") },
-                    supportingText = { Text("Requests go to {base}/chat/completions. Cleartext http is only allowed for 127.0.0.1/localhost.") },
-                    isError = draft.baseUrl.isNotBlank() && !draft.baseUrlValid,
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
-                )
-                OutlinedTextField(
-                    value = draft.defaultModel,
-                    onValueChange = { v -> onDraftChange { it.copy(defaultModel = v) } },
-                    label = { Text("Default model") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                )
-                if (preset.suggestedModels.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        preset.suggestedModels.forEach { m ->
-                            FilterChip(
-                                selected = draft.defaultModel == m,
-                                onClick = { onDraftChange { it.copy(defaultModel = m) } },
-                                label = { Text(m) },
-                            )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ConsoleTextField(
+                        draft.apiKeyInput, { v -> actions.change { it.copy(apiKeyInput = v, clearStoredKey = false) } }, Modifier.fillMaxWidth(),
+                        label = if (preset.requiresApiKey) "API key" else "API key (optional)",
+                        placeholder = if (draft.hasStoredKey && !draft.clearStoredKey) "•••••••• saved — type to replace" else null,
+                        singleLine = true,
+                        keyboardOptions = SecretKeyboardOptions,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    MicroLabel("encrypted with android keystore · sent only to ${preset.host.ifBlank { "this host" }}")
+                    if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
+                        TextButton(onClick = { actions.change { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
+                            Text(if (draft.clearStoredKey) "KEEP SAVED KEY" else "REMOVE SAVED KEY")
                         }
                     }
                 }
 
-                OutlinedTextField(
-                    value = draft.apiKeyInput,
-                    onValueChange = { v -> onDraftChange { it.copy(apiKeyInput = v, clearStoredKey = false) } },
-                    label = { Text(if (preset.requiresApiKey) "API key" else "API key (optional)") },
-                    placeholder = { if (draft.hasStoredKey && !draft.clearStoredKey) Text("•••••••• saved — type to replace") },
-                    supportingText = { Text("Encrypted with Android Keystore. Never logged or displayed.") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = SecretKeyboardOptions,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
-                    TextButton(onClick = { onDraftChange { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
-                        Text(if (draft.clearStoredKey) "Keep saved key" else "Remove saved key")
-                    }
-                }
+                ModelPicker(draft, models, state.now, preset.modelsApi != ModelsApi.NONE, actions)
 
-                Text("Routing", style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MicroLabel("routing")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     ProviderRouting.entries.forEach { routing ->
-                        FilterChip(
-                            selected = draft.routing == routing,
-                            onClick = { onDraftChange { it.copy(routing = routing) } },
-                            label = { Text(routing.label) },
-                        )
+                        val active = draft.routing == routing
+                        Tag(routing.label, accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = active, onClick = {
+                            actions.change { it.copy(routing = routing) }
+                        })
                     }
                 }
                 Text(
@@ -266,19 +282,71 @@ private fun ProviderEditorSheet(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                preset.privacyNote?.let { note ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        MicroLabel("privacy")
+                        Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        preset.privacyUrl?.let { MicroLabel(it) }
+                    }
+                }
 
                 TestResult(test)
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = onTest, enabled = draft.baseUrlValid && test != TestState.Running) {
-                        Text("Test connection")
-                    }
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
-                    Button(onClick = onSave, enabled = draft.canSave && !saving) { Text("Save") }
+                    GhostButton("Test connection", actions::test, Modifier.weight(1f), enabled = draft.baseUrlValid && test != TestState.Running)
+                    PrimaryButton("Save", actions::save, Modifier.weight(1f), enabled = draft.canSave && !state.saving)
                 }
-                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("CANCEL") }
             }
+        }
+    }
+}
+
+/** Default model: a field that also searches the fetched (or offline) list below it. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, canFetch: Boolean, actions: ProvidersActions) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ConsoleTextField(
+            draft.defaultModel, { v -> actions.change { it.copy(defaultModel = v) } }, Modifier.fillMaxWidth(),
+            label = "Default model", singleLine = true, mono = true,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val status = when {
+                models.loading -> "fetching models…"
+                models.error != null -> models.error
+                models.fetchedAt != null -> "${models.models.size} models · " + ModelCache(models.fetchedAt, emptyList()).ageLabel(now)
+                canFetch -> "offline list · refresh to fetch"
+                else -> "no models endpoint · documented list"
+            }
+            MicroLabel(status, Modifier.weight(1f), if (models.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (canFetch) {
+                TextButton(onClick = actions::refreshModels, enabled = draft.baseUrlValid && !models.loading) { Text("REFRESH") }
+            }
+        }
+        val query = if (models.models.any { it.id == draft.defaultModel }) "" else draft.defaultModel
+        val shown = ModelLists.filter(models.models, query, limit = 24)
+        Column {
+            shown.forEach { m ->
+                val active = m.id == draft.defaultModel
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { actions.change { it.copy(defaultModel = m.id) } }
+                        .padding(vertical = 6.dp),
+                ) {
+                    Text(
+                        (if (active) "● " else "") + m.id,
+                        style = AutobotTheme.styles.code,
+                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    m.caption().takeIf { it.isNotEmpty() }?.let { MicroLabel(it) }
+                }
+            }
+            val more = ModelLists.filter(models.models, query, limit = Int.MAX_VALUE).size - shown.size
+            if (more > 0) MicroLabel("+$more more · type to search")
         }
     }
 }
@@ -296,6 +364,21 @@ private fun TestResult(test: TestState) {
     }
 }
 
+private object NoActions : ProvidersActions {
+    override fun back() = Unit
+    override fun add() = Unit
+    override fun search(query: String) = Unit
+    override fun choosePreset(id: String) = Unit
+    override fun dismissPicker() = Unit
+    override fun edit(id: String) = Unit
+    override fun delete(id: String) = Unit
+    override fun change(transform: (ProviderDraft) -> ProviderDraft) = Unit
+    override fun refreshModels() = Unit
+    override fun save() = Unit
+    override fun test() = Unit
+    override fun dismissEditor() = Unit
+}
+
 @Preview(showBackground = true, backgroundColor = 0xFF0B0C0F)
 @Composable
 private fun ProvidersScreenPreview() {
@@ -303,12 +386,11 @@ private fun ProvidersScreenPreview() {
         ProvidersScreen(
             state = ProvidersUiState(
                 providers = listOf(
-                    ProviderRow("1", "DeepSeek", ProviderKind.DEEPSEEK, "https://api.deepseek.com", "deepseek-chat", ProviderRouting.INHERIT, true),
-                    ProviderRow("2", "Ollama", ProviderKind.OLLAMA, "http://127.0.0.1:11434/v1", "llama3.2", ProviderRouting.DIRECT, false),
+                    ProviderRow("1", "DeepSeek", ProviderKind.DEEPSEEK, "DeepSeek", "https://api.deepseek.com", "deepseek-flash", ProviderRouting.INHERIT, true, "2 models · fetched 3 min ago"),
+                    ProviderRow("2", "Ollama", ProviderKind.OLLAMA, "Ollama", "http://127.0.0.1:11434/v1", "gpt-oss:20b", ProviderRouting.DIRECT, false),
                 ),
             ),
-            onBack = {}, onAdd = {}, onEdit = {}, onDelete = {}, onKind = {}, onDraftChange = {},
-            onSave = {}, onTest = {}, onDismissEditor = {},
+            actions = NoActions,
         )
     }
 }
