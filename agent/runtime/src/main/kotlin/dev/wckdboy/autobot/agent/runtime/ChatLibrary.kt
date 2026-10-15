@@ -26,8 +26,8 @@ data class PendingDeletion(val batch: Long, val ids: List<String>, val label: St
  * Deleting and searching chats across the app (list, chat screen, settings).
  *
  * Deletion is soft for [UNDO_WINDOW_MS]: [trash] stops the chats' running turns at once and hides
- * them ([pending]); then the conversation, its session log, search text and attached images are
- * removed for good, unless [undo] came first. A process killed inside the window keeps the chats.
+ * them ([pending]); then the conversation, its session log, search text, attached images and
+ * workspace undo journal are removed for good, unless [undo] came first. A process killed inside the window keeps the chats.
  */
 @Singleton
 class ChatLibrary @Inject constructor(
@@ -52,8 +52,9 @@ class ChatLibrary @Inject constructor(
         if (list.isEmpty()) return batch
         _pending.update { it + PendingDeletion(batch, list, label) }
         val job = scope.launch {
-            // A running turn is cancelled first, so nothing writes to a chat being deleted.
-            list.forEach { host.discard(it) }
+            // A running turn is cancelled first, so nothing writes to a chat being deleted. The
+            // agent (and its workspace undo journal) is only discarded once the deletion is final.
+            list.forEach { host.cancel(it) }
             delay(UNDO_WINDOW_MS)
             commit(batch)
         }
@@ -100,7 +101,7 @@ class ChatLibrary @Inject constructor(
 
     private suspend fun purge(ids: List<String>) = lock.withLock {
         for (id in ids) {
-            host.discard(id)
+            host.discard(id) // stops the agent and drops its workspace undo journal
             val images = ChatSearch.attachments(store.load(id))
             conversations.deleteConversation(id) // cascades the log and the search text
             images.forEach { runCatching { attachments.delete(it) } }

@@ -20,7 +20,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Chat organization in Room: the 8 → 9 migration, pin / archive / folders and the search text. */
+/** Chat organization in Room: the 9 → 10 migration, pin / archive / folders and the search text. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ChatStorageTest {
@@ -34,12 +34,12 @@ class ChatStorageTest {
     )
 
     @Test
-    fun migrationToNineKeepsChatsAndTheirLogs() {
-        helper.createDatabase(DB, 8).use { db ->
+    fun migrationToTenKeepsChatsAndTheirLogs() {
+        helper.createDatabase(DB, 9).use { db ->
             db.execSQL("INSERT INTO conversations (id, title, providerId, model, createdAt, updatedAt) VALUES ('c', 'Trip', 'p', 'm', 1, 2)")
             db.execSQL("INSERT INTO session_events (sessionId, seq, time, json) VALUES ('c', 1, 1, '{}')")
         }
-        helper.runMigrationsAndValidate(DB, 9, true).use { db ->
+        helper.runMigrationsAndValidate(DB, 10, true).use { db ->
             db.query("SELECT title, updatedAt, pinned, archived, folderId FROM conversations WHERE id = 'c'").use { c ->
                 c.moveToFirst()
                 assertEquals("Trip", c.getString(0))

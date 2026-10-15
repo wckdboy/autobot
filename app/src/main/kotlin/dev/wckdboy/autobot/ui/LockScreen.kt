@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.R
+import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 
 /**
@@ -31,7 +32,8 @@ fun LockScreen(onUnlock: () -> Unit, message: String?, modifier: Modifier = Modi
     LaunchedEffect(Unit) { onUnlock() }
     Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
-            modifier = Modifier.padding(32.dp),
+            // The paper drifts while waiting for biometrics.
+            modifier = Modifier.fillMaxSize().inkGround().padding(32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {

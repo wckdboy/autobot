@@ -21,6 +21,12 @@ struct DownloadProgress: Equatable, Sendable {
  in a background URLSession so a download keeps going while the app is in the background; a
  pause keeps what that session received (resume data), and after a relaunch a transfer the
  earlier process left running is adopted rather than started again.
+
+ When a file finishes while the app is suspended, iOS relaunches it in the background
+ ([BackgroundEvents]); the downloader verifies and stores the file and starts the next one in the
+ background session before the system's completion handler is called, so a multi-file model and
+ the rest of the queue keep going without the app being opened. Swiping the app away cancels the
+ transfers (an iOS rule): the next launch resumes them and explains it once ([ForceQuitNotice]).
  */
 @MainActor
 @Observable
@@ -30,6 +36,11 @@ final class ModelDownloader {
 
     private(set) var progress: DownloadProgress?
     private(set) var busy = false
+    /// The launch's recovery (reconnecting to the background session) has not finished yet.
+    private(set) var preparing = false
+    /// Show the one-time "swiping Autobot away stops downloads" explanation.
+    private(set) var forceQuitNotice = ForceQuitNotice.shouldShow()
+    @ObservationIgnored private var recovered = false
     @ObservationIgnored private let library: ModelLibrary
     @ObservationIgnored private let clients: HttpClientFactory
     @ObservationIgnored private let accounts: ModelAccounts
@@ -37,7 +48,8 @@ final class ModelDownloader {
     @ObservationIgnored private var worker: Task<Void, Never>?
     @ObservationIgnored private var currentId: String?
     @ObservationIgnored private var lastReport = Date.distantPast
-    @ObservationIgnored private var lastBytes: Int64 = 0
+    @ObservationIgnored private var lastBytes: Int64 = -1
+    @ObservationIgnored private var speed: Int64 = 0
     @ObservationIgnored private var lastStore = Date.distantPast
     /// Tests stream bodies through the policy client instead of the background session.
     @ObservationIgnored var useBackgroundSession = true
@@ -60,6 +72,29 @@ final class ModelDownloader {
         kick()
     }
 
+    /// Whether the background session has a transfer the queue is waiting for.
+    var hasActiveTransfer: Bool { useBackgroundSession && background.hasActiveTransfer }
+
+    /// iOS relaunched the app for [identifier]'s background events: recreate that session.
+    func attachBackgroundSession(_ identifier: String) {
+        guard useBackgroundSession else { return }
+        background.attach(identifier: identifier)
+    }
+
+    /// The kill switch changed: its pauses continue once a network mode is allowed again.
+    func networkChanged(offline: Bool) {
+        guard !offline else { return }
+        let blocked = DownloadQueue.blockedByKillSwitch(library.models)
+        guard !blocked.isEmpty else { return }
+        for m in blocked { library.progress(m.id, downloaded: m.downloadedBytes, status: .queued) }
+        kick()
+    }
+
+    func dismissForceQuitNotice() {
+        ForceQuitNotice.dismiss()
+        forceQuitNotice = false
+    }
+
     func pause(_ id: String) {
         if currentId == id { worker?.cancel() }
         if let model = library.get(id) { library.progress(id, downloaded: model.downloadedBytes, status: .paused) }
@@ -73,25 +108,33 @@ final class ModelDownloader {
     }
 
     /**
-     After a relaunch no worker is running: interrupted downloads become paused. A background
-     transfer the earlier process left running for one of them is adopted (the model is queued
-     again and its fetch picks the transfer up); any other is stopped, keeping its resume data,
-     so the same file never downloads twice in parallel.
+     Once per launch, after the registry is loaded: nothing runs yet, so interrupted downloads
+     queue again and resume (a transfer the earlier process left running is adopted by the fetch
+     of the same part file; one that finished is taken from disk; one iOS cancelled because the app
+     was swiped away continues from its resume data). Transfers no queued model adopts are stopped,
+     keeping their resume data, so the same file never downloads twice in parallel.
      */
     func recoverAfterRestart() {
-        let interrupted = library.models.filter { $0.status == .downloading }.map(\.id)
-        for id in interrupted {
-            library.progress(id, downloaded: Self.keptBytes(id), status: .paused)
+        guard !recovered else { return }
+        recovered = true
+        for m in DownloadQueue.recover(library.models) {
+            library.progress(m.id, downloaded: Self.keptBytes(m.id), status: .queued)
         }
-        guard useBackgroundSession else { return }
+        guard useBackgroundSession else {
+            if library.models.contains(where: { $0.status == .queued }) { kick() }
+            return
+        }
+        preparing = true
         Task { [weak self] in
             guard let self else { return }
-            let running = await background.reconnect()
-            for id in interrupted where library.get(id)?.status == .paused {
-                let dir = TransferResume.tag(ModelLibrary.dir(of: id)) + "/"
-                if running.contains(where: { $0.hasPrefix(dir) }) { library.progress(id, downloaded: Self.keptBytes(id), status: .queued) }
-            }
+            _ = await background.reconnect()
+            // Recreating the sessions delivers what happened while the app was gone (finished
+            // bodies, a force quit's cancellations with their resume data): let it arrive first.
+            try? await Task.sleep(for: .milliseconds(400))
+            forceQuitNotice = ForceQuitNotice.shouldShow()
             if library.models.contains(where: { $0.status == .queued }) { kick() } else { background.dropOrphans() }
+            preparing = false
+            BackgroundEvents.shared.check()
         }
     }
 
@@ -108,6 +151,8 @@ final class ModelDownloader {
 
     private func kick() {
         guard worker == nil else { return }
+        // Busy from now (not from when the task starts), so a background relaunch is not settled early.
+        busy = true
         worker = Task { [weak self] in
             await self?.drain()
         }
@@ -120,6 +165,7 @@ final class ModelDownloader {
             progress = nil
             currentId = nil
             worker = nil
+            BackgroundEvents.shared.check()
         }
         while !Task.isCancelled, let next = library.models.filter({ $0.status == .queued }).min(by: { $0.addedAt < $1.addedAt }) {
             currentId = next.id
@@ -137,6 +183,8 @@ final class ModelDownloader {
 
     private func runOne(_ model: InstalledModel) async {
         let id = model.id
+        lastBytes = -1
+        speed = 0
         do {
             try requireSpace(model)
             library.progress(id, downloaded: model.downloadedBytes, status: .downloading)
@@ -158,12 +206,14 @@ final class ModelDownloader {
                 $0.totalBytes = total
             }
             library.progress(id, downloaded: total, status: .ready)
+            if AppActivity.shared.inBackground { DownloadAlerts.post(title: model.title, ok: true) }
         } catch is CancellationError {
             settle(id, status: .paused)
         } catch let e as DownloadError {
             settle(id, status: e.retryable ? .paused : .failed, error: e.message)
+            if !e.retryable, AppActivity.shared.inBackground { DownloadAlerts.post(title: model.title, ok: false) }
         } catch let e as NetworkBlockedError {
-            settle(id, status: .paused, error: "Network is off (\(e.message)). Allow a network mode in Privacy Center, then resume.")
+            settle(id, status: .paused, error: clients.policy.mode == .offline ? DownloadQueue.killSwitchError : "Blocked by the network policy (\(e.message))")
         } catch {
             if (error as? URLError)?.code == .cancelled || Task.isCancelled {
                 settle(id, status: .paused)
@@ -185,7 +235,10 @@ final class ModelDownloader {
         let now = Date()
         let dt = now.timeIntervalSince(lastReport)
         if dt < 0.25 && downloaded < total { return }
-        let speed = dt > 0 && dt < 10 && downloaded >= lastBytes ? Int64(Double(downloaded - lastBytes) / dt) : 0
+        // The first sample after a (re)start only sets the baseline: resumed bytes are not speed.
+        if lastBytes >= 0, dt > 0, dt < 10, downloaded >= lastBytes {
+            speed = DownloadQueue.smooth(speed, Int64(Double(downloaded - lastBytes) / dt))
+        }
         lastReport = now
         lastBytes = downloaded
         progress = DownloadProgress(id: model.id, title: model.title, downloaded: downloaded, total: total, bytesPerSecond: speed)
@@ -199,7 +252,7 @@ final class ModelDownloader {
         let free = DeviceProfile.current().freeStorageBytes
         let needed = max(model.totalBytes - Self.keptBytes(model.id), 0) + Self.reserveBytes
         if free > 0 && free < needed {
-            throw DownloadError(message: "Not enough storage: needs \(formatBytes(needed)), \(formatBytes(free)) free")
+            throw DownloadError(message: "\(DownloadQueue.lowStoragePrefix): needs \(formatBytes(needed)), \(formatBytes(free)) free")
         }
     }
 

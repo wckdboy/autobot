@@ -54,6 +54,7 @@ final class SharedAgentRuntime: AgentRuntime {
             images: ImageStoreHost(attachments: attachments),
             mcpTokens: McpTokenSourceHost(snapshots: snapshots, secrets: secrets),
             audit: clients.auditLog.shared,
+            journalDir: AppPaths.workspaceUndo.path,
         )
         let listener = RunningListenerBox { [weak self] ids in self?.running = Set(ids) }
         listeners.add(listener)
@@ -132,6 +133,21 @@ final class SharedAgentRuntime: AgentRuntime {
         bridge.compact(sessionId: id)
     }
 
+    func undoStep(_ id: String, callId: String) {
+        _ = session(id)
+        bridge.undoStep(sessionId: id, callId: callId)
+    }
+
+    func undoTurn(_ id: String, turn: Int) {
+        _ = session(id)
+        bridge.undoTurn(sessionId: id, turn: Int32(turn))
+    }
+
+    func redo(_ id: String, revertId: String) {
+        _ = session(id)
+        bridge.redo(sessionId: id, revertId: revertId)
+    }
+
     func discard(_ id: String) {
         handles.removeValue(forKey: id)?.cancel()
         sessions[id] = nil
@@ -182,6 +198,9 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// Local memory on (the encrypted notes) or off: tools and recall come and go in every session.
     func setMemory(_ store: MemoryStoreHost?) { bridge.setMemory(store: store) }
+
+    /// The private vault on (`vault_search` in every session) or off.
+    func setVault(_ host: VaultHost?) { bridge.setVault(host: host) }
 
     /// `web_search` on (settings read per call) or off.
     func setWebSearch(_ source: WebSearchSourceHost?) { bridge.setWebSearch(source: source) }

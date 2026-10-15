@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import kotlin.math.max
 import kotlinx.coroutines.delay
 
 /**
@@ -101,12 +102,13 @@ class InkClock internal constructor() {
  * holds still while stopped and resumes where it left off, so patterns never jump.
  */
 @Composable
-fun rememberInkClock(running: Boolean): InkClock {
+fun rememberInkClock(running: Boolean, minIntervalMillis: Int = 0): InkClock {
     val clock = remember { InkClock() }
     val motion = LocalInkMotion.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val active = running && !motion.reduced && !LocalInspectionMode.current
-    val interval = motion.frameIntervalMillis
+    // [minIntervalMillis] slows a clock further (the ambient tier: `ambientFrameIntervalMillis`).
+    val interval = max(motion.frameIntervalMillis, minIntervalMillis)
     LaunchedEffect(active, interval, lifecycle) {
         if (!active) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {

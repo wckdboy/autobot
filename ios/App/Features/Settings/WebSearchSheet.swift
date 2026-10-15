@@ -40,7 +40,7 @@ struct WebSearchSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            InkStack(alignment: .leading, spacing: 12) {
                 SectionLabel("web search")
                 Text("Gives the agent a web_search tool. Each search sends only the query to the provider you choose, through your network route, and needs approval like web_fetch.")
                     .textStyle(.bodySmall)

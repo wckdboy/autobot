@@ -74,31 +74,38 @@ struct SectionLabel: View {
 struct PrimaryButton: View {
     let text: String
     var enabled = true
+    /// Work it started runs: an ink loader stands in for the label (the button keeps its width).
+    var busy = false
     let action: () -> Void
     @Environment(\.scheme) private var c
 
-    init(_ text: String, enabled: Bool = true, action: @escaping () -> Void) {
+    init(_ text: String, enabled: Bool = true, busy: Bool = false, action: @escaping () -> Void) {
         self.text = text
         self.enabled = enabled
+        self.busy = busy
         self.action = action
     }
 
     var body: some View {
+        // Busy buttons are disabled, but stay lit around their loader (it is the live part).
+        let lit = enabled || busy
         Button(action: action) {
-            Text(text.uppercased())
-                .textStyle(.labelLarge)
-                .lineLimit(1)
-                .padding(.horizontal, Tokens.Spacing.primaryButtonPaddingHorizontal)
-                .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.primaryButtonMinHeight)
-                .foregroundStyle(enabled ? c.onPrimary : c.onSurface.opacity(0.38))
-                .background(
-                    RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
-                        .fill(enabled ? c.primary : c.onSurface.opacity(0.12)),
-                )
-                .contentShape(Rectangle())
+            InkBusyLabel(busy: busy, color: c.onPrimary) {
+                Text(text.uppercased())
+                    .textStyle(.labelLarge)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, Tokens.Spacing.primaryButtonPaddingHorizontal)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.primaryButtonMinHeight)
+            .foregroundStyle(lit ? c.onPrimary : c.onSurface.opacity(0.38))
+            .background(
+                RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
+                    .fill(lit ? c.primary : c.onSurface.opacity(0.12)),
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .disabled(!enabled)
+        .disabled(!enabled || busy)
     }
 }
 
@@ -107,33 +114,40 @@ struct GhostButton: View {
     let text: String
     var accent: Color? = nil
     var enabled = true
+    /// Work it started runs: an ink loader stands in for the label (the button keeps its width).
+    var busy = false
     let action: () -> Void
     @Environment(\.scheme) private var c
 
-    init(_ text: String, accent: Color? = nil, enabled: Bool = true, action: @escaping () -> Void) {
+    init(_ text: String, accent: Color? = nil, enabled: Bool = true, busy: Bool = false, action: @escaping () -> Void) {
         self.text = text
         self.accent = accent
         self.enabled = enabled
+        self.busy = busy
         self.action = action
     }
 
     var body: some View {
         let tint = accent ?? c.onSurface
+        // Busy buttons are disabled, but stay lit around their loader (it is the live part).
+        let lit = enabled || busy
         Button(action: action) {
-            Text(text.uppercased())
-                .textStyle(.labelLarge)
-                .lineLimit(1)
-                .padding(.horizontal, Tokens.Spacing.ghostButtonPaddingHorizontal)
-                .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.ghostButtonMinHeight)
-                .foregroundStyle(enabled ? tint : c.onSurface.opacity(0.38))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
-                        .strokeBorder(enabled ? tint : c.outlineVariant, lineWidth: Tokens.Stroke.border),
-                )
-                .contentShape(Rectangle())
+            InkBusyLabel(busy: busy, color: accent ?? c.primary) {
+                Text(text.uppercased())
+                    .textStyle(.labelLarge)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, Tokens.Spacing.ghostButtonPaddingHorizontal)
+            .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.ghostButtonMinHeight)
+            .foregroundStyle(lit ? tint : c.onSurface.opacity(0.38))
+            .overlay(
+                RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
+                    .strokeBorder(lit ? tint : c.outlineVariant, lineWidth: Tokens.Stroke.border),
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .disabled(!enabled)
+        .disabled(!enabled || busy)
     }
 }
 
@@ -167,29 +181,34 @@ struct TextAction: View {
     var color: Color? = nil
     var style: AutobotType = .labelMedium
     var enabled = true
+    /// Work it started runs: an ink loader stands in for the label.
+    var busy = false
     let action: () -> Void
     @Environment(\.scheme) private var c
 
-    init(_ text: String, color: Color? = nil, style: AutobotType = .labelMedium, enabled: Bool = true, action: @escaping () -> Void) {
+    init(_ text: String, color: Color? = nil, style: AutobotType = .labelMedium, enabled: Bool = true, busy: Bool = false, action: @escaping () -> Void) {
         self.text = text
         self.color = color
         self.style = style
         self.enabled = enabled
+        self.busy = busy
         self.action = action
     }
 
     var body: some View {
         Button(action: action) {
-            Text(text.uppercased())
-                .textStyle(style)
-                .lineLimit(1)
-                .foregroundStyle(enabled ? (color ?? c.primary) : c.onSurface.opacity(0.38))
-                .padding(.horizontal, 12)
-                .frame(minHeight: 40)
-                .contentShape(Rectangle())
+            InkBusyLabel(busy: busy, size: .inline, color: color ?? c.primary) {
+                Text(text.uppercased())
+                    .textStyle(style)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(enabled ? (color ?? c.primary) : c.onSurface.opacity(0.38))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 40)
+            .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-        .disabled(!enabled)
+        .disabled(!enabled || busy)
     }
 }
 
@@ -284,6 +303,7 @@ struct AutobotTopBar<Actions: View>: View {
                 .foregroundStyle(c.onBackground)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .titleGhost(c.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             actions()
         }

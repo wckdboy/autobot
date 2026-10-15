@@ -82,6 +82,8 @@ struct ChatScreen: View {
     @State private var showSession = false
     /// The privacy receipt being looked at.
     @State private var openReceipt: Receipt?
+    /// The "files changed" sheet.
+    @State private var showChanges = false
     /// Which transcript items are new since the screen loaded (they ink in).
     @State private var ledger = InkLedger()
 
@@ -132,6 +134,7 @@ struct ChatScreen: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
+                .inkGround(app.dataLoaded && state.projection.items.isEmpty && state.live == nil)
                 .onChange(of: state.projection.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: state.live == nil) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
@@ -154,9 +157,19 @@ struct ChatScreen: View {
             ModelSheet(conversationId: conversationId, routing: routing) { showModels = false }
         }
         .sheet(isPresented: $showSession) {
-            SessionSheet(conversationId: conversationId, state: state, onDelete: deleteChat) { showSession = false }
+            SessionSheet(conversationId: conversationId, state: state, onDelete: deleteChat, onChanges: {
+                showSession = false
+                showChanges = true
+            }) { showSession = false }
         }
         .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
+        .sheet(isPresented: $showChanges) {
+            ChangesSheet(
+                groups: state.projection.changes, running: state.running,
+                onUndoStep: { app.agent.undoStep(conversationId, callId: $0) },
+                onUndoTurn: { app.agent.undoTurn(conversationId, turn: $0) },
+            )
+        }
         .onChange(of: state) { _, new in model.sessionChanged(new) }
         .task { await start() }
         .onDisappear {
@@ -187,12 +200,19 @@ struct ChatScreen: View {
                 }
                 if !images.isEmpty { AttachmentStrip(ids: images, model: model) }
             }
-        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt):
-            AssistantMessage(
-                text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: model.speakingKey == key,
-                receipt: receipt, onReceipt: { openReceipt = $0 },
-            ) {
-                model.speak(key: key, text: text)
+        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt, let turnChanges):
+            VStack(alignment: .leading, spacing: 6) {
+                AssistantMessage(
+                    text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: model.speakingKey == key,
+                    receipt: receipt, onReceipt: { openReceipt = $0 },
+                ) {
+                    model.speak(key: key, text: text)
+                }
+                UndoTurnLine(
+                    changes: turnChanges, running: state.running,
+                    onUndo: { app.agent.undoTurn(conversationId, turn: $0) },
+                    onRedo: { app.agent.redo(conversationId, revertId: $0) },
+                )
             }
         case .tool(let tool):
             if let approval = state.approvals.first(where: { $0.callId == tool.callId }) {
@@ -203,7 +223,11 @@ struct ChatScreen: View {
                 .registerGhost(ledger.isNew(key), color: c.primary)
                 .onAppear { ledger.entered(key) }
             } else {
-                StepRow(number: stepNumbers[tool.key] ?? 0, tool: tool, model: model) { id in nav.push(.gallery(openId: id)) }
+                StepRow(
+                    number: stepNumbers[tool.key] ?? 0, tool: tool, model: model, running: state.running,
+                    onUndo: { app.agent.undoStep(conversationId, callId: $0) },
+                    onRedo: { app.agent.redo(conversationId, revertId: $0) },
+                ) { id in nav.push(.gallery(openId: id)) }
             }
         case .notice(_, let text, let kind):
             NoticeRow(text: text, kind: kind)
@@ -352,6 +376,11 @@ private struct StepRow: View {
     let number: Int
     let tool: SessionItem.Tool
     let model: ChatModel
+    /// A turn is running: undo waits for it.
+    var running = false
+    /// Undo this file step (call id) / redo an undo (revert id).
+    var onUndo: (String) -> Void = { _ in }
+    var onRedo: (String) -> Void = { _ in }
     /// Opens that gallery item's detail.
     let onOpenGallery: (String) -> Void
     @State private var expanded = false
@@ -360,23 +389,32 @@ private struct StepRow: View {
     /// A step mark stamps in when the step reaches one of these.
     private static func settled(_ state: ToolState) -> Bool { state == .ok || state == .error || state == .denied }
 
+    /// The mark stamps again when the step is undone or redone.
+    private struct StampKey: Equatable {
+        var state: ToolState
+        var undone: Bool
+    }
+
     var body: some View {
         let (mark, markColor): (String, Color) = switch tool.state {
-        case .ok: ("✓", c.onSurfaceVariant)
+        case .ok: (tool.isUndone ? "undone" : "✓", c.onSurfaceVariant)
         case .error: ("×", c.error)
         case .denied: ("denied", c.onSurfaceVariant)
-        case .running, .streaming, .waitingApproval: ("…", c.primary)
+        case .running, .streaming, .waitingApproval: ("", c.primary)
         }
         VStack(alignment: .leading, spacing: 0) {
             Button { if tool.output != nil { expanded.toggle() } } label: {
                 HStack(alignment: .top, spacing: 12) {
                     Text(String(format: "%02d", number)).textStyle(.readout).foregroundStyle(c.onSurfaceVariant)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(stepTitle(tool.name)).textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                        Text([tool.name, tool.summary].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: " · "))
-                            .textStyle(.micro)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .lineLimit(1)
+                        Text(stepTitle(tool.name)).textStyle(.titleMedium).strikethrough(tool.isUndone).foregroundStyle(c.onSurface)
+                        HStack(spacing: 8) {
+                            Text([tool.name, tool.summary].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: " · "))
+                                .textStyle(.micro)
+                                .foregroundStyle(c.onSurfaceVariant)
+                                .lineLimit(1)
+                            if let change = tool.change { ChangeCounts(change: change) }
+                        }
                         // Why a step failed shouldn't take a tap to find out.
                         if !expanded, tool.state == .error || tool.state == .denied,
                            let reason = tool.output?.split(whereSeparator: \.isNewline).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
@@ -389,11 +427,14 @@ private struct StepRow: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if tool.state == .running { StatusDot(color: c.primary, live: true).padding(.top, 6) }
-                    Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
-                        .textStyle(.readout)
-                        .foregroundStyle(markColor)
-                        .stamp(tool.state, when: Self.settled)
+                    // The mark keeps its identity so it can stamp in when the step settles.
+                    ZStack(alignment: .topTrailing) {
+                        Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
+                            .textStyle(.readout)
+                            .foregroundStyle(markColor)
+                            .stamp(StampKey(state: tool.state, undone: tool.isUndone), when: { Self.settled($0.state) })
+                        if mark.isEmpty { InkLoader().padding(.top, 4) }
+                    }
                 }
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
@@ -409,7 +450,17 @@ private struct StepRow: View {
                 .padding(.leading, 34)
                 .padding(.bottom, 6)
             }
-            if expanded, let output = tool.output {
+            if expanded, let change = tool.change {
+                VStack(alignment: .leading, spacing: 6) {
+                    DiffBlock(change: change)
+                    if tool.isUndone, let redo = tool.revertId {
+                        Tag("↷ redo", accent: c.primary) { if !running { onRedo(redo) } }
+                    } else if !tool.isUndone && change.undoable {
+                        Tag("↶ undo step", accent: c.primary) { if !running { onUndo(tool.callId) } }
+                    }
+                }
+                .padding(.bottom, 6)
+            } else if expanded, let output = tool.output {
                 Text(String(output.prefix(4000)))
                     .textStyle(.codeBlock)
                     .foregroundStyle(c.onSurfaceVariant)
@@ -768,7 +819,7 @@ private struct InputBar: View {
                         switch model.dictation {
                         case .idle: AutobotIconView(icon: .mic, size: 24, color: c.onSurface)
                         case .recording: Rectangle().fill(c.primary).frame(width: 14, height: 14)
-                        case .transcribing: Text("…").textStyle(.code).foregroundStyle(c.primary)
+                        case .transcribing: InkLoader(.button)
                         }
                     }
                     .frame(width: 44, height: 52)
@@ -881,7 +932,7 @@ private struct VoicePanel: View {
                         switch voice.phase {
                         case .ready, .speaking: AutobotIconView(icon: .mic, size: 26, color: quiet ? c.primary : c.onPrimary)
                         case .listening: Rectangle().fill(c.onPrimary).frame(width: 16, height: 16)
-                        case .transcribing: Text("…").textStyle(.code).foregroundStyle(c.onPrimary)
+                        case .transcribing: InkLoader(.button, color: c.onPrimary)
                         case .thinking: Rectangle().fill(c.primary).frame(width: 14, height: 14)
                         }
                     }
@@ -896,6 +947,7 @@ private struct VoicePanel: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .inkGround(plate: false)
         .background(c.background)
         .hairlineEdge(top: true, bottom: false)
     }
@@ -1028,7 +1080,7 @@ private struct ModelSheet: View {
         let selected = providers.first { $0.id == (providerId ?? routing.provider?.id) }
         let models: [RemoteModelItem] = selected.map(models) ?? []
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            InkStack(alignment: .leading, spacing: 8) {
                 SectionLabel("route")
                 if providers.isEmpty {
                     TextAction("Add a provider", color: c.primary) {
@@ -1063,7 +1115,7 @@ private struct ModelSheet: View {
                     Spacer(minLength: 0)
                     if let selected { MicroLabel(refreshError ?? modelsLabel(selected), color: refreshError != nil ? c.error : nil) }
                     if let selected, canRefresh(selected) {
-                        TextAction(refreshing ? "…" : "Refresh", color: c.primary, enabled: !refreshing) { refresh(selected) }
+                        TextAction("Refresh", color: c.primary, busy: refreshing) { refresh(selected) }
                     }
                 }
                 ConsoleTextField(text: $modelId, label: "Model id · type to search", kind: .mono)
@@ -1107,7 +1159,7 @@ private struct ModelSheet: View {
     private func models(_ p: Provider) -> [RemoteModelItem] {
         // "This phone" lists every downloaded chat model, newest first, by title.
         var list = p.kind == .local
-            ? app.library.models.filter { $0.isReady && $0.engine == .llama }.sorted { $0.addedAt > $1.addedAt }.map { RemoteModelItem(id: $0.id, caption: $0.title) }
+            ? app.library.models.filter(\.isLocalChat).sorted { $0.addedAt > $1.addedAt }.map { RemoteModelItem(id: $0.id, caption: $0.title) }
             : ModelLists.models(app.providers.modelLists[p.id]?.json, presetId: ProviderPresets.resolve(p).id)
                 ?? ProviderPresets.resolve(p).suggestedModels.map { RemoteModelItem(id: $0, presetId: ProviderPresets.resolve(p).id) }
         // "This phone" also offers Apple Intelligence when it can answer.
@@ -1150,6 +1202,8 @@ private struct SessionSheet: View {
     let conversationId: String
     let state: ChatSessionState
     let onDelete: () -> Void
+    /// Opens the "files changed" sheet.
+    var onChanges: () -> Void = {}
     let onDismiss: () -> Void
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
@@ -1159,7 +1213,7 @@ private struct SessionSheet: View {
     var body: some View {
         let session = app.agent.session(conversationId)
         let conversation = app.conversations.get(conversationId)
-        VStack(alignment: .leading, spacing: 14) {
+        InkStack(alignment: .leading, spacing: 14) {
             SectionLabel("chat")
             HStack(spacing: 12) {
                 Text(conversation?.title ?? "").textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
@@ -1213,12 +1267,24 @@ private struct SessionSheet: View {
                     onDismiss()
                 }
             }
+            HStack(spacing: 12) {
+                let files = session.state.projection.changes.reduce(0) { $0 + $1.files.count }
+                let turns = session.state.projection.changes.count
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Files changed").textStyle(.titleMedium).foregroundStyle(c.onSurface)
+                    Text(files == 0 ? "Nothing yet. Every file the agent changes can be undone."
+                         : "\(files) file\(files == 1 ? "" : "s") across \(turns) turn\(turns == 1 ? "" : "s"); undo a step or a turn.")
+                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                TextAction("View", color: c.primary, action: onChanges)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.top, 20)
         .padding(.bottom, 24)
-        .presentationDetents([.height(500), .large])
+        .presentationDetents([.height(560), .large])
         .presentationBackground(c.surfaceContainerLow)
         .presentationDragIndicator(.visible)
         .alert("Rename chat", isPresented: $renaming) {

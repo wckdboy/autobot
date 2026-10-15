@@ -72,6 +72,8 @@ import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Readout
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
+import dev.wckdboy.autobot.core.designsystem.component.InkLoaderBlock
+import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -136,7 +138,7 @@ fun GalleryScreen(
         },
     ) { padding ->
         if (state.loaded && state.items.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(Modifier.padding(padding).fillMaxSize().inkGround(), contentAlignment = Alignment.Center) {
                 MicroLabel(if (state.total == 0) "nothing generated yet" else "no matches")
             }
         } else {
@@ -288,7 +290,7 @@ private fun ZoomableImage(image: ImageBitmap?, modifier: Modifier) {
     }
     Box(modifier.transformable(transform), contentAlignment = Alignment.Center) {
         if (image == null) {
-            MicroLabel("decrypting…")
+            InkLoaderBlock("decrypting")
         } else {
             Image(
                 image,

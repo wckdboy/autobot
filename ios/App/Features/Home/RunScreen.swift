@@ -41,7 +41,7 @@ struct RunState {
         let providers = app.providers.providers
         let local = providers.first { $0.kind == .local }
         let remote = providers.filter { $0.kind != .local }
-        let readyChat = models.filter { $0.isReady && $0.engine == .llama }
+        let readyChat = models.filter(\.isLocalChat)
         let codeModel = readyChat.first { $0.kind == .code }
 
         func target(_ p: Provider, _ model: String? = nil) -> RunTarget {
@@ -139,6 +139,12 @@ struct RunScreen: View {
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.vertical, 8)
+            }
+            .background(alignment: .top) {
+                // Living paper behind the hero, fading out above the cards.
+                InkGround()
+                    .frame(height: 240)
+                    .mask(LinearGradient(colors: [.black, .clear], startPoint: .center, endPoint: .bottom))
             }
         }
         .background(c.background)

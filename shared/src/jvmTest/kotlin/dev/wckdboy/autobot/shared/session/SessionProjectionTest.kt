@@ -131,4 +131,43 @@ class SessionProjectionTest {
         val p = projectSession(log, pendingApprovals = setOf("x"), running = emptySet()) { _, _ -> "" }
         assertEquals(ToolState.WAITING_APPROVAL, (p.items.single() as SessionItem.Tool).state)
     }
+
+    @Test
+    fun fileStepsCarryDiffsUndoStateAndTheTurnsChanges() {
+        fun change(path: String, op: ChangeOp, added: Int = 1) =
+            JsonObject(mapOf(FileChange.META_KEY to FileChange.toJson(FileChange(path, op, added = added, diff = listOf("+x")))))
+        val log = entries(
+            SessionEvent.TurnStart(1),
+            SessionEvent.UserMessage("edit"),
+            SessionEvent.AssistantMessage(1, 1, "", toolCalls = listOf(ToolCallRecord("a", "write", "{}"), ToolCallRecord("b", "edit", "{}"))),
+            SessionEvent.ToolResult("a", "write", "Created", meta = change("a.md", ChangeOp.CREATED)),
+            SessionEvent.ToolResult("b", "edit", "Edited", meta = change("b.md", ChangeOp.MODIFIED, added = 2)),
+            SessionEvent.AssistantMessage(1, 2, "done"),
+            SessionEvent.TurnEnd(1, TurnEndReason.COMPLETED),
+            SessionEvent.WorkspaceRevert("revert-1", callIds = listOf("b"), restored = listOf("b.md")),
+        )
+        val p = projectSession(log, emptySet(), emptySet()) { _, _ -> "" }
+        val tools = p.items.filterIsInstance<SessionItem.Tool>()
+        assertEquals(listOf("a.md", "b.md"), tools.map { it.change!!.path })
+        assertEquals(listOf(false, true), tools.map { it.undone })
+        assertEquals("revert-1", tools[1].revertId)
+        assertEquals(TurnChanges(1, files = 2, undone = false, revertId = null, undoable = true), p.items.filterIsInstance<SessionItem.Assistant>().single().turnChanges)
+        assertEquals(listOf(ChangeGroup(1, listOf(ChangedFile("a.md", ChangeOp.CREATED, 1, 0, false, "a"), ChangedFile("b.md", ChangeOp.MODIFIED, 2, 0, true, "b")))), p.changes)
+        assertEquals("undid a step · 1 restored", (p.items.last() as SessionItem.Notice).text)
+
+        // Undo the rest as a turn, then redo it; and a pruned turn can no longer be undone.
+        val more = log + entries(
+            SessionEvent.WorkspaceRevert("revert-2", callIds = listOf("a"), turn = 1, deleted = listOf("a.md")),
+        ).map { it.copy(seq = it.seq + 100) }
+        val undone = projectSession(more, emptySet(), emptySet()) { _, _ -> "" }.items.filterIsInstance<SessionItem.Assistant>().single().turnChanges!!
+        assertTrue(undone.undone)
+        assertEquals("revert-2", undone.revertId)
+        val redone = more + entries(SessionEvent.WorkspaceRevert("revert-3", callIds = listOf("a"), turn = 1, redoOf = "revert-2"), SessionEvent.WorkspacePruned(listOf(1)))
+            .map { it.copy(seq = it.seq + 200) }
+        val p2 = projectSession(redone, emptySet(), emptySet()) { _, _ -> "" }
+        val a = p2.items.filterIsInstance<SessionItem.Tool>().first()
+        assertEquals(false, a.undone)
+        assertEquals(false, a.change!!.undoable)
+        assertEquals("undo history of turn 1 dropped", (p2.items.last() as SessionItem.Notice).text)
+    }
 }

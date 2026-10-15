@@ -119,13 +119,16 @@ struct Tag: View {
     let text: String
     var accent: Color? = nil
     var filled = false
+    /// Work it started runs: an ink loader stands in for the text (the tag keeps its size).
+    var busy = false
     var action: (() -> Void)? = nil
     @Environment(\.scheme) private var c
 
-    init(_ text: String, accent: Color? = nil, filled: Bool = false, action: (() -> Void)? = nil) {
+    init(_ text: String, accent: Color? = nil, filled: Bool = false, busy: Bool = false, action: (() -> Void)? = nil) {
         self.text = text
         self.accent = accent
         self.filled = filled
+        self.busy = busy
         self.action = action
     }
 
@@ -133,19 +136,21 @@ struct Tag: View {
         let tint = accent ?? c.onSurfaceVariant
         // Filled tags are solid blocks; pick ink or bone text for contrast.
         let textColor = !filled ? tint : (tint.luminance() > 0.45 ? AutobotColors.paperInk : AutobotColors.bone100)
-        let label = Text(text.uppercased())
-            .textStyle(.micro)
-            .lineLimit(1)
-            .foregroundStyle(textColor)
-            .padding(.horizontal, Tokens.Spacing.tagPaddingHorizontal)
-            .padding(.vertical, Tokens.Spacing.tagPaddingVertical)
-            .background {
-                let shape = RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
-                if filled { shape.fill(tint) } else { shape.strokeBorder(tint.opacity(0.55), lineWidth: Tokens.Stroke.border) }
-            }
-            .fixedSize()
+        let label = InkBusyLabel(busy: busy, size: .inline, color: textColor) {
+            Text(text.uppercased())
+                .textStyle(.micro)
+                .lineLimit(1)
+                .foregroundStyle(textColor)
+        }
+        .padding(.horizontal, Tokens.Spacing.tagPaddingHorizontal)
+        .padding(.vertical, Tokens.Spacing.tagPaddingVertical)
+        .background {
+            let shape = RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
+            if filled { shape.fill(tint) } else { shape.strokeBorder(tint.opacity(0.55), lineWidth: Tokens.Stroke.border) }
+        }
+        .fixedSize()
         if let action {
-            Button(action: action) { label.contentShape(Rectangle()) }.buttonStyle(PressStyle())
+            Button(action: action) { label.contentShape(Rectangle()) }.buttonStyle(PressStyle()).disabled(busy)
         } else {
             label
         }
@@ -237,13 +242,17 @@ struct ValueSlider: View {
     }
 }
 
-/// Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`.
+/// Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The selection block slides
+/// with ease-out and leaves a one-frame registration ghost.
 struct Segmented<T: Hashable>: View {
     let options: [T]
     let selected: T
     let label: (T) -> String
     let onSelect: (T) -> Void
     @Environment(\.scheme) private var c
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var marker
+    @State private var ghost = InkSelectionGhost()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -257,13 +266,20 @@ struct Segmented<T: Hashable>: View {
                         .minimumScaleFactor(0.7)
                         .foregroundStyle(isSelected ? c.onPrimary : c.onSurfaceVariant)
                         .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.segmentedHeight, maxHeight: Tokens.Spacing.segmentedHeight)
-                        .background(isSelected ? c.primary : .clear)
+                        .background {
+                            if ghost.key == AnyHashable(option) {
+                                Rectangle().fill(c.primary.opacity(0.35)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
+                            }
+                            if isSelected { Rectangle().fill(c.primary).matchedGeometryEffect(id: "selection", in: marker) }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
+        .animation(reduceMotion ? .inkReduced : .inkSlide, value: selected)
+        .onChange(of: selected) { old, _ in ghost.moved(from: AnyHashable(old), reduceMotion: reduceMotion) }
         .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.small))
         .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
     }

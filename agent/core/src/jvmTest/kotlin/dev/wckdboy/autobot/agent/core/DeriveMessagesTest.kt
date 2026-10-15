@@ -86,4 +86,27 @@ class DeriveMessagesTest {
         assertTrue(json.contains("\"type\":\"assistant/message\""))
         assertEquals(entry, SessionJson.decodeFromString(LogEntry.serializer(), json))
     }
+
+    @Test
+    fun workspaceRevertBecomesAContextLineAndRoundTrips() {
+        val revert = SessionEvent.WorkspaceRevert("r1", callIds = listOf("a"), turn = 3, restored = listOf("notes/a.md"), deleted = listOf("notes/b.md"))
+        val messages = deriveMessages(
+            log(
+                SessionEvent.UserMessage("go").a(),
+                SessionEvent.AssistantMessage(3, 1, "done").a(),
+                revert.a(),
+                SessionEvent.WorkspacePruned(listOf(1)).a(),
+                SessionEvent.UserMessage("next").a(),
+            ),
+        )
+        assertEquals(listOf(ModelRole.USER, ModelRole.ASSISTANT, ModelRole.USER, ModelRole.USER), messages.map { it.role })
+        assertEquals(
+            "<system-reminder>\nThe user reverted turn 3's file changes: notes/a.md restored, notes/b.md deleted. Read a file again before editing it.\n</system-reminder>",
+            messages[2].text,
+        )
+        val entry = LogEntry(1, 0, revert)
+        val json = SessionJson.encodeToString(LogEntry.serializer(), entry)
+        assertTrue(json.contains("\"type\":\"workspace/revert\""))
+        assertEquals(entry, SessionJson.decodeFromString(LogEntry.serializer(), json))
+    }
 }

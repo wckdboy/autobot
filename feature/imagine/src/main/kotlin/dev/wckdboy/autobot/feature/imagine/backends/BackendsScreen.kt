@@ -50,6 +50,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Panel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.diffusion.BackendKind
@@ -149,7 +150,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { viewModel.test(backend) }, enabled = state.testing == null, shape = MaterialTheme.shapes.small) {
-                            Text(if (state.testing == backend.id) "TESTING…" else "TEST")
+                            InkBusyLabel(state.testing == backend.id) { Text("TEST") }
                         }
                         result?.let {
                             MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) AutobotColors.Acid else MaterialTheme.colorScheme.error)

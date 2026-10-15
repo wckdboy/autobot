@@ -45,10 +45,11 @@ struct MemoryScreen: View {
                             .frame(maxWidth: .infinity)
                             .padding(32)
                     } else {
-                        ForEach(notes) { note in row(note) }
+                        ForEach(notes) { note in row(note).transition(.inkDissolve) }
                             .padding(.horizontal, Tokens.Spacing.gutter)
                     }
                 }
+                .animation(.inkDissolve, value: notes.map(\.id))
                 .padding(.bottom, 96)
             }
         }
@@ -127,7 +128,7 @@ private struct NoteEditorSheet: View {
     var body: some View {
         let max = Int(MemoryRules.shared.MAX_TEXT)
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            InkStack(alignment: .leading, spacing: 12) {
                 SectionLabel(draft.id == nil ? "new note" : "edit note")
                 ConsoleTextField(
                     text: Binding(get: { draft.text }, set: { draft.text = String($0.prefix(max)) }),

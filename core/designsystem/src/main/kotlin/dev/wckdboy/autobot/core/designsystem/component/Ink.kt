@@ -24,12 +24,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +45,7 @@ import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.WeakHashMap
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
@@ -320,43 +323,123 @@ private const val STRIP_SPEED = 3f
 private const val EDGE_SPEED = 4f
 private const val EDGE_DOTS = 6
 
+/** Dots trailing the indeterminate segment. */
+private const val TRAIL_DOTS = 7
+
+/** Paused bars are dimmed to this. */
+private const val PAUSED_ALPHA = 0.45f
+
+/** [InkProgressBar] states. [Idle]: static, full strength (nothing running yet / finished). */
+enum class InkBarState { Running, Idle, Paused, Error }
+
 /**
- * A flat progress rule whose width eases over `progressMillis` (no jumps), with a short flowing
- * dot pattern just ahead of the leading edge while [running].
+ * Progress as a thin printed rule. Determinate ([progress] 0…1): the width eases over
+ * `progressMillis` (no jumps) and the filled part is a fine halftone that is densest at the
+ * leading edge, with a small flowing dot cluster at the head while [state] is Running.
+ * Indeterminate ([progress] null): a short ink segment sweeps with ease-in-out every
+ * `indeterminateSweepMillis`, leaving a fading dot trail. [InkBarState.Paused]: static and dimmed
+ * with a "‖" mark at the head. [InkBarState.Error]: fills in the error colour, then holds.
+ * Animated values are read only while drawing; the clock runs only while Running.
  */
 @Composable
 fun InkProgressBar(
-    progress: Float,
+    progress: Float?,
     modifier: Modifier = Modifier,
-    running: Boolean = true,
+    state: InkBarState = InkBarState.Running,
     color: Color = MaterialTheme.colorScheme.primary,
     track: Color = MaterialTheme.colorScheme.outlineVariant,
+    errorColor: Color = MaterialTheme.colorScheme.error,
 ) {
     val reduced = LocalInkMotion.current.reduced
+    val error = state == InkBarState.Error
     val width = animateFloatAsState(
-        progress.coerceIn(0f, 1f),
+        if (error) 1f else (progress ?: 0f).coerceIn(0f, 1f),
         tween(if (reduced) Motion.reducedMotionMillis else Motion.progressMillis),
         label = "inkProgress",
     )
+    val running = state == InkBarState.Running
     val clock = rememberInkClock(running)
     val flow = remember { FlowPhase() }
     val batch = remember { DotBatch() }
     Canvas(modifier) {
-        val w = size.width * width.value
         val h = size.height
-        drawRect(track)
-        drawRect(color, size = Size(w, h))
-        if (running && !reduced) {
-            val phase = flow.at(clock.time, EDGE_SPEED)
-            val spacing = h * 2.4f
-            batch.reset()
-            for (i in 0 until EDGE_DOTS) {
-                val x = w + spacing * (i + 0.6f)
-                if (x > size.width) break
-                val v = 0.5f + 0.5f * sin(Math.PI.toFloat() * (phase - i * 0.35f))
-                batch.dot(x, h / 2f, h * 0.75f * v * (1f - i / EDGE_DOTS.toFloat()))
+        val alpha = if (state == InkBarState.Paused) PAUSED_ALPHA else 1f
+        val ink = if (error) errorColor else color
+        drawRect(track, alpha = alpha)
+        if (progress == null && !error) {
+            drawSweep(batch, ink, alpha, if (running && !reduced) clock.time * 1000f else Float.NaN)
+        } else {
+            val w = size.width * width.value
+            drawHalftoneFill(batch, ink, alpha, w)
+            if (running && !reduced && !error) {
+                val phase = flow.at(clock.time, EDGE_SPEED)
+                val spacing = h * 2.4f
+                batch.reset()
+                for (i in 0 until EDGE_DOTS) {
+                    val x = w + spacing * (i + 0.6f)
+                    if (x > size.width) break
+                    val v = 0.5f + 0.5f * sin(Math.PI.toFloat() * (phase - i * 0.35f))
+                    batch.dot(x, h / 2f, h * 0.75f * v * (1f - i / EDGE_DOTS.toFloat()))
+                }
+                drawPath(batch.path, ink)
             }
-            drawPath(batch.path, color)
+        }
+        if (state == InkBarState.Paused) {
+            // "‖": two hairlines just past the head, a little taller than a thin rule.
+            val x = (if (progress == null) 0f else size.width * width.value) + 3.dp.toPx()
+            val markH = max(h, 8.dp.toPx())
+            val top = (h - markH) / 2f
+            val bar = 1.dp.toPx()
+            drawRect(color, Offset(x, top), Size(bar, markH))
+            drawRect(color, Offset(x + bar * 2.5f, top), Size(bar, markH))
         }
     }
+}
+
+/** The determinate fill: rows of dots across [w] whose radius rises to solid ink at the head. */
+private fun DrawScope.drawHalftoneFill(batch: DotBatch, ink: Color, alpha: Float, w: Float) {
+    if (w <= 0f) return
+    val h = size.height
+    val rows = max(1, (h / 3.dp.toPx()).toInt())
+    val cell = h / rows
+    val cols = ceil(w / cell).toInt()
+    batch.reset()
+    for (r in 0 until rows) for (c in 0 until cols) {
+        val x = (c + 0.5f) * cell
+        if (x > w) break
+        // 0.72 × cell covers the cell, so the head reads as a solid rule.
+        batch.dot(x, (r + 0.5f) * cell, cell * 0.72f * InkMath.barDensity(x / w))
+    }
+    drawPath(batch.path, ink, alpha = alpha)
+}
+
+/** The indeterminate segment and its fading trail at [millis] (NaN: still, reduced motion). */
+private fun DrawScope.drawSweep(batch: DotBatch, ink: Color, alpha: Float, millis: Float) {
+    val w = size.width
+    val h = size.height
+    if (millis.isNaN()) {
+        // Static: an even stipple along the track.
+        batch.reset()
+        var x = h
+        while (x < w) {
+            batch.dot(x, h / 2f, h * 0.4f)
+            x += h * 2.4f
+        }
+        drawPath(batch.path, ink, alpha = alpha)
+        return
+    }
+    val head = InkMath.sweepHead(millis) * w
+    val tail = head - InkMath.SWEEP_SEGMENT * w
+    val left = max(0f, tail)
+    val right = minOf(w, head)
+    if (right > left) drawRect(ink, Offset(left, 0f), Size(right - left, h), alpha = alpha)
+    batch.reset()
+    val spacing = h * 2.2f
+    for (i in 0 until TRAIL_DOTS) {
+        val x = tail - spacing * (i + 0.7f)
+        if (x < 0f) break
+        if (x > w) continue
+        batch.dot(x, h / 2f, h * 0.6f * InkMath.sweepTrail(i, TRAIL_DOTS))
+    }
+    drawPath(batch.path, ink, alpha = alpha)
 }

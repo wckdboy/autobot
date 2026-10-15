@@ -162,6 +162,19 @@ final class LocalLlm: Sendable {
         #endif
     }
 
+    /// Embeds [texts] with the GGUF embedding model at [modelPath] (the private vault).
+    func embed(modelPath: String, texts: [String]) async throws -> [[Float]] {
+        #if canImport(AutobotEngines)
+        do {
+            return try await LlamaEngine.shared.embed(modelPath: modelPath, texts: texts)
+        } catch {
+            throw Engines.map(error)
+        }
+        #else
+        throw EngineUnavailable()
+        #endif
+    }
+
     /// Frees the resident model (before image generation needs the memory).
     func unload() async {
         #if canImport(AutobotEngines)

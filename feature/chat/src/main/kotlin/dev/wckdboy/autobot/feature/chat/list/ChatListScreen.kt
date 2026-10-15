@@ -80,6 +80,8 @@ import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
+import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.chat.FolderChoice
@@ -167,6 +169,7 @@ fun ChatListScreen(
     onOpenPrivacyCenter: () -> Unit,
 ) {
     var dialog by remember { mutableStateOf<ListDialog?>(null) }
+    val dissolve = rememberInkDissolve()
     val snackbar = remember { SnackbarHostState() }
     val pending = state.pendingDeletion
     LaunchedEffect(pending?.batch) {
@@ -218,7 +221,7 @@ fun ChatListScreen(
                             }
                         }
                         items(section.items, key = { it.id }, contentType = { "conversation" }) { item ->
-                            Column(Modifier.animateItem()) {
+                            Column(Modifier.animateItem().inkDissolve(dissolve, item.id)) {
                                 SwipeableRow(
                                     item = item,
                                     selecting = state.selecting,
@@ -233,7 +236,8 @@ fun ChatListScreen(
                                             RowAction.PIN -> actions.setPinned(listOf(item.id), !item.pinned)
                                             RowAction.MOVE -> dialog = ListDialog.Move(listOf(item.id), item.folderId)
                                             RowAction.ARCHIVE -> actions.setArchived(listOf(item.id), !item.archived)
-                                            RowAction.DELETE -> actions.delete(listOf(item.id))
+                                            // Deleted from the menu: the row dissolves first (a swipe already moved it away).
+                                            RowAction.DELETE -> dissolve.dissolve(item.id) { actions.delete(listOf(item.id)) }
                                         }
                                     },
                                 )

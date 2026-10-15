@@ -25,9 +25,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -49,6 +46,7 @@ import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
+import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
@@ -72,6 +70,7 @@ data class SettingsUiState(
     val lockTimeoutMillis: Long = AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS,
     val incognitoByDefault: Boolean = false,
     val memoryEnabled: Boolean = false,
+    val vaultEnabled: Boolean = false,
     val quotaFallback: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.NONE,
     val offline: Boolean = false,
@@ -95,6 +94,7 @@ class SettingsViewModel @Inject constructor(
             lockTimeoutMillis = it.lockTimeoutMillis,
             incognitoByDefault = it.incognitoByDefault,
             memoryEnabled = it.memoryEnabled,
+            vaultEnabled = it.vaultEnabled,
             quotaFallback = it.quotaFallback,
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
@@ -129,6 +129,7 @@ fun SettingsRoute(
     onOpenImageBackends: () -> Unit = {},
     onOpenMcpServers: () -> Unit = {},
     onOpenMemory: () -> Unit = {},
+    onOpenVault: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -167,6 +168,7 @@ fun SettingsRoute(
         onOpenBackup = { showBackup = true },
         onMemoryEnabled = viewModel::setMemoryEnabled,
         onOpenMemory = onOpenMemory,
+        onOpenVault = onOpenVault,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
         onDeleteAllChats = { confirmDeleteChats = true },
@@ -191,6 +193,7 @@ fun SettingsScreen(
     onOpenMcpServers: () -> Unit = {},
     onMemoryEnabled: (Boolean) -> Unit = {},
     onOpenMemory: () -> Unit = {},
+    onOpenVault: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
     onDeleteAllChats: () -> Unit = {},
@@ -228,6 +231,11 @@ fun SettingsScreen(
                 onMemoryEnabled,
             )
             NavigationRow("Memory notes", "View, search, edit and delete what the agent remembers", onOpenMemory)
+            NavigationRow(
+                "Vault",
+                if (state.vaultEnabled) "On · your files, searched by meaning on this phone" else "Off · private search over your own files",
+                onOpenVault,
+            )
             SwitchRow(
                 "On limit, fall back",
                 "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",
@@ -256,17 +264,14 @@ fun SettingsScreen(
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             SectionHeader("Appearance")
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                ThemeMode.entries.forEachIndexed { index, mode ->
-                    SegmentedButton(
-                        selected = state.themeMode == mode,
-                        onClick = { onThemeMode(mode) },
-                        shape = SegmentedButtonDefaults.itemShape(index, ThemeMode.entries.size),
-                    ) {
-                        Text(mode.name.lowercase().replaceFirstChar(Char::titlecase))
-                    }
-                }
-            }
+            // The ink segmented control: its selection block slides and leaves a registration ghost.
+            Segmented(
+                ThemeMode.entries,
+                state.themeMode,
+                onThemeMode,
+                { it.name.lowercase() },
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
             SwitchRow("AMOLED black", "Pure black backgrounds in dark theme", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
             SwitchRow("Dynamic color", "Use wallpaper colors instead of the underground palette", state.dynamicColor, onDynamicColor)
             HorizontalDivider(Modifier.padding(vertical = 8.dp))

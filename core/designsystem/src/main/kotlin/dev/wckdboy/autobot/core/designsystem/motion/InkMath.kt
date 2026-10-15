@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -124,6 +125,131 @@ object InkMath {
     /** Enter at [t] (0…1): remaining rise as a fraction of [Motion.enterRise], and alpha. */
     fun enterRise(t: Float): Float = 1f - easeOutCubic(t)
     fun enterAlpha(t: Float): Float = easeOutCubic(t)
+
+    // --- v2: loaders, bars, ambient grounds, transitions --------------------------------
+
+    fun easeInCubic(t: Float): Float {
+        val u = clamp01(t)
+        return u * u * u
+    }
+
+    fun easeInOutCubic(t: Float): Float {
+        val u = clamp01(t)
+        return if (u < 0.5f) 4f * u * u * u else 1f - (-2f * u + 2f).let { it * it * it } / 2f
+    }
+
+    /** Fraction (0…1) of a repeating cycle of [cycleMillis] at [millis]. */
+    fun cycle(millis: Float, cycleMillis: Int): Float {
+        if (cycleMillis <= 0) return 0f
+        val p = (millis % cycleMillis) / cycleMillis
+        return if (p < 0f) p + 1f else p
+    }
+
+    /** How far past each end of the diagonal the loader's drop starts and ends (and its width). */
+    const val LOADER_SPREAD = 0.35f
+
+    /** Loader dots at rest (fraction of full radius) and where the drop is. */
+    const val LOADER_REST = 0.28f
+
+    /**
+     * Loader: where the ink drop is along the square's diagonal (0 = top-left, 1 = bottom-right)
+     * at [millis]; it eases in and out across the square once per `loaderCycleMillis`, starting
+     * and ending just off the plate so the loop has no visible seam.
+     */
+    fun loaderDrop(millis: Float): Float =
+        lerp(-LOADER_SPREAD, 1f + LOADER_SPREAD, easeInOutCubic(cycle(millis, Motion.loaderCycleMillis)))
+
+    /** Loader dot radius multiplier for a dot at diagonal position [d] (0…1) with the drop at [drop]. */
+    fun loaderSwell(d: Float, drop: Float): Float {
+        val k = (d - drop) / LOADER_SPREAD
+        return LOADER_REST + (1f - LOADER_REST) * exp(-k * k)
+    }
+
+    /** Diagonal position (0…1) of loader dot ([col], [row]) on an [n]×[n] square. */
+    fun loaderDiagonal(col: Int, row: Int, n: Int): Float =
+        if (n <= 1) 0.5f else (col + row) / (2f * (n - 1))
+
+    /** Determinate bar: the halftone at [x] along the filled part (0 = start, 1 = head), densest at the head. */
+    fun barDensity(x: Float): Float = lerp(BAR_TAIL_DENSITY, 1f, easeInCubic(x))
+    const val BAR_TAIL_DENSITY = 0.22f
+
+    /** Indeterminate bar: the segment's length as a fraction of the track. */
+    const val SWEEP_SEGMENT = 0.28f
+
+    /**
+     * Indeterminate bar: the segment's leading edge (fraction of the track) at [millis]; it
+     * sweeps from just off the start to just past the end with ease-in-out every
+     * `indeterminateSweepMillis`.
+     */
+    fun sweepHead(millis: Float): Float =
+        lerp(0f, 1f + SWEEP_SEGMENT, easeInOutCubic(cycle(millis, Motion.indeterminateSweepMillis)))
+
+    /** Indeterminate bar: radius factor of trail dot [i] (0 = nearest the segment) of [count]; fades to nothing. */
+    fun sweepTrail(i: Int, count: Int): Float = if (count <= 0) 0f else clamp01(1f - (i + 1f) / (count + 1f))
+
+    /** Ambient ground: flow phase at [seconds] (one wave cycle = 2 phase units per `ambientCycleSeconds`). */
+    fun ambientPhase(seconds: Float): Float = 2f * seconds / Motion.ambientCycleSeconds
+
+    /** Ambient ground: the second plate's breath (−1…1) at [seconds], one breath per `ambientBreathSeconds`. */
+    fun ambientBreath(seconds: Float): Float = sin(2f * PI.toFloat() * seconds / Motion.ambientBreathSeconds)
+
+    /** Whether an ambient ground may move: never with reduced motion, in Battery Saver, during heavy work or once idle. */
+    fun ambientRuns(reduced: Boolean, lowPower: Boolean, heavyWork: Boolean, idle: Boolean): Boolean =
+        !reduced && !lowPower && !heavyWork && !idle
+
+    /** Milliseconds until an ambient ground stops after the last touch at [lastTouchMillis] (0: stop now). */
+    fun ambientIdleRemainingMillis(lastTouchMillis: Long, nowMillis: Long): Long =
+        max(0L, lastTouchMillis + Motion.ambientIdleStopSeconds * 1000L - nowMillis)
+
+    /** Strength of the misregistration plate at the start of a push (it fades as it registers). */
+    const val MISREGISTER_ALPHA = 0.55f
+
+    /** Push transition at [t] (0…1 of `transitionMillis`): the red plate's offset as a fraction of `registerOffset`. */
+    fun misregisterOffset(t: Float): Float = 1f - easeOutCubic(t)
+
+    /** Push transition at [t]: the plate's opacity, gone by the time it is in register. */
+    fun misregisterAlpha(t: Float): Float = MISREGISTER_ALPHA * (1f - easeOutCubic(t))
+
+    /** Most sheet sections that get their own stagger step; later ones enter with the sixth. */
+    const val MAX_STAGGER_SECTIONS = 6
+
+    /** Sheet section [index]'s enter delay: `staggerMillis` per section, capped at six sections. */
+    fun staggerDelayMillis(index: Int): Int =
+        index.coerceIn(0, MAX_STAGGER_SECTIONS - 1) * Motion.staggerMillis
+
+    /** Tab/segment indicator: a registration ghost shows for the first frame of a slide only. */
+    fun ghostVisible(elapsedMillis: Float, frameIntervalMillis: Int = Motion.frameIntervalMillis): Boolean =
+        elapsedMillis >= 0f && elapsedMillis < frameIntervalMillis
+
+    /** List dissolve at [t] (0…1 of `dissolveMillis`): dot radius multiplier for a dot at normalised ([x], [y]). */
+    fun dissolveDot(t: Float, x: Float, y: Float): Float =
+        1f - easeInCubic(staggered(t, x, y, DISSOLVE_STAGGER))
+    const val DISSOLVE_STAGGER = 0.3f
+
+    /** List dissolve at [t]: the row's height fraction; it collapses through the second part. */
+    fun dissolveHeight(t: Float): Float = 1f - easeInOutCubic((t - DISSOLVE_COLLAPSE_START) / (1f - DISSOLVE_COLLAPSE_START))
+    const val DISSOLVE_COLLAPSE_START = 0.35f
+
+    private const val PLATE_CONTRAST = 1.4f
+    private const val PLATE_FLOOR = 0.3f
+
+    /**
+     * A 4×5 colour matrix (Android layout, offsets in 0…255) that turns a screen into a [r],[g],[b]
+     * ink plate: colour becomes the plate colour and alpha follows the ink — light pixels on a dark
+     * theme ([darkTheme]), dark pixels on a light one — so only text and marks print, not the paper.
+     */
+    fun inkPlateMatrix(r: Float, g: Float, b: Float, darkTheme: Boolean): FloatArray {
+        // Contrast so the paper (and quiet surfaces) stay clear: alpha = 1.4·ink − 0.3, scaled by
+        // the source alpha so transparent pixels never print (on light, ink = alpha − luma).
+        val s = if (darkTheme) PLATE_CONTRAST else -PLATE_CONTRAST
+        val a = if (darkTheme) -PLATE_FLOOR else PLATE_CONTRAST - PLATE_FLOOR
+        return floatArrayOf(
+            0f, 0f, 0f, 0f, r * 255f,
+            0f, 0f, 0f, 0f, g * 255f,
+            0f, 0f, 0f, 0f, b * 255f,
+            s * 0.299f, s * 0.587f, s * 0.114f, a, 0f,
+        )
+    }
 }
 
 /**

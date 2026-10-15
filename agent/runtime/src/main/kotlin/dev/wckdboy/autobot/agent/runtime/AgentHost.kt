@@ -20,6 +20,7 @@ import dev.wckdboy.autobot.agent.core.tools.toolsPlugin
 import dev.wckdboy.autobot.agent.runtime.workspace.FileTools
 import dev.wckdboy.autobot.agent.runtime.workspace.Workspace
 import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
+import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceJournal
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.McpServerRepository
@@ -40,6 +41,7 @@ import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
 import dev.wckdboy.autobot.shared.chats.ChatNames
+import dev.wckdboy.autobot.providers.remote.vault.OnDeviceVault
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
@@ -47,6 +49,7 @@ import dev.wckdboy.autobot.shared.search.SearchProvider
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.session.receiptsPlugin
+import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -113,6 +116,7 @@ class AgentHost @Inject constructor(
     private val attachments: AttachmentRepository,
     mcpServers: McpServerRepository,
     memory: MemoryRepository,
+    vault: OnDeviceVault,
     settings: SettingsRepository,
     search: WebSearchRepository,
     clients: HttpClientFactory,
@@ -120,6 +124,9 @@ class AgentHost @Inject constructor(
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
     val workspace = Workspace(File(context.filesDir, WORKSPACE_DIR).toOkioPath())
+
+    /** Undo for agents: copies of what file tools replaced, next to (not inside) the workspace. */
+    val journal = WorkspaceJournal(workspace, File(context.filesDir, JOURNAL_DIR).toOkioPath())
     val harness = Harness()
     private val contexts = WorkspaceContexts(workspace)
 
@@ -178,7 +185,7 @@ class AgentHost @Inject constructor(
                 providers.getProvider(id)?.let { ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset().id, it.preset().privacyNote) }
             },
         )
-        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
+        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))
         root.plugin(contexts.plugin)
         root.plugin(mcp.plugin)
@@ -188,6 +195,7 @@ class AgentHost @Inject constructor(
         // provider is chosen. Each plugin brings and takes away its tools and contexts.
         val searchTransport = OkHttpTransport(clients)
         toggle(settings.settings.map { it.memoryEnabled }) { memoryPlugin(memory.memory) }
+        toggle(settings.settings.map { it.vaultEnabled }) { vaultPlugin(vault.vault) }
         toggle(settings.settings.map { it.searchProvider != SearchProvider.NONE }) { webSearchPlugin(searchTransport) { search.config() } }
 
         root.intercept(Hooks.ApprovalRequest) { request, _ ->
@@ -330,8 +338,23 @@ class AgentHost @Inject constructor(
         }
     }
 
+    /** Undoes one file step of [conversationId] (and later changes to the same files); idle sessions only. */
+    suspend fun undoStep(conversationId: String, callId: String) = journal.undoStep(agent(conversationId), callId)
+
+    /** Undoes every file change of [turn]. */
+    suspend fun undoTurn(conversationId: String, turn: Int) = journal.undoTurn(agent(conversationId), turn)
+
+    /** Re-applies what an undo ([revertId]) put back. */
+    suspend fun redo(conversationId: String, revertId: String) = journal.redo(agent(conversationId), revertId)
+
+    /** Cancels [conversationId]'s running turn, if its agent is open (it stays open). */
+    suspend fun cancel(conversationId: String) {
+        mutex.withLock { agents[conversationId] }?.cancel()
+    }
+
     /** Stops and forgets the agent (before deleting its conversation). */
     suspend fun discard(conversationId: String) {
+        journal.drop(conversationId)
         val agent = mutex.withLock {
             watchers.remove(conversationId)?.cancel()
             agents.remove(conversationId)
@@ -355,5 +378,6 @@ class AgentHost @Inject constructor(
 
     companion object {
         const val WORKSPACE_DIR = "workspace"
+        const val JOURNAL_DIR = "workspace-undo"
     }
 }

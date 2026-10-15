@@ -56,6 +56,7 @@ import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.RemoteModel
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.providers.remote.toOverride
+import dev.wckdboy.autobot.shared.session.ChangeGroup
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.projectSession
@@ -173,6 +174,8 @@ data class ChatUiState(
     /** Key of the assistant message being read aloud. */
     val speakingKey: String? = null,
     val voice: VoiceUi? = null,
+    /** Files the agent changed in this chat, per turn (the "changes" sheet). */
+    val changes: List<ChangeGroup> = emptyList(),
 )
 
 /**
@@ -225,7 +228,7 @@ class ChatViewModel @AssistedInject constructor(
 
     /** Downloaded chat models, newest first, by title: what "This phone" can switch between. */
     private val installedChat = library.models.map { list ->
-        list.filter { it.isReady && it.engine == EngineKind.LLAMA }.sortedByDescending { it.addedAt }.map { RemoteModel(it.id, name = it.title) }
+        list.filter { it.isLocalChat }.sortedByDescending { it.addedAt }.map { RemoteModel(it.id, name = it.title) }
     }
     private val providerModels = combine(providers.observeProviders(), providers.observeModelCaches(), installedChat) { list, caches, installed ->
         Triple(list, caches, installed)
@@ -310,6 +313,7 @@ class ChatViewModel @AssistedInject constructor(
             dictated = v.dictated,
             speakingKey = v.speakingKey,
             voice = v.mode,
+            changes = snap.projection.changes,
             loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isIncognito = conversations.isIncognito(conversationId)))
@@ -642,6 +646,25 @@ class ChatViewModel @AssistedInject constructor(
     fun delete() {
         stopVoiceWork()
         chats.trash(listOf(conversationId), uiState.value.title)
+    }
+
+    /** Undoes one file step (and later changes to the same files). */
+    fun undoStep(callId: String) = undo { host.undoStep(conversationId, callId) }
+
+    /** Undoes every file change of [turn]. */
+    fun undoTurn(turn: Int) = undo { host.undoTurn(conversationId, turn) }
+
+    /** Re-applies what an undo put back. */
+    fun redo(revertId: String) = undo { host.redo(conversationId, revertId) }
+
+    private fun undo(op: suspend () -> Any?) {
+        viewModelScope.launch {
+            if (uiState.value.running) {
+                notice.value = "Wait for the turn to finish, then undo"
+                return@launch
+            }
+            if (op() == null) notice.value = "Nothing to undo: the copies are gone or the files already match"
+        }
     }
 
     fun dismissNotice() = notice.update { null }

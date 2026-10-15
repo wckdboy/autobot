@@ -6,7 +6,9 @@
 #include <android/log.h>
 #include <jni.h>
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include "core/autobot_llama.h"
 
@@ -125,4 +127,44 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jl
     }
     Sink sink{env, jsink, env->GetMethodID(env->GetObjectClass(jsink), "onDelta", "(I[B)V")};
     return owned_bytes(env, autobot_llama_chat(session(handle), request.data(), request.size(), on_delta, &sink));
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_embedLoad(
+        JNIEnv * env, jobject, jstring jpath, jint n_ctx, jint n_threads, jstring jbackend) {
+    const std::string path = jstr(env, jpath);
+    const std::string backend = jstr(env, jbackend);
+    return reinterpret_cast<jlong>(autobot_llama_embed_load(path.c_str(), (int) n_ctx, (int) n_threads, backend.c_str()));
+}
+
+/** Embeds UTF-8 texts: n × dims floats, each vector L2-normalised; null on failure. */
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_embed(JNIEnv * env, jobject, jlong handle, jobjectArray jtexts) {
+    auto * e = reinterpret_cast<autobot_llama_embedder *>(handle);
+    const jsize n = env->GetArrayLength(jtexts);
+    const int dims = autobot_llama_embed_dims(e);
+    std::vector<std::string> texts((size_t) n);
+    for (jsize i = 0; i < n; ++i) {
+        auto arr = static_cast<jbyteArray>(env->GetObjectArrayElement(jtexts, i));
+        const jsize len = env->GetArrayLength(arr);
+        texts[(size_t) i].resize((size_t) len);
+        if (len > 0) env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte *>(&texts[(size_t) i][0]));
+        env->DeleteLocalRef(arr);
+    }
+    std::vector<const char *> ptrs;
+    std::vector<size_t> lens;
+    for (const auto & t : texts) {
+        ptrs.push_back(t.data());
+        lens.push_back(t.size());
+    }
+    std::vector<float> out((size_t) n * (size_t) std::max(dims, 0));
+    if (dims <= 0 || autobot_llama_embed(e, ptrs.data(), lens.data(), (int) n, out.data()) != 0) return nullptr;
+    jfloatArray result = env->NewFloatArray((jsize) out.size());
+    env->SetFloatArrayRegion(result, 0, (jsize) out.size(), out.data());
+    return result;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_embedFree(JNIEnv *, jobject, jlong handle) {
+    autobot_llama_embed_free(reinterpret_cast<autobot_llama_embedder *>(handle));
 }

@@ -18,6 +18,8 @@ import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
+import dev.wckdboy.autobot.core.data.model.VaultChunkRow
+import dev.wckdboy.autobot.core.data.model.VaultDocumentRow
 import dev.wckdboy.autobot.core.security.KeyManager
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,18 +28,19 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 @Database(
     entities = [
         Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class,
-        BenchmarkRow::class, McpServer::class, MemoryNoteRow::class, ProviderModelsRow::class, ChatFolderRow::class,
-        ConversationTextRow::class,
+        BenchmarkRow::class, McpServer::class, MemoryNoteRow::class, ProviderModelsRow::class, VaultDocumentRow::class, VaultChunkRow::class,
+        ChatFolderRow::class, ConversationTextRow::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
     // 4 → 5 adds `mcp_servers`, 5 → 6 `memory_notes` (local memory), 6 → 7 `providers.presetId` and
-    // `provider_models` (fetched model lists), 7 → 8 `providers.helperModel`, 8 → 9 chat organization
-    // (`conversations.pinned`/`archived`/`folderId`, `chat_folders`, `conversation_text` for search);
-    // existing data is untouched.
+    // `provider_models` (fetched model lists), 7 → 8 `providers.helperModel`, 8 → 9 `vault_documents` and
+    // `vault_chunks` (private vault), 9 → 10 chat organization (`conversations.pinned`/`archived`/`folderId`,
+    // `chat_folders`, `conversation_text` for search); existing data is untouched.
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
-        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
+        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
+        AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10),
     ],
 )
 abstract class AutobotDatabase : RoomDatabase() {
@@ -51,6 +54,7 @@ abstract class AutobotDatabase : RoomDatabase() {
     abstract fun benchmarkDao(): BenchmarkDao
     abstract fun mcpServerDao(): McpServerDao
     abstract fun memoryDao(): MemoryDao
+    abstract fun vaultDao(): VaultDao
     abstract fun chatFolderDao(): ChatFolderDao
 
     companion object {

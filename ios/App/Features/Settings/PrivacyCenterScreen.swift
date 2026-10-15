@@ -128,7 +128,7 @@ struct PrivacyCenterScreen: View {
                 .textStyle(.bodySmall)
                 .foregroundStyle(c.onSurfaceVariant)
                 .fixedSize(horizontal: false, vertical: true)
-            GhostButton(wiping ? "Wiping…" : "Wipe everything", accent: c.error, enabled: !wiping) {
+            GhostButton("Wipe everything", accent: c.error, enabled: !wiping, busy: wiping) {
                 typed = ""
                 showWipe = true
             }

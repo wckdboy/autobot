@@ -363,7 +363,7 @@ struct ChatListScreen: View {
         .scrollContentBackground(.hidden)
         .background(c.background)
         .environment(\.defaultMinListRowHeight, 0)
-        .animation(.easeInOut(duration: 0.2), value: m.sections)
+        .animation(.inkDissolve, value: m.sections.map { $0.items.map(\.id) })
     }
 
     private func row(_ item: ConversationItem) -> some View {
@@ -373,6 +373,7 @@ struct ChatListScreen: View {
             }
             Hairline().padding(.leading, 16)
         }
+        .transition(.inkDissolve)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
         .listRowBackground(selection.contains(item.id) ? c.primary.opacity(0.12) : c.background)
@@ -418,6 +419,7 @@ struct ChatListScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
+        .inkGround()
     }
 
     @ViewBuilder private var undoToast: some View {
@@ -452,7 +454,7 @@ struct ChatListScreen: View {
     /// Hides the chats at once (running turns are cancelled) and deletes them unless undone in time.
     private func delete(_ ids: [String], titles: [String]) {
         let label = ids.count == 1 ? (titles.first.map { "Deleted “\($0)”" } ?? "Chat deleted") : "Deleted \(ids.count) chats"
-        withAnimation(.easeInOut(duration: 0.2)) { _ = app.chats.trash(ids, label: label) }
+        withAnimation(.inkDissolve) { _ = app.chats.trash(ids, label: label) }
         selection = []
     }
 
