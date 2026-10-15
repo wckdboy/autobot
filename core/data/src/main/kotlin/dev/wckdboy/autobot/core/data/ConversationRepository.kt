@@ -41,6 +41,14 @@ class ConversationRepository @Inject constructor(
                 (ephemeral + stored).sortedByDescending { it.updatedAt }
             }
 
+    /** The [limit] newest conversations that are not archived, incognito ones included (LIMIT in SQL). */
+    fun observeRecentConversations(limit: Int): Flow<List<Conversation>> =
+        flow { emitAll(database.get().conversationDao().observeRecent(limit)) }
+            .flowOn(io)
+            .combine(incognito.conversations) { stored, ephemeral ->
+                (ephemeral.filterNot { it.archived } + stored).sortedByDescending { it.updatedAt }.take(limit)
+            }
+
     fun observeConversation(id: String): Flow<Conversation?> =
         if (incognito.isIncognito(id)) {
             incognito.observeConversation(id)

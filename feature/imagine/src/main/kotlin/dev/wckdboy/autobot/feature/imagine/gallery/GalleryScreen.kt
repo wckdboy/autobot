@@ -67,6 +67,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
+import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Readout
@@ -126,9 +127,11 @@ fun GalleryScreen(
                         )
                     }
                 }
+                // Typed text stays here; the list filters a moment later (no dropped keys).
+                val query = rememberLocalText(state.query, actions::setQuery)
                 ConsoleTextField(
-                    state.query,
-                    actions::setQuery,
+                    query.text,
+                    query::edit,
                     Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
                     placeholder = "search prompts / backends",
                     singleLine = true,

@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.feature.models
 
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -106,7 +107,10 @@ data class ModelsUiState(
     val accounts: AccountState = AccountState(),
     val message: String? = null,
 ) {
-    fun installedIds(): Set<String> = installed.map { it.id }.toSet()
+    /** Built once per state, not once per row that asks. */
+    private val ids: Set<String> by lazy(LazyThreadSafetyMode.PUBLICATION) { installed.mapTo(HashSet()) { it.id } }
+
+    fun installedIds(): Set<String> = ids
 }
 
 /** Where tapping an installed model goes. */
@@ -318,6 +322,7 @@ class ModelsViewModel @Inject constructor(
 
     /** A card preview, decoded at most [PREVIEW_PX] on its long side (Civitai serves full-size images). */
     suspend fun preview(url: String): ImageBitmap? {
+        previewCache.get(url)?.let { return it }
         val bytes = try {
             previews.load(url)
         } catch (e: CancellationException) {
@@ -333,7 +338,12 @@ class ModelsViewModel @Inject constructor(
             while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= PREVIEW_PX) sample *= 2
             val options = BitmapFactory.Options().apply { inSampleSize = sample }
             runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap() }.getOrNull()
-        }
+        }?.also { previewCache.put(url, it) }
+    }
+
+    /** Decoded card previews (scrolling back must not decode them again), bounded by memory. */
+    private val previewCache = object : LruCache<String, ImageBitmap>(PREVIEW_CACHE_KB) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = (value.width * value.height * 4 / 1024).coerceAtLeast(1)
     }
 
     private suspend fun <T> guarded(block: suspend () -> T): T? = try {
@@ -355,6 +365,7 @@ class ModelsViewModel @Inject constructor(
         const val NPU_PUBLISHER = "xororz"
 
         private const val PREVIEW_PX = 512
+        private const val PREVIEW_CACHE_KB = 16 * 1024
 
         val SUPPORTED_BASES = listOf("SD 1.5", "SD 1.5 LCM", "SD 1.5 Hyper", "SDXL 1.0", "SDXL Turbo", "SDXL Lightning", "Pony", "Illustrious", "NoobAI")
     }

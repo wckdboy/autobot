@@ -25,6 +25,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<Conversation>>
 
+    /** The [limit] most recently updated conversations that are not archived (home screen). */
+    @Query("SELECT * FROM conversations WHERE archived = 0 ORDER BY updatedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<Conversation>>
+
     @Query("SELECT * FROM conversations WHERE id = :id")
     fun observe(id: String): Flow<Conversation?>
 
@@ -151,6 +155,9 @@ interface SessionEventDao {
 interface GalleryDao {
     @Query("SELECT * FROM gallery_items ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<GalleryItem>>
+
+    @Query("SELECT * FROM gallery_items ORDER BY createdAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<GalleryItem>>
 
     @Query("SELECT * FROM gallery_items WHERE id = :id")
     suspend fun get(id: String): GalleryItem?

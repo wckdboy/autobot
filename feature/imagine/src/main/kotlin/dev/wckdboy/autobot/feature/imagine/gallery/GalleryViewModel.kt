@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -38,6 +40,7 @@ data class GalleryUiState(
     val loaded: Boolean = false,
 )
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 @HiltViewModel
 class GalleryViewModel @Inject constructor(
     application: Application,
@@ -47,44 +50,48 @@ class GalleryViewModel @Inject constructor(
 
     private data class Local(
         val favoritesOnly: Boolean = false,
-        val query: String = "",
         val openId: String? = null,
         val openImage: ImageBitmap? = null,
         val message: String? = null,
     )
 
     private val local = MutableStateFlow(Local())
+
+    /** The search text; filtering follows it after a short pause (clearing applies at once). */
+    private val query = MutableStateFlow("")
     /** Sized by memory, not count: a few large thumbnails must not pin hundreds of megabytes. */
     private val thumbs = object : LruCache<String, ImageBitmap>(THUMB_CACHE_KB) {
         override fun sizeOf(key: String, value: ImageBitmap): Int = (value.width * value.height * 4 / 1024).coerceAtLeast(1)
     }
 
-    val uiState: StateFlow<GalleryUiState> = combine(gallery.observe(), local) { all, l ->
+    val uiState: StateFlow<GalleryUiState> = combine(gallery.observe(), local, query.debounce { if (it.isBlank()) 0L else QUERY_DEBOUNCE_MS }) { all, l, q ->
         val filtered = all.filter { item ->
             (!l.favoritesOnly || item.favorite) &&
-                (l.query.isBlank() || item.prompt.contains(l.query, ignoreCase = true) || item.engine.contains(l.query, ignoreCase = true))
+                (q.isBlank() || item.prompt.contains(q, ignoreCase = true) || item.engine.contains(q, ignoreCase = true))
         }
         GalleryUiState(
             items = filtered,
             total = all.size,
             favoritesOnly = l.favoritesOnly,
-            query = l.query,
+            query = q,
             open = all.firstOrNull { it.id == l.openId },
             openImage = l.openImage,
             message = l.message,
             loaded = true,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GalleryUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GalleryUiState())
 
     /** Decrypts and decodes a thumbnail (cached). */
     suspend fun thumbnail(id: String): ImageBitmap? {
         thumbs.get(id)?.let { return it }
         val bytes = runCatching { gallery.thumbnail(id) }.getOrNull() ?: return null
-        return withContext(Dispatchers.Default) { ImageCodec.decode(bytes)?.asImageBitmap() }?.also { thumbs.put(id, it) }
+        return withContext(Dispatchers.Default) { ImageCodec.decode(bytes, THUMB_SIDE)?.asImageBitmap() }?.also { thumbs.put(id, it) }
     }
 
     fun setFavoritesOnly(enabled: Boolean) = local.update { it.copy(favoritesOnly = enabled) }
-    fun setQuery(query: String) = local.update { it.copy(query = query) }
+    fun setQuery(text: String) {
+        query.value = text
+    }
 
     fun open(id: String) {
         local.update { it.copy(openId = id, openImage = null) }
@@ -117,7 +124,8 @@ class GalleryViewModel @Inject constructor(
                 val bytes = gallery.image(item.id) ?: error("image unavailable")
                 val started = System.currentTimeMillis()
                 val png = upscaler.upscale(bytes)
-                val thumb = withContext(Dispatchers.Default) { ImageCodec.thumbnail(png) } ?: png
+                // Never the 4× PNG itself as the thumbnail: decoding it in the grid would take a 64 MB bitmap.
+                val thumb = withContext(Dispatchers.Default) { ImageCodec.thumbnail(png) } ?: gallery.thumbnail(item.id) ?: error("cannot make a thumbnail")
                 val copy = item.copy(
                     id = gallery.newId(),
                     createdAt = System.currentTimeMillis(),
@@ -187,5 +195,9 @@ class GalleryViewModel @Inject constructor(
 
     private companion object {
         const val THUMB_CACHE_KB = 32 * 1024
+        const val QUERY_DEBOUNCE_MS = 150L
+
+        /** Grid cells are small; a thumbnail is never decoded larger than this. */
+        const val THUMB_SIDE = 512
     }
 }
