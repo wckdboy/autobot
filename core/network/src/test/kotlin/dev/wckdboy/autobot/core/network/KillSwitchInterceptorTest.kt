@@ -1,5 +1,10 @@
 package dev.wckdboy.autobot.core.network
 
+import dev.wckdboy.autobot.agent.core.TurnTrace
+import dev.wckdboy.autobot.shared.HttpRequestSpec
+import dev.wckdboy.autobot.shared.HttpSink
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.HttpUrl
@@ -142,6 +147,45 @@ class KillSwitchInterceptorTest {
         assertEquals("/upload", entry.path)
         assertEquals(5L, entry.bytesSent)
         assertEquals("per-request", entry.tag)
+    }
+
+    @Test
+    fun auditTiesRequestsToTheirTurnAndCountsStreamedBytes() {
+        policy.setMode(NetworkMode.Direct)
+        val body = "data: {\"x\":1}\n\n".repeat(200)
+        server.enqueue(MockResponse.Builder().code(200).chunkedBody(body, 64).build())
+        val client = factory.create("provider")
+        val request = Request.Builder().url(loopbackUrl("/v1/chat")).turnTrace(TurnTrace("s1", 4)).build()
+        client.newCall(request).execute().use { response ->
+            assertEquals(-1L, response.body.contentLength()) // chunked: no Content-Length
+            assertNull(auditLog.entries.value.single().bytesReceived)
+            assertEquals(body, response.body.string())
+        }
+
+        val entry = auditLog.forTurn("s1", 4).single()
+        assertEquals("loopback", entry.route)
+        assertEquals(body.length.toLong(), entry.bytesReceived)
+    }
+
+    @Test
+    fun theSharedTransportCarriesTheTurnOfItsRequest() {
+        policy.setMode(NetworkMode.Direct)
+        server.enqueue(MockResponse.Builder().code(200).body("one\ntwo\n").build())
+        val done = CountDownLatch(1)
+        val spec = HttpRequestSpec("GET", loopbackUrl("/mcp").toString(), emptyMap(), null, "mcp", trace = TurnTrace("s2", 1))
+        OkHttpTransport(factory).send(
+            spec,
+            object : HttpSink {
+                override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) = Unit
+                override fun onLine(line: String) = Unit
+                override fun onComplete() = done.countDown()
+                override fun onFailure(blocked: Boolean, message: String) = done.countDown()
+            },
+        )
+        assertTrue(done.await(5, TimeUnit.SECONDS))
+        val entry = auditLog.forTurn("s2", 1).single()
+        assertEquals("mcp", entry.tag)
+        assertEquals(8L, entry.bytesReceived) // counted at the end of the body, before onComplete
     }
 
     @Test

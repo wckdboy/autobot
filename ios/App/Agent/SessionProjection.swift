@@ -13,7 +13,8 @@ enum NoticeKind: String, Codable, Sendable { case info = "INFO", warn = "WARN", 
 /// One row of the session transcript.
 enum SessionItem: Codable, Equatable, Identifiable, Sendable {
     case user(key: String, text: String, images: [String])
-    case assistant(key: String, text: String, reasoning: String?, interrupted: Bool, outputTokens: Int?, model: String?)
+    /// [receipt]: the turn's privacy receipt, on the turn's last answer once the turn ended.
+    case assistant(key: String, text: String, reasoning: String?, interrupted: Bool, outputTokens: Int?, model: String?, receipt: Receipt? = nil)
     case tool(Tool)
     case notice(key: String, text: String, kind: NoticeKind)
 
@@ -36,12 +37,12 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
 
     var key: String {
         switch self {
-        case .user(let k, _, _), .assistant(let k, _, _, _, _, _), .notice(let k, _, _): k
+        case .user(let k, _, _), .assistant(let k, _, _, _, _, _, _), .notice(let k, _, _): k
         case .tool(let t): t.key
         }
     }
 
-    private enum K: String, CodingKey { case type, key, text, images, reasoning, interrupted, outputTokens, model, kind }
+    private enum K: String, CodingKey { case type, key, text, images, reasoning, interrupted, outputTokens, model, receipt, kind }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -57,6 +58,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
                 interrupted: try c.decodeIfPresent(Bool.self, forKey: .interrupted) ?? false,
                 outputTokens: try c.decodeIfPresent(Int.self, forKey: .outputTokens),
                 model: try c.decodeIfPresent(String.self, forKey: .model),
+                receipt: try c.decodeIfPresent(Receipt.self, forKey: .receipt),
             )
         case "tool":
             self = .tool(try Tool(from: decoder))
@@ -73,7 +75,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
             try c.encode(key, forKey: .key)
             try c.encode(text, forKey: .text)
             try c.encode(images, forKey: .images)
-        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, let model):
+        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, let model, let receipt):
             try c.encode("assistant", forKey: .type)
             try c.encode(key, forKey: .key)
             try c.encode(text, forKey: .text)
@@ -81,6 +83,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
             try c.encode(interrupted, forKey: .interrupted)
             try c.encodeIfPresent(outputTokens, forKey: .outputTokens)
             try c.encodeIfPresent(model, forKey: .model)
+            try c.encodeIfPresent(receipt, forKey: .receipt)
         case .tool(let t):
             try c.encode("tool", forKey: .type)
             try t.encode(to: encoder)
@@ -90,6 +93,123 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
             try c.encode(text, forKey: .text)
             try c.encode(kind, forKey: .kind)
         }
+    }
+}
+
+/**
+ A turn's privacy receipt (Kotlin `Receipt`, built by the shared runtime from the session and
+ audit logs; never sent anywhere): [line] under the answer, the rest in the receipt sheet. Every
+ field decodes leniently so receipts from newer or older builds still load.
+ */
+struct Receipt: Codable, Equatable, Sendable {
+    /// Requests of the turn to one host over one route (`direct`, `tor`, `socks5`, `loopback`).
+    struct Host: Codable, Equatable, Sendable {
+        var host: String
+        var route: String
+        var requests = 0
+        var bytesSent: Int64 = 0
+        var bytesReceived: Int64 = 0
+        var blocked = 0
+        var tags: [String] = []
+
+        init(host: String, route: String, requests: Int, bytesSent: Int64 = 0, bytesReceived: Int64 = 0, blocked: Int = 0, tags: [String] = []) {
+            (self.host, self.route, self.requests, self.bytesSent, self.bytesReceived, self.blocked, self.tags) = (host, route, requests, bytesSent, bytesReceived, blocked, tags)
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            host = try c.decode(String.self, forKey: .host)
+            route = try c.decodeIfPresent(String.self, forKey: .route) ?? "direct"
+            requests = try c.decodeIfPresent(Int.self, forKey: .requests) ?? 0
+            bytesSent = try c.decodeIfPresent(Int64.self, forKey: .bytesSent) ?? 0
+            bytesReceived = try c.decodeIfPresent(Int64.self, forKey: .bytesReceived) ?? 0
+            blocked = try c.decodeIfPresent(Int.self, forKey: .blocked) ?? 0
+            tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        }
+    }
+
+    /// A model that answered, with its provider and data policy.
+    struct Model: Codable, Equatable, Sendable {
+        var provider: String
+        var model: String
+        var name: String? = nil
+        var onDevice = false
+        var policy: String? = nil
+        var policyNote: String? = nil
+
+        init(provider: String, model: String, name: String? = nil, onDevice: Bool = false, policy: String? = nil, policyNote: String? = nil) {
+            (self.provider, self.model, self.name, self.onDevice, self.policy, self.policyNote) = (provider, model, name, onDevice, policy, policyNote)
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? ""
+            model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+            name = try c.decodeIfPresent(String.self, forKey: .name)
+            onDevice = try c.decodeIfPresent(Bool.self, forKey: .onDevice) ?? false
+            policy = try c.decodeIfPresent(String.self, forKey: .policy)
+            policyNote = try c.decodeIfPresent(String.self, forKey: .policyNote)
+        }
+    }
+
+    /// A tool that ran; [network] tools (`web_fetch`, `web_search`, MCP) reach other hosts.
+    struct Tool: Codable, Equatable, Sendable {
+        var name: String
+        var network = false
+
+        init(name: String, network: Bool = false) {
+            self.name = name
+            self.network = network
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = try c.decode(String.self, forKey: .name)
+            network = try c.decodeIfPresent(Bool.self, forKey: .network) ?? false
+        }
+    }
+
+    var turn: Int
+    /// `on device`, or `2 hosts · 14 KB out · no retention`.
+    var line: String
+    /// Nothing left the phone (traffic was tracked and stayed on it).
+    var onDevice = false
+    var tracked = false
+    var hosts: [Host] = []
+    var bytesSent: Int64 = 0
+    var bytesReceived: Int64 = 0
+    var routes: [String] = []
+    var models: [Model] = []
+    var tools: [Tool] = []
+    var fallbacks: [String] = []
+
+    init(turn: Int, line: String, onDevice: Bool = false, tracked: Bool = false, hosts: [Host] = [], bytesSent: Int64 = 0, bytesReceived: Int64 = 0,
+         routes: [String] = [], models: [Model] = [], tools: [Tool] = [], fallbacks: [String] = []) {
+        (self.turn, self.line, self.onDevice, self.tracked, self.hosts, self.bytesSent, self.bytesReceived) = (turn, line, onDevice, tracked, hosts, bytesSent, bytesReceived)
+        (self.routes, self.models, self.tools, self.fallbacks) = (routes, models, tools, fallbacks)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        turn = try c.decodeIfPresent(Int.self, forKey: .turn) ?? 0
+        line = try c.decodeIfPresent(String.self, forKey: .line) ?? "receipt"
+        onDevice = try c.decodeIfPresent(Bool.self, forKey: .onDevice) ?? false
+        tracked = try c.decodeIfPresent(Bool.self, forKey: .tracked) ?? false
+        hosts = try c.decodeIfPresent([Host].self, forKey: .hosts) ?? []
+        bytesSent = try c.decodeIfPresent(Int64.self, forKey: .bytesSent) ?? 0
+        bytesReceived = try c.decodeIfPresent(Int64.self, forKey: .bytesReceived) ?? 0
+        routes = try c.decodeIfPresent([String].self, forKey: .routes) ?? []
+        models = try c.decodeIfPresent([Model].self, forKey: .models) ?? []
+        tools = try c.decodeIfPresent([Tool].self, forKey: .tools) ?? []
+        fallbacks = try c.decodeIfPresent([String].self, forKey: .fallbacks) ?? []
+    }
+
+    /// `0 B`, `512 B`, `14 KB`, `1.2 MB` (Kotlin `Receipts.formatBytes`).
+    static func formatBytes(_ bytes: Int64) -> String {
+        if bytes < 1024 { return "\(bytes) B" }
+        if bytes < 1024 * 1024 { return "\(Int64((Double(bytes) / 1024).rounded())) KB" }
+        let tenths = Int64((Double(bytes) * 10 / (1024 * 1024)).rounded())
+        return "\(tenths / 10).\(tenths % 10) MB"
     }
 }
 

@@ -24,6 +24,7 @@ class OkHttpTransport(private val clients: HttpClientFactory) : HttpTransport {
             Request.Builder().url(request.url)
                 .method(request.method, request.body?.toByteArray()?.toRequestBody())
                 .apply { request.headers.forEach { (name, value) -> header(name, value) } }
+                .turnTrace(request.trace)
                 .build()
         } catch (e: IllegalArgumentException) {
             sink.onFailure(blocked = false, message = "Invalid URL")

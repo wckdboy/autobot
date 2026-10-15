@@ -102,9 +102,11 @@ where possible, on both platforms.
 What no other client does, built on what Autobot already has (kill switch, audit log, on-device
 models, shared core). Ordered by value.
 
-1. **Privacy receipts.** Every answer carries a receipt: which hosts were contacted, how many bytes
+1. ✅ **Privacy receipts.** Every answer carries a receipt: which hosts were contacted, how many bytes
    left, the provider's retention policy for that model, and which tools ran. One tap from the
-   message; built from the audit log, never sent anywhere.
+   message; built from the audit log, never sent anywhere. *(done on both platforms: requests
+   carry their agent turn into the audit log, receipts are `turn/receipt` events in the session
+   log)*
 2. **Redaction gateway.** Before a cloud call, an on-device model finds names, emails, phone
    numbers, addresses, account numbers and the user's own memory facts, swaps them for stable
    placeholders, and puts the real values back into the answer locally. The provider sees

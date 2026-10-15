@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.providers.remote
 
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.network.NetworkBlockedException
+import dev.wckdboy.autobot.core.network.turnTrace
 import dev.wckdboy.autobot.core.security.Secret
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +63,7 @@ open class OpenAICompatibleProvider(
             .apply { ProviderSessions.header(preset, request)?.let { (k, v) -> header(k, v) } }
             .header("Accept", "text/event-stream")
             .post(body.toRequestBody(JSON))
+            .turnTrace()
             .build()
         val call = client.newCall(httpRequest)
 

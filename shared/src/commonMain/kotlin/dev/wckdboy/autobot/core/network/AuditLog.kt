@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.network
 
+import dev.wckdboy.autobot.agent.core.TurnTrace
 import dev.wckdboy.autobot.agent.core.currentTimeMillis
 import kotlin.concurrent.atomics.AtomicLong
 import kotlin.concurrent.atomics.incrementAndFetch
@@ -24,6 +25,8 @@ import kotlinx.coroutines.flow.update
  * @property tag caller-supplied label, e.g. the provider name.
  * @property route effective route label (`direct`, `tor`, `socks5`, `offline`).
  * @property blocked `true` if the kill switch refused the request before any I/O.
+ * @property session the agent session whose turn made the request ([TurnTrace]), if any.
+ * @property turn that session's turn number.
  */
 data class AuditEntry(
     val id: Long,
@@ -38,6 +41,8 @@ data class AuditEntry(
     val route: String,
     val blocked: Boolean,
     val error: String? = null,
+    val session: String? = null,
+    val turn: Int? = null,
 )
 
 /**
@@ -79,6 +84,8 @@ class AuditLog(
         route: String,
         blocked: Boolean,
         error: String? = null,
+        session: String? = null,
+        turn: Int? = null,
     ): AuditEntry {
         val entry = AuditEntry(
             id = ids.incrementAndFetch(),
@@ -93,6 +100,8 @@ class AuditLog(
             route = route,
             blocked = blocked,
             error = error,
+            session = session,
+            turn = turn,
         )
         _entries.update { current ->
             val next = if (current.size >= capacity) current.drop(current.size - capacity + 1) else current
@@ -101,6 +110,23 @@ class AuditLog(
         _events.tryEmit(entry)
         return entry
     }
+
+    /**
+     * Sets the body bytes actually received for entry [id], once its body has been read or
+     * closed (streams have no `Content-Length` when they start). No-op if the entry is gone.
+     */
+    fun received(id: Long, bytes: Long) {
+        if (bytes < 0) return
+        _entries.update { current ->
+            val index = current.indexOfLast { it.id == id }
+            if (index < 0 || current[index].bytesReceived == bytes) current
+            else current.toMutableList().also { it[index] = it[index].copy(bytesReceived = bytes) }
+        }
+    }
+
+    /** Entries made for [sessionId]'s [turn], oldest first. */
+    fun forTurn(sessionId: String, turn: Int): List<AuditEntry> =
+        _entries.value.filter { it.session == sessionId && it.turn == turn }
 
     fun clear() {
         _entries.value = emptyList()

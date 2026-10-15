@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.shared
 
+import dev.wckdboy.autobot.agent.core.TurnTrace
 import dev.wckdboy.autobot.agent.runtime.WebFetchException
 import dev.wckdboy.autobot.agent.runtime.WebFetcher
 import dev.wckdboy.autobot.agent.runtime.WebResponse
@@ -39,7 +40,8 @@ fun interface Cancellable {
 /**
  * One HTTP request for the host to send. [route] is the provider's routing override
  * (`INHERIT`, `DIRECT`, `TOR`, `SOCKS5`); [tag] labels it in the audit log. The host must not
- * follow redirects and reads at most [maxBytes] of the body.
+ * follow redirects and reads at most [maxBytes] of the body. [trace] is the agent turn the request
+ * is made for (set by [traced]); the host records it in the audit log for privacy receipts.
  */
 class HttpRequestSpec(
     val method: String,
@@ -49,7 +51,14 @@ class HttpRequestSpec(
     val tag: String,
     val route: String = "INHERIT",
     val maxBytes: Long = Long.MAX_VALUE,
-)
+    val trace: TurnTrace? = null,
+) {
+    /** This request tagged with the calling coroutine's [TurnTrace] (unchanged outside a turn). */
+    suspend fun traced(): HttpRequestSpec {
+        val current = TurnTrace.current() ?: return this
+        return HttpRequestSpec(method, url, headers, body, tag, route, maxBytes, current)
+    }
+}
 
 /**
  * Callbacks for one request, called serially. [onResponse] comes first with the status and
@@ -110,7 +119,7 @@ class TransportChatProvider(
         val decoder = wire.decoder()
         var failed = false
         val call = transport.send(
-            HttpRequestSpec("POST", "$base/${wire.chatPath}", headers(wire, "text/event-stream", request), body, tag, route),
+            HttpRequestSpec("POST", "$base/${wire.chatPath}", headers(wire, "text/event-stream", request), body, tag, route).traced(),
             object : HttpSink {
                 override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
                     if (status in 200..299) return
@@ -175,8 +184,9 @@ internal class CollectedResponse(
     val blocked: Boolean = false,
 )
 
-internal suspend fun fetchAll(transport: HttpTransport, request: HttpRequestSpec): CollectedResponse =
-    suspendCancellableCoroutine { cont ->
+internal suspend fun fetchAll(transport: HttpTransport, spec: HttpRequestSpec): CollectedResponse {
+    val request = spec.traced()
+    return suspendCancellableCoroutine { cont ->
         val sink = object : HttpSink {
             private var status = 0
             private var headers = emptyMap<String, String>()
@@ -208,6 +218,7 @@ internal suspend fun fetchAll(transport: HttpTransport, request: HttpRequestSpec
         val call = transport.send(request, sink)
         cont.invokeOnCancellation { call.cancel() }
     }
+}
 
 /** `web_fetch` over a host [HttpTransport]. */
 class TransportWebFetcher(private val transport: HttpTransport) : WebFetcher {

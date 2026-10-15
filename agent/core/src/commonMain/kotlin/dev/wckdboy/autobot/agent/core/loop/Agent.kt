@@ -6,8 +6,11 @@ import dev.wckdboy.autobot.agent.core.PreStepDecision
 import dev.wckdboy.autobot.agent.core.PreStepInput
 import dev.wckdboy.autobot.agent.core.RequestErrorDecision
 import dev.wckdboy.autobot.agent.core.RequestErrorInput
+import dev.wckdboy.autobot.agent.core.TurnReceiptInput
+import dev.wckdboy.autobot.agent.core.TurnReceipts
 import dev.wckdboy.autobot.agent.core.TurnStoppingDecision
 import dev.wckdboy.autobot.agent.core.TurnStoppingInput
+import dev.wckdboy.autobot.agent.core.TurnTrace
 import dev.wckdboy.autobot.agent.core.approval.ApprovalPolicy
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.llm.LlmAdapter
@@ -225,21 +228,34 @@ class Agent(
         nextStep.toList().also { nextStep.clear() }
     }
 
+    /**
+     * Runs one turn under its [TurnTrace], so the traffic it causes is tied to it. A subagent's
+     * turn keeps its parent's trace (its requests count for the parent turn) and writes no
+     * receipt of its own.
+     */
     private suspend fun runTurn() {
         val turn = (log.latest<SessionEvent.TurnStart>()?.turn ?: 0) + 1
+        val inherited = TurnTrace.current()
+        withContext(inherited ?: TurnTrace(id, turn)) { runTurn(turn, receipt = inherited == null) }
+    }
+
+    private suspend fun runTurn(turn: Int, receipt: Boolean) {
         var steps = 0
         var reason = TurnEndReason.COMPLETED
         var detail: String? = null
+        var answered = false
         _status.value = AgentStatus.RUNNING
         try {
             turnRoute = null
             routeNotice = null
+            turnModels.clear()
             log.append(SessionEvent.TurnStart(turn))
             val claimed = claimTurnInput()
             turnInput = claimed
             logChangedContexts()
             log.appendAll(claimed)
             if (claimed.isEmpty()) return
+            answered = true
 
             while (true) {
                 if (steps >= config.value.maxStepsPerTurn) {
@@ -292,10 +308,24 @@ class Agent(
                 _live.value = null
                 turnRoute = null
                 routeNotice = null
+                if (receipt && answered) appendReceipt(turn)
                 log.append(SessionEvent.TurnEnd(turn, reason, detail))
                 _status.value = AgentStatus.IDLE
             }
         }
+    }
+
+    /** Provider and model of each request of the running turn (the prompt went there), in order. */
+    private val turnModels = mutableListOf<LlmCallConfig>()
+
+    /** Logs the turn's privacy receipt; a failing receipt hook never fails the turn. */
+    private suspend fun appendReceipt(turn: Int) {
+        val receipt = try {
+            ctx.run(Hooks.TurnReceipt, TurnReceiptInput(this, turn)) { TurnReceipts.base(log.entries.value, it.turn, turnModels.toList()) }
+        } catch (_: Throwable) {
+            TurnReceipts.base(log.entries.value, turn, turnModels.toList())
+        }
+        log.append(receipt)
     }
 
     private enum class StepOutcome { CONTINUE, IDLE, CONCLUDED, MAX_TOKENS }
@@ -371,6 +401,7 @@ class Agent(
         while (true) {
             acc = StreamAccumulator(turn, step, nanoTime())
             val call = LlmCall(callConfig, deriveMessages(log.entries.value), schemas, sessionId = id)
+            turnModels += callConfig
             try {
                 streamOnce(adapter.provider, call, acc)
                 if (acc.isEmpty()) throw LlmException(LlmFailure(LlmErrorCode.EMPTY_RESPONSE, "The model returned an empty response"))
@@ -408,6 +439,8 @@ class Agent(
         routeNotice = null
 
         val calls = acc.completedCalls(step)
+        // An on-device stand-in answered instead of the requested model.
+        acc.servedBy?.let { turnModels += callConfig.copy(model = it) }
         log.append(
             SessionEvent.AssistantMessage(
                 turn = turn,

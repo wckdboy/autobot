@@ -109,6 +109,7 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.providers.remote.ModelLists
 import dev.wckdboy.autobot.shared.session.NoticeKind
+import dev.wckdboy.autobot.shared.session.Receipt
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.ToolState
 import java.util.Locale
@@ -176,6 +177,7 @@ fun ChatScreen(
 ) {
     var showModels by rememberSaveable { mutableStateOf(false) }
     var showSession by rememberSaveable { mutableStateOf(false) }
+    var openReceipt by remember { mutableStateOf<Receipt?>(null) }
     val listState = rememberLazyListState()
     val newest = state.items.lastOrNull()?.key to (state.live != null)
     LaunchedEffect(newest) {
@@ -232,7 +234,9 @@ fun ChatScreen(
                                 if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
                                 if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
                             }
-                            is SessionItem.Assistant -> AssistantMessage(item, speaking = state.speakingKey == item.key) { actions.speak(item.key, item.text) }
+                            is SessionItem.Assistant -> AssistantMessage(item, speaking = state.speakingKey == item.key, onReceipt = { openReceipt = it }) {
+                                actions.speak(item.key, item.text)
+                            }
                             is SessionItem.Tool -> {
                                 val approval = state.approvals[item.callId]
                                 if (approval != null) {
@@ -279,6 +283,7 @@ fun ChatScreen(
             onRefreshModels = actions::refreshModels,
         )
     }
+    openReceipt?.let { ReceiptSheet(it) { openReceipt = null } }
     if (showSession) {
         SessionSheet(
             state = state,
@@ -319,7 +324,7 @@ private fun FollowUp(text: String) {
 }
 
 @Composable
-private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onSpeak: () -> Unit) {
+private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onReceipt: (Receipt) -> Unit, onSpeak: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item.reasoning?.takeIf { it.isNotEmpty() }?.let { ThinkingDisclosure(reasoning = it) }
         if (item.text.isNotEmpty()) {
@@ -343,6 +348,7 @@ private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onS
                 },
             )
         }
+        ReceiptLine(item.receipt, onReceipt)
     }
 }
 

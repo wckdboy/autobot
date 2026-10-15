@@ -32,6 +32,7 @@ import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.WebSearchRepository
 import dev.wckdboy.autobot.core.data.toSpec
+import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.providers.remote.ChatRoutes
@@ -43,6 +44,8 @@ import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
 import dev.wckdboy.autobot.shared.search.SearchProvider
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
+import dev.wckdboy.autobot.shared.session.ReceiptProvider
+import dev.wckdboy.autobot.shared.session.receiptsPlugin
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -110,6 +113,7 @@ class AgentHost @Inject constructor(
     settings: SettingsRepository,
     search: WebSearchRepository,
     clients: HttpClientFactory,
+    audit: AuditLog,
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
     val workspace = Workspace(File(context.filesDir, WORKSPACE_DIR).toOkioPath())
@@ -164,6 +168,12 @@ class AgentHost @Inject constructor(
                 },
                 eligible = { cfg -> providers.getProvider(cfg.provider)?.let { ModelDataPolicies.autoPickable(it.preset().id, cfg.model) } ?: true },
             ),
+        )
+        // Each turn's privacy receipt: the traffic the audit log tied to it, models and policies.
+        root.plugin(
+            receiptsPlugin(audit) { id ->
+                providers.getProvider(id)?.let { ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset().id, it.preset().privacyNote) }
+            },
         )
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))

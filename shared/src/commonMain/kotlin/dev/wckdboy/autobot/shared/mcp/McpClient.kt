@@ -429,7 +429,7 @@ class McpClient(
     private suspend fun exchange(spec: HttpRequestSpec, expectId: Long?, captureSession: Boolean = false, resuming: Boolean = false): Outcome {
         val wires = Channel<Wire>(Channel.UNLIMITED)
         val call = transport.send(
-            spec,
+            spec.traced(),
             object : HttpSink {
                 override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
                     wires.trySend(Wire.Head(status, headers, errorBody))

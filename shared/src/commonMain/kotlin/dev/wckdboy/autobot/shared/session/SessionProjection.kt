@@ -41,6 +41,8 @@ sealed interface SessionItem {
         val interrupted: Boolean,
         val outputTokens: Int?,
         val model: String?,
+        /** The turn's privacy receipt, on the turn's last answer once the turn ended. */
+        val receipt: Receipt? = null,
     ) : SessionItem
 
     @Serializable
@@ -93,6 +95,8 @@ fun projectSession(
     var todos: List<TodoItem> = emptyList()
     var usage: TokenUsage? = null
     var window: Int? = null
+    // The current turn's latest answer, which carries the turn's receipt.
+    var lastAnswer: Int? = null
 
     for (entry in entries) {
         val key = "e${entry.seq}"
@@ -105,6 +109,7 @@ fun projectSession(
             is SessionEvent.AssistantMessage -> {
                 e.fallback?.let { why -> items += SessionItem.Notice("${key}f", fallbackNotice(e.model.orEmpty(), why), NoticeKind.WARN) }
                 if (e.text.isNotBlank() || !e.reasoning.isNullOrBlank()) {
+                    lastAnswer = items.size
                     items += SessionItem.Assistant(key, e.text, e.reasoning, e.interrupted, e.usage?.outputTokens, e.model)
                 }
                 e.usage?.let { usage = it }
@@ -146,6 +151,10 @@ fun projectSession(
                         listOf(name, summary).filter { it.isNotBlank() }.joinToString(" · ", prefix = "$mark ")
                     },
                 )
+            }
+            is SessionEvent.TurnStart -> lastAnswer = null
+            is SessionEvent.TurnReceipt -> lastAnswer?.let { i ->
+                items[i] = (items[i] as SessionItem.Assistant).copy(receipt = Receipts.summarize(e))
             }
             is SessionEvent.TodoWrite -> todos = e.todos
             is SessionEvent.TurnEnd -> when (e.reason) {

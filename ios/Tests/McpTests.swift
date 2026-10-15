@@ -187,7 +187,7 @@ struct McpTransportTests {
     }
 
     private func spec(_ body: String, method: String = "POST", headers: [String: String] = [:]) -> HttpRequestSpec {
-        HttpRequestSpec(method: method, url: "https://mcp.example.com/mcp", headers: headers, body: body, tag: "mcp:Stub", route: "INHERIT", maxBytes: 1 << 20)
+        HttpRequestSpec(method: method, url: "https://mcp.example.com/mcp", headers: headers, body: body, tag: "mcp:Stub", route: "INHERIT", maxBytes: 1 << 20, trace: nil)
     }
 
     @Test func offlineBlocksBeforeAnyRequest() async {
@@ -241,6 +241,7 @@ struct McpTransportTests {
             store: SessionStoreHost(store: SessionStore(store: store)),
             images: nil,
             mcpTokens: McpTokenSourceHost(snapshots: snapshots, secrets: SecretStore()),
+            audit: factory.auditLog.shared,
         )
         let server = McpServer(id: "s", name: "Stub", url: "https://mcp.example.com/mcp")
         let (ok, message) = await withCheckedContinuation { continuation in
