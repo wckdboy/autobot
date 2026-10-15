@@ -16,6 +16,7 @@ private let notices: [Notice] = [
     Notice(id: "whisper", title: "whisper.cpp", detail: "On-device dictation · Copyright (c) 2023-2026 The ggml authors", license: "MIT", file: "whisper.cpp-MIT"),
     Notice(id: "mlsd", title: "ml-stable-diffusion", detail: "Core ML Stable Diffusion on the Neural Engine · Copyright (c) 2024 Apple Inc.", license: "MIT", file: "ml-stable-diffusion-MIT"),
     Notice(id: "mlsd-ack", title: "ml-stable-diffusion acknowledgements", detail: "Third-party notices of the Core ML pipeline", license: "various", file: "ml-stable-diffusion-ACKNOWLEDGEMENTS"),
+    Notice(id: "stable-audio", title: "Stable Audio Open Small", detail: "Powered by Stability AI · on-device text to audio (downloaded, not bundled) · This Stability AI Model is licensed under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved", license: "Stability AI Community", file: "StableAudio-Stability-AI-Community"),
     Notice(id: "kotlin", title: "Kotlin, kotlinx.coroutines, kotlinx.serialization, Okio", detail: "Shared agent runtime (Kotlin Multiplatform) · JetBrains s.r.o., Square, Inc. and contributors", license: "Apache-2.0", file: "Apache-2.0"),
     Notice(id: "antonio", title: "Antonio", detail: "Display typeface · Vernon Adams", license: "OFL-1.1", file: "Antonio-OFL"),
     Notice(id: "jbmono", title: "JetBrains Mono", detail: "Label and code typeface · JetBrains", license: "OFL-1.1", file: "JetBrainsMono-OFL"),

@@ -16,6 +16,9 @@ enum class ModelKind(val label: String) {
 
     /** A neural voice that reads text aloud (Kokoro). */
     VOICE("voice"),
+
+    /** Text to music and sound (Stable Audio Open Small), the Studio's audio room. */
+    AUDIO("audio"),
     OTHER("other"),
 }
 
@@ -254,12 +257,12 @@ fun formatOf(name: String, owner: String? = null): ModelFormat {
 /**
  * The built-in engine of [platform] that can run [kind] in [format] (GGUF is used by both Android
  * engines; sd.cpp and QNN formats have no engine on iOS, Core ML none on Android). Voices run on
- * ONNX Runtime on Android and on Core ML on iOS.
+ * ONNX Runtime on Android and on Core ML on iOS, and so does text-to-audio.
  */
 fun engineFor(kind: ModelKind, format: ModelFormat, platform: AppPlatform = HostPlatform): EngineKind {
     val engine = when {
         kind == ModelKind.SPEECH -> if (format == ModelFormat.GGML) EngineKind.WHISPER else EngineKind.NONE
-        kind == ModelKind.VOICE -> when (format) {
+        kind == ModelKind.VOICE || kind == ModelKind.AUDIO -> when (format) {
             ModelFormat.ONNX -> EngineKind.ONNX
             ModelFormat.COREML -> EngineKind.COREML
             else -> EngineKind.NONE
