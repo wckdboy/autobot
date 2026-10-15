@@ -189,8 +189,9 @@ class ProvidersViewModel @Inject constructor(
         picker.value = ""
     }
 
+    /** The picker's search text (pushed once typing pauses; ignored once the picker closed). */
     fun search(query: String) {
-        picker.value = query
+        picker.update { if (it == null) null else query }
     }
 
     fun dismissPicker() {

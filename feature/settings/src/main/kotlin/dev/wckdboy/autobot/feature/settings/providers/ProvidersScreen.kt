@@ -39,6 +39,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,6 +79,9 @@ import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.PresetGroup
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.RemoteModel
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 
 @Composable
 fun ProvidersRoute(onBack: () -> Unit, viewModel: ProvidersViewModel = hiltViewModel()) {
@@ -212,16 +218,20 @@ private fun deleteMessage(row: ProviderRow, providers: List<ProviderRow>): Strin
 }
 
 /** "Add provider": every preset, searchable, grouped Cloud · Open-model hosts · Local servers · This phone. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
-private fun PresetPickerSheet(query: String, actions: ProvidersActions) {
+private fun PresetPickerSheet(initialQuery: String, actions: ProvidersActions) {
+    // The search text lives in the sheet: filtering ~100 presets is local, and the screen's state
+    // (which only remembers the text) hears about it once typing pauses.
+    var query by rememberSaveable { mutableStateOf(initialQuery) }
+    LaunchedEffect(Unit) { snapshotFlow { query }.drop(1).debounce(300).collect(actions::search) }
+    val groups = remember(query) { ProviderPresets.search(query) }
     ModalBottomSheet(onDismissRequest = actions::dismissPicker, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).imePadding().padding(horizontal = 16.dp)) {
             SectionLabel("add provider")
             Spacer(Modifier.height(8.dp))
-            ConsoleTextField(query, actions::search, Modifier.fillMaxWidth(), placeholder = "Search providers or hosts", singleLine = true)
+            ConsoleTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = "Search providers or hosts", singleLine = true)
             Spacer(Modifier.height(8.dp))
-            val groups = ProviderPresets.search(query)
             LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (groups.isEmpty()) item { MicroLabel("no match · try “Other OpenAI-compatible”", Modifier.padding(vertical = 16.dp)) }
                 groups.forEach { (group, presets) ->

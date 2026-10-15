@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.feature.home
 
 import android.graphics.BitmapFactory
 import android.util.Log
+import android.util.LruCache
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -38,6 +39,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -93,6 +98,7 @@ fun defaultChatTarget(providers: List<Provider>, models: List<InstalledModel>): 
     return providers.firstOrNull { it.kind != ProviderKind.LOCAL }?.let { it to it.defaultModel }
 }
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class RunViewModel @Inject constructor(
     private val conversations: ConversationRepository,
@@ -120,13 +126,22 @@ class RunViewModel @Inject constructor(
 
     private data class Inputs(val providers: List<Provider>, val models: List<InstalledModel>, val backends: List<DiffusionBackend>, val defaultBackend: String?)
 
+    /** Whether an image job runs: not every step (or preview) of it. */
+    private val generating = generator.state.map { it is GenerationState.Running }.distinctUntilChanged()
+
+    /** Providers of the sessions with a turn in progress (a handful of lookups, only when that set changes). */
+    private val runningProviders = host.running.mapLatest { ids ->
+        ids.size to ids.mapNotNullTo(HashSet()) { id -> runCatching { conversations.getConversation(id)?.providerId }.getOrNull() }
+    }
+
     val uiState: StateFlow<RunUiState> = combine(
         inputs,
-        combine(conversations.observeConversations(), gallery.observe()) { c, g -> c to g },
-        host.running,
-        generator.state,
+        // Only the newest few rows: the card shows 8 of them (LIMIT in SQL, not whole tables).
+        combine(conversations.observeRecentConversations(RECENT), gallery.observeRecent(RECENT)) { c, g -> c to g },
+        runningProviders,
+        generating,
         device,
-    ) { input, (convs, images), running, gen, profile ->
+    ) { input, (convs, images), (runningCount, busyProviders), genRunning, profile ->
         val models = input.models
         val titles = models.associate { it.id to it.title }
         val local = input.providers.firstOrNull { it.kind == ProviderKind.LOCAL }
@@ -151,7 +166,7 @@ class RunViewModel @Inject constructor(
 
         val providerById = input.providers.associateBy { it.id }
         val recent = (
-            convs.filterNot { it.archived }.take(12).map { c ->
+            convs.map { c ->
                 RecentRun(
                     key = "c-${c.id}",
                     title = c.title,
@@ -160,7 +175,7 @@ class RunViewModel @Inject constructor(
                     time = c.updatedAt,
                     conversationId = c.id,
                 )
-            } + images.take(12).map { g ->
+            } + images.map { g ->
                 RecentRun(
                     key = "g-${g.id}",
                     title = g.prompt.ifBlank { "image" },
@@ -172,8 +187,7 @@ class RunViewModel @Inject constructor(
             }
         ).sortedByDescending { it.time }.take(8)
 
-        val genRunning = gen is GenerationState.Running
-        val localBusy = genRunning || running.any { id -> convs.firstOrNull { it.id == id }?.providerId == local?.id }
+        val localBusy = genRunning || (local != null && local.id in busyProviders)
         RunUiState(
             status = buildString {
                 append("this phone")
@@ -182,7 +196,7 @@ class RunViewModel @Inject constructor(
                 profile?.let { p -> append(" · ").append(formatBytes(p.freeStorageBytes)).append(" free") }
             },
             busy = localBusy,
-            live = running.size + if (genRunning) 1 else 0,
+            live = runningCount + if (genRunning) 1 else 0,
             chat = chat,
             agent = agent,
             code = code,
@@ -192,7 +206,7 @@ class RunViewModel @Inject constructor(
             recent = recent,
             hasAnything = input.providers.isNotEmpty() || models.isNotEmpty(),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RunUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RunUiState())
 
     /** Starts a session for [mode] on its target; tools on for agent and code. */
     fun start(mode: RunMode) {
@@ -211,9 +225,13 @@ class RunViewModel @Inject constructor(
         }
     }
 
+    private val thumbs = LruCache<String, ImageBitmap>(THUMB_CACHE)
+
+    /** A recent image's thumbnail, decoded at most [THUMB_PX] wide and kept for the screen's lifetime. */
     suspend fun thumbnail(galleryId: String): ImageBitmap? {
+        thumbs.get(galleryId)?.let { return it }
         val bytes = runCatching { gallery.thumbnail(galleryId) }.getOrNull() ?: return null
-        return withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+        return withContext(Dispatchers.Default) { decodeSampled(bytes, THUMB_PX)?.asImageBitmap() }?.also { thumbs.put(galleryId, it) }
     }
 
     private fun routeOf(p: Provider): Route = when {
@@ -223,9 +241,26 @@ class RunViewModel @Inject constructor(
         else -> Route.CLOUD_API
     }
 
-    private fun isPrivateHost(url: String): Boolean {
-        val host = url.substringAfter("://").substringBefore('/').substringBefore(':')
-        return host.startsWith("192.168.") || host.startsWith("10.") || host.endsWith(".local") || host.endsWith(".lan") ||
-            Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(host) || host.endsWith(".ts.net")
+    internal companion object {
+        /** Rows read per table for the recent list. */
+        const val RECENT = 12
+        private const val THUMB_CACHE = 16
+        private const val THUMB_PX = 256
+        private val PRIVATE_172 = Regex("^172\\.(1[6-9]|2\\d|3[01])\\.")
+
+        fun isPrivateHost(url: String): Boolean {
+            val host = url.substringAfter("://").substringBefore('/').substringBefore(':')
+            return host.startsWith("192.168.") || host.startsWith("10.") || host.endsWith(".local") || host.endsWith(".lan") ||
+                PRIVATE_172.containsMatchIn(host) || host.endsWith(".ts.net")
+        }
+
+        /** Decodes [bytes] subsampled (powers of two) so the image is about [maxPx] on its longer side. */
+        fun decodeSampled(bytes: ByteArray, maxPx: Int): android.graphics.Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxPx) sample *= 2
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+        }
     }
 }

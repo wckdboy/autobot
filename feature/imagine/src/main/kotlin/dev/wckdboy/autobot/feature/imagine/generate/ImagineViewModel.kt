@@ -22,6 +22,7 @@ import dev.wckdboy.autobot.core.diffusion.EngineCatalog
 import dev.wckdboy.autobot.core.diffusion.LoraRef
 import dev.wckdboy.autobot.core.diffusion.PromptSyntax
 import dev.wckdboy.autobot.core.models.EngineKind
+import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.feature.imagine.mask.MaskRasterizer
@@ -41,6 +42,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -164,29 +166,26 @@ class ImagineViewModel @Inject constructor(
         }
     }
 
+    /** Engine capabilities per backend: creating an engine touches files, so not on every keystroke. */
+    private val capabilities = CapabilityCache { engines.create(it).capabilities }
+
+    /** The chip row: rebuilt when backends, installed models or a catalog change, not per keystroke or step. */
+    private val chips = combine(backendsRepo.backends, library.models, local.map { it.catalog }.distinctUntilChanged()) { backends, models, catalog ->
+        buildChips(backends, models, catalog)
+    }.distinctUntilChanged()
+
     val uiState: StateFlow<ImagineUiState> = combine(
         backendsRepo.backends,
         backendsRepo.defaultBackendId,
         local,
         combine(running, results, generator.lastError) { r, res, e -> Triple(r, res, e) },
-        combine(backendsRepo.lastRequest, library.models) { s, m -> s to m },
-    ) { backends, defaultId, l, (run, res, genError), (stored, models) ->
-        val onDeviceModels = models.filter { it.isReady && it.kind == ModelKind.IMAGE && (it.engine == EngineKind.DIFFUSION || it.engine == EngineKind.NPU) }
-        val chips = backends.flatMap { b ->
-            when {
-                b.kind == BackendKind.ON_DEVICE -> onDeviceModels.map { m ->
-                    val accel = when (m.manifest.npu?.runtime) { "qnn" -> "npu"; "mnn" -> "gpu"; else -> null }
-                    ModelChip(b.id, m.id, m.title + (accel?.let { " · $it" } ?: ""), onDevice = true, accelerator = accel)
-                }
-                l.catalog[b.id]?.models.isNullOrEmpty() -> listOf(ModelChip(b.id, null, b.name, onDevice = false))
-                else -> l.catalog[b.id]!!.models.take(6).map { m -> ModelChip(b.id, m, shortModelName(m) + " · " + b.name, onDevice = false) }
-            }
-        }
+        combine(backendsRepo.lastRequest, chips) { s, c -> s to c },
+    ) { backends, defaultId, l, (run, res, genError), (stored, chips) ->
         val backend = backends.firstOrNull { it.id == (l.selectedBackendId ?: defaultId) } ?: backends.firstOrNull()
         ImagineUiState(
             backends = backends,
             backend = backend,
-            capabilities = backend?.let { engines.create(it).capabilities },
+            capabilities = backend?.let(capabilities::get),
             catalog = backend?.let { l.catalog[it.id] } ?: EngineCatalog(),
             catalogStatus = l.catalogStatus,
             catalogError = l.catalogError,
@@ -200,7 +199,7 @@ class ImagineViewModel @Inject constructor(
             loaded = true,
             chips = chips,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImagineUiState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImagineUiState())
 
     /** Picks a backend + model; on-device models bring their recommended settings. */
     fun selectChip(chip: ModelChip) {
@@ -419,6 +418,37 @@ class ImagineViewModel @Inject constructor(
         private const val MAX_INIT_SIDE = 2048
         const val MAX_BATCH = 8
         const val MAX_SEED = 4_294_967_295L
+    }
+}
+
+/** The studio's chip row: on-device image models, else each remote backend's first catalog models (or the backend itself). */
+internal fun buildChips(backends: List<DiffusionBackend>, models: List<InstalledModel>, catalog: Map<String, EngineCatalog>): List<ModelChip> {
+    val onDeviceModels = models.filter { it.isReady && it.kind == ModelKind.IMAGE && (it.engine == EngineKind.DIFFUSION || it.engine == EngineKind.NPU) }
+    return backends.flatMap { b ->
+        val listed = catalog[b.id]?.models
+        when {
+            b.kind == BackendKind.ON_DEVICE -> onDeviceModels.map { m ->
+                val accel = when (m.manifest.npu?.runtime) { "qnn" -> "npu"; "mnn" -> "gpu"; else -> null }
+                ModelChip(b.id, m.id, m.title + (accel?.let { " · $it" } ?: ""), onDevice = true, accelerator = accel)
+            }
+            listed.isNullOrEmpty() -> listOf(ModelChip(b.id, null, b.name, onDevice = false))
+            else -> listed.take(6).map { m -> ModelChip(b.id, m, shortModelName(m) + " · " + b.name, onDevice = false) }
+        }
+    }
+}
+
+/** Capabilities per backend (by value: an edited backend is a new key), created once each. */
+internal class CapabilityCache(private val create: (DiffusionBackend) -> EngineCapabilities) {
+    private val cache = java.util.concurrent.ConcurrentHashMap<DiffusionBackend, EngineCapabilities>()
+
+    fun get(backend: DiffusionBackend): EngineCapabilities {
+        cache[backend]?.let { return it }
+        if (cache.size > MAX) cache.clear()
+        return create(backend).also { cache[backend] = it }
+    }
+
+    private companion object {
+        const val MAX = 16
     }
 }
 
