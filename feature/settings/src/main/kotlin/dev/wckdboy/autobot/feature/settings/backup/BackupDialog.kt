@@ -63,7 +63,7 @@ class BackupViewModel @Inject constructor(
         val added = context.contentResolver.openInputStream(uri)!!.use { input ->
             backups.import(input, passphrase) { _state.value = BackupState.Working(it) }
         }
-        "Imported ${added.conversations} sessions, ${added.images} images, ${added.providers} providers. " +
+        "Imported ${added.conversations} sessions, ${added.images} images, ${added.providers} providers, ${added.memories} memory notes. " +
             "Add API keys again under Model providers."
     }
 

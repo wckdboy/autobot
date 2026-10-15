@@ -10,6 +10,7 @@ import dev.wckdboy.autobot.core.data.model.BenchmarkRow
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.McpServer
+import dev.wckdboy.autobot.core.data.model.MemoryNoteRow
 import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
@@ -20,10 +21,17 @@ import javax.inject.Singleton
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
-    entities = [Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class, BenchmarkRow::class, McpServer::class],
-    version = 5,
+    entities = [
+        Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class,
+        BenchmarkRow::class, McpServer::class, MemoryNoteRow::class,
+    ],
+    version = 6,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5)],
+    // 4 → 5 adds `mcp_servers`, 5 → 6 adds `memory_notes` (local memory); existing tables are untouched.
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
+        AutoMigration(from = 5, to = 6),
+    ],
 )
 abstract class AutobotDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
@@ -34,6 +42,7 @@ abstract class AutobotDatabase : RoomDatabase() {
     abstract fun modelDao(): ModelDao
     abstract fun benchmarkDao(): BenchmarkDao
     abstract fun mcpServerDao(): McpServerDao
+    abstract fun memoryDao(): MemoryDao
 
     companion object {
         const val NAME = "autobot.db"

@@ -24,6 +24,7 @@ object ContextOrder {
     const val PERMISSION_POLICY = 110
     const val MCP_SERVERS = 120
     const val SKILLS = 130
+    const val MEMORY = 135
     const val TIME = 140
 }
 

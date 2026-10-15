@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.core.data.settings
 
 import dev.wckdboy.autobot.core.network.NetworkMode
+import dev.wckdboy.autobot.core.network.RouteOverride
+import dev.wckdboy.autobot.shared.search.SearchProvider
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -17,6 +19,10 @@ class SettingsSchemaTest {
             lockTimeoutMillis = 300_000L,
             incognitoByDefault = true,
             onboarded = true,
+            memoryEnabled = true,
+            searchProvider = SearchProvider.SEARXNG,
+            searchBaseUrl = "https://search.example.org",
+            searchRoute = RouteOverride.TOR,
         )
         assertEquals(settings, SettingsSchema.decode(SettingsSchema.encode(settings)))
     }
@@ -29,8 +35,14 @@ class SettingsSchemaTest {
                 SettingsSchema.NETWORK_MODE to "tor:nohost",
                 SettingsSchema.APP_LOCK to "maybe",
                 SettingsSchema.LOCK_TIMEOUT to "999999999",
+                SettingsSchema.MEMORY_ENABLED to "yes",
+                SettingsSchema.SEARCH_PROVIDER to "GOOGLE",
+                SettingsSchema.SEARCH_ROUTE to "VPN",
             ),
         )
+        assertEquals(false, decoded.memoryEnabled)
+        assertEquals(SearchProvider.NONE, decoded.searchProvider)
+        assertEquals(RouteOverride.INHERIT, decoded.searchRoute)
         assertEquals(ThemeMode.DARK, decoded.themeMode)
         assertEquals(NetworkMode.Offline, decoded.networkMode)
         assertEquals(true, decoded.appLockEnabled)

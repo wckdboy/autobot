@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.shared
 
+import dev.wckdboy.autobot.agent.core.Disposable
 import dev.wckdboy.autobot.agent.core.Harness
 import dev.wckdboy.autobot.agent.core.Hooks
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
@@ -31,6 +32,12 @@ import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerSpec
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
+import dev.wckdboy.autobot.shared.memory.BridgedMemoryStore
+import dev.wckdboy.autobot.shared.memory.Memory
+import dev.wckdboy.autobot.shared.memory.MemoryStoreBridge
+import dev.wckdboy.autobot.shared.memory.memoryPlugin
+import dev.wckdboy.autobot.shared.search.WebSearchSource
+import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.projectSession
 import kotlinx.coroutines.CompletableDeferred
@@ -48,8 +55,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import okio.Path.Companion.toPath
 
@@ -383,6 +390,24 @@ class AgentBridge(
      */
     fun registerTool(tool: HostTool) {
         harness.root.plugin(toolsPlugin("host:${tool.name}", HostToolDefinition(tool)))
+    }
+
+    private var memoryHandle: Disposable? = null
+    private var searchHandle: Disposable? = null
+
+    /**
+     * Local memory on ([store] = the host's encrypted notes) or off (null): the memory tools and
+     * the recall context come and go with it, in every session.
+     */
+    fun setMemory(store: MemoryStoreBridge?) {
+        memoryHandle?.dispose()
+        memoryHandle = store?.let { harness.root.plugin(memoryPlugin(Memory(BridgedMemoryStore(it)))) }
+    }
+
+    /** `web_search` on (the host's current search settings, read per call) or off (null). */
+    fun setWebSearch(source: WebSearchSource?) {
+        searchHandle?.dispose()
+        searchHandle = source?.let { s -> harness.root.plugin(webSearchPlugin(transport) { withContext(IoDispatcher) { s.config() } }) }
     }
 
     /** Skills found in the workspace, as `name: description` lines. */

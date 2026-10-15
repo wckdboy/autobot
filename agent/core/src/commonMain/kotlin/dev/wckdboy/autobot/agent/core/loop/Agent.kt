@@ -127,6 +127,14 @@ class Agent(
     /** Tools the user allowed "for this session" at an approval prompt. */
     val sessionGrants: MutableSet<String> = ConcurrentSet()
 
+    /**
+     * The user messages that opened the current turn, set before its prompt contexts render, so
+     * a context can depend on the request (e.g. recalling memory notes relevant to it).
+     */
+    @kotlin.concurrent.Volatile
+    var turnInput: List<SessionEvent.UserMessage> = emptyList()
+        private set
+
     private val inboxLock = Lock()
     private val nextTurn = ArrayDeque<SessionEvent.UserMessage>()
     private val nextStep = ArrayDeque<SessionEvent.UserMessage>()
@@ -224,6 +232,7 @@ class Agent(
         try {
             log.append(SessionEvent.TurnStart(turn))
             val claimed = claimTurnInput()
+            turnInput = claimed
             logChangedContexts()
             log.appendAll(claimed)
             if (claimed.isEmpty()) return

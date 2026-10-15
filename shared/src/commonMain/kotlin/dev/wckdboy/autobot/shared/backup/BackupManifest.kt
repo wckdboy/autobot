@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.shared.backup
 
+import dev.wckdboy.autobot.shared.memory.MemoryNote
 import kotlinx.serialization.Serializable
 
 /**
@@ -19,6 +20,8 @@ class BackupManifest(
     val conversations: List<BackupConversation> = emptyList(),
     val gallery: List<BackupImage> = emptyList(),
     val attachments: List<String> = emptyList(),
+    /** Local memory notes (absent in exports made before 1.4, which import with none). */
+    val memory: List<MemoryNote> = emptyList(),
 ) {
     companion object {
         fun sessionEntry(conversationId: String) = "sessions/$conversationId.jsonl"

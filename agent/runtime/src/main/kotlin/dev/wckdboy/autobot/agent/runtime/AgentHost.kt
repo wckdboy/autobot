@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.agent.runtime
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.wckdboy.autobot.agent.core.Disposable
 import dev.wckdboy.autobot.agent.core.Harness
 import dev.wckdboy.autobot.agent.core.Hooks
 import dev.wckdboy.autobot.agent.core.Plugin
@@ -21,29 +22,38 @@ import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.McpServerRepository
+import dev.wckdboy.autobot.core.data.MemoryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.MessageRole
+import dev.wckdboy.autobot.core.data.settings.SettingsRepository
+import dev.wckdboy.autobot.core.data.settings.WebSearchRepository
 import dev.wckdboy.autobot.core.data.toSpec
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
+import dev.wckdboy.autobot.shared.memory.memoryPlugin
+import dev.wckdboy.autobot.shared.search.SearchProvider
+import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import java.io.File
-import okio.Path.Companion.toOkioPath
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okio.Path.Companion.toOkioPath
 
 /** Lets other modules (image generation, …) add plugins to the harness via Hilt multibinding. */
 fun interface AgentPluginProvider {
@@ -87,6 +97,9 @@ class AgentHost @Inject constructor(
     private val store: RoutingSessionStore,
     private val attachments: AttachmentRepository,
     mcpServers: McpServerRepository,
+    memory: MemoryRepository,
+    settings: SettingsRepository,
+    search: WebSearchRepository,
     clients: HttpClientFactory,
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
@@ -132,6 +145,12 @@ class AgentHost @Inject constructor(
         root.plugin(mcp.plugin)
         contributions.forEach { root.plugin(it.plugin()) }
 
+        // Opt-in features follow their settings: memory while switched on, web search while a
+        // provider is chosen. Each plugin brings and takes away its tools and contexts.
+        val searchTransport = OkHttpTransport(clients)
+        toggle(settings.settings.map { it.memoryEnabled }) { memoryPlugin(memory.memory) }
+        toggle(settings.settings.map { it.searchProvider != SearchProvider.NONE }) { webSearchPlugin(searchTransport) { search.config() } }
+
         root.intercept(Hooks.ApprovalRequest) { request, _ ->
             await(
                 Interaction.Approval(
@@ -143,6 +162,16 @@ class AgentHost @Inject constructor(
             await(Interaction.Question(request.agent.id, request.callId, request.question, CompletableDeferred()))
         }
         scope.launch { mcpServers.observeServers().collect { list -> mcp.update(list.map { it.toSpec() }) } }
+    }
+
+    private fun toggle(enabled: Flow<Boolean>, plugin: () -> Plugin) {
+        scope.launch {
+            var handle: Disposable? = null
+            enabled.distinctUntilChanged().collect { on ->
+                handle?.dispose()
+                handle = if (on) harness.root.plugin(plugin()) else null
+            }
+        }
     }
 
     private suspend fun <T> await(interaction: Interaction): T {

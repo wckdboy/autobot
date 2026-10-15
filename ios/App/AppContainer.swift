@@ -31,6 +31,7 @@ final class AppContainer {
     let accounts: ModelAccounts
     let downloader: ModelDownloader
     let backends: DiffusionBackendRepository
+    let memory: MemoryRepository
 
     // Engines, providers, agent
     let llm = LocalLlm()
@@ -43,6 +44,9 @@ final class AppContainer {
     let sessions: SessionStore
     #if canImport(AutobotShared)
     let snapshots = HostSnapshots()
+    @ObservationIgnored private let searchSource: WebSearchSourceHost
+    @ObservationIgnored private var memoryOn = false
+    @ObservationIgnored private var searchOn = false
     #endif
 
     private(set) var dataLoaded = false
@@ -63,11 +67,13 @@ final class AppContainer {
         accounts = ModelAccounts(preferences: preferences, secrets: secrets)
         downloader = ModelDownloader(library: library, clients: clients, accounts: accounts)
         backends = DiffusionBackendRepository(preferences: preferences)
+        memory = MemoryRepository(store: store)
         providerFactory = ProviderFactory(clients: clients, providers: providers, library: library, compute: compute, llm: llm)
         engines = DiffusionEngineFactory(clients: clients, llm: llm)
         generator = ImageGenerator(engines: engines, gallery: gallery, backends: backends, library: library)
         sessions = SessionStore(store: store)
         #if canImport(AutobotShared)
+        searchSource = WebSearchSourceHost(secrets: secrets)
         let shared = SharedAgentRuntime(
             conversations: conversations, providers: providers, store: sessions, clients: clients, llm: llm,
             attachments: attachments, secrets: secrets, snapshots: snapshots,
@@ -91,7 +97,25 @@ final class AppContainer {
 
         providers.onChange = { [weak self] list in self?.providersChanged(list) }
         mcpServers.onChange = { [weak self] list in self?.mcpServersChanged(list) }
+        settings.onChange = { [weak self] s in self?.agentFeaturesChanged(s) }
+        agentFeaturesChanged(settings.settings)
         library.onChange = { [weak self] in self?.modelsChanged() }
+    }
+
+    /// Opt-in agent features follow settings: memory while on, web search while a provider is set.
+    private func agentFeaturesChanged(_ s: AppSettings) {
+        #if canImport(AutobotShared)
+        guard let shared = agent as? SharedAgentRuntime else { return }
+        searchSource.update(s)
+        if s.memoryEnabled != memoryOn {
+            memoryOn = s.memoryEnabled
+            shared.setMemory(memoryOn ? memory.host : nil)
+        }
+        if s.webSearchOn != searchOn {
+            searchOn = s.webSearchOn
+            shared.setWebSearch(searchOn ? searchSource : nil)
+        }
+        #endif
     }
 
     private func providersChanged(_ list: [Provider]) {
@@ -130,6 +154,7 @@ final class AppContainer {
         providers.load()
         mcpServers.load()
         gallery.load()
+        memory.load()
         library.load()
         compute.load()
         downloader.recoverAfterRestart()

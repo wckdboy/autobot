@@ -6,6 +6,7 @@ struct SettingsScreen: View {
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
     @State private var showBackup = false
+    @State private var showSearch = false
 
     var body: some View {
         let settings = app.settings.settings
@@ -18,8 +19,21 @@ struct SettingsScreen: View {
                     NavigationRow(title: "MCP servers", subtitle: "Remote tools for agent sessions, each call approved") { nav.push(.mcpServers) }
                     NavigationRow(title: "Image backends", subtitle: "Diffusion servers: Local Dream host, A1111/Forge, local SSE engines") { nav.push(.imageBackends) }
                     NavigationRow(title: "Privacy Center", subtitle: "Network mode, audit log, panic wipe") { nav.push(.privacyCenter) }
-                    NavigationRow(title: "Export & import", subtitle: "Move sessions and gallery between phones, sealed with a passphrase") { showBackup = true }
+                    NavigationRow(title: "Export & import", subtitle: "Move sessions, gallery and memory between phones, sealed with a passphrase") { showBackup = true }
                     NavigationRow(title: "Licenses", subtitle: "Autobot and the open-source software inside it") { nav.push(.licenses) }
+                    Hairline().padding(.vertical, 8)
+
+                    header("Agent")
+                    SwitchRow(
+                        title: "Memory",
+                        subtitle: "Let the agent recall and save notes, kept encrypted on this phone",
+                        isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
+                    )
+                    NavigationRow(title: "Memory notes", subtitle: "View, search, edit and delete what the agent remembers") { nav.push(.memory) }
+                    NavigationRow(
+                        title: "Web search",
+                        subtitle: settings.webSearchOn ? "\(WebSearchDraft.label(settings.searchProvider)) · queries only, through your route" : "Off · SearXNG or Brave Search",
+                    ) { showSearch = true }
                     Hairline().padding(.vertical, 8)
 
                     header("Appearance")
@@ -78,6 +92,7 @@ struct SettingsScreen: View {
         }
         .background(c.background)
         .sheet(isPresented: $showBackup) { BackupSheet() }
+        .sheet(isPresented: $showSearch) { WebSearchSheet { showSearch = false } }
     }
 
     private func header(_ text: String) -> some View {

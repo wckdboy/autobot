@@ -167,3 +167,17 @@ data class BenchmarkRow(
     val error: String?,
     val createdAt: Long,
 )
+
+/**
+ * A local memory note (see `:shared` `MemoryNote`). [tags] are normalised (no commas), stored
+ * comma-joined. Notes are independent of conversations: deleting a chat keeps what it taught.
+ */
+@Entity(tableName = "memory_notes", indices = [Index("updatedAt")])
+data class MemoryNoteRow(
+    @PrimaryKey val id: String,
+    val text: String,
+    val tags: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val sessionId: String?,
+)

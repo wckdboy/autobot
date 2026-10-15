@@ -19,6 +19,15 @@ struct AppSettings: Codable, Equatable, Sendable {
     var incognitoByDefault = false
     /// The first-run welcome has been dismissed.
     var onboarded = false
+    /// Local memory for the agent (off by default).
+    var memoryEnabled = false
+    /// `SearchProvider` name: `NONE` (web search off), `SEARXNG` or `BRAVE`.
+    var searchProvider = "NONE"
+    /// SearXNG instance URL. The Brave key is in the Keychain (`AppSettings.SEARCH_API_KEY_REF`).
+    var searchBaseUrl = ""
+    var searchRoute: ProviderRouting = .inherit
+
+    var webSearchOn: Bool { searchProvider != "NONE" }
 
     var mode: NetworkMode { NetworkMode.decode(networkMode) }
 
@@ -49,6 +58,10 @@ struct AppSettings: Codable, Equatable, Sendable {
             lockTimeoutMillis: lockTimeoutMillis,
             incognitoByDefault: incognitoByDefault,
             onboarded: onboarded,
+            memoryEnabled: memoryEnabled,
+            searchProvider: SettingsSchema.shared.searchProvider(value: searchProvider),
+            searchBaseUrl: searchBaseUrl,
+            searchRoute: SettingsSchema.shared.searchRoute(value: searchRoute.rawValue),
         )
         return SettingsSchema.shared.encode(settings: shared)
     }
@@ -65,6 +78,10 @@ struct AppSettings: Codable, Equatable, Sendable {
         lockTimeoutMillis = s.lockTimeoutMillis
         incognitoByDefault = s.incognitoByDefault
         onboarded = s.onboarded
+        memoryEnabled = s.memoryEnabled
+        searchProvider = s.searchProvider.name
+        searchBaseUrl = s.searchBaseUrl
+        searchRoute = ProviderRouting(rawValue: s.searchRoute.name) ?? .inherit
     }
 }
 
@@ -83,6 +100,8 @@ final class SettingsStore {
     @ObservationIgnored private let preferences: Preferences
     @ObservationIgnored private let policy: NetworkPolicy
     @ObservationIgnored private let lock: AppLockManager
+    /// Called after every change (keeps the agent's opt-in features in step).
+    @ObservationIgnored var onChange: ((AppSettings) -> Void)?
 
     init(preferences: Preferences, policy: NetworkPolicy, lock: AppLockManager) {
         self.preferences = preferences
@@ -108,6 +127,7 @@ final class SettingsStore {
         settings = next
         preferences.set(Self.key, next.values)
         sync()
+        onChange?(next)
     }
 
     private func sync() {
@@ -125,6 +145,15 @@ final class SettingsStore {
     func setLockTimeoutMillis(_ millis: Int64) { update { $0.lockTimeoutMillis = SettingsSchema.shared.lockTimeout(value: KotlinLong(value: millis)) } }
     func setIncognitoByDefault(_ enabled: Bool) { update { $0.incognitoByDefault = enabled } }
     func setOnboarded() { update { $0.onboarded = true } }
+    func setMemoryEnabled(_ enabled: Bool) { update { $0.memoryEnabled = enabled } }
+
+    func setWebSearch(provider: String, baseUrl: String, route: ProviderRouting) {
+        update {
+            $0.searchProvider = SettingsSchema.shared.searchProvider(value: provider).name
+            $0.searchBaseUrl = baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+            $0.searchRoute = route
+        }
+    }
 }
 
 /// Lock timeout choices: the shared `SettingsSchema.LOCK_TIMEOUTS_MILLIS` (same as Android).

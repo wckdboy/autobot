@@ -49,3 +49,6 @@ data object Accounts : NavKey
 
 @Serializable
 data object Compute : NavKey
+
+@Serializable
+data object Memory : NavKey
