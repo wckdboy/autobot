@@ -75,10 +75,38 @@ enum class ErrorKind {
     HTTP,
 }
 
-/** Outcome of [ChatProvider.testConnection]. */
+/**
+ * Outcome of [ChatProvider.testConnection]. [Success.models] are the chat models found (empty
+ * when the provider has no models endpoint: then [Success.modelCount] is null and nothing was
+ * verified beyond the provider's documented list).
+ */
 sealed interface ConnectionTestResult {
-    data class Success(val modelCount: Int?) : ConnectionTestResult
+    data class Success(val modelCount: Int?, val models: List<RemoteModel> = emptyList()) : ConnectionTestResult {
+        /** `Connected · 42 models · gpt-6-luna, gpt-6-sol, gpt-6.1-sol…` */
+        fun summary(): String = when (modelCount) {
+            null -> "No models endpoint — the key is checked on the first message"
+            else -> buildString {
+                append("Connected · ").append(modelCount).append(if (modelCount == 1) " model" else " models")
+                val first = models.take(PREVIEW).joinToString(", ") { it.id }
+                if (first.isNotEmpty()) append(" · ").append(first)
+                if (models.size > PREVIEW) append("…")
+            }
+        }
+
+        private companion object {
+            const val PREVIEW = 3
+        }
+    }
+
     data class Failure(val kind: ErrorKind, val message: String) : ConnectionTestResult
+
+    companion object {
+        /** A model list as a connection test (the models endpoint is the test). */
+        fun of(result: ModelListResult, hasEndpoint: Boolean = true): ConnectionTestResult = when (result) {
+            is ModelListResult.Success -> Success(if (hasEndpoint) result.models.size else null, result.models)
+            is ModelListResult.Failure -> Failure(result.kind, result.message)
+        }
+    }
 }
 
 /** A remote (or loopback) chat model endpoint. */
@@ -91,4 +119,7 @@ interface ChatProvider {
 
     /** Lightweight authenticated request (`GET /models`) to verify reachability and credentials. */
     suspend fun testConnection(): ConnectionTestResult
+
+    /** The provider's chat models (see [ModelLists]); kill switch, route and audit log apply. */
+    suspend fun listModels(): ModelListResult = ModelListResult.Failure(ErrorKind.BAD_REQUEST, "No model list")
 }

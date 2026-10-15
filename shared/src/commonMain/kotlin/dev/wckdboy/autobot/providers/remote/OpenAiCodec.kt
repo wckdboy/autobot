@@ -14,9 +14,12 @@ import dev.wckdboy.autobot.providers.remote.internal.WireToolCall
 import dev.wckdboy.autobot.shared.SystemFileSystem
 import kotlin.io.encoding.Base64
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -31,11 +34,18 @@ import okio.Path.Companion.toPath
 object OpenAiCodec {
 
     /** Serializes [request] to the OpenAI wire format. Throws on a tool schema that is not a JSON object. */
-    fun encodeRequest(request: ChatRequest, includeUsage: Boolean, fs: FileSystem = SystemFileSystem): String = WireJson.encodeToString(
+    fun encodeRequest(
+        request: ChatRequest,
+        includeUsage: Boolean,
+        fs: FileSystem = SystemFileSystem,
+        reasoningEffort: String? = null,
+        echoExtraContent: Boolean = false,
+    ): String = WireJson.encodeToString(
         WireChatRequest.serializer(),
         WireChatRequest(
             model = request.model,
-            messages = request.messages.map { it.toWire(request.echoReasoning, fs) },
+            messages = request.messages.map { it.toWire(request.echoReasoning, fs, echoExtraContent) },
+            reasoningEffort = reasoningEffort,
             stream = true,
             streamOptions = if (includeUsage) WireStreamOptions() else null,
             temperature = request.temperature,
@@ -48,7 +58,7 @@ object OpenAiCodec {
         ),
     )
 
-    private fun ChatMessage.toWire(echoReasoning: Boolean, fs: FileSystem): WireMessage = WireMessage(
+    private fun ChatMessage.toWire(echoReasoning: Boolean, fs: FileSystem, echoExtraContent: Boolean): WireMessage = WireMessage(
         role = role.name.lowercase(),
         content = when {
             role == ChatRole.ASSISTANT && toolCalls.isNotEmpty() && content.isEmpty() -> null
@@ -66,20 +76,24 @@ object OpenAiCodec {
             else -> JsonPrimitive(content)
         },
         toolCalls = toolCalls.takeIf { it.isNotEmpty() }?.map {
-            WireToolCall(it.id, function = WireFunctionCall(it.name, it.arguments))
+            WireToolCall(
+                ToolCallIds.bare(it.id),
+                function = WireFunctionCall(it.name, it.arguments),
+                extraContent = if (echoExtraContent) ToolCallIds.state(it.id, ToolCallIds.GEMINI_EXTRA) as? JsonObject else null,
+            )
         },
-        toolCallId = toolCallId,
+        toolCallId = toolCallId?.let(ToolCallIds::bare),
         reasoningContent = if (echoReasoning && role == ChatRole.ASSISTANT) reasoning else null,
     )
 
     /** An attached image as a `data:` URL (cloud vision models take images inline). */
-    fun dataUrl(bytes: ByteArray): String {
-        val mime = when {
-            bytes.size > 3 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
-            bytes.size > 3 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() -> "image/webp"
-            else -> "image/jpeg"
-        }
-        return "data:$mime;base64," + Base64.encode(bytes)
+    fun dataUrl(bytes: ByteArray): String = "data:${imageMime(bytes)};base64," + Base64.encode(bytes)
+
+    /** The media type of an attached image (PNG, WebP, else JPEG: attachments are re-encoded to these). */
+    fun imageMime(bytes: ByteArray): String = when {
+        bytes.size > 3 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
+        bytes.size > 3 && bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() -> "image/webp"
+        else -> "image/jpeg"
     }
 
     /** Maps a failed HTTP response (status + up to 16 KiB of body) to a [ChatEvent.Error]. */
@@ -129,12 +143,12 @@ object OpenAiCodec {
  * Feed lines until [done] or an [ChatEvent.Error] comes out, then emit [ChatEvent.Done] yourself
  * if no error occurred.
  */
-class SseDecoder {
+class SseDecoder : StreamDecoder {
     /** `data: [DONE]` was seen. */
-    var done: Boolean = false
+    override var done: Boolean = false
         private set
 
-    fun feed(line: String): List<ChatEvent> {
+    override fun feed(line: String): List<ChatEvent> {
         if (done || line.isEmpty() || line.startsWith(":")) return emptyList() // keep-alive / comment
         if (!line.startsWith("data:")) return emptyList() // ignore `event:`, `id:`, `retry:`
         val data = line.removePrefix("data:").trim()
@@ -154,17 +168,43 @@ class SseDecoder {
         for (choice in chunk.choices) {
             val delta = choice.delta
             if (delta != null) {
-                val reasoning = delta.reasoningContent ?: delta.reasoning
+                val (text, thinking) = content(delta.content)
+                val reasoning = delta.reasoningContent ?: delta.reasoning ?: thinking
                 if (!reasoning.isNullOrEmpty()) events += ChatEvent.ReasoningDelta(reasoning)
-                if (!delta.content.isNullOrEmpty()) events += ChatEvent.ContentDelta(delta.content)
+                if (!text.isNullOrEmpty()) events += ChatEvent.ContentDelta(text)
                 delta.toolCalls?.forEach { call ->
-                    events += ChatEvent.ToolCallDelta(call.index, call.id, call.function?.name, call.function?.arguments.orEmpty())
+                    // Gemini's thought signature travels in the id (see ToolCallIds).
+                    val id = call.id?.let { id -> call.extraContent?.let { ToolCallIds.attach(id, ToolCallIds.GEMINI_EXTRA, it) } ?: id }
+                    events += ChatEvent.ToolCallDelta(call.index, id, call.function?.name, call.function?.arguments.orEmpty())
                 }
             }
             choice.finishReason?.let { events += ChatEvent.Finish(it) }
         }
-        chunk.usage?.let { events += ChatEvent.Usage(it.promptTokens, it.completionTokens, it.totalTokens) }
+        (chunk.usage ?: chunk.xGroq?.usage)?.let { events += ChatEvent.Usage(it.promptTokens, it.completionTokens, it.totalTokens) }
         return events
+    }
+
+    /** `delta.content` as (text, thinking): a string, or Mistral's list of `text` / `thinking` chunks. */
+    private fun content(element: JsonElement?): Pair<String?, String?> = when (element) {
+        null, is JsonNull -> null to null
+        is JsonPrimitive -> element.contentOrNull to null
+        is JsonArray -> {
+            val text = StringBuilder()
+            val thinking = StringBuilder()
+            element.forEach { part ->
+                val o = part as? JsonObject ?: return@forEach
+                when ((o["type"] as? JsonPrimitive)?.contentOrNull) {
+                    "text" -> text.append((o["text"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+                    "thinking" -> when (val t = o["thinking"]) {
+                        is JsonArray -> t.forEach { (it as? JsonObject)?.get("text")?.let { x -> thinking.append((x as? JsonPrimitive)?.contentOrNull.orEmpty()) } }
+                        is JsonPrimitive -> thinking.append(t.contentOrNull.orEmpty())
+                        else -> Unit
+                    }
+                }
+            }
+            text.toString().ifEmpty { null } to thinking.toString().ifEmpty { null }
+        }
+        else -> null to null
     }
 
     private companion object {

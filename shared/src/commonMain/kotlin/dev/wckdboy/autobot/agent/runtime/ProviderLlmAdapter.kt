@@ -17,6 +17,8 @@ import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ChatRequest
 import dev.wckdboy.autobot.providers.remote.ChatRole
 import dev.wckdboy.autobot.providers.remote.ErrorKind
+import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.RemoteModel
 import dev.wckdboy.autobot.providers.remote.ToolCall
 import dev.wckdboy.autobot.providers.remote.ToolSpec
 import kotlinx.coroutines.flow.Flow
@@ -35,29 +37,36 @@ interface ImageAttachments {
  * Bridges a configured [ChatProvider] (OpenAI-compatible SSE) to the agent's [LlmAdapter]
  * contract: one call is one attempt, failures are thrown as [LlmException].
  *
- * DeepSeek thinking mode requires the reasoning of the *current* tool-call turn to be sent back
- * (`reasoning_content`); older reasoning is never resent. Other providers never receive it.
+ * Thinking models of DeepSeek and Kimi need their reasoning sent back (`reasoning_content`) in
+ * tool loops: with tools, every earlier assistant reasoning is resent; without, only the current
+ * turn's. Other providers ([echoReasoning] false) never receive it.
+ *
+ * @param models the provider's cached model list: its context windows replace the guesses of
+ *   [modelInfo].
  */
 class ProviderLlmAdapter(
     override val provider: String,
     private val chat: ChatProvider,
     private val kind: ProviderKind,
     private val attachments: ImageAttachments? = null,
+    private val echoReasoning: Boolean = kind == ProviderKind.DEEPSEEK,
+    private val models: ModelCache? = null,
 ) : LlmAdapter {
 
     override fun stream(call: LlmCall): Flow<StreamChunk> = flow {
-        val echo = kind == ProviderKind.DEEPSEEK
+        val echo = echoReasoning
+        val withTools = call.tools.isNotEmpty()
         // Attachments are decrypted into short-lived files for this call only. Only the newest
         // [MAX_IMAGES] images are sent; older ones are noted in the text instead.
         val plain = mutableListOf<String>()
         try {
             val keep = call.messages.flatMap { it.images }.takeLast(MAX_IMAGES).toSet()
             val messages = call.messages.map { m ->
-                if (m.images.isEmpty()) return@map m.toChat(echo)
+                if (m.images.isEmpty()) return@map m.toChat(echo, withTools)
                 val files = m.images.filter { it in keep }.mapNotNull { id -> attachments?.openPlain(id)?.also { plain += it } }
                 val dropped = m.images.size - files.size
                 val note = if (dropped > 0) "\n[$dropped earlier image(s) not shown]" else ""
-                m.toChat(echo).copy(content = m.text + note, images = files)
+                m.toChat(echo, withTools).copy(content = m.text + note, images = files)
             }
             val request = ChatRequest(
                 model = call.config.model,
@@ -85,9 +94,9 @@ class ProviderLlmAdapter(
         }
     }
 
-    override suspend fun resolveModel(model: String): ModelInfo = modelInfo(kind, model)
+    override suspend fun resolveModel(model: String): ModelInfo = modelInfo(kind, model, models?.find(model))
 
-    private fun ModelMessage.toChat(echo: Boolean): ChatMessage = when (role) {
+    private fun ModelMessage.toChat(echo: Boolean, withTools: Boolean): ChatMessage = when (role) {
         ModelRole.SYSTEM -> ChatMessage(ChatRole.SYSTEM, text)
         ModelRole.USER -> ChatMessage(ChatRole.USER, text)
         ModelRole.TOOL -> ChatMessage(ChatRole.TOOL, text, toolCallId = toolCallId)
@@ -95,7 +104,7 @@ class ProviderLlmAdapter(
             ChatRole.ASSISTANT,
             text,
             toolCalls = toolCalls.map { ToolCall(it.id, it.name, it.arguments) },
-            reasoning = reasoning.takeIf { echo && inCurrentTurn },
+            reasoning = reasoning.takeIf { echo && (withTools || inCurrentTurn) },
         )
     }
 
@@ -106,19 +115,36 @@ class ProviderLlmAdapter(
         /** Images sent per call; vision encoders are slow on a phone and cost context. */
         const val MAX_IMAGES = 4
 
-        /** Best-effort context windows; unknown models get a conservative 64k. */
-        fun modelInfo(kind: ProviderKind, model: String): ModelInfo {
+        /**
+         * Context window of [model]: the provider's own figure when its model list has one
+         * ([known]), else a best-effort table of documented windows (2026-10); unknown models get
+         * a conservative 64k.
+         */
+        fun modelInfo(kind: ProviderKind, model: String, known: RemoteModel? = null): ModelInfo {
             val m = model.lowercase()
-            return when {
-                kind == ProviderKind.LOCAL -> ModelInfo(LOCAL_CONTEXT, defaultMaxTokens = 2048)
+            val guess = when {
+                kind == ProviderKind.LOCAL -> return ModelInfo(LOCAL_CONTEXT, defaultMaxTokens = 2048)
                 "deepseek-v4" in m || "deepseek-flash" in m -> ModelInfo(1_000_000, supportsReasoning = true)
                 m == "deepseek-reasoner" || "-r1" in m -> ModelInfo(128_000, supportsReasoning = true)
                 m.startsWith("deepseek") || "/deepseek" in m -> ModelInfo(128_000)
+                // Claude 5 and Gemini 3: 1M input (Anthropic / Google model pages).
+                Regex("claude-(opus|sonnet|haiku|fable)-5").containsMatchIn(m) -> ModelInfo(1_000_000, supportsReasoning = true)
+                "claude" in m -> ModelInfo(200_000)
+                "gemini-3" in m -> ModelInfo(1_048_576, supportsReasoning = true)
+                m.startsWith("gpt-6") || "/gpt-6" in m -> ModelInfo(1_050_000, supportsReasoning = true)
+                "gpt-oss" in m -> ModelInfo(131_072, supportsReasoning = true)
+                m.startsWith("grok-4") -> ModelInfo(500_000, supportsReasoning = true)
+                "kimi-k3" in m -> ModelInfo(1_048_576, supportsReasoning = true)
+                "kimi-k2" in m -> ModelInfo(262_144, supportsReasoning = true)
+                "glm-5" in m -> ModelInfo(200_000, supportsReasoning = true)
+                "minimax-m3" in m -> ModelInfo(1_000_000, supportsReasoning = true)
                 "qwen3" in m -> ModelInfo(128_000, supportsReasoning = true)
                 kind == ProviderKind.OLLAMA -> ModelInfo(32_768)
                 kind == ProviderKind.OPENROUTER -> ModelInfo(128_000)
                 else -> ModelInfo(LlmAdapter.DEFAULT_CONTEXT_WINDOW)
             }
+            val window = known?.contextWindow?.takeIf { it > 0 } ?: return guess
+            return guess.copy(contextWindow = window)
         }
 
         private val CONTEXT_OVERFLOW = Regex("context (length|window)|maximum context|too many tokens|prompt is too long", RegexOption.IGNORE_CASE)

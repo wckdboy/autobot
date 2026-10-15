@@ -28,6 +28,13 @@ import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
+import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelListResult
+import dev.wckdboy.autobot.providers.remote.ProviderPreset
+import dev.wckdboy.autobot.providers.remote.ProviderPresets
+import dev.wckdboy.autobot.providers.remote.RemoteModel
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.projectSession
 import kotlinx.coroutines.CompletableDeferred
@@ -50,7 +57,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okio.Path.Companion.toPath
 
-/** A configured chat provider as the host stores it. [route] is `INHERIT`, `DIRECT`, `TOR` or `SOCKS5`. */
+/**
+ * A configured chat provider as the host stores it. [route] is `INHERIT`, `DIRECT`, `TOR` or
+ * `SOCKS5`; [presetId] a `ProviderPresets` id (null for rows saved before presets were stored);
+ * [modelsJson] its cached model list ([ModelCache.encode]), whose context windows the agent uses.
+ */
 class ProviderSpec(
     val id: String,
     val kind: ProviderKind,
@@ -59,7 +70,11 @@ class ProviderSpec(
     val apiKey: String?,
     val defaultModel: String,
     val route: String = "INHERIT",
-)
+    val presetId: String? = null,
+    val modelsJson: String? = null,
+) {
+    val preset: ProviderPreset get() = ProviderPresets.resolve(presetId, kind, baseUrl)
+}
 
 /** The host's provider list (decrypting API keys on demand). */
 interface ProviderDirectory {
@@ -167,7 +182,11 @@ class AgentBridge(
     }
 
     init {
-        harness.llm.setResolver { id -> providers.provider(id)?.let { ProviderLlmAdapter(it.id, chatProvider(it), it.kind, attachments) } }
+        harness.llm.setResolver { id ->
+            providers.provider(id)?.let {
+                ProviderLlmAdapter(it.id, chatProvider(it), it.kind, attachments, it.preset.echoReasoning, ModelCache.decode(it.modelsJson))
+            }
+        }
         val root = harness.root
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))
@@ -199,18 +218,35 @@ class AgentBridge(
     /** The chat client for a stored provider: the on-device engine or the host's HTTP transport. */
     fun chatProvider(spec: ProviderSpec): ChatProvider = when (spec.kind) {
         ProviderKind.LOCAL -> LocalEngineChatProvider(local)
-        else -> TransportChatProvider(spec.baseUrl, spec.apiKey, transport, spec.displayName, spec.route)
+        else -> TransportChatProvider(spec.baseUrl, spec.apiKey, transport, spec.displayName, spec.route, spec.preset)
     }
 
-    /** Providers screen "test connection"; [callback] gets null on success or an error message. */
-    fun testConnection(spec: ProviderSpec, callback: (Boolean, String) -> Unit) {
+    /**
+     * Providers screen "test connection": [callback] gets success, a summary (model count and the
+     * first ids, or the error) and, on success, the model list to cache ([ModelCache] JSON).
+     */
+    fun testConnection(spec: ProviderSpec, callback: (Boolean, String, String?) -> Unit) {
         scope.launch {
             when (val result = chatProvider(spec).testConnection()) {
-                is ConnectionTestResult.Success -> callback(true, result.modelCount?.let { "$it models" } ?: "connected")
-                is ConnectionTestResult.Failure -> callback(false, result.message)
+                is ConnectionTestResult.Success -> callback(true, result.summary(), cache(result.models, spec))
+                is ConnectionTestResult.Failure -> callback(false, result.message, null)
             }
         }
     }
+
+    /** Fetches the provider's chat models; [callback] gets the [ModelCache] JSON or an error message. */
+    fun listModels(spec: ProviderSpec, callback: (String?, String?) -> Unit) {
+        scope.launch {
+            when (val result = chatProvider(spec).listModels()) {
+                is ModelListResult.Success -> callback(cache(result.models, spec), null)
+                is ModelListResult.Failure -> callback(null, result.message)
+            }
+        }
+    }
+
+    @OptIn(ExperimentalTime::class)
+    private fun cache(models: List<RemoteModel>, spec: ProviderSpec): String? =
+        models.takeIf { it.isNotEmpty() && spec.kind != ProviderKind.LOCAL }?.let { ModelCache(Clock.System.now().toEpochMilliseconds(), it).encode() }
 
     private suspend fun agent(sessionId: String, providerId: String, model: String): Agent = mutex.withLock {
         agents[sessionId]?.let { return it }

@@ -8,8 +8,13 @@ import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ChatRequest
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
 import dev.wckdboy.autobot.providers.remote.ErrorKind
-import dev.wckdboy.autobot.providers.remote.OpenAiCodec
-import dev.wckdboy.autobot.providers.remote.SseDecoder
+import dev.wckdboy.autobot.core.data.model.ProviderKind
+import dev.wckdboy.autobot.providers.remote.ChatWire
+import dev.wckdboy.autobot.providers.remote.ModelListResult
+import dev.wckdboy.autobot.providers.remote.ModelLists
+import dev.wckdboy.autobot.providers.remote.ModelsApi
+import dev.wckdboy.autobot.providers.remote.ProviderPreset
+import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import kotlin.coroutines.resume
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -63,8 +68,9 @@ interface HttpTransport {
 }
 
 /**
- * Any OpenAI-compatible `/chat/completions` endpoint over a host [HttpTransport] (the iOS
- * counterpart of the Android `OpenAICompatibleProvider`, with the same codec).
+ * A remote chat provider over a host [HttpTransport] (the iOS counterpart of the Android
+ * `OpenAICompatibleProvider`, with the same codecs): OpenAI chat completions or Anthropic
+ * Messages, by the [preset]'s wire.
  */
 class TransportChatProvider(
     baseUrl: String,
@@ -72,21 +78,22 @@ class TransportChatProvider(
     private val transport: HttpTransport,
     private val tag: String,
     private val route: String = "INHERIT",
-    private val includeUsage: Boolean = true,
+    private val preset: ProviderPreset = ProviderPresets.forKind(ProviderKind.OPENAI_COMPATIBLE),
 ) : ChatProvider {
     private val base: String? = baseUrl.trim().trimEnd('/').takeIf { BASE.matches(it) }
+    private val wire: ChatWire = preset.wire()
 
     private fun headers(accept: String): Map<String, String> = buildMap {
         put("Accept", accept)
         put("Content-Type", "application/json; charset=utf-8")
-        apiKey?.takeIf { it.isNotBlank() }?.let { put("Authorization", "Bearer $it") }
+        putAll(wire.headers(apiKey))
     }
 
     override fun streamChat(request: ChatRequest): Flow<ChatEvent> = callbackFlow {
         val body = when {
             base == null -> null.also { trySend(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid base URL")) }
             else -> try {
-                OpenAiCodec.encodeRequest(request, includeUsage)
+                wire.encode(request)
             } catch (e: IllegalArgumentException) {
                 null.also { trySend(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Invalid tool schema: ${e.message}")) }
             }
@@ -96,15 +103,15 @@ class TransportChatProvider(
             awaitClose()
             return@callbackFlow
         }
-        val decoder = SseDecoder()
+        val decoder = wire.decoder()
         var failed = false
         val call = transport.send(
-            HttpRequestSpec("POST", "$base/chat/completions", headers("text/event-stream"), body, tag, route),
+            HttpRequestSpec("POST", "$base/${wire.chatPath}", headers("text/event-stream"), body, tag, route),
             object : HttpSink {
                 override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
                     if (status in 200..299) return
                     failed = true
-                    trySend(OpenAiCodec.httpError(status, errorBody.orEmpty()))
+                    trySend(wire.httpError(status, errorBody.orEmpty()))
                     close()
                 }
 
@@ -134,20 +141,23 @@ class TransportChatProvider(
         awaitClose { call.cancel() }
     }.buffer(Channel.UNLIMITED)
 
-    override suspend fun testConnection(): ConnectionTestResult {
-        val url = base?.let { "$it/models" } ?: return ConnectionTestResult.Failure(ErrorKind.BAD_REQUEST, "Invalid base URL")
-        val response = fetchAll(transport, HttpRequestSpec("GET", url, headers("application/json"), null, tag, route, MAX_MODELS_BYTES))
+    override suspend fun testConnection(): ConnectionTestResult =
+        ConnectionTestResult.of(listModels(), hasEndpoint = preset.modelsApi != ModelsApi.NONE)
+
+    override suspend fun listModels(): ModelListResult {
+        val base = base ?: return ModelListResult.Failure(ErrorKind.BAD_REQUEST, "Invalid base URL")
+        val request = ModelLists.request(preset, base, apiKey) ?: return ModelLists.documented(preset)
+        val response = fetchAll(transport, HttpRequestSpec("GET", request.url, request.headers, null, tag, route, MAX_MODELS_BYTES))
         return when {
-            response.blocked -> ConnectionTestResult.Failure(ErrorKind.BLOCKED, response.failure ?: "Blocked by network policy")
-            response.failure != null -> ConnectionTestResult.Failure(ErrorKind.NETWORK, response.failure)
-            response.status !in 200..299 -> OpenAiCodec.httpError(response.status, response.body).let { ConnectionTestResult.Failure(it.kind, it.message) }
-            else -> ConnectionTestResult.Success(OpenAiCodec.modelCount(response.body))
+            response.blocked -> ModelListResult.Failure(ErrorKind.BLOCKED, response.failure ?: "Blocked by network policy")
+            response.failure != null -> ModelListResult.Failure(ErrorKind.NETWORK, response.failure)
+            else -> ModelLists.result(preset, response.status, response.body)
         }
     }
 
     private companion object {
         val BASE = Regex("(?i)https?://[^\\s/?#]+[^\\s?#]*")
-        const val MAX_MODELS_BYTES = 4L * 1024 * 1024
+        const val MAX_MODELS_BYTES = 8L * 1024 * 1024
     }
 }
 

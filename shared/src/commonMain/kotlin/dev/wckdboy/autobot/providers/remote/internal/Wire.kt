@@ -17,7 +17,13 @@ internal val WireJson = Json {
 internal data class WireFunctionCall(val name: String, val arguments: String)
 
 @Serializable
-internal data class WireToolCall(val id: String, val type: String = "function", val function: WireFunctionCall)
+internal data class WireToolCall(
+    val id: String,
+    val type: String = "function",
+    val function: WireFunctionCall,
+    /** Provider state echoed back unchanged (Gemini's `{google:{thought_signature}}`). */
+    @SerialName("extra_content") val extraContent: JsonObject? = null,
+)
 
 /**
  * A request message. [content] is a string, an array of parts (text + `image_url`) when images
@@ -50,6 +56,7 @@ internal data class WireChatRequest(
     val temperature: Double? = null,
     @SerialName("max_tokens") val maxTokens: Int? = null,
     val tools: List<WireTool>? = null,
+    @SerialName("reasoning_effort") val reasoningEffort: String? = null,
 )
 
 @Serializable
@@ -60,11 +67,13 @@ internal data class WireToolCallDelta(
     val index: Int = 0,
     val id: String? = null,
     val function: WireFunctionDelta? = null,
+    @SerialName("extra_content") val extraContent: JsonObject? = null,
 )
 
 @Serializable
 internal data class WireDelta(
-    val content: String? = null,
+    /** A string, or (Mistral reasoning) a list of `text` / `thinking` chunks. */
+    val content: JsonElement? = null,
     @SerialName("reasoning_content") val reasoningContent: String? = null,
     val reasoning: String? = null,
     @SerialName("tool_calls") val toolCalls: List<WireToolCallDelta>? = null,
@@ -91,7 +100,12 @@ internal data class WireChunk(
     val choices: List<WireChoice> = emptyList(),
     val usage: WireUsage? = null,
     val error: WireError? = null,
+    /** Groq reports streamed usage here. */
+    @SerialName("x_groq") val xGroq: WireXGroq? = null,
 )
+
+@Serializable
+internal data class WireXGroq(val usage: WireUsage? = null)
 
 @Serializable
 internal data class WireErrorEnvelope(val error: WireError? = null, val message: String? = null)
