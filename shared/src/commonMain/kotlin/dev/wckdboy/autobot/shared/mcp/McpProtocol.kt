@@ -9,16 +9,21 @@ import kotlinx.serialization.json.put
 
 /*
  * Model Context Protocol wire basics: JSON-RPC 2.0 framing, protocol revisions and the SSE event
- * reader used by the Streamable HTTP transport (initialize-based revisions 2025-03-26 through
- * 2025-11-25; see https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+ * reader used by the Streamable HTTP transport. Two eras are spoken: the stateless 2026-07-28
+ * revision (per-request `_meta` and headers) and the initialize-based revisions 2025-03-26
+ * through 2025-11-25 (sessions); see
+ * https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning.
  */
 
 object McpProtocol {
-    /** The revision this client asks for in `initialize`. */
-    const val LATEST_VERSION = "2025-11-25"
+    /** The stateless revision, tried first. */
+    const val MODERN_VERSION = "2026-07-28"
 
-    /** Revisions the client accepts from a server's `initialize` result. */
-    val SUPPORTED_VERSIONS = listOf("2025-11-25", "2025-06-18", "2025-03-26")
+    /** The revision this client asks for in a legacy `initialize`. */
+    const val LEGACY_VERSION = "2025-11-25"
+
+    /** Initialize-based revisions the client accepts from a server's `initialize` result. */
+    val LEGACY_VERSIONS = listOf("2025-11-25", "2025-06-18", "2025-03-26")
 
     /** Fixed client identity (like the constant `User-Agent: Autobot`, it carries no version or device data). */
     const val CLIENT_NAME = "Autobot"
@@ -26,10 +31,33 @@ object McpProtocol {
 
     const val HEADER_SESSION = "Mcp-Session-Id"
     const val HEADER_VERSION = "MCP-Protocol-Version"
+    const val HEADER_METHOD = "Mcp-Method"
+    const val HEADER_NAME = "Mcp-Name"
     const val ACCEPT_POST = "application/json, text/event-stream"
     const val ACCEPT_SSE = "text/event-stream"
 
+    const val META_VERSION = "io.modelcontextprotocol/protocolVersion"
+    const val META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo"
+    const val META_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities"
+    const val META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+
     const val METHOD_NOT_FOUND = -32601
+    const val HEADER_MISMATCH = -32020
+    const val MISSING_CAPABILITY = -32021
+    const val UNSUPPORTED_VERSION = -32022
+
+    /** JSON-RPC errors only a 2026-07-28 server sends; they identify the modern era. */
+    val MODERN_ERRORS = setOf(HEADER_MISMATCH, MISSING_CAPABILITY, UNSUPPORTED_VERSION)
+
+    /** The per-request `_meta` every 2026-07-28 request carries (no client capabilities are offered). */
+    internal fun meta(): JsonObject = buildJsonObject {
+        put(META_VERSION, MODERN_VERSION)
+        put(META_CLIENT_INFO, buildJsonObject {
+            put("name", CLIENT_NAME)
+            put("version", CLIENT_VERSION)
+        })
+        put(META_CAPABILITIES, JsonObject(emptyMap()))
+    }
 
     internal val Json = Json {
         ignoreUnknownKeys = true
@@ -97,6 +125,7 @@ class McpException(
     message: String,
     val status: Int = 0,
     val rpcCode: Int? = null,
+    val rpcData: JsonElement? = null,
 ) : Exception(message)
 
 /** An absolute MCP endpoint URL and its host (credentials in the URL are rejected). */

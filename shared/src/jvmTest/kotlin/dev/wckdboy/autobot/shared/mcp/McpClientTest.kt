@@ -25,7 +25,7 @@ class McpClientTest {
     private val url = "https://mcp.example.com/mcp"
 
     private fun client(transport: FakeTransport, token: String? = "tok", route: String = "TOR") =
-        McpClient(McpEndpoint.parse(url)!!, transport, token, route, "mcp:test", scope)
+        McpClient(McpEndpoint.parse(url)!!, transport, token, route, "mcp:test", scope, McpEra.LEGACY)
 
     private suspend fun expectFailure(kind: McpErrorKind, block: suspend () -> Unit): McpException {
         try {
@@ -45,7 +45,7 @@ class McpClientTest {
         val info = client(transport).initialize()
 
         assertEquals("fake", info.name)
-        assertEquals(McpProtocol.LATEST_VERSION, info.protocolVersion)
+        assertEquals(McpProtocol.LEGACY_VERSION, info.protocolVersion)
         assertTrue(info.toolsListChanged)
         assertEquals(listOf("initialize", "notifications/initialized"), transport.methods())
 

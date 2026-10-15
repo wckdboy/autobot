@@ -29,6 +29,9 @@ final class McpStub: URLProtocol, @unchecked Sendable {
         let json = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any]
         let id = json?["id"].map { "\($0)" } ?? "null"
         let (status, headers, payload): (Int, [String: String], String) = switch json?["method"] as? String {
+        case "server/discover":
+            // A legacy server: the sessionless modern probe is refused without a modern error.
+            (400, ["Content-Type": "application/json"], #"{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"Bad Request: No valid session ID provided"}}"#)
         case "initialize":
             (200, ["Content-Type": "application/json", "Mcp-Session-Id": "ios-sess"],
              #"{"jsonrpc":"2.0","id":\#(id),"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"stub","version":"1"}}}"#)
@@ -246,12 +249,15 @@ struct McpTransportTests {
             }
         }
         #expect(ok, "\(message)")
-        #expect(message == "2 tools")
+        #expect(message == "2 tools · MCP 2025-06-18")
         let methods = McpStub.requests.map { r in r.method == "POST" ? ((try? JSONSerialization.jsonObject(with: Data(r.body.utf8))) as? [String: Any])?["method"] as? String ?? "?" : r.method }
-        #expect(methods == ["initialize", "notifications/initialized", "tools/list", "DELETE"])
+        // Modern probe first, refused, then the legacy flow.
+        #expect(methods == ["server/discover", "initialize", "notifications/initialized", "tools/list", "DELETE"])
+        #expect(McpStub.requests[0].headers["MCP-Protocol-Version"] == "2026-07-28")
+        #expect(McpStub.requests[0].headers["Mcp-Method"] == "server/discover")
         #expect(McpStub.requests.allSatisfy { $0.headers["Authorization"] == "Bearer tok" && $0.url?.host() == "mcp.example.com" })
-        #expect(McpStub.requests[2].headers["Mcp-Session-Id"] == "ios-sess")
-        #expect(McpStub.requests[2].headers["MCP-Protocol-Version"] == "2025-06-18")
+        #expect(McpStub.requests[3].headers["Mcp-Session-Id"] == "ios-sess")
+        #expect(McpStub.requests[3].headers["MCP-Protocol-Version"] == "2025-06-18")
         bridge.shutdown {}
     }
 }

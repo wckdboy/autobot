@@ -71,8 +71,8 @@ session exported on Android opens on iOS.
 
 - **MCP client** (streamable HTTP) in `:shared`. Each server gets its own approval scope and
   network route, and every call appears in the audit log. *(implemented on both platforms against
-  MCP 2025-11-25 / 2025-06-18 / 2025-03-26 servers; still to do: verification against real servers,
-  OAuth sign-in, the stateless 2026-07-28 revision, MCP servers in the `.autobot` export)*
+  MCP 2026-07-28 servers with fallback to 2025-11-25 / 2025-06-18 / 2025-03-26; still to do:
+  verification against real servers, OAuth sign-in, MCP servers in the `.autobot` export)*
 - **Subagents**: the DSH task tool, so parallel workers report back to one session.
 - **Local memory**: an encrypted, user-visible, editable notes store the agent can recall from.
   Off by default.

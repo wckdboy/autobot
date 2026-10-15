@@ -117,7 +117,7 @@ struct McpServersScreen: View {
         #if canImport(AutobotShared)
         guard let status = (app.agent as? SharedAgentRuntime)?.mcpStatus[s.id] else { return nil }
         switch status.state {
-        case .ready: return ("connected · \(status.toolCount) tools", false)
+        case .ready: return ("connected · \(status.toolCount) tools" + (status.protocolVersion.map { " · mcp \($0)" } ?? ""), false)
         case .unavailable: return ("unavailable · \(status.message ?? "error")", true)
         default: return nil
         }
@@ -283,7 +283,7 @@ private struct McpServerEditorSheet: View {
             #if canImport(AutobotShared)
             if let shared = app.agent as? SharedAgentRuntime {
                 let (ok, message) = await shared.testMcpServer(s, token: token)
-                result = ok ? .success("Connected · \(message) available") : .failure(message)
+                result = ok ? .success("Connected · \(message)") : .failure(message)
             }
             #endif
             if !Task.isCancelled { test = result }

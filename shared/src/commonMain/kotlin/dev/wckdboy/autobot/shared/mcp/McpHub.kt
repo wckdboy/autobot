@@ -55,7 +55,14 @@ data class McpServerStatus(
     val state: McpServerState,
     val toolCount: Int,
     val message: String?,
+    /** The detected revision (`2026-07-28`, `2025-11-25`, …) once connected. */
+    val protocolVersion: String? = null,
 )
+
+/** Result of "test connection". */
+class McpTestResult(val toolCount: Int, val protocolVersion: String) {
+    override fun toString(): String = "$toolCount tools · MCP $protocolVersion"
+}
 
 /**
  * Connects the enabled MCP servers and keeps their tools registered in the harness. Nothing is
@@ -312,7 +319,7 @@ class McpHub(
                 !spec.enabled -> McpServerStatus(spec.id, spec.name, host, McpServerState.DISABLED, 0, "Disabled")
                 failed?.first == spec -> McpServerStatus(spec.id, spec.name, host, McpServerState.UNAVAILABLE, 0, failed.second)
                 link == null -> McpServerStatus(spec.id, spec.name, host, McpServerState.IDLE, 0, null)
-                link.ready -> McpServerStatus(spec.id, spec.name, host, McpServerState.READY, link.tools.size, null)
+                link.ready -> McpServerStatus(spec.id, spec.name, host, McpServerState.READY, link.tools.size, null, link.client.serverInfo?.protocolVersion)
                 else -> McpServerStatus(spec.id, spec.name, host, McpServerState.UNAVAILABLE, 0, link.error)
             }
         }
@@ -334,18 +341,19 @@ class McpHub(
         }
 
         /**
-         * Settings "test connection": a fresh session (initialize + tools/list), then DELETE.
-         * Returns the tool count or the failure.
+         * Settings "test connection": a fresh connection (era detection, discovery or initialize,
+         * tools/list; no subscription), then DELETE for a legacy session. Returns the tool count
+         * and detected revision, or the failure.
          */
-        suspend fun test(transport: HttpTransport, spec: McpServerSpec, token: String?): Result<Int> {
+        suspend fun test(transport: HttpTransport, spec: McpServerSpec, token: String?): Result<McpTestResult> {
             val endpoint = McpEndpoint.parse(spec.url) ?: return Result.failure(McpException(McpErrorKind.INVALID_URL, "Invalid URL"))
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-            val client = McpClient(endpoint, transport, token, spec.route, "mcp:${spec.name}", scope)
+            val client = McpClient(endpoint, transport, token, spec.route, "mcp:${spec.name}", scope, subscribe = false)
             return try {
                 runCatchingMcp {
                     withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
-                        client.initialize()
-                        client.listTools().size
+                        val info = client.initialize()
+                        McpTestResult(client.listTools().size, info.protocolVersion)
                     } ?: throw McpException(McpErrorKind.NETWORK, "Timed out")
                 }
             } finally {

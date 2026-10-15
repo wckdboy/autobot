@@ -177,7 +177,10 @@ class McpHubTest {
     fun testConnectionReportsToolCountAndEndsTheSession() = runBlocking {
         val server = FakeMcpServer().apply { pages = listOf(listOf("a", "b"), listOf("c")) }
         val transport = FakeTransport(server::handle)
-        assertEquals(3, McpHub.test(transport, notes, "t").getOrThrow())
+        val tested = McpHub.test(transport, notes, "t").getOrThrow()
+        assertEquals(3, tested.toolCount)
+        assertEquals(McpProtocol.LEGACY_VERSION, tested.protocolVersion)
+        assertEquals("server/discover", transport.methods().first())
         assertEquals("DELETE", transport.sent.last().method)
         assertTrue(transport.sent.all { it.headers["Authorization"] == "Bearer t" && it.tag == "mcp:Notes" })
 

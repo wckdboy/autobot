@@ -166,8 +166,11 @@ Not ported (no equivalent on a phone, or later): `bash`/`pwsh` sandboxes, subage
 bridges, web search.
 
 **MCP servers.** Settings → MCP servers adds remote [Model Context Protocol](https://modelcontextprotocol.io)
-servers over Streamable HTTP (`dev.wckdboy.autobot.shared.mcp`, protocol 2025-11-25, also
-2025-06-18 and 2025-03-26). Their tools join agent sessions as `mcp__<server>__<tool>` with the
+servers over Streamable HTTP (`dev.wckdboy.autobot.shared.mcp`). Each server's protocol is
+detected once per configuration: the stateless 2026-07-28 revision first (`server/discover`,
+per-request `_meta`, `Mcp-Method` / `Mcp-Name` / `x-mcp-header` headers, `subscriptions/listen`
+for tool-list changes), falling back to the session-based 2025-11-25, 2025-06-18 and 2025-03-26
+revisions as the spec's backward-compatibility rules describe. Their tools join agent sessions as `mcp__<server>__<tool>` with the
 server's own schema. Nothing is dialled until a turn with tools starts; every request goes
 through the kill switch, the server's route (Inherit / Direct / Tor / SOCKS5, same rules as
 providers) and the audit log, and redirects are not followed. Each tool call asks for approval

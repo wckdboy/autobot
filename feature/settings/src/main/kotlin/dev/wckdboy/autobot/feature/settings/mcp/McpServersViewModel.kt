@@ -183,7 +183,7 @@ class McpServersViewModel @Inject constructor(
             }
             val result = McpHub.test(OkHttpTransport(clients), draft.toServer(existing).toSpec(), token)
             test.value = result.fold(
-                onSuccess = { count -> TestState.Success("Connected · $count tools available") },
+                onSuccess = { r -> TestState.Success("Connected · ${r.toolCount} tools available · MCP ${r.protocolVersion}") },
                 onFailure = { TestState.Failure(McpHub.describe(it)) },
             )
         }

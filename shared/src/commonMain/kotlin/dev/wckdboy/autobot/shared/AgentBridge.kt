@@ -240,7 +240,7 @@ class AgentBridge(
     fun testMcpServer(spec: McpServerSpec, token: String?, callback: (Boolean, String) -> Unit) {
         scope.launch {
             McpHub.test(transport, spec, token)
-                .onSuccess { callback(true, "$it tools") }
+                .onSuccess { callback(true, it.toString()) }
                 .onFailure { callback(false, McpHub.describe(it)) }
         }
     }
