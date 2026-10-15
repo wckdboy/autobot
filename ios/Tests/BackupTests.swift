@@ -51,11 +51,7 @@ struct BackupTests {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("rt-\(UUID().uuidString).autobot").path
         let blob = Data((0 ..< 2_500_000).map { UInt8($0 % 253) })
         let writer = try BackupFileWriter(path: path, crypto: SwiftBackupCrypto(), passphrase: "correct horse battery", app: "test", platform: "ios", createdAt: 1, iterations: 100_000)
-<<<<<<< HEAD
-        try writer.entry(name: BackupKt.MANIFEST, bytes: BackupManifest.companion.encode(manifest: BackupManifest(settings: ["amoled": "true"], providers: [], conversations: [], gallery: [], attachments: [], memory: [], folders: [])))
-=======
-        try writer.entry(name: BackupKt.MANIFEST, bytes: BackupManifest.companion.encode(manifest: BackupManifest(settings: ["amoled": "true"], providers: [], conversations: [], gallery: [], attachments: [], memory: [], studioProjects: [], studioAssets: [], studioWorkflows: [], studioSnippets: [])))
->>>>>>> worktree-agent-a2a2010ce17a5a595
+        try writer.entry(name: BackupKt.MANIFEST, bytes: BackupManifest.companion.encode(manifest: BackupManifest(settings: ["amoled": "true"], providers: [], conversations: [], gallery: [], attachments: [], memory: [], folders: [], studioProjects: [], studioAssets: [], studioWorkflows: [], studioSnippets: [])))
         try writer.entry(name: "gallery/a.png", bytes: BackupBytes.shared.fromData(data: blob))
         try writer.finish()
         let all = try entries(path, "correct horse battery")
