@@ -1,0 +1,67 @@
+{
+  "4": {
+    "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {"title": "Load Checkpoint - BASE"}
+  },
+  "10": {
+    "inputs": {
+      "lora_name": "pixel-art-xl-v1.1.safetensors",
+      "strength_model": 0.8,
+      "strength_clip": 0.8,
+      "model": ["4", 0],
+      "clip": ["4", 1]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {"title": "Load LoRA"}
+  },
+  "6": {
+    "inputs": {"text": "pixel art, a cozy cabin in the snowy woods at night, warm windows", "clip": ["10", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "Positive"}
+  },
+  "7": {
+    "inputs": {"text": "blurry, photo, 3d render", "clip": ["10", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "Negative"}
+  },
+  "5": {
+    "inputs": {"width": 1024, "height": 1024, "batch_size": 2},
+    "class_type": "EmptyLatentImage",
+    "_meta": {"title": "Empty Latent Image"}
+  },
+  "10:3": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": 721897303308196,
+      "steps": 25,
+      "cfg": 7.5,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model": ["10", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {"title": "KSampler (Advanced) - BASE"}
+  },
+  "17": {
+    "inputs": {"samples": ["10:3", 0], "vae": ["4", 2]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "19": {
+    "inputs": {"filename_prefix": "sdxl_lora", "images": ["17", 0]},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  },
+  "20": {
+    "inputs": {"images": ["17", 0]},
+    "class_type": "PreviewImage",
+    "_meta": {"title": "Preview Image"}
+  }
+}

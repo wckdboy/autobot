@@ -242,6 +242,40 @@ final class HttpClient: Sendable {
         }
     }
 
+    /// [send] for binary media (uploads, `/view` downloads): traced to an agent turn, and the
+    /// audit entry records the body bytes actually received.
+    func fetch(_ request: URLRequest, tag: String? = nil, trace: AuditTrace? = nil) async throws -> HttpResponse {
+        let a = try admit(request, tag: tag, trace: trace)
+        do {
+            let (data, response) = try await a.session.data(for: a.request)
+            let http = response as? HTTPURLResponse
+            audit(a.request, tag: a.tag, route: a.route, trace: a.trace, blocked: false, status: http?.statusCode, received: Int64(data.count))
+            return HttpResponse(status: http?.statusCode ?? 0, headers: Self.headers(http), body: data, url: http?.url)
+        } catch {
+            throw failure(error, a)
+        }
+    }
+
+    /**
+     A WebSocket task for a `ws://` / `wss://` [request], created only after the kill switch admits
+     it (`ws` is judged as cleartext HTTP, `wss` as HTTPS) and audited as one entry. Returns the
+     task (not resumed) and the entry's id: the caller adds the message bytes it received with
+     `AuditLog.received` when the socket ends.
+     */
+    func webSocket(_ request: URLRequest, tag: String? = nil, trace: AuditTrace? = nil) throws -> (URLSessionWebSocketTask, Int64) {
+        guard let url = request.url, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
+        let scheme = parts.scheme?.lowercased()
+        guard scheme == "ws" || scheme == "wss" else { throw URLError(.unsupportedURL) }
+        parts.scheme = scheme == "wss" ? "https" : "http"
+        var vetted = request
+        vetted.url = parts.url
+        let a = try admit(vetted, tag: tag, trace: trace)
+        let entry = audit(a.request, tag: a.tag, route: a.route, trace: a.trace, blocked: false)
+        var socket = a.request
+        socket.url = url
+        return (a.session.webSocketTask(with: socket), entry.id)
+    }
+
     /// Starts [request] and returns the streaming body (SSE, large files).
     func stream(_ request: URLRequest, tag: String? = nil) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {
         let (bytes, http, _) = try await streamAudited(request, tag: tag)

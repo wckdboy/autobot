@@ -50,8 +50,9 @@ class KillSwitchInterceptor(
         )
 
         val routeLabel = if (loopback) "loopback" else routeLabel(effective)
+        val entryRef = request.tag(AuditEntryRef::class.java)
         if (blockReason != null) {
-            audit(request, requestTag, routeLabel, trace, blocked = true, error = blockReason)
+            audit(request, requestTag, routeLabel, trace, blocked = true, error = blockReason).also { entryRef?.id = it.id }
             throw NetworkBlockedException(blockReason)
         }
 
@@ -70,6 +71,7 @@ class KillSwitchInterceptor(
             status = response.code,
             bytesReceived = response.body.contentLength(),
         )
+        entryRef?.id = entry.id
         // A body closed unread keeps its Content-Length (if any) as the figure.
         val counted = CountingBody(response.body) { read -> if (read > 0 || entry.bytesReceived == null) auditLog.received(entry.id, read) }
         return response.newBuilder().body(counted).build()
@@ -144,6 +146,16 @@ private class CountingBody(private val body: ResponseBody, private val done: (Lo
         report()
         body.close()
     }
+}
+
+/**
+ * Filled with the id of the request's audit entry once the kill switch recorded it, for callers
+ * that report the bytes themselves (WebSockets: the messages arrive after the upgrade response).
+ * Attach with `Request.Builder.tag(AuditEntryRef::class.java, ref)`.
+ */
+class AuditEntryRef {
+    @Volatile
+    var id: Long? = null
 }
 
 /** Per-request audit label, attach with `Request.Builder.tag(AuditTag::class.java, AuditTag("x"))`. */
