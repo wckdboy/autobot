@@ -20,6 +20,7 @@ import dev.wckdboy.autobot.agent.core.tools.toolsPlugin
 import dev.wckdboy.autobot.agent.runtime.workspace.FileTools
 import dev.wckdboy.autobot.agent.runtime.workspace.Workspace
 import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
+import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceJournal
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.McpServerRepository
@@ -119,6 +120,9 @@ class AgentHost @Inject constructor(
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
     val workspace = Workspace(File(context.filesDir, WORKSPACE_DIR).toOkioPath())
+
+    /** Undo for agents: copies of what file tools replaced, next to (not inside) the workspace. */
+    val journal = WorkspaceJournal(workspace, File(context.filesDir, JOURNAL_DIR).toOkioPath())
     val harness = Harness()
     private val contexts = WorkspaceContexts(workspace)
 
@@ -177,7 +181,7 @@ class AgentHost @Inject constructor(
                 providers.getProvider(id)?.let { ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset().id, it.preset().privacyNote) }
             },
         )
-        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
+        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))
         root.plugin(contexts.plugin)
         root.plugin(mcp.plugin)
@@ -329,8 +333,18 @@ class AgentHost @Inject constructor(
         }
     }
 
+    /** Undoes one file step of [conversationId] (and later changes to the same files); idle sessions only. */
+    suspend fun undoStep(conversationId: String, callId: String) = journal.undoStep(agent(conversationId), callId)
+
+    /** Undoes every file change of [turn]. */
+    suspend fun undoTurn(conversationId: String, turn: Int) = journal.undoTurn(agent(conversationId), turn)
+
+    /** Re-applies what an undo ([revertId]) put back. */
+    suspend fun redo(conversationId: String, revertId: String) = journal.redo(agent(conversationId), revertId)
+
     /** Stops and forgets the agent (before deleting its conversation). */
     suspend fun discard(conversationId: String) {
+        journal.drop(conversationId)
         val agent = mutex.withLock {
             watchers.remove(conversationId)?.cancel()
             agents.remove(conversationId)
@@ -354,6 +368,7 @@ class AgentHost @Inject constructor(
 
     companion object {
         const val WORKSPACE_DIR = "workspace"
+        const val JOURNAL_DIR = "workspace-undo"
         private const val TITLE_LENGTH = 48
     }
 }

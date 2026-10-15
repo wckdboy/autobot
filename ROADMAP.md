@@ -140,8 +140,14 @@ models, shared core). Ordered by value.
    default, with a visible indicator.
 10. **Your own arena.** Blind side-by-side answers from two models; your votes build a local
     preference profile that tunes the cascade and model suggestions. Never uploaded.
-11. **Undo for agents.** Workspace snapshots per turn, a timeline of what the agent changed, and
-    one-tap revert.
+11. ✅ **Undo for agents.** Workspace snapshots per turn, a timeline of what the agent changed, and
+    one-tap revert. *(done, both apps: `write`, `edit` and `delete` keep the file's previous
+    content in a copy-on-write journal next to the workspace (session · turn · call; 50 MB per
+    chat, oldest turns dropped with a notice, files over 10 MB not copied); step rows show a line
+    diff with "Undo", a turn's last answer "Undo turn (N files)", and a "Files changed" sheet
+    groups the session's changes by turn. Undoing a step also undoes later edits to the same file;
+    a revert is journaled so it can be redone, and a `workspace/revert` event tells the model
+    which files moved back. Subagent changes count for the parent's turn.)*
 12. **Spend and quota board.** Tokens, money and subscription windows (OpenCode Go 5 h / week /
     month) per provider, computed locally from responses.
 
