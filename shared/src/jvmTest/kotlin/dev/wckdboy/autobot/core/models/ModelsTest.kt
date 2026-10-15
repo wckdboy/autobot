@@ -13,10 +13,10 @@ class ModelsTest {
 
     @Test
     fun catalogIsConsistent() {
-        val ids = (Catalog.all + CoreMLCatalog.all + CoreMLCatalog.upscalers + CoreMLCatalog.voices).map { it.id }
+        val ids = (Catalog.all + CoreMLCatalog.all + CoreMLCatalog.upscalers + CoreMLCatalog.voices + CoreMLCatalog.audio).map { it.id }
         assertEquals(ids.size, ids.toSet().size)
-        // Pinned multi-source bundles (voices) are checked in kokoroBundles, pinned embeddings in embeddingModelIsPinned.
-        (Catalog.all - Catalog.voiceModels.toSet() - Catalog.embeddingModels.toSet()).forEach { plan ->
+        // Pinned multi-source bundles (voices, audio) are checked in kokoroBundles / StableAudioCatalogTest, pinned embeddings in embeddingModelIsPinned.
+        (Catalog.all - Catalog.voiceModels.toSet() - Catalog.audioModels.toSet() - Catalog.embeddingModels.toSet()).forEach { plan ->
             assertTrue(plan.id, plan.manifest.files.isNotEmpty())
             plan.manifest.files.forEach { f ->
                 assertTrue(f.url, f.url.startsWith("https://huggingface.co/") && "/resolve/main/" in f.url)

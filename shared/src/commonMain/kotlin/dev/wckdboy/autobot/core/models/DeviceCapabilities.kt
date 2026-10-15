@@ -40,6 +40,10 @@ data class DeviceCapabilities(
             ModelKind.IMAGE -> bytes * 14 / 10
             // The voice's weights plus activations for a sentence and its lexicons in memory.
             ModelKind.VOICE -> bytes * 3 / 2
+            // Text to audio: the decoder's activations for 11.9 s of stereo come on top of the weights
+            // (measured peak: ~3 GB on ONNX Runtime for 0.5 GB of 8-bit weights; Core ML loads its
+            // stages one at a time, the float32 DiT being the largest).
+            ModelKind.AUDIO -> bytes + if (engine == EngineKind.ONNX) 2_500_000_000L else 1_000_000_000L
             else -> bytes
         }
         val budget = totalRamBytes / 2

@@ -8,7 +8,7 @@ import Foundation
 /// What a model is for. Drives which engine and screen use it.
 enum ModelKind: String, Codable, CaseIterable, Sendable {
     case chat = "CHAT", code = "CODE", image = "IMAGE", lora = "LORA", vae = "VAE", embedding = "EMBEDDING"
-    case upscaler = "UPSCALER", speech = "SPEECH", voice = "VOICE", other = "OTHER"
+    case upscaler = "UPSCALER", speech = "SPEECH", voice = "VOICE", audio = "AUDIO", other = "OTHER"
 
     var label: String { rawValue.lowercased() }
 }

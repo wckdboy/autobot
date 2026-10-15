@@ -274,6 +274,7 @@ struct ModelsScreen: View {
             ("code", Catalog.code),
             ("speech · dictation", Catalog.speech),
             ("voice · read aloud", CoreMLCatalog.voices),
+            ("audio · studio", CoreMLCatalog.audio),
             ("embedding · vault", Catalog.embedding),
         ]
         ForEach(sections, id: \.0) { label, plans in
