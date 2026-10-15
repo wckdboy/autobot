@@ -55,6 +55,8 @@ final class StudioHub {
     private(set) var grids: [GridRun] = []
     /// Engine kinds available now, by kind → labels ("This iPhone", a backend name).
     private(set) var engineLabels: [String: [String]] = [:]
+    /// A short message for the Studio's notice line (exports, failures that are not a job's).
+    var noticeText: String?
 
     @ObservationIgnored let host: StudioStoreHost
     @ObservationIgnored let bridge: StudioBridge
@@ -132,6 +134,9 @@ final class StudioHub {
      backends change.
      */
     func syncEngines(app: AppContainer) {
+        #if DEBUG
+        if previewing { return }
+        #endif
         var wanted: [String: () -> StudioHostEngine] = [:]
         let generator = app.generator, files = files
         for backend in app.backends.backends {
@@ -167,7 +172,23 @@ final class StudioHub {
         engineLabels = labels.mapValues { $0.sorted() }
     }
 
+    func notice(_ text: String) { noticeText = text }
+
     func has(_ kind: String) -> Bool { !(engineLabels[kind] ?? []).isEmpty }
+
+    #if DEBUG
+    @ObservationIgnored private var previewing = false
+
+    /// Snapshot tests: sample jobs, engines and servers without running or saving anything.
+    func preview(jobs: [StudioJob], previews: [String: Data] = [:], engines: [String: [String]], servers: [ComfyServer], projectId: String?) {
+        previewing = true
+        self.jobs = jobs
+        self.previews = previews
+        comfyServers = servers
+        engineLabels = engines
+        self.projectId = projectId
+    }
+    #endif
 
     // MARK: ComfyUI servers
 
@@ -398,7 +419,7 @@ final class StudioHub {
         onWorkflowsChanged?(!library.workflows.isEmpty)
     }
 
-    struct Imported {
+    struct Imported: @unchecked Sendable {
         var workflow: StudioWorkflow?
         var validation: String?
         var checked = false
@@ -419,7 +440,9 @@ final class StudioHub {
     }
 
     func refreshOptions(_ w: StudioWorkflow, on backendId: String) async -> StudioWorkflow {
-        await withCheckedContinuation { c in bridge.refreshOptions(workflow: w, backendId: backendId) { c.resume(returning: $0) } }
+        await withCheckedContinuation { (c: CheckedContinuation<Unchecked<StudioWorkflow>, Never>) in
+            bridge.refreshOptions(workflow: w, backendId: backendId) { c.resume(returning: Unchecked($0)) }
+        }.value
     }
 
     func saveSnippet(_ s: PromptSnippet) {

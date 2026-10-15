@@ -59,6 +59,7 @@ struct ImagineScreen: View {
             AutobotTopBar(title: "Image", onBack: { nav.back() }) {
                 if let route = m.route { RouteTag(route: route) }
                 IconAction(.image, label: "Gallery") { nav.push(.gallery()) }
+                TextAction("Studio", color: c.primary) { nav.enterStudio(.image) }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {

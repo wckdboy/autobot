@@ -236,7 +236,7 @@ struct ChatScreen: View {
                     number: stepNumbers[tool.key] ?? 0, tool: tool, model: model, running: state.running,
                     onUndo: { app.agent.undoStep(conversationId, callId: $0) },
                     onRedo: { app.agent.redo(conversationId, revertId: $0) },
-                ) { id in nav.push(.gallery(openId: id)) }
+                ) { id in if app.studio.library.asset(id) != nil { nav.enterStudio(.library) } else { nav.push(.gallery(openId: id)) } }
             }
         case .notice(_, let text, let kind):
             NoticeRow(text: text, kind: kind)

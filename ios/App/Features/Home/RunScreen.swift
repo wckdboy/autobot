@@ -34,6 +34,7 @@ struct RunState {
     var lastImageId: String?
     var recent: [RecentRun] = []
     var hasAnything = true
+    var studioLabel = "image · audio · video"
 
     init(app: AppContainer, device: DeviceProfile?) {
         let models = app.library.models
@@ -92,8 +93,10 @@ struct RunState {
         if let device { parts.append(device.thermalLabel) }
         if let device { parts.append("\(formatBytes(device.freeStorageBytes)) free") }
         status = parts.joined(separator: " · ")
-        live = running.count + (genRunning ? 1 : 0)
+        live = running.count + (genRunning ? 1 : 0) + app.studio.jobs.filter { $0.state == .running }.count
         hasAnything = !providers.isEmpty || !models.isEmpty
+        let queued = app.studio.activeJobs.count
+        if queued > 0 { studioLabel = "\(queued) in the queue" } else if let p = app.studio.project { studioLabel = p.name.lowercased() }
     }
 }
 
@@ -185,8 +188,12 @@ struct RunScreen: View {
                 }
             }
             .frame(height: 268)
-            ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route) { start(.code, state) }
-                .frame(height: 100)
+            HStack(spacing: 8) {
+                ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route) { start(.code, state) }
+                ModeCard(index: "05", title: "Studio", subtitle: state.studioLabel, route: nil) { nav.enterStudio(.image) }
+                    .accessibilityHint("Image, audio and video generation, workflows and the library")
+            }
+            .frame(height: 100)
         }
     }
 

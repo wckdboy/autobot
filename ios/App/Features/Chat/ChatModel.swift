@@ -108,6 +108,12 @@ final class ChatModel {
     /// Decrypted gallery thumbnail for tool cards.
     func galleryThumbnail(_ id: String, app: AppContainer) async -> UIImage? {
         if let cached = thumbs["g-\(id)"] { return cached }
+        // `run_workflow` results are Studio assets (`a-…`), not gallery items.
+        if app.gallery.get(id) == nil, let asset = app.studio.library.asset(id) {
+            let image = await app.studio.thumbnail(asset)
+            thumbs["g-\(id)"] = image
+            return image
+        }
         guard let bytes = await app.gallery.thumbnail(id), let image = await decodeImage(bytes) else { return nil }
         thumbs["g-\(id)"] = image
         return image

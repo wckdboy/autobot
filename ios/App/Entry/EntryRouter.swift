@@ -58,6 +58,8 @@ struct ChatStart: Equatable {
 enum EntryPlan: Equatable {
     case chat(ChatStart)
     case studio(prompt: String?)
+    /// A ComfyUI workflow shared to the app: the Studio's import.
+    case workflow(json: String)
     /// No chat model or provider yet: the Models tab.
     case setup
     /// Nothing to do (an expired or empty share).
@@ -78,6 +80,7 @@ enum EntryRouting {
             return .chat(send ? ChatStart(send: prompt) : ChatStart(draft: prompt))
         case .shared(let id):
             guard let item = shared(id) else { return .none }
+            if let text = item.text, item.images.isEmpty, StudioWorkflowText.isWorkflow(text) { return .workflow(json: text) }
             return canChat ? .chat(ChatStart(draft: item.text, images: item.images)) : .setup
         }
     }
@@ -123,10 +126,22 @@ final class EntryRouter {
             nav.reset(.run, [.chat(conversationId: conversation.id)])
         case .studio(let prompt):
             nav.reset(.run, [.imagine(prompt: prompt)])
+        case .workflow(let json):
+            nav.pendingWorkflow = json
+            nav.enterStudio(.workflows)
         case .setup:
             nav.switchTo(.models)
         case .none:
             break
         }
+    }
+}
+
+/// Whether shared text is a ComfyUI workflow (API or editor format), for the share sheet.
+enum StudioWorkflowText {
+    static func isWorkflow(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("{"), t.contains("class_type") || (t.contains("\"nodes\"") && t.contains("\"links\"")) else { return false }
+        return (try? JSONSerialization.jsonObject(with: Data(t.utf8))) is [String: Any]
     }
 }

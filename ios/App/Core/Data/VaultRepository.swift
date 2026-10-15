@@ -283,7 +283,8 @@ final class VaultRepository {
     }
 }
 
-private struct Unchecked<T>: @unchecked Sendable {
+/// A Kotlin value handed across a continuation or task (immutable data).
+struct Unchecked<T>: @unchecked Sendable {
     let value: T
     init(_ value: T) { self.value = value }
 }

@@ -73,6 +73,7 @@ struct ImportSummary: Equatable, Sendable {
     var images = 0
     var attachments = 0
     var memories = 0
+    var studio = 0
 }
 
 struct BackupError: LocalizedError {
@@ -108,6 +109,7 @@ final class BackupService {
         let images = app.gallery.items
         let logs = conversations.map { c in (c.id, app.sessions.loadJSON(c.id)) }
         let attachmentIds = Self.attachmentIds(logs.flatMap(\.1))
+        let studio = app.studio.library
         let manifest = BackupManifest(
             settings: app.settings.settings.values,
             providers: app.providers.providers.map {
@@ -126,11 +128,10 @@ final class BackupService {
             attachments: attachmentIds,
             memory: app.memory.notes.map(\.shared),
             folders: app.conversations.folders.map { BackupFolder(id: $0.id, name: $0.name, createdAt: $0.createdAt) },
-            // Creative Studio records join the export once the iOS Studio store exists.
-            studioProjects: [],
-            studioAssets: [],
-            studioWorkflows: [],
-            studioSnippets: [],
+            studioProjects: studio.projects,
+            studioAssets: studio.assets,
+            studioWorkflows: studio.workflows,
+            studioSnippets: studio.snippets,
         )
         let version = Bundle.main.infoDictionary
         let label = "Autobot \(version?["CFBundleShortVersionString"] as? String ?? "?") (\(version?["CFBundleVersion"] as? String ?? "0"))"
@@ -153,6 +154,13 @@ final class BackupService {
                 onProgress("images \(i + 1)/\(images.count)")
                 if let bytes = await app.gallery.image(item.id) {
                     let name = Self.imageEntry(item.id)
+                    try await Task.detached { try box.writer.entry(name: name, bytes: BackupBytes.shared.fromData(data: bytes)) }.value
+                }
+            }
+            for (i, asset) in studio.assets.enumerated() {
+                onProgress("studio \(i + 1)/\(studio.assets.count)")
+                if let bytes = await app.studio.bytes(asset.id) {
+                    let name = BackupManifest.companion.studioEntry(asset: asset)
                     try await Task.detached { try box.writer.entry(name: name, bytes: BackupBytes.shared.fromData(data: bytes)) }.value
                 }
             }
@@ -213,6 +221,14 @@ final class BackupService {
         }
         added.conversations = newConversations.count
         added.memories = app.memory.merge(manifest.memory)
+        // Studio: records that are not here yet (by id); asset records only with their file.
+        let studio = app.studio
+        for p in manifest.studioProjects where studio.library.project(p.id) == nil && Self.isSafe(p.id) {
+            studio.host.put(kind: StudioStoreBridgeCompanion.shared.PROJECTS, id: p.id, json: StudioCodec.shared.encodeProject(value: p))
+        }
+        for w in manifest.studioWorkflows where studio.library.workflow(w.id) == nil && Self.isSafe(w.id) { studio.saveWorkflow(w) }
+        for snippet in manifest.studioSnippets where !studio.library.snippets.contains(where: { $0.id == snippet.id }) && Self.isSafe(snippet.id) { studio.saveSnippet(snippet) }
+        let studioByEntry = Dictionary(manifest.studioAssets.map { (BackupManifest.companion.studioEntry(asset: $0), $0) }, uniquingKeysWith: { a, _ in a })
         for (name, file) in staged.dropFirst() {
             if name.hasPrefix("sessions/") {
                 let id = String(name.dropFirst("sessions/".count).dropLast(".jsonl".count))
@@ -225,6 +241,12 @@ final class BackupService {
                 try await app.gallery.save(Self.galleryItem(item), image: bytes, thumbnail: thumb)
                 added.images += 1
                 onProgress("images \(added.images)/\(manifest.gallery.count)")
+            } else if name.hasPrefix("studio/") {
+                guard let asset = studioByEntry[name], Self.isSafe(asset.id), studio.library.asset(asset.id) == nil, let bytes = try? Data(contentsOf: file) else { continue }
+                let files = studio.files, id = asset.id, mime = asset.mimeType
+                try await Task.detached { try files.save(id, bytes, mimeType: mime) }.value
+                studio.putAsset(asset)
+                added.studio += 1
             } else if name.hasPrefix("attachments/") {
                 let id = String(name.dropFirst("attachments/".count))
                 guard Self.isSafe(id), app.attachments.bytes(id) == nil, let bytes = try? Data(contentsOf: file) else { continue }
