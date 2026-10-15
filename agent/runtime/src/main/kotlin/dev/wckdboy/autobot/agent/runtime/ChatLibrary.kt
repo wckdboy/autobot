@@ -13,7 +13,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -108,19 +107,44 @@ class ChatLibrary @Inject constructor(
         }
     }
 
+    /** Stored chats when chats without search text were last indexed (-1: not yet). */
+    @Volatile
+    private var indexedCount = -1
+    private val indexing = Mutex()
+
     /**
-     * Chats matching [query] in their title or messages, by id ([ChatSearch]). Chats without search
-     * text yet are indexed first; incognito chats are searched in memory.
+     * Indexes chats without search text (from before search, or a backup import). New messages are
+     * indexed as they are appended ([EncryptedSessionStore]), so this only runs again when the
+     * number of stored chats changed, not on every search.
+     */
+    private suspend fun indexMissing() {
+        val count = conversations.storedCount()
+        if (count == indexedCount) return
+        indexing.withLock {
+            if (count == indexedCount) return
+            runCatching { encrypted.indexMissing() }
+            indexedCount = count
+        }
+    }
+
+    /** Indexes old chats in the background ahead of a search (the chat list calls it on open). */
+    fun prepareSearch() {
+        scope.launch { runCatching { indexMissing() } }
+    }
+
+    /**
+     * Chats matching [query] in their title or messages, by id ([ChatSearch]). The first search
+     * waits for old chats to be indexed; incognito chats are searched in memory.
      */
     suspend fun search(query: String): Map<String, ChatMatch> {
         val terms = ChatSearch.terms(query)
         val prefilter = ChatSearch.prefilterTerm(terms) ?: return emptyMap()
-        encrypted.indexMissing()
+        indexMissing()
         val out = LinkedHashMap<String, ChatMatch>()
         conversations.searchCandidates(ChatSearch.likePattern(prefilter)).forEach { row ->
             ChatSearch.match(terms, row.title, row.text.orEmpty())?.let { out[row.id] = it }
         }
-        conversations.observeConversations().first().filter { conversations.isIncognito(it.id) }.forEach { c ->
+        conversations.incognitoConversations().forEach { c ->
             ChatSearch.match(terms, c.title, ChatSearch.append("", store.load(c.id)))?.let { out[c.id] = it }
         }
         return out

@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "dev.wckdboy.autobot.feature.chat"
-    // Recomposition-count tests render the screen with Robolectric.
+    // Recomposition-count tests render screens with Robolectric.
     testOptions.unitTests.isIncludeAndroidResources = true
 }
 

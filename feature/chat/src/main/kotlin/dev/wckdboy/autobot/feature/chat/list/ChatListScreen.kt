@@ -53,6 +53,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableLongState
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,6 +94,7 @@ import dev.wckdboy.autobot.feature.chat.NameDialog
 import dev.wckdboy.autobot.shared.chats.ChatFilter
 import dev.wckdboy.autobot.shared.chats.ChatSort
 import dev.wckdboy.autobot.shared.chats.HighlightSpan
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChatListRoute(
@@ -107,9 +112,11 @@ fun ChatListRoute(
             }
         }
     }
+    // One instance: a new one per state change would make every row recompose.
+    val actions = remember(viewModel) { viewModel.asActions() }
     ChatListScreen(
         state = state,
-        actions = viewModel.asActions(),
+        actions = actions,
         onBack = onBack,
         onOpenChat = onOpenChat,
         onOpenProviders = onOpenProviders,
@@ -178,6 +185,10 @@ fun ChatListScreen(
         if (result == SnackbarResult.ActionPerformed) actions.undoDelete(pending.batch)
     }
     BackHandler(enabled = state.selecting) { actions.clearSelection() }
+    // Row callbacks read these when tapped, so they need not change (and recompose rows) with them.
+    val selecting by rememberUpdatedState(state.selecting)
+    val openChat by rememberUpdatedState(onOpenChat)
+    val minute = rememberMinuteClock()
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -226,7 +237,8 @@ fun ChatListScreen(
                                     item = item,
                                     selecting = state.selecting,
                                     selected = item.id in state.selection,
-                                    onClick = { if (state.selecting) actions.toggleSelected(item.id) else onOpenChat(item.id) },
+                                    now = minute.longValue,
+                                    onClick = { if (selecting) actions.toggleSelected(item.id) else openChat(item.id) },
                                     onLongClick = { actions.toggleSelected(item.id) },
                                     onDelete = { actions.delete(listOf(item.id)) },
                                     onArchive = { actions.setArchived(listOf(item.id), !item.archived) },
@@ -330,20 +342,24 @@ private fun SelectionBar(state: ChatListUiState, actions: ChatListActions, open:
 @Composable
 private fun SearchAndSort(state: ChatListUiState, actions: ChatListActions) {
     var sortMenu by remember { mutableStateOf(false) }
+    // The field owns its text (no round trip through the view model per keystroke); the view
+    // model gets it after each change and debounces the search.
+    var query by rememberSaveable { mutableStateOf(state.query) }
+    LaunchedEffect(actions) { snapshotFlow { query }.collect { actions.setQuery(it) } }
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ConsoleTextField(
-            value = state.query,
-            onValueChange = actions.setQuery,
+            value = query,
+            onValueChange = { query = it },
             modifier = Modifier.weight(1f),
             placeholder = "Search titles and messages",
             singleLine = true,
             trailingIcon = {
-                if (state.query.isNotEmpty()) {
-                    IconButton(onClick = { actions.setQuery("") }) { Icon(Icons.Filled.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp)) }
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp)) }
                 } else {
                     Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
                 }
@@ -422,6 +438,10 @@ private fun EmptyList(state: ChatListUiState) {
     }
 }
 
+/** Tests count recompositions through this (null in the app). */
+@androidx.annotation.VisibleForTesting
+internal var chatListProbe: ((String) -> Unit)? = null
+
 private enum class RowAction { RENAME, PIN, MOVE, ARCHIVE, DELETE }
 
 /** Swipe left to delete (undo in the snackbar), right to archive (or unarchive). */
@@ -431,6 +451,7 @@ private fun SwipeableRow(
     item: ConversationItem,
     selecting: Boolean,
     selected: Boolean,
+    now: Long,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDelete: () -> Unit,
@@ -462,7 +483,7 @@ private fun SwipeableRow(
             }
         },
     ) {
-        ConversationRow(item, selecting, selected, onClick, onLongClick, onMenu)
+        ConversationRow(item, selecting, selected, now, onClick, onLongClick, onMenu)
     }
 }
 
@@ -472,12 +493,20 @@ private fun ConversationRow(
     item: ConversationItem,
     selecting: Boolean,
     selected: Boolean,
+    now: Long,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onMenu: (RowAction) -> Unit,
 ) {
+    chatListProbe?.invoke("row")
     var menu by remember { mutableStateOf(false) }
-    val highlight = SpanStyle(background = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f), fontWeight = FontWeight.SemiBold)
+    val highlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+    val highlight = remember(highlightColor) { SpanStyle(background = highlightColor, fontWeight = FontWeight.SemiBold) }
+    val title = remember(item.title, item.titleSpans, highlight) { highlighted(item.title, item.titleSpans, highlight) }
+    val snippet = remember(item.snippet, item.snippetSpans, highlight) { item.snippet?.let { highlighted(it, item.snippetSpans, highlight) } }
+    val meta = remember(item.subtitle, item.updatedAt, now) {
+        listOf(item.subtitle, DateUtils.getRelativeTimeSpanString(item.updatedAt, now, DateUtils.MINUTE_IN_MILLIS).toString()).filter { it.isNotBlank() }.joinToString(" · ")
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -498,11 +527,11 @@ private fun ConversationRow(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (item.pinned) Icon(AutobotIcons.Pin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
-                Text(highlighted(item.title, item.titleSpans, highlight), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            item.snippet?.let {
+            snippet?.let {
                 Text(
-                    highlighted(it, item.snippetSpans, highlight),
+                    it,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -510,7 +539,7 @@ private fun ConversationRow(
                 )
             }
             Text(
-                listOf(item.subtitle, DateUtils.getRelativeTimeSpanString(item.updatedAt).toString()).filter { it.isNotBlank() }.joinToString(" · "),
+                meta,
                 style = AutobotTheme.styles.codeBlock,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -549,6 +578,21 @@ private fun SelectBox(selected: Boolean) {
         if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(12.dp))
     }
 }
+
+/** The current time, ticking at each minute boundary while on screen (relative times refresh with it). */
+@Composable
+private fun rememberMinuteClock(): MutableLongState {
+    val clock = remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(clock) {
+        while (true) {
+            delay(MINUTE_MS - System.currentTimeMillis() % MINUTE_MS)
+            clock.longValue = System.currentTimeMillis()
+        }
+    }
+    return clock
+}
+
+private const val MINUTE_MS = 60_000L
 
 private fun highlighted(text: String, spans: List<HighlightSpan>, style: SpanStyle): AnnotatedString = buildAnnotatedString {
     append(text)
