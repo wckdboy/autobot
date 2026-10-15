@@ -114,13 +114,31 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:core:security` | `KeyManager` (Keystore AES-GCM, StrongBox fallback, wrapped DB passphrase), `SecretStore`, `AppLockManager`, `PanicWipe`, pure-JVM `AesGcmEnvelope` |
 | `:core:network` | Android glue for the shared policy: `NetworkPolicy` state, `KillSwitchInterceptor`, `HeaderScrubInterceptor`, `HttpClientFactory`, `java.net.Proxy` routes, `OkHttpTransport` |
 | `:core:data` | Room + SQLCipher (`Conversation`, `Message`, `Provider`), repositories, DataStore settings under the shared `SettingsSchema`, `IncognitoSession`, settings→policy sync, `BackupService` (`.autobot` export/import) |
-| `:providers:remote` | `ChatProvider` SSE streaming: OpenAI-compatible, DeepSeek (`reasoning_content`), OpenRouter, Ollama, and the on-device `LocalChatProvider`; `ProviderFactory` |
+| `:providers:remote` | `ChatProvider` over OkHttp in the dialect of the provider's preset (OpenAI-compatible or Anthropic native), model lists, the on-device `LocalChatProvider`; `ProviderFactory` |
 | `:feature:chat` | Session list (live indicators, incognito) and agent session screen (streaming, reasoning, tool cards with inline approvals, plan/todos, questions, context gauge, slash commands, model switcher) |
 | `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection), MCP servers editor (masked token, routing, trusted, test connection) |
 | `ios/App` | The SwiftUI app: riso design system from the shared tokens, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
 | `ios/Packages/AutobotEngines` | Swift package over the shared llama.cpp / whisper.cpp C cores (Metal, Core ML encoder) and Apple's ml-stable-diffusion; built into `AutobotLlama` / `AutobotWhisper` xcframeworks with dSYMs |
 | `scripts/` | `bump-version.sh` (one version for both apps), `release.sh` (test, build, sign, TestFlight, GitHub release) |
 | `build-logic/` | Convention plugins: `autobot.android.application`, `autobot.android.library`, `autobot.android.compose`, `autobot.hilt` |
+
+## Cloud and local providers
+
+Settings → Providers → **+** lists every preset from the shared table
+(`ProviderPresets`, checked against each provider's docs; the doc link is in the code), grouped:
+
+- **Cloud:** OpenAI, Anthropic (native Messages API with prompt caching), Google Gemini, xAI,
+  Mistral, DeepSeek, Moonshot (Kimi), Alibaba Qwen, Z.ai (GLM), MiniMax, Cohere, Perplexity.
+- **Open-model hosts:** OpenRouter, Groq, Cerebras, Together AI, Fireworks AI, DeepInfra, Nebius
+  Token Factory, SambaNova, Novita, Hugging Face Inference Providers, Venice.ai, abliteration.ai.
+- **Local servers:** Ollama, LM Studio, llama.cpp server, vLLM, any OpenAI-compatible endpoint.
+- **This phone:** added automatically once a chat model is installed.
+
+Saving a key (or "refresh", or "test connection") fetches the provider's model list through the
+same kill switch, route and audit log as chat. The key is sent only to the provider's own
+origin. Non-chat models (embeddings, speech, image, moderation…) are filtered out, lists are
+sorted flagship-first then newest, cached in the encrypted store ("fetched 3 min ago"), and
+their context windows size the agent's context. Each preset shows its privacy note.
 
 ## On-device models
 

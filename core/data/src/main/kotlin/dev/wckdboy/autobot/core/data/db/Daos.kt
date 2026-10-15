@@ -13,6 +13,7 @@ import dev.wckdboy.autobot.core.data.model.MemoryNoteRow
 import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
+import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
 import kotlinx.coroutines.flow.Flow
 
@@ -176,4 +177,19 @@ interface MemoryDao {
 
     @Query("DELETE FROM memory_notes")
     suspend fun deleteAll()
+}
+
+@Dao
+interface ProviderModelsDao {
+    @Query("SELECT * FROM provider_models")
+    fun observeAll(): Flow<List<ProviderModelsRow>>
+
+    @Query("SELECT * FROM provider_models WHERE providerId = :providerId")
+    suspend fun get(providerId: String): ProviderModelsRow?
+
+    @Upsert
+    suspend fun upsert(row: ProviderModelsRow)
+
+    @Query("DELETE FROM provider_models WHERE providerId = :providerId")
+    suspend fun delete(providerId: String)
 }

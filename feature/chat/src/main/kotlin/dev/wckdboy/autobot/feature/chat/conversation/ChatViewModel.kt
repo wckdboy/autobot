@@ -44,7 +44,12 @@ import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.core.network.RouteResolver
 import dev.wckdboy.autobot.engine.speech.LocalSpeech
 import dev.wckdboy.autobot.feature.chat.toPrivacyStatus
+import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelListResult
+import dev.wckdboy.autobot.providers.remote.ModelsApi
+import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
+import dev.wckdboy.autobot.providers.remote.RemoteModel
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.providers.remote.toOverride
 import dev.wckdboy.autobot.shared.session.SessionItem
@@ -67,13 +72,21 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * A provider in the model switcher. [models] is its fetched list (or the preset's offline
+ * suggestions), [modelsLabel] `42 models · fetched 3 min ago` / `offline list`.
+ */
 @Immutable
 data class ProviderOption(
     val id: String,
     val name: String,
     val defaultModel: String,
-    val suggestedModels: List<String>,
-)
+    val models: List<RemoteModel>,
+    val modelsLabel: String,
+    val canRefresh: Boolean,
+) {
+    val suggestedModels: List<String> get() = (listOf(defaultModel) + models.map { it.id }).filter { it.isNotBlank() }.distinct()
+}
 
 @Immutable
 data class LiveUi(val text: String, val reasoning: String, val toolNames: List<String>, val tokensPerSecond: Float?)
@@ -131,6 +144,7 @@ class ChatViewModel @AssistedInject constructor(
     private val host: AgentHost,
     private val conversations: ConversationRepository,
     private val providers: ProviderRepository,
+    private val providerFactory: ProviderFactory,
     private val gallery: GalleryRepository,
     private val attachments: AttachmentRepository,
     private val speech: LocalSpeech,
@@ -158,7 +172,10 @@ class ChatViewModel @AssistedInject constructor(
 
     private val policy = combine(networkPolicy.mode, networkPolicy.allowLoopbackWhenOffline, networkPolicy.socksFallback) { m, l, s -> Triple(m, l, s) }
 
-    private val routing = combine(conversations.observeConversation(conversationId), providers.observeProviders(), policy) { c, list, p -> Triple(c, list, p) }
+    private val providerModels = combine(providers.observeProviders(), providers.observeModelCaches()) { list, caches -> list to caches }
+    private val refreshing = MutableStateFlow(false)
+
+    private val routing = combine(conversations.observeConversation(conversationId), providerModels, policy) { c, list, p -> Triple(c, list, p) }
 
     private val agentState = agent.flatMapLatest { a ->
         combine(
@@ -188,7 +205,8 @@ class ChatViewModel @AssistedInject constructor(
 
     private val voice = combine(dictation, dictated, speakingKey) { d, t, s -> Triple(d, t, s) }
 
-    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, providerList, p), n, images, (dict, dictText, speaking) ->
+    val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, withModels, p), n, images, (dict, dictText, speaking) ->
+        val (providerList, caches) = withModels
         val (mode, allowLoopback, socks) = p
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
         val effective = provider?.let { RouteResolver.effectiveMode(mode, it.routing.toOverride(), socks) } ?: mode
@@ -203,7 +221,7 @@ class ChatViewModel @AssistedInject constructor(
             todos = snap.projection.todos,
             approvals = snap.approvals,
             question = snap.question,
-            providers = providerList.map { it.toOption() },
+            providers = providerList.map { it.toOption(caches[it.id]) },
             selectedProviderId = provider?.id,
             selectedProviderName = provider?.displayName,
             selectedModel = conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel,
@@ -421,10 +439,34 @@ class ChatViewModel @AssistedInject constructor(
     private fun Provider.localSystemModel(): List<String> =
         listOfNotNull(systemModel.status.value?.takeIf { kind == ProviderKind.LOCAL && it.usable }?.id)
 
-    private fun Provider.toOption() = ProviderOption(
-        id = id,
-        name = displayName,
-        defaultModel = defaultModel,
-        suggestedModels = (listOf(defaultModel) + ProviderPresets.forKind(kind).suggestedModels + localSystemModel()).filter { it.isNotBlank() }.distinct(),
-    )
+    /** Model switcher "refresh": refetches the selected provider's list (kill switch, route and audit log apply). */
+    fun refreshModels() {
+        val id = uiState.value.selectedProviderId ?: return
+        if (refreshing.value) return
+        refreshing.value = true
+        viewModelScope.launch {
+            try {
+                val provider = providers.getProvider(id) ?: return@launch
+                when (val result = providerFactory.create(provider).listModels()) {
+                    is ModelListResult.Success -> if (result.models.isNotEmpty()) providers.saveModelCache(id, ModelCache(System.currentTimeMillis(), result.models))
+                    is ModelListResult.Failure -> notice.value = "Models: ${result.message}"
+                }
+            } finally {
+                refreshing.value = false
+            }
+        }
+    }
+
+    private fun Provider.toOption(cache: ModelCache?): ProviderOption {
+        val preset = preset()
+        val local = kind == ProviderKind.LOCAL
+        return ProviderOption(
+            id = id,
+            name = displayName,
+            defaultModel = defaultModel,
+            models = (cache?.models ?: preset.suggestedModels.map { RemoteModel(it) }) + localSystemModel().map { RemoteModel(it) },
+            modelsLabel = cache?.let { "${it.models.size} models · ${it.ageLabel(System.currentTimeMillis())}" } ?: "offline list",
+            canRefresh = !local && preset.modelsApi != ModelsApi.NONE,
+        )
+    }
 }

@@ -1,0 +1,154 @@
+[
+  {
+    "id": "moonshotai/Kimi-K3",
+    "object": "model",
+    "created": 1786000000,
+    "type": "chat",
+    "display_name": "Kimi K3",
+    "organization": "Moonshot AI",
+    "link": "https://huggingface.co/moonshotai/Kimi-K3",
+    "license": "modified-mit",
+    "context_length": 1048576,
+    "pricing": {
+      "hourly": 0,
+      "input": 0.6,
+      "output": 2.5,
+      "base": 0,
+      "finetune": 0,
+      "cached_input": 0.15
+    }
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-V4-Pro-0813",
+    "object": "model",
+    "created": 1786600000,
+    "type": "chat",
+    "display_name": "DeepSeek V4 Pro 0813",
+    "organization": "DeepSeek",
+    "link": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro-0813",
+    "license": "mit",
+    "context_length": 1048576,
+    "pricing": {
+      "hourly": 0,
+      "input": 1.25,
+      "output": 3.5,
+      "base": 0,
+      "finetune": 0,
+      "cached_input": 0.25
+    }
+  },
+  {
+    "id": "zai-org/GLM-5.3",
+    "object": "model",
+    "created": 1786700000,
+    "type": "chat",
+    "display_name": "GLM 5.3",
+    "organization": "Z.ai",
+    "link": "https://huggingface.co/zai-org/GLM-5.3",
+    "license": "mit",
+    "context_length": 1048575,
+    "pricing": {
+      "hourly": 0,
+      "input": 1.0,
+      "output": 3.2,
+      "base": 0,
+      "finetune": 0,
+      "cached_input": 0.2
+    }
+  },
+  {
+    "id": "Qwen/Qwen3.8-Flash",
+    "object": "model",
+    "created": 1787000000,
+    "type": "chat",
+    "display_name": "Qwen3.8 Flash",
+    "organization": "Qwen",
+    "link": "https://huggingface.co/Qwen",
+    "license": "apache-2.0",
+    "context_length": 1000000,
+    "pricing": {
+      "hourly": 0,
+      "input": 0.1,
+      "output": 0.4,
+      "base": 0,
+      "finetune": 0,
+      "cached_input": 0.02
+    }
+  },
+  {
+    "id": "openai/gpt-oss-120b",
+    "object": "model",
+    "created": 1754438400,
+    "type": "chat",
+    "display_name": "OpenAI GPT-OSS 120B",
+    "organization": "OpenAI",
+    "link": "https://huggingface.co/openai/gpt-oss-120b",
+    "license": "apache-2.0",
+    "context_length": 131072,
+    "pricing": {
+      "hourly": 0,
+      "input": 0.15,
+      "output": 0.6,
+      "base": 0,
+      "finetune": 0,
+      "cached_input": 0
+    }
+  },
+  {
+    "id": "black-forest-labs/FLUX.2-dev",
+    "object": "model",
+    "created": 1764000000,
+    "type": "image",
+    "display_name": "FLUX.2 [dev]",
+    "organization": "Black Forest Labs",
+    "link": "https://huggingface.co/black-forest-labs/FLUX.2-dev",
+    "license": "flux-dev-non-commercial-license",
+    "context_length": 0,
+    "pricing": {
+      "hourly": 0,
+      "input": 0,
+      "output": 0,
+      "base": 0.0154,
+      "finetune": 0,
+      "cached_input": 0
+    }
+  },
+  {
+    "id": "openai/whisper-large-v3",
+    "object": "model",
+    "created": 1730000000,
+    "type": "transcribe",
+    "display_name": "Whisper Large v3",
+    "organization": "OpenAI",
+    "link": "https://huggingface.co/openai/whisper-large-v3",
+    "license": "apache-2.0",
+    "context_length": 0,
+    "pricing": {
+      "hourly": 0,
+      "input": 0,
+      "output": 0,
+      "base": 0,
+      "finetune": 0,
+      "cached_input": 0
+    }
+  },
+  {
+    "id": "meta-llama/Llama-Guard-4-12B",
+    "object": "model",
+    "created": 1746000000,
+    "type": "moderation",
+    "display_name": "Llama Guard 4 12B",
+    "organization": "Meta",
+    "link": "https://huggingface.co/meta-llama/Llama-Guard-4-12B",
+    "license": "llama4",
+    "context_length": 1048576,
+    "pricing": {
+      "hourly": 0,
+      "input": 0.2,
+      "output": 0.2,
+      "base": 0,
+      "finetune": 0,
+      "cached_input": 0
+    }
+  }
+]

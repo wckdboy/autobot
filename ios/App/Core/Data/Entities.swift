@@ -10,9 +10,14 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
     var updatedAt: Int64
 }
 
-/// `.local` runs on this phone (llama.cpp engine); its base URL is unused and never dialled.
+/**
+ `.local` runs on this phone (llama.cpp engine); its base URL is unused and never dialled.
+ `.anthropic` speaks Anthropic's native Messages API, every other kind OpenAI chat completions;
+ which provider a row is beyond that is its preset id. Raw values are the Kotlin names.
+ */
 enum ProviderKind: String, Codable, CaseIterable, Sendable {
-    case deepseek = "DEEPSEEK", openAICompatible = "OPENAI_COMPATIBLE", openRouter = "OPENROUTER", ollama = "OLLAMA", local = "LOCAL"
+    case deepseek = "DEEPSEEK", openAICompatible = "OPENAI_COMPATIBLE", openRouter = "OPENROUTER", ollama = "OLLAMA", local = "LOCAL",
+         anthropic = "ANTHROPIC"
 }
 
 /// Per-provider network routing. `.inherit` follows the global network mode.
@@ -40,7 +45,8 @@ enum ProviderRouting: String, Codable, CaseIterable, Sendable {
 
 /**
  A configured model provider. The API key itself is never stored here; [apiKeyRef] is an opaque
- reference into the Keychain-backed [SecretStore].
+ reference into the Keychain-backed [SecretStore]. [presetId] names its shared preset; rows from
+ before 1.4 have none and are matched by kind and host.
  */
 struct Provider: Codable, Identifiable, Equatable, Sendable {
     var id: String
@@ -50,6 +56,14 @@ struct Provider: Codable, Identifiable, Equatable, Sendable {
     var defaultModel: String
     var routing: ProviderRouting = .inherit
     var apiKeyRef: String? = nil
+    var presetId: String? = nil
+}
+
+/// A provider's fetched model list: [json] is the shared `ModelCache` encoding.
+struct ProviderModels: Codable, Equatable, Sendable {
+    var providerId: String
+    var fetchedAt: Int64
+    var json: String
 }
 
 /**

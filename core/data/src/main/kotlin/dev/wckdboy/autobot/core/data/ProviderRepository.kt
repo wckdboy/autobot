@@ -3,6 +3,8 @@ package dev.wckdboy.autobot.core.data
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
 import dev.wckdboy.autobot.core.data.model.Provider
+import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
+import dev.wckdboy.autobot.providers.remote.ModelCache
 import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.core.security.SecretStore
 import java.util.UUID
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /** How [ProviderRepository.save] should treat the stored API key. */
@@ -78,6 +81,20 @@ class ProviderRepository @Inject constructor(
         val dao = database.get().providerDao()
         dao.get(id)?.apiKeyRef?.let { secretStore.delete(it) }
         dao.delete(id)
+    }
+
+    /** Fetched model lists by provider id (in the encrypted database). */
+    fun observeModelCaches(): Flow<Map<String, ModelCache>> =
+        flow { emitAll(database.get().providerModelsDao().observeAll()) }
+            .map { rows -> rows.mapNotNull { row -> ModelCache.decode(row.json)?.let { row.providerId to it } }.toMap() }
+            .flowOn(io)
+
+    suspend fun modelCache(providerId: String): ModelCache? =
+        withContext(io) { ModelCache.decode(database.get().providerModelsDao().get(providerId)?.json) }
+
+    /** Stores a fetched model list; the provider must exist (the row is deleted with it). */
+    suspend fun saveModelCache(providerId: String, cache: ModelCache) = withContext(io) {
+        database.get().providerModelsDao().upsert(ProviderModelsRow(providerId, cache.fetchedAt, cache.encode()))
     }
 
     /** Decrypts the API key of [provider], if one is stored. */

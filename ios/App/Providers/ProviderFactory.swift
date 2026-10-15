@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 
 /// What the agent needs to know about a model to budget its context.
@@ -36,13 +37,9 @@ final class ProviderFactory {
         if provider.kind == .local { return LocalChatProvider(library: library, compute: compute, engine: llm) }
         let client = clients.create(tag: provider.displayName, override: provider.routing.override)
         let base = provider.baseUrl.trimmingCharacters(in: .whitespaces)
-        let url: String = switch provider.kind {
-        case .deepseek: base.isEmpty ? ProviderPresets.deepSeekBaseUrl : base
-        case .openRouter: base.isEmpty ? ProviderPresets.openRouterBaseUrl : base
-        case .ollama: base.isEmpty ? ProviderPresets.ollamaBaseUrl : base
-        case .openAICompatible, .local: base
-        }
-        return OpenAICompatibleProvider(baseUrl: url, apiKey: apiKey, client: client)
+        // Fallback runtime only (the shared runtime speaks Anthropic's native API): Anthropic's
+        // OpenAI SDK compatibility endpoint lives at the same base URL.
+        return OpenAICompatibleProvider(baseUrl: base.isEmpty ? ProviderPresets.resolve(provider).baseUrl : base, apiKey: apiKey, client: client)
     }
 
     /// On-device context (KV cache memory is the limit on a phone).
@@ -50,16 +47,10 @@ final class ProviderFactory {
     /// Unknown models get a conservative window.
     nonisolated static let defaultContextWindow = 65_536
 
-    /// Best-effort context windows (same table as Android's `ProviderLlmAdapter.modelInfo`).
-    nonisolated static func modelInfo(_ kind: ProviderKind, _ model: String) -> ModelInfo {
-        let m = model.lowercased()
-        if kind == .local { return ModelInfo(contextWindow: localContext, defaultMaxTokens: 2048) }
-        if m.contains("deepseek-v4") || m.contains("deepseek-flash") { return ModelInfo(contextWindow: 1_000_000, supportsReasoning: true) }
-        if m == "deepseek-reasoner" || m.contains("-r1") { return ModelInfo(contextWindow: 128_000, supportsReasoning: true) }
-        if m.hasPrefix("deepseek") || m.contains("/deepseek") { return ModelInfo(contextWindow: 128_000) }
-        if m.contains("qwen3") { return ModelInfo(contextWindow: 128_000, supportsReasoning: true) }
-        if kind == .ollama { return ModelInfo(contextWindow: 32_768) }
-        if kind == .openRouter { return ModelInfo(contextWindow: 128_000) }
-        return ModelInfo(contextWindow: defaultContextWindow)
+    /// Context windows from the shared table (`ProviderLlmAdapter.modelInfo`), the cached model list first.
+    nonisolated static func modelInfo(_ kind: ProviderKind, _ model: String, modelsJson: String? = nil) -> ModelInfo {
+        let known = modelsJson.flatMap { ModelCache.companion.decode(json: $0) }?.find(id: model)
+        let info = ProviderLlmAdapter.companion.modelInfo(kind: SharedMapping.kind(kind), model: model, known: known)
+        return ModelInfo(contextWindow: Int(info.contextWindow), defaultMaxTokens: info.defaultMaxTokens.map { Int(truncating: $0) }, supportsReasoning: info.supportsReasoning)
     }
 }

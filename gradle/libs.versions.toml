@@ -40,6 +40,8 @@ okio = "3.18.2"
 
 # Test
 junit = "4.13.2"
+robolectric = "4.17"
+androidxTestCore = "1.7.0"
 
 [libraries]
 qnn-runtime = { module = "com.qualcomm.qti:qnn-runtime", version.ref = "qnn" }
@@ -92,6 +94,9 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 
 # Test
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 
 # Build-logic (Gradle plugins on the convention-plugin classpath)
 android-gradlePlugin = { group = "com.android.tools.build", name = "gradle", version.ref = "agp" }

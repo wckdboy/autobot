@@ -1,0 +1,82 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "accounts/fireworks/models/kimi-k3",
+      "object": "model",
+      "owned_by": "fireworks",
+      "created": 1786000000,
+      "kind": "HF_BASE_MODEL",
+      "supports_chat": true,
+      "supports_image_input": true,
+      "supports_tools": true,
+      "context_length": 1048576
+    },
+    {
+      "id": "accounts/fireworks/models/deepseek-v4p1-flash",
+      "object": "model",
+      "owned_by": "fireworks",
+      "created": 1788000000,
+      "kind": "HF_BASE_MODEL",
+      "supports_chat": true,
+      "supports_image_input": true,
+      "supports_tools": true,
+      "context_length": 1000000
+    },
+    {
+      "id": "accounts/fireworks/models/glm-5p3",
+      "object": "model",
+      "owned_by": "fireworks",
+      "created": 1786700000,
+      "kind": "HF_BASE_MODEL",
+      "supports_chat": true,
+      "supports_image_input": false,
+      "supports_tools": true,
+      "context_length": 1048576
+    },
+    {
+      "id": "accounts/fireworks/models/minimax-m3",
+      "object": "model",
+      "owned_by": "fireworks",
+      "created": 1785500000,
+      "kind": "HF_BASE_MODEL",
+      "supports_chat": true,
+      "supports_image_input": false,
+      "supports_tools": true,
+      "context_length": 1048576
+    },
+    {
+      "id": "accounts/fireworks/models/gpt-oss-120b",
+      "object": "model",
+      "owned_by": "fireworks",
+      "created": 1754438400,
+      "kind": "HF_BASE_MODEL",
+      "supports_chat": true,
+      "supports_image_input": false,
+      "supports_tools": true,
+      "context_length": 131072
+    },
+    {
+      "id": "accounts/fireworks/models/qwen3-embedding-8b",
+      "object": "model",
+      "owned_by": "fireworks",
+      "created": 1749000000,
+      "kind": "EMBEDDING_MODEL",
+      "supports_chat": false,
+      "supports_image_input": false,
+      "supports_tools": false,
+      "context_length": 40960
+    },
+    {
+      "id": "accounts/fireworks/models/qwen3-reranker-8b",
+      "object": "model",
+      "owned_by": "fireworks",
+      "created": 1749000000,
+      "kind": "HF_BASE_MODEL",
+      "supports_chat": false,
+      "supports_image_input": false,
+      "supports_tools": false,
+      "context_length": 40960
+    }
+  ]
+}

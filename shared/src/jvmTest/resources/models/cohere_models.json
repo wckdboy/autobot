@@ -1,0 +1,12 @@
+{
+  "models": [
+    {"name": "command-a-plus-05-2026", "is_deprecated": false, "endpoints": ["chat"], "finetuned": false, "context_length": 128000, "tokenizer_url": "https://storage.googleapis.com/cohere-public/tokenizers/command-a-plus-05-2026.json", "default_endpoints": ["chat"], "features": ["tools", "json_mode", "json_schema", "vision", "reasoning", "strict_tools"], "sampling_defaults": {"temperature": 0.3, "k": 0, "p": 0.75, "frequency_penalty": 0, "presence_penalty": 0}},
+    {"name": "command-a-03-2025", "is_deprecated": false, "endpoints": ["chat"], "finetuned": false, "context_length": 256000, "tokenizer_url": "https://storage.googleapis.com/cohere-public/tokenizers/command-a-03-2025.json", "default_endpoints": [], "features": ["tools", "json_mode", "json_schema", "strict_tools"], "sampling_defaults": {"temperature": 0.3, "k": 0, "p": 0.75}},
+    {"name": "command-a-reasoning-08-2025", "is_deprecated": false, "endpoints": ["chat"], "finetuned": false, "context_length": 256000, "default_endpoints": [], "features": ["tools", "json_mode", "json_schema", "reasoning"]},
+    {"name": "command-a-vision-07-2025", "is_deprecated": false, "endpoints": ["chat"], "finetuned": false, "context_length": 128000, "default_endpoints": [], "features": ["json_mode", "vision"]},
+    {"name": "command-r7b-12-2024", "is_deprecated": false, "endpoints": ["chat"], "finetuned": false, "context_length": 128000, "default_endpoints": [], "features": ["tools", "json_mode", "json_schema"]},
+    {"name": "embed-v5.0-pro", "is_deprecated": false, "endpoints": ["embed"], "finetuned": false, "context_length": 128000, "default_endpoints": ["embed"], "features": []},
+    {"name": "rerank-v4.0-pro", "is_deprecated": false, "endpoints": ["rerank"], "finetuned": false, "context_length": 32768, "default_endpoints": ["rerank"], "features": [], "sampling_defaults": {"max_tokens_per_doc": 4096}}
+  ],
+  "next_page_token": "eyJvZmZzZXQiOjd9"
+}

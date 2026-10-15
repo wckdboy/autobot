@@ -6,6 +6,9 @@ plugins {
 
 android {
     namespace = "dev.wckdboy.autobot.core.data"
+    // Migration tests read the exported schemas (Robolectric, framework SQLite instead of SQLCipher).
+    sourceSets { named("test") { assets.directories.add("$projectDir/schemas") } }
+    testOptions.unitTests.isIncludeAndroidResources = true
 }
 
 room {
@@ -25,4 +28,8 @@ dependencies {
     implementation(libs.androidx.sqlite)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.room.testing)
 }

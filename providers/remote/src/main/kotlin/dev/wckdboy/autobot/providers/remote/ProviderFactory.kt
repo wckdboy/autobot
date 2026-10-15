@@ -50,14 +50,8 @@ class ProviderFactory @Inject constructor(
             )
         }
         val client = httpClientFactory.create(tag = provider.displayName, override = provider.routing.toOverride())
-        val baseUrl = provider.baseUrl
-        return when (provider.kind) {
-            ProviderKind.DEEPSEEK -> DeepSeekProvider(apiKey, client, baseUrl.ifBlank { DeepSeekProvider.DEFAULT_BASE_URL })
-            ProviderKind.OPENROUTER -> OpenRouterProvider(apiKey, client, baseUrl.ifBlank { OpenRouterProvider.DEFAULT_BASE_URL })
-            ProviderKind.OLLAMA -> OllamaProvider(apiKey, client, baseUrl.ifBlank { OllamaProvider.DEFAULT_BASE_URL })
-            ProviderKind.OPENAI_COMPATIBLE -> OpenAICompatibleProvider(baseUrl, apiKey, client)
-            ProviderKind.LOCAL -> error("handled above")
-        }
+        val preset = provider.preset()
+        return OpenAICompatibleProvider(provider.baseUrl.ifBlank { preset.baseUrl }, apiKey, client, preset)
     }
 }
 

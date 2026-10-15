@@ -132,10 +132,18 @@ final class SharedAgentRuntime: AgentRuntime {
         store.clearIncognito()
     }
 
-    /// Provider "test connection" through the shared codec and the app's transport.
-    func testConnection(_ spec: ProviderSpec) async -> (Bool, String) {
+    /// Provider "test connection" through the shared codec and the app's transport: success, a
+    /// summary (model count and first ids, or the error) and the model list to cache.
+    func testConnection(_ spec: ProviderSpec) async -> (ok: Bool, message: String, modelsJson: String?) {
         await withCheckedContinuation { continuation in
-            bridge.testConnection(spec: spec) { ok, message in continuation.resume(returning: (ok.boolValue, message)) }
+            bridge.testConnection(spec: spec) { ok, message, json in continuation.resume(returning: (ok.boolValue, message, json)) }
+        }
+    }
+
+    /// Fetches a provider's chat models: the `ModelCache` JSON, or an error message.
+    func listModels(_ spec: ProviderSpec) async -> (json: String?, error: String?) {
+        await withCheckedContinuation { continuation in
+            bridge.listModels(spec: spec) { json, error in continuation.resume(returning: (json, error)) }
         }
     }
 

@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -88,6 +90,7 @@ import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.providers.remote.ModelLists
 import dev.wckdboy.autobot.shared.session.NoticeKind
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.ToolState
@@ -234,6 +237,7 @@ fun ChatScreen(
                 showModels = false
                 onOpenProviders()
             },
+            onRefreshModels = actions::refreshModels,
         )
     }
     if (showSession) {
@@ -675,11 +679,15 @@ private fun ModelSheet(
     onSelectProvider: (String) -> Unit,
     onSelectModel: (String) -> Unit,
     onOpenProviders: () -> Unit,
+    onRefreshModels: () -> Unit,
 ) {
     var model by remember(state.selectedProviderId, state.selectedModel) { mutableStateOf(state.selectedModel.orEmpty()) }
     val selected = state.providers.firstOrNull { it.id == state.selectedProviderId }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             SectionLabel("route")
             if (state.providers.isEmpty()) TextButton(onClick = onOpenProviders) { Text("ADD A PROVIDER") }
             state.providers.forEach { option ->
@@ -693,15 +701,30 @@ private fun ModelSheet(
                 }
             }
             Hairline(Modifier.padding(vertical = 4.dp))
-            SectionLabel("model")
-            selected?.suggestedModels?.takeIf { it.isNotEmpty() }?.let { suggestions ->
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    suggestions.forEach { s ->
-                        Tag(s, accent = if (s == model) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = s == model, onClick = { model = s })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("model", Modifier.weight(1f))
+                selected?.let { MicroLabel(it.modelsLabel) }
+                if (selected?.canRefresh == true) TextButton(onClick = onRefreshModels) { Text("REFRESH") }
+            }
+            ConsoleTextField(model, { model = it }, Modifier.fillMaxWidth(), label = "Model id · type to search", singleLine = true, mono = true)
+            selected?.let { option ->
+                // The field searches the list unless it already names one of its models.
+                val query = if (option.models.any { it.id == model }) "" else model
+                val shown = ModelLists.filter(option.models, query, limit = 30)
+                shown.forEach { m ->
+                    val active = m.id == model
+                    Column(Modifier.fillMaxWidth().clickable { model = m.id }.padding(vertical = 4.dp)) {
+                        Text(
+                            (if (active) "● " else "") + m.id,
+                            style = AutobotTheme.styles.code,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        m.caption().takeIf { it.isNotEmpty() }?.let { MicroLabel(it) }
                     }
                 }
             }
-            ConsoleTextField(model, { model = it }, Modifier.fillMaxWidth(), label = "Model id", singleLine = true, mono = true)
             PrimaryButton("Use model", { onSelectModel(model) }, Modifier.fillMaxWidth(), enabled = model.isNotBlank() && selected != null)
         }
     }

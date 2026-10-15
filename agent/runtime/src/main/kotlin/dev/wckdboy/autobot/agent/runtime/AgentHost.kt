@@ -136,7 +136,9 @@ class AgentHost @Inject constructor(
 
     init {
         harness.llm.setResolver { id ->
-            providers.getProvider(id)?.let { ProviderLlmAdapter(it.id, providerFactory.create(it), it.kind, images) }
+            providers.getProvider(id)?.let {
+                ProviderLlmAdapter(it.id, providerFactory.create(it), it.kind, images, it.preset().echoReasoning, providers.modelCache(it.id))
+            }
         }
         val root = harness.root
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))

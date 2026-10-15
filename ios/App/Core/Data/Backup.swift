@@ -111,7 +111,7 @@ final class BackupService {
         let manifest = BackupManifest(
             settings: app.settings.settings.values,
             providers: app.providers.providers.map {
-                BackupProvider(id: $0.id, kind: $0.kind.rawValue, displayName: $0.displayName, baseUrl: $0.baseUrl, defaultModel: $0.defaultModel, routing: $0.routing.rawValue)
+                BackupProvider(id: $0.id, kind: $0.kind.rawValue, displayName: $0.displayName, baseUrl: $0.baseUrl, defaultModel: $0.defaultModel, routing: $0.routing.rawValue, presetId: $0.presetId)
             },
             conversations: conversations.map {
                 BackupConversation(id: $0.id, title: $0.title, providerId: $0.providerId, model: $0.model, createdAt: $0.createdAt, updatedAt: $0.updatedAt)
@@ -180,7 +180,7 @@ final class BackupService {
         for p in manifest.providers where app.providers.get(p.id) == nil {
             _ = try? app.providers.save(Provider(
                 id: p.id, kind: ProviderKind(rawValue: p.kind) ?? .openAICompatible, displayName: p.displayName, baseUrl: p.baseUrl,
-                defaultModel: p.defaultModel, routing: ProviderRouting(rawValue: p.routing) ?? .inherit,
+                defaultModel: p.defaultModel, routing: ProviderRouting(rawValue: p.routing) ?? .inherit, presetId: p.presetId,
             ))
             added.providers += 1
         }

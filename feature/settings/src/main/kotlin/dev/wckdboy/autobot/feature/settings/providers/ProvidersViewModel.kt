@@ -6,20 +6,26 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.ApiKeyUpdate
 import dev.wckdboy.autobot.core.data.ProviderRepository
+import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
 import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
+import dev.wckdboy.autobot.providers.remote.ModelCache
+import dev.wckdboy.autobot.providers.remote.ModelListResult
+import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
+import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
+import dev.wckdboy.autobot.providers.remote.RemoteModel
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -30,17 +36,21 @@ data class ProviderRow(
     val id: String,
     val name: String,
     val kind: ProviderKind,
+    val presetName: String,
     val baseUrl: String,
     val model: String,
     val routing: ProviderRouting,
     val hasKey: Boolean,
+    /** `42 models · fetched 3 min ago`, or null before the first fetch. */
+    val models: String? = null,
 )
 
 /** Editor state. [apiKeyInput] is only held in memory and is redacted from [toString]. */
 @Immutable
 data class ProviderDraft(
     val id: String? = null,
-    val kind: ProviderKind = ProviderKind.DEEPSEEK,
+    val presetId: String = ProviderPresets.CUSTOM,
+    val kind: ProviderKind = ProviderKind.OPENAI_COMPATIBLE,
     val displayName: String = "",
     val baseUrl: String = "",
     val defaultModel: String = "",
@@ -50,25 +60,33 @@ data class ProviderDraft(
     val clearStoredKey: Boolean = false,
 ) {
     val isNew: Boolean get() = id == null
+    val preset: ProviderPreset get() = ProviderPresets.resolve(presetId, kind, baseUrl)
     val baseUrlValid: Boolean get() = baseUrl.trim().toHttpUrlOrNull() != null
     val canSave: Boolean get() = displayName.isNotBlank() && baseUrlValid && defaultModel.isNotBlank()
 
     override fun toString(): String =
-        "ProviderDraft(id=$id, kind=$kind, displayName=$displayName, baseUrl=$baseUrl, model=$defaultModel, " +
+        "ProviderDraft(id=$id, preset=$presetId, displayName=$displayName, baseUrl=$baseUrl, model=$defaultModel, " +
             "routing=$routing, apiKeyInput=${if (apiKeyInput.isEmpty()) "" else Secret.REDACTED}, hasStoredKey=$hasStoredKey)"
 
     companion object {
-        fun fromPreset(kind: ProviderKind): ProviderDraft {
-            val preset = ProviderPresets.forKind(kind)
-            return ProviderDraft(
-                kind = kind,
-                displayName = preset.displayName,
-                baseUrl = preset.baseUrl,
-                defaultModel = preset.defaultModel,
-            )
-        }
+        fun fromPreset(preset: ProviderPreset): ProviderDraft = ProviderDraft(
+            presetId = preset.id,
+            kind = preset.kind,
+            displayName = preset.displayName,
+            baseUrl = preset.baseUrl,
+            defaultModel = preset.defaultModel,
+        )
     }
 }
+
+/** The model list shown in the editor: fetched (with its age) or the preset's offline list. */
+@Immutable
+data class EditorModels(
+    val models: List<RemoteModel> = emptyList(),
+    val fetchedAt: Long? = null,
+    val loading: Boolean = false,
+    val error: String? = null,
+)
 
 @Immutable
 sealed interface TestState {
@@ -81,51 +99,88 @@ sealed interface TestState {
 @Immutable
 data class ProvidersUiState(
     val providers: List<ProviderRow> = emptyList(),
+    /** The "add provider" preset search, or null when the picker is closed. */
+    val pickerQuery: String? = null,
     val editor: ProviderDraft? = null,
+    val models: EditorModels = EditorModels(),
     val test: TestState = TestState.Idle,
     val saving: Boolean = false,
+    val now: Long = 0,
 )
 
 @HiltViewModel
 class ProvidersViewModel @Inject constructor(
     private val repository: ProviderRepository,
     private val providerFactory: ProviderFactory,
+    @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
 
+    private val picker = MutableStateFlow<String?>(null)
     private val editor = MutableStateFlow<ProviderDraft?>(null)
+    private val models = MutableStateFlow(EditorModels())
     private val test = MutableStateFlow<TestState>(TestState.Idle)
     private val saving = MutableStateFlow(false)
     private var testJob: Job? = null
+    private var modelsJob: Job? = null
 
-    private val rows = repository.observeProviders().map { list ->
+    private val rows = combine(repository.observeProviders(), repository.observeModelCaches()) { list, caches ->
+        val now = System.currentTimeMillis()
         list.map { p ->
             ProviderRow(
                 id = p.id,
                 name = p.displayName,
                 kind = p.kind,
+                presetName = p.preset().displayName,
                 baseUrl = p.baseUrl,
                 model = p.defaultModel,
                 routing = p.routing,
                 hasKey = p.apiKeyRef != null,
+                models = caches[p.id]?.let { "${it.models.size} models · ${it.ageLabel(now)}" },
             )
         }
     }
 
-    val uiState: StateFlow<ProvidersUiState> = combine(rows, editor, test, saving) { r, e, t, s ->
-        ProvidersUiState(providers = r, editor = e, test = t, saving = s)
+    val uiState: StateFlow<ProvidersUiState> = combine(
+        combine(rows, picker, editor) { r, p, e -> Triple(r, p, e) },
+        models,
+        test,
+        saving,
+    ) { (r, p, e), m, t, s ->
+        ProvidersUiState(providers = r, pickerQuery = p, editor = e, models = m, test = t, saving = s, now = System.currentTimeMillis())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProvidersUiState())
 
-    fun startAdd(kind: ProviderKind = ProviderKind.DEEPSEEK) {
+    /** Opens the preset search ("add provider"). */
+    fun startAdd() {
         resetTest()
-        editor.value = ProviderDraft.fromPreset(kind)
+        picker.value = ""
+    }
+
+    fun search(query: String) {
+        picker.value = query
+    }
+
+    fun dismissPicker() {
+        picker.value = null
+    }
+
+    /** A preset was picked: open the editor with its defaults and its offline model list. */
+    fun choosePreset(presetId: String) {
+        val preset = ProviderPresets.byId(presetId) ?: return
+        if (preset.kind == ProviderKind.LOCAL) return
+        picker.value = null
+        resetTest()
+        editor.value = ProviderDraft.fromPreset(preset)
+        models.value = EditorModels(offline(preset))
     }
 
     fun startEdit(id: String) {
         resetTest()
         viewModelScope.launch {
             val provider = repository.getProvider(id) ?: return@launch
+            val preset = provider.preset()
             editor.value = ProviderDraft(
                 id = provider.id,
+                presetId = preset.id,
                 kind = provider.kind,
                 displayName = provider.displayName,
                 baseUrl = provider.baseUrl,
@@ -133,20 +188,8 @@ class ProvidersViewModel @Inject constructor(
                 routing = provider.routing,
                 hasStoredKey = repository.hasApiKey(provider),
             )
+            models.value = repository.modelCache(provider.id)?.let { EditorModels(it.models, it.fetchedAt) } ?: EditorModels(offline(preset))
         }
-    }
-
-    /** Switching kind on a new provider re-applies that kind's preset. */
-    fun changeKind(kind: ProviderKind) {
-        editor.update { current ->
-            current ?: return@update null
-            if (current.isNew) {
-                ProviderDraft.fromPreset(kind).copy(apiKeyInput = current.apiKeyInput, routing = current.routing)
-            } else {
-                current.copy(kind = kind)
-            }
-        }
-        resetTest()
     }
 
     fun updateDraft(transform: (ProviderDraft) -> ProviderDraft) {
@@ -156,6 +199,7 @@ class ProvidersViewModel @Inject constructor(
 
     fun dismissEditor() {
         resetTest()
+        modelsJob?.cancel()
         editor.value = null
     }
 
@@ -166,13 +210,19 @@ class ProvidersViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val existing = draft.id?.let { repository.getProvider(it) }
-                val provider = draft.toProvider(existing)
                 val keyUpdate = when {
                     draft.apiKeyInput.isNotBlank() -> ApiKeyUpdate.Set(Secret(draft.apiKeyInput.trim()))
                     draft.clearStoredKey -> ApiKeyUpdate.Clear
                     else -> ApiKeyUpdate.Keep
                 }
-                repository.save(provider, keyUpdate)
+                val stored = repository.save(draft.toProvider(existing), keyUpdate)
+                val fetched = models.value.takeIf { it.fetchedAt != null && it.models.isNotEmpty() }
+                when {
+                    // A list fetched in the editor (test / refresh) with the same key is kept as is.
+                    fetched != null && keyUpdate !is ApiKeyUpdate.Clear -> repository.saveModelCache(stored.id, ModelCache(fetched.fetchedAt!!, fetched.models))
+                    // A new key, or a provider without keys: fetch its list in the background.
+                    keyUpdate is ApiKeyUpdate.Set || !stored.preset().requiresApiKey -> appScope.launch { refreshStored(stored) }
+                }
                 editor.value = null
             } finally {
                 saving.value = false
@@ -187,7 +237,7 @@ class ProvidersViewModel @Inject constructor(
         }
     }
 
-    /** Calls `GET /models` through the policy-enforcing client (blocked while Offline). */
+    /** Calls the models endpoint through the policy-enforcing client (blocked while Offline). */
     fun testConnection() {
         val draft = editor.value ?: return
         if (!draft.baseUrlValid) {
@@ -197,21 +247,56 @@ class ProvidersViewModel @Inject constructor(
         testJob?.cancel()
         test.value = TestState.Running
         testJob = viewModelScope.launch {
-            val existing = draft.id?.let { repository.getProvider(it) }
-            val provider = draft.toProvider(existing)
-            val key = when {
-                draft.apiKeyInput.isNotBlank() -> Secret(draft.apiKeyInput.trim())
-                draft.clearStoredKey -> null
-                existing != null -> repository.apiKey(existing)
-                else -> null
-            }
-            test.value = when (val result = providerFactory.create(provider, key).testConnection()) {
-                is ConnectionTestResult.Success ->
-                    TestState.Success(result.modelCount?.let { "Connected · $it models available" } ?: "Connected")
+            val result = draftProvider(draft).testConnection()
+            test.value = when (result) {
+                is ConnectionTestResult.Success -> {
+                    if (result.modelCount != null) accept(result.models)
+                    TestState.Success(result.summary())
+                }
                 is ConnectionTestResult.Failure -> TestState.Failure(result.message)
             }
         }
     }
+
+    /** "Refresh" in the editor: fetch the list with the draft's key and base URL. */
+    fun refreshModels() {
+        val draft = editor.value ?: return
+        if (!draft.baseUrlValid || draft.preset.modelsApi == ModelsApi.NONE) return
+        modelsJob?.cancel()
+        models.update { it.copy(loading = true, error = null) }
+        modelsJob = viewModelScope.launch {
+            when (val result = draftProvider(draft).listModels()) {
+                is ModelListResult.Success -> accept(result.models)
+                is ModelListResult.Failure -> models.update { it.copy(loading = false, error = result.message) }
+            }
+        }
+    }
+
+    private fun accept(list: List<RemoteModel>) {
+        models.value = EditorModels(list, System.currentTimeMillis())
+        // Servers whose model is whatever is loaded (llama.cpp, vLLM, LM Studio) start without one.
+        editor.update { d -> if (d != null && d.defaultModel.isBlank() && list.isNotEmpty()) d.copy(defaultModel = list.first().id) else d }
+    }
+
+    private suspend fun draftProvider(draft: ProviderDraft) = run {
+        val existing = draft.id?.let { repository.getProvider(it) }
+        val key = when {
+            draft.apiKeyInput.isNotBlank() -> Secret(draft.apiKeyInput.trim())
+            draft.clearStoredKey -> null
+            existing != null -> repository.apiKey(existing)
+            else -> null
+        }
+        providerFactory.create(draft.toProvider(existing), key)
+    }
+
+    private suspend fun refreshStored(provider: Provider) {
+        val result = providerFactory.create(provider).listModels()
+        if (result is ModelListResult.Success && result.models.isNotEmpty() && provider.preset().modelsApi != ModelsApi.NONE) {
+            repository.saveModelCache(provider.id, ModelCache(System.currentTimeMillis(), result.models))
+        }
+    }
+
+    private fun offline(preset: ProviderPreset) = preset.suggestedModels.map { RemoteModel(it) }
 
     private fun resetTest() {
         testJob?.cancel()
@@ -226,5 +311,6 @@ class ProvidersViewModel @Inject constructor(
         defaultModel = defaultModel.trim(),
         routing = routing,
         apiKeyRef = existing?.apiKeyRef,
+        presetId = presetId,
     )
 }

@@ -14,6 +14,7 @@ import dev.wckdboy.autobot.core.data.model.MemoryNoteRow
 import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
+import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
 import dev.wckdboy.autobot.core.security.KeyManager
 import javax.inject.Inject
@@ -23,20 +24,22 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 @Database(
     entities = [
         Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class,
-        BenchmarkRow::class, McpServer::class, MemoryNoteRow::class,
+        BenchmarkRow::class, McpServer::class, MemoryNoteRow::class, ProviderModelsRow::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
-    // 4 → 5 adds `mcp_servers`, 5 → 6 adds `memory_notes` (local memory); existing tables are untouched.
+    // 4 → 5 adds `mcp_servers`, 5 → 6 `memory_notes` (local memory), 6 → 7 `providers.presetId` and
+    // `provider_models` (fetched model lists); existing data is untouched.
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
-        AutoMigration(from = 5, to = 6),
+        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7),
     ],
 )
 abstract class AutobotDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun providerDao(): ProviderDao
+    abstract fun providerModelsDao(): ProviderModelsDao
     abstract fun sessionEventDao(): SessionEventDao
     abstract fun galleryDao(): GalleryDao
     abstract fun modelDao(): ModelDao

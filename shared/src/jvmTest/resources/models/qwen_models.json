@@ -1,0 +1,113 @@
+{
+  "code": null,
+  "message": null,
+  "success": true,
+  "output": {
+    "total": 168,
+    "page_no": 1,
+    "page_size": 10,
+    "models": [
+      {
+        "model": "qwen3.8-max",
+        "name": "Qwen3.8-Max",
+        "description": "The Max model in the Qwen3 series, designed for complex agent scenarios.",
+        "features": ["function-calling", "structured-outputs", "web-search"],
+        "prices": [
+          {
+            "prices": [
+              {"type": "input_token", "price": "2", "price_unit": "per million tokens", "price_name": "Input"},
+              {"type": "output_token", "price": "8", "price_unit": "per million tokens", "price_name": "Output"}
+            ],
+            "range_name": "Default"
+          }
+        ],
+        "published_time": "2025-11-11 12:00:00",
+        "inference_metadata": {"response_modality": ["Text"], "request_modality": ["Text"]},
+        "model_info": {
+          "context_window": 131072,
+          "max_input_tokens": 130048,
+          "max_output_tokens": 16384,
+          "max_reasoning_tokens": null,
+          "reasoning_max_input_tokens": null,
+          "reasoning_max_output_tokens": null
+        }
+      },
+      {
+        "model": "qwen3.7-plus",
+        "name": "Qwen3.7-Plus",
+        "description": null,
+        "features": ["function-calling", "structured-outputs"],
+        "prices": [],
+        "published_time": null,
+        "inference_metadata": {"response_modality": ["Text"], "request_modality": ["Text", "Image"]},
+        "model_info": {
+          "context_window": null,
+          "max_input_tokens": null,
+          "max_output_tokens": null,
+          "max_reasoning_tokens": null,
+          "reasoning_max_input_tokens": null,
+          "reasoning_max_output_tokens": null
+        }
+      },
+      {
+        "model": "qwen3.8-flash",
+        "name": "Qwen3.8-Flash",
+        "description": null,
+        "features": ["function-calling", "structured-outputs"],
+        "prices": [],
+        "published_time": null,
+        "inference_metadata": {"response_modality": ["Text"], "request_modality": ["Text"]},
+        "model_info": {
+          "context_window": null,
+          "max_input_tokens": null,
+          "max_output_tokens": null,
+          "max_reasoning_tokens": null,
+          "reasoning_max_input_tokens": null,
+          "reasoning_max_output_tokens": null
+        }
+      },
+      {
+        "model": "text-embedding-v4",
+        "name": "Text-Embedding-V4",
+        "description": null,
+        "features": [],
+        "prices": [],
+        "published_time": null,
+        "inference_metadata": {"response_modality": ["Embedding"], "request_modality": ["Text"]},
+        "model_info": {
+          "context_window": null,
+          "max_input_tokens": null,
+          "max_output_tokens": null,
+          "max_reasoning_tokens": null,
+          "reasoning_max_input_tokens": null,
+          "reasoning_max_output_tokens": null
+        }
+      },
+      {
+        "model": "qwen-image-3.0-pro",
+        "name": "Qwen-Image-3.0-Pro",
+        "description": "The Max model in the Qwen image generation series.",
+        "features": ["model-experience"],
+        "prices": [
+          {
+            "prices": [
+              {"type": "image_number", "price": "0.075", "price_unit": "per image", "price_name": "Image Generation"}
+            ],
+            "range_name": "Default"
+          }
+        ],
+        "published_time": null,
+        "inference_metadata": {"response_modality": ["Image"], "request_modality": ["Text"]},
+        "model_info": {
+          "context_window": null,
+          "max_input_tokens": null,
+          "max_output_tokens": null,
+          "max_reasoning_tokens": null,
+          "reasoning_max_input_tokens": null,
+          "reasoning_max_output_tokens": null
+        }
+      }
+    ]
+  },
+  "request_id": "d5f5201f-ee7a-9e3d-8569-bc0eedec21f9"
+}
