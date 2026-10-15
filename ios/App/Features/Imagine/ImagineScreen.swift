@@ -70,7 +70,7 @@ struct ImagineScreen: View {
                             GhostButton("Add a pc") { nav.push(.imageBackends) }
                         }
                     }
-                    PromptField(text: Binding(get: { m.request.prompt }, set: m.setPrompt), tokens: m.tokenEstimate)
+                    PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate)
                     if !m.chips.isEmpty { chipRow(m) }
                     Hairline(color: c.onBackground)
                     HStack {
@@ -335,7 +335,7 @@ private struct InitStrip: View {
             .accessibilityLabel("Pick an image")
             VStack(alignment: .leading, spacing: 4) {
                 MicroLabel(model.request.mode == .inpaint ? "inpaint · \(model.mask.isEmpty ? "no mask" : "\(model.mask.strokes.count) strokes")" : "img2img")
-                ValueSlider(label: "Denoise", value: Binding(get: { model.request.denoiseStrength }, set: model.setDenoise), range: 0.05 ... 1)
+                ValueSlider(label: "Denoise", value: Binding(get: { model.request.denoiseStrength }, set: { model.setDenoise($0) }), range: 0.05 ... 1)
             }
             if model.request.mode == .inpaint && model.initImage != nil {
                 IconAction(.brush, label: "Edit mask", action: onEditMask)
@@ -372,7 +372,7 @@ private struct TuneSheet: View {
                 let modes = DiffusionMode.allCases.filter { caps?.modes.contains($0) ?? true }
                 Segmented(options: modes, selected: request.mode, label: { $0.label }, onSelect: model.setMode)
 
-                ConsoleTextField(text: Binding(get: { model.request.negativePrompt }, set: model.setNegative), label: "Negative", kind: .mono, minLines: 2, maxLines: 5)
+                ConsoleTextField(text: Binding(get: { model.request.negativePrompt }, set: { model.setNegative($0) }), label: "Negative", kind: .mono, minLines: 2, maxLines: 5)
 
                 let (samplers, value): ([String], String) = switch kind {
                 case .onDevice: (LocalDiffusion.samplers, request.sampler)
@@ -395,7 +395,7 @@ private struct TuneSheet: View {
                 }
                 ValueSlider(label: "Steps", value: Binding(get: { Double(model.request.steps) }, set: { model.setSteps(Int($0)) }),
                             range: 1 ... Double(caps?.maxSteps ?? 150), step: 1, format: { "\(Int($0))" })
-                ValueSlider(label: "CFG", value: Binding(get: { model.request.cfgScale }, set: model.setCfg), range: 1 ... 20, format: { String(format: "%.1f", $0) })
+                ValueSlider(label: "CFG", value: Binding(get: { model.request.cfgScale }, set: { model.setCfg($0) }), range: 1 ... 20, format: { String(format: "%.1f", $0) })
 
                 if kind == .onDevice {
                     MicroLabel("size · \(request.width)×\(request.height) · fixed by the core ml model", lines: 2)
@@ -429,7 +429,7 @@ private struct TuneSheet: View {
                                 range: 0 ... 64, step: 1, format: { "\(Int($0)) px" })
                     HStack {
                         Text("Only masked area").textStyle(.titleSmall).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-                        RisoToggle(isOn: Binding(get: { model.request.inpaintOnlyMasked }, set: model.setOnlyMasked))
+                        RisoToggle(isOn: Binding(get: { model.request.inpaintOnlyMasked }, set: { model.setOnlyMasked($0) }))
                     }
                 }
 
