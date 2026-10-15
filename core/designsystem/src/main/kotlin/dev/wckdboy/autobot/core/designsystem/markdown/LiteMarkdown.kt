@@ -30,15 +30,49 @@ sealed interface MdSpan {
  */
 object LiteMarkdown {
 
-    fun parse(text: String): List<MdBlock> {
+    fun parse(text: String): List<MdBlock> = parseFrom(text.replace("\r\n", "\n"), 0).blocks
+
+    /**
+     * A parse that a longer text can continue from: while a reply streams in, only its last
+     * block is parsed again (earlier blocks are final once a blank line or fence follows them),
+     * and the unchanged blocks keep their identity, so the UI does not re-render them.
+     */
+    class Parsed internal constructor(internal val text: String, val blocks: List<MdBlock>, internal val lastBlockStart: Int)
+
+    /** [text] parsed, reusing [previous] when [text] extends it (the streaming case). */
+    fun parse(text: String, previous: Parsed?): Parsed {
+        val normalized = text.replace("\r\n", "\n")
+        if (previous != null && previous.text == normalized) return previous
+        if (previous == null || previous.blocks.isEmpty() || !normalized.startsWith(previous.text)) {
+            return parseFrom(normalized, 0).let { Parsed(normalized, it.blocks, it.lastStart) }
+        }
+        val tail = parseFrom(normalized, previous.lastBlockStart)
+        return Parsed(normalized, previous.blocks.dropLast(1) + tail.blocks, tail.lastStart)
+    }
+
+    private class Result(val blocks: List<MdBlock>, val lastStart: Int)
+
+    /** Parses [text] from offset [from], which must be the start of a top-level block (or 0). */
+    private fun parseFrom(text: String, from: Int): Result {
         val blocks = mutableListOf<MdBlock>()
         val paragraph = StringBuilder()
-        val lines = text.replace("\r\n", "\n").split('\n')
+        var paragraphStart = from
+        var lastStart = from
+        val lines = text.substring(from).split('\n')
+        val starts = IntArray(lines.size)
+        var offset = from
+        for (k in lines.indices) {
+            starts[k] = offset
+            offset += lines[k].length + 1
+        }
         var i = 0
 
         fun flushParagraph() {
             val content = paragraph.toString().trim('\n')
-            if (content.isNotBlank()) blocks += MdBlock.Paragraph(parseInline(content))
+            if (content.isNotBlank()) {
+                blocks += MdBlock.Paragraph(parseInline(content))
+                lastStart = paragraphStart
+            }
             paragraph.clear()
         }
 
@@ -47,6 +81,7 @@ object LiteMarkdown {
             val trimmed = line.trimStart()
             if (trimmed.startsWith(FENCE)) {
                 flushParagraph()
+                val fenceStart = starts[i]
                 val language = trimmed.removePrefix(FENCE).trim().takeIf { it.isNotEmpty() }
                 val code = StringBuilder()
                 var closed = false
@@ -61,19 +96,20 @@ object LiteMarkdown {
                     i++
                 }
                 blocks += MdBlock.CodeBlock(language, code.toString(), closed)
+                lastStart = fenceStart
                 i++
                 continue
             }
             if (line.isBlank()) {
                 flushParagraph()
             } else {
-                if (paragraph.isNotEmpty()) paragraph.append('\n')
+                if (paragraph.isEmpty()) paragraphStart = starts[i] else paragraph.append('\n')
                 paragraph.append(line)
             }
             i++
         }
         flushParagraph()
-        return blocks
+        return Result(blocks, lastStart)
     }
 
     fun parseInline(text: String): List<MdSpan> {

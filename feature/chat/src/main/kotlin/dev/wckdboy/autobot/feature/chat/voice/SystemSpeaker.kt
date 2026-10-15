@@ -133,7 +133,8 @@ class SystemSpeaker @Inject constructor(@ApplicationContext private val context:
         pending[id] = done
         try {
             if (engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, id) != TextToSpeech.SUCCESS) throw SpeakerUnavailable("Text-to-speech failed")
-            done.await()
+            // An engine that never reports the end (crashed, killed) must not leave the app "speaking".
+            if (withTimeoutOrNull(deadlineMillis(text.length)) { done.await() } == null) engine.stop()
         } catch (e: CancellationException) {
             engine.stop()
             throw e
@@ -150,5 +151,8 @@ class SystemSpeaker @Inject constructor(@ApplicationContext private val context:
 
     companion object {
         const val ID = "system"
+
+        /** Longest [chars] characters may take to speak: a slow rate (8 chars/s) plus engine start-up. */
+        fun deadlineMillis(chars: Int): Long = chars.coerceAtLeast(0) * 1000L / 8 + 10_000L
     }
 }

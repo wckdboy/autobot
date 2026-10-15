@@ -51,13 +51,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,6 +138,11 @@ fun ChatRoute(
 
 private const val MAX_ATTACHMENTS = 4
 
+/** Saved instance state keeps at most this much typed text (it all travels in one binder transaction). */
+private const val MAX_SAVED_TEXT = 4_000
+
+private val BoundedText = Saver<MutableState<String>, String>(save = { it.value.take(MAX_SAVED_TEXT) }, restore = { mutableStateOf(it) })
+
 private val COMMANDS = listOf(
     "/compact" to "summarize older history to free context",
     "/tools on|off" to "toggle tool use for this session",
@@ -186,11 +194,8 @@ fun ChatScreen(
     LaunchedEffect(newest) {
         if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }
-    // Step numbers in transcript order.
-    val stepNumbers = remember(state.items) {
-        var n = 0
-        state.items.filterIsInstance<SessionItem.Tool>().associate { it.key to ++n }
-    }
+    // Step numbers in transcript order (computed with the projection, off the main thread).
+    val stepNumbers = state.stepNumbers
     val firstPromptKey = state.items.firstOrNull { it is SessionItem.User }?.key
     // Items added after the transcript loaded ink in; history just appears.
     val enter = rememberInkEnterTracker(state.loaded) { state.items.map { it.key } }
@@ -265,7 +270,10 @@ fun ChatScreen(
             if (voice != null) {
                 VoicePanel(voice, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
             } else {
-                InputBar(state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation, actions::consumeDictation)
+                InputBar(
+                    state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation,
+                    actions::consumeDictation, actions.draft, actions::setDraft,
+                )
             }
         }
     }
@@ -624,7 +632,7 @@ private fun TodoPanel(state: ChatUiState) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?) -> Unit) {
-    var free by rememberSaveable(question.callId) { mutableStateOf("") }
+    var free by rememberSaveable(question.callId, saver = BoundedText) { mutableStateOf("") }
     var picked by remember(question.callId) { mutableStateOf(setOf<String>()) }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -664,8 +672,12 @@ private fun InputBar(
     thumbnail: suspend (String) -> ImageBitmap?,
     onDictate: () -> Unit,
     onDictationConsumed: () -> Unit,
+    draft: String,
+    onDraftChange: (String) -> Unit,
 ) {
-    var text by rememberSaveable { mutableStateOf("") }
+    // Held by the ViewModel, not saved instance state: a huge paste must not overflow the saved Bundle.
+    var text by remember { mutableStateOf(draft) }
+    LaunchedEffect(Unit) { snapshotFlow { text }.collect(onDraftChange) }
     LaunchedEffect(state.dictated) {
         state.dictated?.let { spoken ->
             text = if (text.isBlank()) spoken else text.trimEnd() + " " + spoken

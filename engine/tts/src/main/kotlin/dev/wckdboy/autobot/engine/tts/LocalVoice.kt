@@ -36,16 +36,27 @@ class LocalVoice {
      * current sentence. Throws [VoiceException].
      */
     fun synthesize(folder: File, text: String, voice: String = KokoroFrontend.DEFAULT_VOICE, speed: Float = 1f): Flow<FloatArray> = flow {
-        val chunks = mutex.withLock { load(folder).frontend.chunks(text, voice) }
+        val chunks = mutex.withLock {
+            val frontend = load(folder).frontend
+            try {
+                frontend.chunks(text, voice)
+            } catch (e: Exception) {
+                throw VoiceException("The voice cannot read this text: ${e.message}", e)
+            }
+        }
         for (chunk in chunks) {
             currentCoroutineContext().ensureActive()
             val pcm = mutex.withLock {
                 val l = load(folder)
-                val pack = l.voices.getOrPut(voice) { readVoice(l.folder, voice) }
                 try {
+                    val pack = l.voices.getOrPut(voice) { readVoice(l.folder, voice) }
                     l.model.run(chunk, pack, speed)
+                } catch (e: VoiceException) {
+                    throw e
                 } catch (e: Exception) {
                     throw VoiceException("The voice failed: ${e.message}", e)
+                } catch (e: OutOfMemoryError) {
+                    throw VoiceException("Not enough memory for the voice", e)
                 }
             }
             emit(pcm)
@@ -72,13 +83,19 @@ class LocalVoice {
 
     /** Frees the model and lexicons. */
     suspend fun unload() = mutex.withLock {
-        loaded?.model?.close()
+        runCatching { loaded?.model?.close() }
         loaded = null
     }
 
+    /** Whether a synthesis is running (memory pressure only frees an idle voice). */
+    val isBusy: Boolean get() = mutex.isLocked
+
+    /** Whether the model is in memory. */
+    val isLoaded: Boolean get() = loaded != null
+
     private suspend fun load(folder: File): Loaded {
         loaded?.takeIf { it.folder == folder }?.let { return it }
-        loaded?.model?.close()
+        runCatching { loaded?.model?.close() }
         loaded = null
         return withContext(Dispatchers.IO) {
             val model = File(folder, MODEL)
@@ -87,6 +104,11 @@ class LocalVoice {
                 Loaded(folder, KokoroFrontend.load(folder.path), KokoroOnnx(model))
             } catch (e: Exception) {
                 throw VoiceException("Cannot load the voice: ${e.message}", e)
+            } catch (e: LinkageError) {
+                // ONNX Runtime's native library missing or not loadable on this phone.
+                throw VoiceException("The voice engine is not available on this phone", e)
+            } catch (e: OutOfMemoryError) {
+                throw VoiceException("Not enough memory for the voice", e)
             }
         }.also { loaded = it }
     }

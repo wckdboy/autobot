@@ -13,6 +13,7 @@ import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
 import dev.wckdboy.autobot.core.data.IncognitoSession
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
+import dev.wckdboy.autobot.core.data.diagnostics.ErrorLog
 import dev.wckdboy.autobot.core.security.WipeParticipant
 import javax.inject.Qualifier
 import javax.inject.Singleton
@@ -40,7 +41,9 @@ object DataModule {
     @Provides
     @Singleton
     @ApplicationScope
-    fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    fun provideApplicationScope(errors: ErrorLog): CoroutineScope =
+        // A failure in background work is logged and kept for the diagnostics report, never a crash.
+        CoroutineScope(SupervisorJob() + Dispatchers.Default + errors.handler("background"))
 
     @Provides
     @Singleton
@@ -52,15 +55,18 @@ object DataModule {
         produceFile = { context.preferencesDataStoreFile(SETTINGS_FILE) },
     )
 
-    /** Closes the encrypted database and drops incognito state before a panic wipe. */
+    /**
+     * Closes the encrypted database for good and drops incognito state before a panic wipe, after
+     * agents and downloads have stopped writing.
+     */
     @Provides
     @IntoSet
     fun provideDataWipeParticipant(
         database: DatabaseHolder,
         incognitoSession: IncognitoSession,
-    ): WipeParticipant = WipeParticipant {
+    ): WipeParticipant = WipeParticipant.ordered(WipeParticipant.CLOSE_STORAGE) {
         incognitoSession.clear()
-        database.closeIfOpen()
+        database.closeForWipe()
     }
 
     private const val SETTINGS_FILE = "settings"

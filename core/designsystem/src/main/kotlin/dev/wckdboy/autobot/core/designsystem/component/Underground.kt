@@ -4,7 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -306,15 +304,7 @@ fun TerminalBlock(
             }
             if (expanded && !body.isNullOrEmpty()) {
                 Hairline()
-                Text(
-                    body,
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(10.dp),
-                    style = AutobotTheme.styles.codeBlock,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    softWrap = false,
-                )
+                VerbatimText(body, AutobotTheme.styles.codeBlock, Modifier.padding(10.dp), MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (actions != null) {
                 Hairline()

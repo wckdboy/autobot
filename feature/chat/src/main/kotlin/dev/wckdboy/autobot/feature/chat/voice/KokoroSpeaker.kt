@@ -59,11 +59,19 @@ class KokoroSpeaker @Inject constructor(
                 voice.synthesize(folder() ?: throw SpeakerUnavailable(MISSING), text, VOICE)
             }
             player.play(audio)
-        } catch (e: VoiceException) {
-            throw SpeakerUnavailable("The voice failed: ${e.message}")
         } catch (e: CancellationException) {
             player.stop()
             throw e
+        } catch (e: SpeakerUnavailable) {
+            throw e
+        } catch (e: VoiceException) {
+            throw SpeakerUnavailable("The voice failed: ${e.message}")
+        } catch (e: Exception) {
+            throw SpeakerUnavailable("The voice failed: ${e.message ?: e.javaClass.simpleName}")
+        } catch (e: LinkageError) {
+            throw SpeakerUnavailable("The voice engine is not available on this phone")
+        } catch (e: OutOfMemoryError) {
+            throw SpeakerUnavailable("Not enough memory for the voice")
         }
     }
 

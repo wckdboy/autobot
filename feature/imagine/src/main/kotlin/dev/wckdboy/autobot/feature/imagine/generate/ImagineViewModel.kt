@@ -150,11 +150,17 @@ class ImagineViewModel @Inject constructor(
         }
     }
 
+    /** Decoded results by gallery id: a batch grows one image at a time, earlier ones are not decoded again. */
+    private val decodedResults = HashMap<String, ResultUi>()
+
     private val results = generator.lastResults.mapLatest { list ->
+        val keep = list.mapTo(HashSet()) { it.galleryId }
+        synchronized(decodedResults) { decodedResults.keys.retainAll(keep) }
         list.mapNotNull { r ->
-            val bytes = gallery.image(r.galleryId) ?: return@mapNotNull null
+            synchronized(decodedResults) { decodedResults[r.galleryId] }?.let { return@mapNotNull it }
+            val bytes = runCatching { gallery.image(r.galleryId) }.getOrNull() ?: return@mapNotNull null
             val bitmap = withContext(Dispatchers.Default) { ImageCodec.decode(bytes, RESULT_SIDE)?.asImageBitmap() } ?: return@mapNotNull null
-            ResultUi(r.galleryId, bitmap, r.seed, r.width, r.height, r.durationMs)
+            ResultUi(r.galleryId, bitmap, r.seed, r.width, r.height, r.durationMs).also { synchronized(decodedResults) { decodedResults[r.galleryId] = it } }
         }
     }
 
@@ -336,7 +342,7 @@ class ImagineViewModel @Inject constructor(
     /** Takes a gallery image as the init image (img2img), keeping its aspect ratio. */
     fun useAsInit(galleryId: String) {
         viewModelScope.launch {
-            val bitmap = gallery.image(galleryId)?.let { withContext(Dispatchers.Default) { ImageCodec.decode(it, MAX_INIT_SIDE) } } ?: return@launch
+            val bitmap = runCatching { gallery.image(galleryId) }.getOrNull()?.let { withContext(Dispatchers.Default) { ImageCodec.decode(it, MAX_INIT_SIDE) } } ?: return@launch
             useInit(bitmap)
         }
     }

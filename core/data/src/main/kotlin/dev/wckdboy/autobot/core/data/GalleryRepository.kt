@@ -8,7 +8,6 @@ import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.security.KeyManager
 import dev.wckdboy.autobot.core.security.crypto.AesGcmEnvelope
 import java.io.File
-import java.security.GeneralSecurityException
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -78,7 +77,7 @@ class GalleryRepository @Inject constructor(
         if (!file.isFile) return null
         return try {
             AesGcmEnvelope.open(keyManager.mediaKey(), file.readBytes(), aad.encodeToByteArray())
-        } catch (_: GeneralSecurityException) {
+        } catch (_: Exception) { // wrong key, truncated or unreadable file (require() in the envelope, IO)
             null
         }
     }

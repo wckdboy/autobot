@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.wckdboy.autobot.core.data.diagnostics.ErrorLog
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
@@ -71,12 +72,16 @@ import dev.wckdboy.autobot.shared.diagnostics.DeviceInfo
 import dev.wckdboy.autobot.shared.diagnostics.DiagnosticsReport
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Immutable
 data class ComputeModel(
@@ -104,6 +109,7 @@ class ComputeViewModel @Inject constructor(
     private val bench: ComputeBench,
     private val network: NetworkPolicy,
     private val systemModel: SystemModel,
+    private val errorLog: ErrorLog,
     profiler: DeviceProfiler,
 ) : ViewModel() {
     /** The OS's model; null in builds without one (the default, GMS-free build). */
@@ -131,14 +137,23 @@ class ComputeViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ComputeUiState())
 
+    private var devicesJob: Job? = null
+
     init {
-        viewModelScope.launch { device.value = runCatching { profiler.profile() }.getOrNull() }
+        // /proc/cpuinfo, StatFs and the engine's device enumeration (a binder call into native code) block: never on Main.
+        viewModelScope.launch { device.value = withContext(Dispatchers.IO) { runCatching { profiler.profile() }.getOrNull() } }
         refresh()
     }
 
     fun refresh() {
-        viewModelScope.launch { devices.value = runCatching { bench.devices() }.getOrNull() ?: ComputeDevices() }
-        viewModelScope.launch { systemModel.refresh() }
+        if (devicesJob?.isActive != true) {
+            devicesJob = viewModelScope.launch {
+                devices.value = withContext(Dispatchers.IO) {
+                    withTimeoutOrNull(DEVICES_TIMEOUT_MS) { runCatching { bench.devices() }.getOrNull() }
+                } ?: ComputeDevices()
+            }
+        }
+        viewModelScope.launch { runCatching { systemModel.refresh() } }
     }
 
     /** Asks the OS to fetch its model (Gemini Nano is downloaded by AICore, not by Autobot). */
@@ -179,7 +194,7 @@ class ComputeViewModel @Inject constructor(
                     BenchmarkLine(cm.model.title, b.backend.label, b.promptTps, b.generationTps, b.stepMs, b.loadMs)
                 } + listOfNotNull(cm.lastError?.let { BenchmarkLine(cm.model.title, "last run", error = it) })
             },
-            errors = listOfNotNull(d?.npuError),
+            errors = listOfNotNull(d?.npuError) + errorLog.entries.value,
             networkMode = network.mode.value::class.simpleName,
             systemModel = system.value?.let { s ->
                 val detail = when (s.availability) {
@@ -348,4 +363,7 @@ private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: Compu
 private fun fmt(v: Double): String = String.format(Locale.ROOT, if (v >= 100) "%.0f" else "%.1f", v)
 
 /** CPU features worth reporting (they decide which llama.cpp CPU variant loads). */
+/** Starting the engine process can take a while on first use; past this, show what is known. */
+private const val DEVICES_TIMEOUT_MS = 30_000L
+
 private val REPORTED_CPU_FEATURES = setOf("asimddp", "i8mm", "sve", "sve2", "bf16", "sme", "fphp", "asimdhp")

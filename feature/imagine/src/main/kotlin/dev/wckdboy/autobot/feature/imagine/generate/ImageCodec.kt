@@ -44,8 +44,17 @@ object ImageCodec {
         return jpeg(thumb, 80)
     }
 
-    /** Reads an image the user picked (photo picker grant; no storage permission). */
-    fun read(resolver: ContentResolver, uri: Uri, maxBytes: Int = 40 * 1024 * 1024): ByteArray? =
+    /**
+     * Reads an image the user picked (photo picker grant; no storage permission). Null when it
+     * cannot be read: a cloud-only file, a revoked grant, a deleted item.
+     */
+    fun read(resolver: ContentResolver, uri: Uri, maxBytes: Int = 40 * 1024 * 1024): ByteArray? = try {
+        readOrThrow(resolver, uri, maxBytes)
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun readOrThrow(resolver: ContentResolver, uri: Uri, maxBytes: Int): ByteArray? =
         resolver.openInputStream(uri)?.use { input ->
             val out = ByteArrayOutputStream()
             val buffer = ByteArray(64 * 1024)

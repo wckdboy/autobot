@@ -15,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,6 +82,9 @@ class ImageGenerator @Inject constructor(
         userJob = scope.launch {
             try {
                 generate(backend, request, inputs, GenerationSource.USER) { image -> _lastResults.update { it + image } }
+            } catch (e: TimeoutCancellationException) {
+                // A timeout inside the engine is a failure to show, not the user's cancel.
+                _lastError.value = e.message ?: "The image engine did not answer in time"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: DiffusionException) {

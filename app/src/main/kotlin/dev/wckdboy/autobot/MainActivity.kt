@@ -15,6 +15,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -25,6 +26,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation3.runtime.rememberNavBackStack
 import dagger.hilt.android.AndroidEntryPoint
+import dev.wckdboy.autobot.core.data.db.DatabaseHolder
+import dev.wckdboy.autobot.core.data.db.DatabaseState
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
@@ -38,10 +41,13 @@ import dev.wckdboy.autobot.navigation.Models
 import dev.wckdboy.autobot.navigation.Providers
 import dev.wckdboy.autobot.navigation.Remote
 import dev.wckdboy.autobot.navigation.Run
+import dev.wckdboy.autobot.ui.DatabaseErrorScreen
 import dev.wckdboy.autobot.ui.LockScreen
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Single activity. Extends [FragmentActivity] because `BiometricPrompt` needs a fragment host.
@@ -61,6 +67,9 @@ class MainActivity : FragmentActivity() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var database: DatabaseHolder
 
     private val entry: EntryViewModel by viewModels()
 
@@ -86,6 +95,9 @@ class MainActivity : FragmentActivity() {
             val settings = loaded ?: AppSettings()
             val lockState by appLockManager.state.collectAsStateWithLifecycle()
             val lockReady by appLockManager.ready.collectAsStateWithLifecycle()
+            val databaseState by database.state.collectAsStateWithLifecycle()
+            // Open (decrypt) the database up front: if it cannot be opened, say so instead of crashing.
+            LaunchedEffect(Unit) { withContext(Dispatchers.IO) { database.check() } }
             val darkTheme = when (settings.themeMode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.DARK -> true
@@ -106,6 +118,8 @@ class MainActivity : FragmentActivity() {
                     val backStack = rememberNavBackStack(Run)
                     val scope = rememberCoroutineScope()
                     var lockMessage by rememberSaveable { mutableStateOf<String?>(null) }
+                    var resetting by remember { mutableStateOf(false) }
+                    val onboarded: () -> Unit = { scope.launch { runCatching { settingsRepository.setOnboarded() } } }
                     if (!lockReady) {
                         // Settings not loaded yet: render nothing rather than risk showing content.
                     } else if (lockState is LockState.Locked) {
@@ -121,23 +135,37 @@ class MainActivity : FragmentActivity() {
                                 )
                             },
                         )
+                    } else if (databaseState is DatabaseState.Failed) {
+                        DatabaseErrorScreen(
+                            reason = (databaseState as DatabaseState.Failed).reason,
+                            resetting = resetting,
+                            onReset = {
+                                resetting = true
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { runCatching { database.reset() } }
+                                    resetting = false
+                                }
+                            },
+                        )
+                    } else if (databaseState != DatabaseState.Open) {
+                        // Opening the database (a moment): screens must not query it before it is known to work.
                     } else if (loaded?.onboarded == false) {
                         WelcomeScreen(
                             onSetUp = {
                                 backStack.clear()
                                 backStack.add(Models)
-                                scope.launch { settingsRepository.setOnboarded() }
+                                onboarded()
                             },
                             onPairPc = {
                                 backStack.clear()
                                 backStack.add(Remote)
-                                scope.launch { settingsRepository.setOnboarded() }
+                                onboarded()
                             },
                             onAddApiKey = {
                                 backStack.clear()
                                 backStack.add(Remote)
                                 backStack.add(Providers)
-                                scope.launch { settingsRepository.setOnboarded() }
+                                onboarded()
                             },
                         )
                     } else if (loaded != null) {
@@ -158,6 +186,14 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    /** Pickers (photos, files) come back with a result: the lock must not tear the waiting screen down. */
+    @Deprecated("Deprecated in Java")
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        appLockManager.expectReturn()
+        @Suppress("DEPRECATION")
+        super.startActivityForResult(intent, requestCode, options)
     }
 
     override fun onNewIntent(intent: Intent) {

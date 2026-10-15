@@ -2,14 +2,12 @@ package dev.wckdboy.autobot.core.designsystem.component
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -48,7 +46,9 @@ fun ChatBubble(
     isStreaming: Boolean = false,
     footer: (@Composable () -> Unit)? = null,
 ) {
-    val blocks = remember(text) { LiteMarkdown.parse(text) }
+    // While a reply streams, only its last block is parsed again (and earlier ones keep their identity).
+    val previous = remember { arrayOfNulls<LiteMarkdown.Parsed>(1) }
+    val blocks = remember(text) { LiteMarkdown.parse(text, previous[0]).also { previous[0] = it }.blocks }
     val isUser = role == BubbleRole.USER
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -131,14 +131,7 @@ private fun CodeBlockView(block: MdBlock.CodeBlock) {
                 MicroLabel(block.language ?: "code", color = MaterialTheme.colorScheme.tertiary)
             }
             Hairline()
-            Text(
-                text = block.code,
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(10.dp),
-                style = AutobotTheme.styles.codeBlock,
-                softWrap = false,
-            )
+            VerbatimText(block.code, AutobotTheme.styles.codeBlock, Modifier.padding(10.dp))
         }
     }
 }

@@ -37,10 +37,14 @@ class AutobotApplication : Application() {
     @ApplicationScope
     lateinit var scope: Lazy<CoroutineScope>
 
+    @Inject
+    lateinit var engineMemory: Lazy<EngineMemoryCoordinator>
+
     override fun onCreate() {
         super.onCreate()
         if (getProcessName() != packageName) return
         appLockManager.get().install()
+        engineMemory.get().install()
         settingsSync.get().start()
         localProviderSync.get().start(scope.get())
         onDeviceBackendSync.get().start(scope.get())

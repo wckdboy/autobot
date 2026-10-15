@@ -4,16 +4,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,7 +26,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -52,8 +51,9 @@ fun ThinkingDisclosure(
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
     val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
     val accent = MaterialTheme.colorScheme.secondary
-    Row(modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-        Box(Modifier.width(2.dp).fillMaxHeight().background(accent.copy(alpha = 0.6f)))
+    // The rule is drawn, not measured: intrinsic measurement of a very long trace overflows layout.
+    Row(modifier.fillMaxWidth().drawBehind { drawRect(accent.copy(alpha = 0.6f), size = Size(2.dp.toPx(), size.height)) }) {
+        Spacer(Modifier.width(2.dp))
         Column(Modifier.weight(1f)) {
             Row(
                 modifier = Modifier
@@ -86,11 +86,12 @@ fun ThinkingDisclosure(
                 )
             }
             AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
-                Text(
-                    text = reasoning,
-                    modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                    style = AutobotTheme.styles.codeBlock,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                VerbatimText(
+                    reasoning,
+                    AutobotTheme.styles.codeBlock,
+                    Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                    wrap = true,
                 )
             }
         }

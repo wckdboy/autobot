@@ -1,9 +1,11 @@
 package dev.wckdboy.autobot.feature.settings.privacy
 
+import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.network.AuditEntry
 import dev.wckdboy.autobot.core.network.AuditLog
@@ -55,12 +57,15 @@ class PrivacyCenterViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrivacyCenterUiState())
 
     fun setMode(mode: NetworkMode) {
-        viewModelScope.launch { settings.setNetworkMode(mode) }
+        viewModelScope.launchSafely(::ignored) { settings.setNetworkMode(mode) }
     }
 
     fun setAllowLoopback(allow: Boolean) {
-        viewModelScope.launch { settings.setAllowLoopbackWhenOffline(allow) }
+        viewModelScope.launchSafely(::ignored) { settings.setAllowLoopbackWhenOffline(allow) }
     }
+
+    /** The switch shows the stored value, so a failed write simply does not move it. */
+    private fun ignored(e: Throwable) = Log.w("PrivacyCenter", "cannot save the network setting", e)
 
     fun clearAudit() = auditLog.clear()
 

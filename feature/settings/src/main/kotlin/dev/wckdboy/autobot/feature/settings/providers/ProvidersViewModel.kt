@@ -8,11 +8,14 @@ import dev.wckdboy.autobot.core.data.ApiKeyUpdate
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.security.Secret
+import dev.wckdboy.autobot.providers.remote.ApiKeys
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
 import dev.wckdboy.autobot.providers.remote.ModelCache
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
@@ -239,13 +242,18 @@ class ProvidersViewModel @Inject constructor(
     fun save() {
         val draft = editor.value ?: return
         if (!draft.canSave || saving.value) return
+        val key = ApiKeys.clean(draft.apiKeyInput)
+        ApiKeys.problem(key)?.let {
+            error.value = it
+            return
+        }
         saving.value = true
         error.value = null
         viewModelScope.launch {
             try {
                 val existing = draft.id?.let { repository.getProvider(it) }
                 val keyUpdate = when {
-                    draft.apiKeyInput.isNotBlank() -> ApiKeyUpdate.Set(Secret(draft.apiKeyInput.trim()))
+                    key.isNotEmpty() -> ApiKeyUpdate.Set(Secret(key))
                     draft.clearStoredKey -> ApiKeyUpdate.Clear
                     else -> ApiKeyUpdate.Keep
                 }
@@ -255,7 +263,7 @@ class ProvidersViewModel @Inject constructor(
                     // A list fetched in the editor (test / refresh) with the same key is kept as is.
                     fetched != null && keyUpdate !is ApiKeyUpdate.Clear -> repository.saveModelCache(stored.id, ModelCache(fetched.fetchedAt!!, fetched.models))
                     // A new key, or a provider without keys: fetch its list in the background.
-                    keyUpdate is ApiKeyUpdate.Set || !stored.preset().requiresApiKey -> appScope.launch { refreshStored(stored) }
+                    keyUpdate is ApiKeyUpdate.Set || !stored.preset().requiresApiKey -> appScope.launch { runCatching { refreshStored(stored) } }
                 }
                 editor.value = null
             } catch (e: CancellationException) {
@@ -269,7 +277,7 @@ class ProvidersViewModel @Inject constructor(
     }
 
     fun delete(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launchSafely({ error.value = "Could not delete: ${userMessage(it)}" }) {
             repository.delete(id)
             if (editor.value?.id == id) editor.value = null
         }
@@ -285,7 +293,14 @@ class ProvidersViewModel @Inject constructor(
         testJob?.cancel()
         test.value = TestState.Running
         testJob = viewModelScope.launch {
-            val result = draftProvider(draft).testConnection()
+            val result = try {
+                draftProvider(draft).testConnection()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                test.value = TestState.Failure(userMessage(e))
+                return@launch
+            }
             test.value = when (result) {
                 is ConnectionTestResult.Success -> {
                     if (result.modelCount != null) accept(result.models)
@@ -303,7 +318,15 @@ class ProvidersViewModel @Inject constructor(
         modelsJob?.cancel()
         models.update { it.copy(loading = true, error = null) }
         modelsJob = viewModelScope.launch {
-            when (val result = draftProvider(draft).listModels()) {
+            val result = try {
+                draftProvider(draft).listModels()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                models.update { it.copy(loading = false, error = userMessage(e)) }
+                return@launch
+            }
+            when (result) {
                 is ModelListResult.Success -> accept(result.models)
                 is ModelListResult.Failure -> models.update { it.copy(loading = false, error = result.message) }
             }
@@ -323,7 +346,7 @@ class ProvidersViewModel @Inject constructor(
     private suspend fun draftProvider(draft: ProviderDraft) = run {
         val existing = draft.id?.let { repository.getProvider(it) }
         val key = when {
-            draft.apiKeyInput.isNotBlank() -> Secret(draft.apiKeyInput.trim())
+            draft.apiKeyInput.isNotBlank() -> Secret(ApiKeys.clean(draft.apiKeyInput))
             draft.clearStoredKey -> null
             existing != null -> repository.apiKey(existing)
             else -> null

@@ -16,6 +16,23 @@ import kotlinx.coroutines.withContext
  */
 fun interface WipeParticipant {
     suspend fun beforeWipe()
+
+    /**
+     * Lower runs first: work that writes (agents, downloads) stops at [STOP_WORK] before
+     * storage closes at [CLOSE_STORAGE], so nothing reopens a database whose keys are gone.
+     */
+    val order: Int get() = STOP_WORK
+
+    companion object {
+        const val STOP_WORK = 0
+        const val CLOSE_STORAGE = 100
+
+        fun ordered(order: Int, block: suspend () -> Unit): WipeParticipant = object : WipeParticipant {
+            override val order = order
+
+            override suspend fun beforeWipe() = block()
+        }
+    }
 }
 
 /** Summary of a completed wipe. Contains no user data. */
@@ -39,20 +56,21 @@ class PanicWipe @Inject constructor(
     private val participants: Set<@JvmSuppressWildcards WipeParticipant>,
 ) {
     suspend fun wipe(): WipeReport = withContext(Dispatchers.IO) {
-        participants.forEach { runCatching { it.beforeWipe() } }
+        participants.sortedBy { it.order }.forEach { runCatching { it.beforeWipe() } }
 
-        keyManager.destroyAllKeys()
-        secretStore.deleteAll()
+        // Each step on its own: one failure must not leave the rest of the data behind.
+        runCatching { keyManager.destroyAllKeys() }
+        runCatching { secretStore.deleteAll() }
 
         var deleted = 0
         var failed = 0
         fun delete(file: File?) {
             if (file == null || !file.exists()) return
-            if (file.deleteRecursively()) deleted++ else failed++
+            if (runCatching { file.deleteRecursively() }.getOrDefault(false)) deleted++ else failed++
         }
 
         context.databaseList().forEach { name ->
-            if (context.deleteDatabase(name)) deleted++ else failed++
+            if (runCatching { context.deleteDatabase(name) }.getOrDefault(false)) deleted++ else failed++
         }
         val dataDir = context.dataDir
         delete(File(context.filesDir, "datastore"))

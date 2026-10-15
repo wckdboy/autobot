@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.settings
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
@@ -105,8 +107,9 @@ class SettingsViewModel @Inject constructor(
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
 
+    /** A setting that cannot be stored (disk full, I/O error) stays as it was instead of crashing. */
     private fun launch(block: suspend () -> Unit) {
-        viewModelScope.launch { block() }
+        viewModelScope.launchSafely({ Log.w("Settings", "cannot save a setting", it) }) { block() }
     }
 }
 
