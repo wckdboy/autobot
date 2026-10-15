@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.shared.backup
 
+import dev.wckdboy.autobot.shared.memory.MemoryNote
 import java.io.File
 import okio.Buffer
 import org.junit.Assert.assertArrayEquals
@@ -95,6 +96,21 @@ class BackupTest {
         assertTrue(failure { write { entry("../evil", ByteArray(1)) } }.contains("unsafe"))
     }
 
+    @Test
+    fun memoryNotesRoundTripAndOlderManifestsStillDecode() {
+        val note = MemoryNote("m-0123456789", "Prefers metric units", listOf("units"), 1_700_000_000_000, 1_700_000_100_000, "c1")
+        val bytes = write { entry(MANIFEST, BackupManifest.encode(BackupManifest(memory = listOf(note, note.copy(id = "m-2", sessionId = null))))) }
+        val decoded = BackupManifest.decode(read(bytes).getValue(MANIFEST))
+        assertEquals(listOf(note, note.copy(id = "m-2", sessionId = null)), decoded.memory)
+
+        // A 1.3 manifest (no `memory` key) and a note without optional fields.
+        val legacy = BackupManifest.decode("""{"settings":{},"providers":[],"conversations":[],"gallery":[],"attachments":["a"]}""".encodeToByteArray())
+        assertEquals(listOf("a"), legacy.attachments)
+        assertTrue(legacy.memory.isEmpty())
+        val minimal = BackupManifest.decode("""{"memory":[{"id":"m-1","text":"x","createdAt":1,"updatedAt":2}],"future":true}""".encodeToByteArray())
+        assertEquals(MemoryNote("m-1", "x", emptyList(), 1, 2, null), minimal.memory.single())
+    }
+
     /** Fixed randomness, so the bundle bytes are reproducible. */
     private object FixedCrypto : BackupCrypto by JvmBackupCrypto {
         private var next = 0
@@ -120,7 +136,10 @@ class BackupTest {
             file.writeBytes(vector)
         }
         val entries = read(file.readBytes(), "autobot-test-vector")
-        assertEquals("LIGHT", BackupManifest.decode(entries.getValue(MANIFEST)).settings["theme_mode"])
+        val manifest = BackupManifest.decode(entries.getValue(MANIFEST))
+        assertEquals("LIGHT", manifest.settings["theme_mode"])
+        // Written before local memory existed: it imports with no notes.
+        assertTrue(manifest.memory.isEmpty())
         assertArrayEquals(ByteArray(3000) { (it % 251).toByte() }, entries.getValue("attachments/img1"))
     }
 }
