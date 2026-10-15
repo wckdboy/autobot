@@ -138,7 +138,14 @@ fun interface RunningListener {
 class LiveState(val text: String, val reasoning: String, val toolNames: List<String>, val tokensPerSecond: Float?)
 
 @Serializable
-class ApprovalState(val callId: String, val toolName: String, val summary: String, val reason: String?)
+class ApprovalState(
+    val callId: String,
+    val toolName: String,
+    val summary: String,
+    val reason: String?,
+    /** Private fragments the call would send (taint tracking); the card highlights them. */
+    val privateData: List<String> = emptyList(),
+)
 
 @Serializable
 class QuestionState(val callId: String, val question: String, val options: List<String>, val multiSelect: Boolean)
@@ -238,7 +245,7 @@ class AgentBridge(
             val pending = Pending.Approval(
                 request.agent.id,
                 request.callId,
-                ApprovalState(request.callId, request.toolName, request.summary, request.reason),
+                ApprovalState(request.callId, request.toolName, request.summary, request.reason, request.privateData),
                 CompletableDeferred(),
             )
             await(pending) { pending.answer.await() }

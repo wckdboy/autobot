@@ -111,7 +111,14 @@ data class ProviderOption(
 data class LiveUi(val text: String, val reasoning: String, val toolNames: List<String>, val tokensPerSecond: Float?)
 
 @Immutable
-data class ApprovalUi(val callId: String, val toolName: String, val summary: String, val reason: String?)
+data class ApprovalUi(
+    val callId: String,
+    val toolName: String,
+    val summary: String,
+    val reason: String?,
+    /** Private fragments the call would send (taint tracking), highlighted on the card. */
+    val privateData: List<String> = emptyList(),
+)
 
 @Immutable
 data class QuestionUi(val callId: String, val question: UserQuestion)
@@ -231,7 +238,7 @@ class ChatViewModel @AssistedInject constructor(
             a.permission,
         ) { (entries, running, interactions), live, status, config, permission ->
             val mine = interactions.filter { it.sessionId == conversationId }
-            val approvals = mine.filterIsInstance<Interaction.Approval>().associate { it.callId to ApprovalUi(it.callId, it.toolName, it.summary, it.reason) }
+            val approvals = mine.filterIsInstance<Interaction.Approval>().associate { it.callId to ApprovalUi(it.callId, it.toolName, it.summary, it.reason, it.privateData) }
             val question = mine.filterIsInstance<Interaction.Question>().firstOrNull()?.let { QuestionUi(it.callId, it.question) }
             val projection = projectSession(entries, approvals.keys, running) { name, args -> describe(a, name, args) }
             AgentSnapshot(projection, live?.toUi(), status == AgentStatus.RUNNING, approvals, question, config.toolsEnabled, permission)

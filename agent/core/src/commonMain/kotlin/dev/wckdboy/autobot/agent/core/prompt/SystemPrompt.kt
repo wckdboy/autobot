@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.agent.core.Disposable
 import dev.wckdboy.autobot.agent.core.Hooks
 import dev.wckdboy.autobot.agent.core.PromptAssembly
 import dev.wckdboy.autobot.agent.core.ServiceKey
+import dev.wckdboy.autobot.agent.core.approval.PrivateSource
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.CopyOnWriteList
 
@@ -36,7 +37,13 @@ class PromptSection(val id: String, val order: Int, val render: (Agent) -> Strin
  * of a turn only when its text changed, which keeps the history append-only and the provider's
  * prefix cache valid.
  */
-class PromptContext(val id: String, val order: Int, val render: suspend (Agent) -> String?)
+class PromptContext(
+    val id: String,
+    val order: Int,
+    /** Non-null when the text is the user's private data (e.g. recalled memory notes), for taint tracking. */
+    val privateSource: PrivateSource? = null,
+    val render: suspend (Agent) -> String?,
+)
 
 /** `ctx.systemPrompt`. */
 class SystemPromptService {
@@ -63,6 +70,9 @@ class SystemPromptService {
         val assembly = agent.ctx.run(Hooks.SystemPromptAssemble, PromptAssembly(agent, rendered)) { it }
         return assembly.sections.sortedBy { it.first }.joinToString("\n\n") { it.second.trim() }
     }
+
+    /** The [PromptContext.privateSource] of the context [id], if it is registered and private. */
+    fun privateSource(id: String): PrivateSource? = contexts.firstOrNull { it.id == id }?.privateSource
 
     /** Current context texts by id, in order. */
     suspend fun renderContexts(agent: Agent): List<Pair<String, String>> =

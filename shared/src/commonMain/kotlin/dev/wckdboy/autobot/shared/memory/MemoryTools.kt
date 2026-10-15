@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.shared.memory
 
 import dev.wckdboy.autobot.agent.core.Plugin
+import dev.wckdboy.autobot.agent.core.approval.PrivateSource
 import dev.wckdboy.autobot.agent.core.currentTimeMillis
 import dev.wckdboy.autobot.agent.core.plugin
 import dev.wckdboy.autobot.agent.core.prompt.ContextOrder
@@ -107,6 +108,11 @@ class Memory(
 
         fun isIncognito(sessionId: String) = sessionId.startsWith("incognito-")
 
+        /** Taint source of recalled and searched notes: the note lines, without ids, tags or boilerplate. */
+        val PRIVATE = PrivateSource("memory", names = true) { text ->
+            text.lineSequence().filter { it.startsWith("[") }.joinToString("\n") { it.substringAfter("] ").substringBefore("  #") }
+        }
+
         internal fun oneLine(text: String, max: Int): String {
             val flat = text.replace('\n', ' ')
             return if (flat.length <= max) flat else flat.take(max - 1).trimEnd() + "…"
@@ -128,6 +134,7 @@ class MemorySearchTool(private val memory: Memory) : ToolDefinition {
 
     override fun isConcurrencySafe(args: JsonObject) = true
     override fun describeCall(args: JsonObject) = args.string("query").orEmpty()
+    override val privateSource get() = Memory.PRIVATE
 
     override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput {
         val query = args.string("query")?.trim().orEmpty()
@@ -215,7 +222,7 @@ fun memoryPlugin(memory: Memory): Plugin = plugin("memory", SystemPromptService.
     }
     ctx.effect {
         prompts.context(
-            PromptContext("memory", ContextOrder.MEMORY) { agent ->
+            PromptContext("memory", ContextOrder.MEMORY, Memory.PRIVATE) { agent ->
                 val message = agent.turnInput.lastOrNull { it.kind == UserMessageKind.PROMPT }?.text
                 message?.takeIf { it.isNotBlank() }?.let { memory.recall(it) }
             },

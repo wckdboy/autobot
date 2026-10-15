@@ -113,6 +113,8 @@ struct ApprovalState: Codable, Equatable, Identifiable, Sendable {
     var toolName: String
     var summary: String
     var reason: String?
+    /// Private fragments the call would send (taint tracking); the card highlights them.
+    var privateData: [String]? = nil
     var id: String { callId }
 }
 

@@ -68,6 +68,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -457,9 +460,15 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
     }
 }
 
-/** The red approval block: `04 · APPROVAL NEEDED · NETWORK ACCESS`, title, args, DENY / APPROVE. */
+/**
+ * The red approval block: `04 · APPROVAL NEEDED · NETWORK ACCESS`, title, args, DENY / APPROVE.
+ * When the call would send private data (taint tracking), the header says so and every private
+ * fragment is printed in reverse, in the arguments and in the reason.
+ */
 @Composable
 private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatViewModel, ghost: Boolean) {
+    val privateData = approval.privateData
+    val mark = SpanStyle(background = MaterialTheme.colorScheme.onPrimary, color = MaterialTheme.colorScheme.primary)
     Surface(
         modifier = Modifier.registerGhost(ghost, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), MaterialTheme.shapes.extraSmall),
         color = MaterialTheme.colorScheme.primary,
@@ -469,10 +478,11 @@ private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: Approval
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row {
                 Text(String.format(Locale.ROOT, "%02d · APPROVAL NEEDED", number), style = AutobotTheme.styles.micro, modifier = Modifier.weight(1f))
-                Text((approval.reason ?: "").uppercase(Locale.ROOT), style = AutobotTheme.styles.micro)
+                Text((if (privateData.isEmpty()) approval.reason.orEmpty() else "private data").uppercase(Locale.ROOT), style = AutobotTheme.styles.micro)
             }
             Text(stepTitle(item.name), style = MaterialTheme.typography.headlineMedium)
-            Text("${item.name}(${approval.summary})", style = AutobotTheme.styles.codeBlock)
+            Text(highlight("${item.name}(${approval.summary})", privateData, mark), style = AutobotTheme.styles.codeBlock)
+            if (privateData.isNotEmpty()) Text(highlight(approval.reason.orEmpty(), privateData, mark), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GhostButton("Deny", { actions.approve(item.callId, ApprovalOutcome.REJECTED) }, Modifier.weight(1f), accent = MaterialTheme.colorScheme.onPrimary)
                 PaperButton("Approve", { actions.approve(item.callId, ApprovalOutcome.ALLOWED_ONCE) }, Modifier.weight(1f))
@@ -482,6 +492,18 @@ private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: Approval
                 style = AutobotTheme.styles.micro,
                 modifier = Modifier.clickable { actions.approve(item.callId, ApprovalOutcome.ALLOWED_FOR_SESSION) }.padding(vertical = 4.dp),
             )
+        }
+    }
+}
+
+/** [text] with every case-insensitive occurrence of [fragments] in [style]. */
+private fun highlight(text: String, fragments: List<String>, style: SpanStyle): AnnotatedString = buildAnnotatedString {
+    append(text)
+    for (fragment in fragments.filter { it.isNotBlank() }) {
+        var at = text.indexOf(fragment, ignoreCase = true)
+        while (at >= 0) {
+            addStyle(style, at, at + fragment.length)
+            at = text.indexOf(fragment, at + fragment.length, ignoreCase = true)
         }
     }
 }
