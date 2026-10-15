@@ -60,6 +60,23 @@ data class Provider(
 )
 
 /**
+ * A configured MCP server (Streamable HTTP). The bearer token is never stored here; [tokenRef]
+ * is an opaque reference into the encrypted SecretStore. Untrusted servers ask before every tool
+ * call; [updatedAt] changes on every save so the agent reconnects with the new settings.
+ */
+@Entity(tableName = "mcp_servers")
+data class McpServer(
+    @PrimaryKey val id: String,
+    val name: String,
+    val url: String,
+    val routing: ProviderRouting = ProviderRouting.INHERIT,
+    val enabled: Boolean = true,
+    val trusted: Boolean = false,
+    val tokenRef: String? = null,
+    val updatedAt: Long = 0,
+)
+
+/**
  * One agent session log row (see `:agent:core` `LogEntry`). The JSON payload is opaque to this
  * layer. Rows cascade with their conversation.
  */

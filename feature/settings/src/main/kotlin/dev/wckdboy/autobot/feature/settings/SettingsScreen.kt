@@ -106,6 +106,7 @@ fun SettingsRoute(
     onOpenProviders: () -> Unit,
     onOpenPrivacyCenter: () -> Unit,
     onOpenImageBackends: () -> Unit = {},
+    onOpenMcpServers: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -117,6 +118,7 @@ fun SettingsRoute(
         onOpenProviders = onOpenProviders,
         onOpenPrivacyCenter = onOpenPrivacyCenter,
         onOpenImageBackends = onOpenImageBackends,
+        onOpenMcpServers = onOpenMcpServers,
         onThemeMode = viewModel::setThemeMode,
         onAmoled = viewModel::setAmoled,
         onDynamicColor = viewModel::setDynamicColor,
@@ -142,6 +144,7 @@ fun SettingsScreen(
     onLockTimeout: (Long) -> Unit,
     onIncognitoByDefault: (Boolean) -> Unit,
     onOpenBackup: () -> Unit = {},
+    onOpenMcpServers: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -162,6 +165,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             NavigationRow("Model providers", "Chat endpoints and API keys", onOpenProviders)
+            NavigationRow("MCP servers", "Remote tools for agent sessions, each call approved", onOpenMcpServers)
             NavigationRow("Image backends", "Diffusion servers: on-device sidecar, Local Dream host, A1111/Forge", onOpenImageBackends)
             NavigationRow("Privacy Center", "Network mode, audit log, panic wipe", onOpenPrivacyCenter)
             NavigationRow("Export & import", "Move sessions and gallery between phones, sealed with a passphrase", onOpenBackup)

@@ -8,6 +8,7 @@ import androidx.room.Upsert
 import dev.wckdboy.autobot.core.data.model.BenchmarkRow
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.model.GalleryItem
+import dev.wckdboy.autobot.core.data.model.McpServer
 import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
@@ -138,4 +139,19 @@ interface BenchmarkDao {
 
     @Query("DELETE FROM benchmarks WHERE modelId = :modelId")
     suspend fun deleteForModel(modelId: String)
+}
+
+@Dao
+interface McpServerDao {
+    @Query("SELECT * FROM mcp_servers ORDER BY name COLLATE NOCASE ASC")
+    fun observeAll(): Flow<List<McpServer>>
+
+    @Query("SELECT * FROM mcp_servers WHERE id = :id")
+    suspend fun get(id: String): McpServer?
+
+    @Upsert
+    suspend fun upsert(server: McpServer)
+
+    @Query("DELETE FROM mcp_servers WHERE id = :id")
+    suspend fun delete(id: String)
 }

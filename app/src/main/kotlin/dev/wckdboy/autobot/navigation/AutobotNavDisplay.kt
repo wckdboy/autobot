@@ -30,6 +30,7 @@ import dev.wckdboy.autobot.feature.models.AccountsRoute
 import dev.wckdboy.autobot.feature.models.ComputeRoute
 import dev.wckdboy.autobot.feature.models.ModelsRoute
 import dev.wckdboy.autobot.feature.settings.SettingsRoute
+import dev.wckdboy.autobot.feature.settings.mcp.McpServersRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
 import dev.wckdboy.autobot.feature.settings.providers.ProvidersRoute
 
@@ -102,6 +103,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenProviders = { navigate(Providers) },
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                             onOpenImageBackends = { navigate(ImageBackends) },
+                            onOpenMcpServers = { navigate(McpServers) },
                         )
                     }
                     entry<ChatList> {
@@ -140,6 +142,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                         )
                     }
                     entry<Providers> { ProvidersRoute(onBack = ::back) }
+                    entry<McpServers> { McpServersRoute(onBack = ::back) }
                     entry<PrivacyCenter> { PrivacyCenterRoute(onBack = ::back) }
                     entry<ImageBackends> { BackendsRoute(onBack = ::back) }
                     entry<Accounts> { AccountsRoute(onBack = ::back) }
