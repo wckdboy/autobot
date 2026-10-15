@@ -82,7 +82,7 @@ class HostToolTest {
                 ProviderSpec(id, ProviderKind.OPENAI_COMPATIBLE, "Test", "https://api.example.com/v1", null, "m").takeIf { id == "p" }
         }
         val dir = Files.createTempDirectory("hosttool").toFile()
-        val bridge = AgentBridge(dir.path, providers, transport, NoLocal, NoStore, null)
+        val bridge = AgentBridge(dir.path, providers, transport, NoLocal, NoStore, null, { null })
         val tool = FakeImageTool()
         bridge.registerTool(tool)
 
