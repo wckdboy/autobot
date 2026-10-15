@@ -48,6 +48,8 @@ import dev.wckdboy.autobot.core.data.settings.ThemeMode
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.feature.settings.backup.BackupDialog
+import dev.wckdboy.autobot.feature.settings.search.WebSearchDialog
+import dev.wckdboy.autobot.shared.search.SearchProvider
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -64,6 +66,8 @@ data class SettingsUiState(
     val appLockAvailable: Boolean = true,
     val lockTimeoutMillis: Long = AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS,
     val incognitoByDefault: Boolean = false,
+    val memoryEnabled: Boolean = false,
+    val searchProvider: SearchProvider = SearchProvider.NONE,
 )
 
 @HiltViewModel
@@ -82,6 +86,8 @@ class SettingsViewModel @Inject constructor(
             appLockAvailable = lockAvailable,
             lockTimeoutMillis = it.lockTimeoutMillis,
             incognitoByDefault = it.incognitoByDefault,
+            memoryEnabled = it.memoryEnabled,
+            searchProvider = it.searchProvider,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState(appLockAvailable = lockAvailable))
 
@@ -91,6 +97,7 @@ class SettingsViewModel @Inject constructor(
     fun setAppLock(enabled: Boolean) = launch { settings.setAppLockEnabled(enabled) }
     fun setLockTimeout(millis: Long) = launch { settings.setLockTimeoutMillis(millis) }
     fun setIncognitoByDefault(enabled: Boolean) = launch { settings.setIncognitoByDefault(enabled) }
+    fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
@@ -106,11 +113,14 @@ fun SettingsRoute(
     onOpenProviders: () -> Unit,
     onOpenPrivacyCenter: () -> Unit,
     onOpenImageBackends: () -> Unit = {},
+    onOpenMemory: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showBackup by rememberSaveable { mutableStateOf(false) }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
     if (showBackup) BackupDialog(onDismiss = { showBackup = false })
+    if (showSearch) WebSearchDialog(onDismiss = { showSearch = false })
     SettingsScreen(
         state = state,
         onBack = onBack,
@@ -124,6 +134,9 @@ fun SettingsRoute(
         onLockTimeout = viewModel::setLockTimeout,
         onIncognitoByDefault = viewModel::setIncognitoByDefault,
         onOpenBackup = { showBackup = true },
+        onMemoryEnabled = viewModel::setMemoryEnabled,
+        onOpenMemory = onOpenMemory,
+        onOpenWebSearch = { showSearch = true },
     )
 }
 
@@ -142,6 +155,9 @@ fun SettingsScreen(
     onLockTimeout: (Long) -> Unit,
     onIncognitoByDefault: (Boolean) -> Unit,
     onOpenBackup: () -> Unit = {},
+    onMemoryEnabled: (Boolean) -> Unit = {},
+    onOpenMemory: () -> Unit = {},
+    onOpenWebSearch: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -164,7 +180,22 @@ fun SettingsScreen(
             NavigationRow("Model providers", "Chat endpoints and API keys", onOpenProviders)
             NavigationRow("Image backends", "Diffusion servers: on-device sidecar, Local Dream host, A1111/Forge", onOpenImageBackends)
             NavigationRow("Privacy Center", "Network mode, audit log, panic wipe", onOpenPrivacyCenter)
-            NavigationRow("Export & import", "Move sessions and gallery between phones, sealed with a passphrase", onOpenBackup)
+            NavigationRow("Export & import", "Move sessions, gallery and memory between phones, sealed with a passphrase", onOpenBackup)
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+            SectionHeader("Agent")
+            SwitchRow(
+                "Memory",
+                "Let the agent recall and save notes, kept encrypted on this phone",
+                state.memoryEnabled,
+                onMemoryEnabled,
+            )
+            NavigationRow("Memory notes", "View, search, edit and delete what the agent remembers", onOpenMemory)
+            NavigationRow(
+                "Web search",
+                if (state.searchProvider == SearchProvider.NONE) "Off · SearXNG or Brave Search" else "${state.searchProvider.label} · queries only, through your route",
+                onOpenWebSearch,
+            )
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             SectionHeader("Appearance")

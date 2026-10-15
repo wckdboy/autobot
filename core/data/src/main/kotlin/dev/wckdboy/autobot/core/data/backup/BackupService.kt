@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.SessionJson
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.GalleryRepository
+import dev.wckdboy.autobot.core.data.MemoryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.SessionEventRepository
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
@@ -28,6 +29,7 @@ import dev.wckdboy.autobot.shared.backup.BackupReader
 import dev.wckdboy.autobot.shared.backup.BackupWriter
 import dev.wckdboy.autobot.shared.backup.JvmBackupCrypto
 import dev.wckdboy.autobot.shared.backup.MANIFEST
+import dev.wckdboy.autobot.shared.memory.MemoryRules
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -42,7 +44,7 @@ import okio.sink
 import okio.source
 
 /** What an import added (existing items with the same id are kept, not overwritten). */
-data class ImportSummary(val conversations: Int, val providers: Int, val images: Int, val attachments: Int)
+data class ImportSummary(val conversations: Int, val providers: Int, val images: Int, val attachments: Int, val memories: Int = 0)
 
 /**
  * Passphrase-sealed export and import of everything the user owns, in the shared `.autobot`
@@ -50,7 +52,8 @@ data class ImportSummary(val conversations: Int, val providers: Int, val images:
  *
  * Not exported: API keys, incognito sessions, downloaded models (re-download them) and the app's
  * own keys. On import, security settings (network mode, loopback, app lock, lock timeout) keep
- * this device's values: a file must never switch the app online or unlock it.
+ * this device's values: a file must never switch the app online or unlock it. The same goes for
+ * the memory switch and the web search setup; memory notes themselves are merged.
  */
 @Singleton
 class BackupService @Inject constructor(
@@ -60,6 +63,7 @@ class BackupService @Inject constructor(
     private val gallery: GalleryRepository,
     private val attachments: AttachmentRepository,
     private val settings: SettingsRepository,
+    private val memory: MemoryRepository,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) {
     suspend fun export(out: OutputStream, passphrase: String, app: String, onProgress: (String) -> Unit = {}) = withContext(io) {
@@ -79,6 +83,7 @@ class BackupService @Inject constructor(
             conversations = conversations.map { BackupConversation(it.id, it.title, it.providerId, it.model, it.createdAt, it.updatedAt) },
             gallery = images.map { it.toBackup() },
             attachments = attachmentIds,
+            memory = memory.all(),
         )
         val sink = out.sink().buffer()
         onProgress("deriving key…")
@@ -122,7 +127,7 @@ class BackupService @Inject constructor(
                                 newConversations += c.id
                             }
                         }
-                        added = added.copy(conversations = newConversations.size)
+                        added = added.copy(conversations = newConversations.size, memories = importMemory(m))
                     }
                     manifest == null -> throw BackupException("Damaged export: manifest missing")
                     name.startsWith("sessions/") -> {
@@ -156,6 +161,23 @@ class BackupService @Inject constructor(
         }
         if (manifest == null) throw BackupException("Damaged export: manifest missing")
         added
+    }
+
+    /** Adds notes whose id is new, up to the memory cap; existing notes are kept as they are. */
+    private suspend fun importMemory(manifest: BackupManifest): Int {
+        val existing = memory.all()
+        val ids = existing.mapTo(HashSet()) { it.id }
+        var count = existing.size
+        var added = 0
+        manifest.memory.forEach { incoming ->
+            val note = MemoryRules.sanitize(incoming) ?: return@forEach
+            if (note.id in ids || count >= MemoryRules.MAX_NOTES) return@forEach
+            memory.upsert(note)
+            ids += note.id
+            count++
+            added++
+        }
+        return added
     }
 
     /** Applies appearance and behaviour settings; security-relevant ones keep this device's values. */

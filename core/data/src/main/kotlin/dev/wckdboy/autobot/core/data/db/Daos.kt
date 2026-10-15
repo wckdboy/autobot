@@ -8,6 +8,7 @@ import androidx.room.Upsert
 import dev.wckdboy.autobot.core.data.model.BenchmarkRow
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.model.GalleryItem
+import dev.wckdboy.autobot.core.data.model.MemoryNoteRow
 import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
@@ -138,4 +139,25 @@ interface BenchmarkDao {
 
     @Query("DELETE FROM benchmarks WHERE modelId = :modelId")
     suspend fun deleteForModel(modelId: String)
+}
+
+@Dao
+interface MemoryDao {
+    @Query("SELECT * FROM memory_notes ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<MemoryNoteRow>>
+
+    @Query("SELECT * FROM memory_notes ORDER BY updatedAt DESC")
+    suspend fun all(): List<MemoryNoteRow>
+
+    @Query("SELECT * FROM memory_notes WHERE id = :id")
+    suspend fun get(id: String): MemoryNoteRow?
+
+    @Upsert
+    suspend fun upsert(row: MemoryNoteRow)
+
+    @Query("DELETE FROM memory_notes WHERE id = :id")
+    suspend fun delete(id: String): Int
+
+    @Query("DELETE FROM memory_notes")
+    suspend fun deleteAll()
 }

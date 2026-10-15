@@ -30,6 +30,7 @@ import dev.wckdboy.autobot.feature.models.AccountsRoute
 import dev.wckdboy.autobot.feature.models.ComputeRoute
 import dev.wckdboy.autobot.feature.models.ModelsRoute
 import dev.wckdboy.autobot.feature.settings.SettingsRoute
+import dev.wckdboy.autobot.feature.settings.memory.MemoryRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
 import dev.wckdboy.autobot.feature.settings.providers.ProvidersRoute
 
@@ -101,6 +102,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onBack = null,
                             onOpenProviders = { navigate(Providers) },
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
+                            onOpenMemory = { navigate(Memory) },
                             onOpenImageBackends = { navigate(ImageBackends) },
                         )
                     }
@@ -144,6 +146,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     entry<ImageBackends> { BackendsRoute(onBack = ::back) }
                     entry<Accounts> { AccountsRoute(onBack = ::back) }
                     entry<Compute> { ComputeRoute(onBack = ::back) }
+                    entry<Memory> { MemoryRoute(onBack = ::back) }
                 },
             )
             if (showBar && tab != null) {

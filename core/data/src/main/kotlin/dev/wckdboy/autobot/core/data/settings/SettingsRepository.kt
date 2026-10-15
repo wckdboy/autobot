@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.wckdboy.autobot.core.network.NetworkMode
+import dev.wckdboy.autobot.core.network.RouteOverride
+import dev.wckdboy.autobot.shared.search.SearchProvider
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,6 +39,10 @@ class SettingsRepository @Inject constructor(
                 lockTimeoutMillis = SettingsSchema.lockTimeout(prefs[Keys.LOCK_TIMEOUT]),
                 incognitoByDefault = prefs[Keys.INCOGNITO_DEFAULT] ?: false,
                 onboarded = prefs[Keys.ONBOARDED] ?: false,
+                memoryEnabled = prefs[Keys.MEMORY_ENABLED] ?: false,
+                searchProvider = SettingsSchema.searchProvider(prefs[Keys.SEARCH_PROVIDER]),
+                searchBaseUrl = prefs[Keys.SEARCH_BASE_URL].orEmpty(),
+                searchRoute = SettingsSchema.searchRoute(prefs[Keys.SEARCH_ROUTE]),
             )
         }
         .distinctUntilChanged()
@@ -50,6 +56,13 @@ class SettingsRepository @Inject constructor(
     suspend fun setLockTimeoutMillis(millis: Long) = edit { it[Keys.LOCK_TIMEOUT] = SettingsSchema.lockTimeout(millis) }
     suspend fun setIncognitoByDefault(enabled: Boolean) = edit { it[Keys.INCOGNITO_DEFAULT] = enabled }
     suspend fun setOnboarded() = edit { it[Keys.ONBOARDED] = true }
+    suspend fun setMemoryEnabled(enabled: Boolean) = edit { it[Keys.MEMORY_ENABLED] = enabled }
+
+    suspend fun setWebSearch(provider: SearchProvider, baseUrl: String, route: RouteOverride) = edit {
+        it[Keys.SEARCH_PROVIDER] = provider.name
+        it[Keys.SEARCH_BASE_URL] = baseUrl.trim()
+        it[Keys.SEARCH_ROUTE] = route.name
+    }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         dataStore.edit { block(it) }
@@ -65,5 +78,9 @@ class SettingsRepository @Inject constructor(
         val LOCK_TIMEOUT = longPreferencesKey(SettingsSchema.LOCK_TIMEOUT)
         val INCOGNITO_DEFAULT = booleanPreferencesKey(SettingsSchema.INCOGNITO_DEFAULT)
         val ONBOARDED = booleanPreferencesKey(SettingsSchema.ONBOARDED)
+        val MEMORY_ENABLED = booleanPreferencesKey(SettingsSchema.MEMORY_ENABLED)
+        val SEARCH_PROVIDER = stringPreferencesKey(SettingsSchema.SEARCH_PROVIDER)
+        val SEARCH_BASE_URL = stringPreferencesKey(SettingsSchema.SEARCH_BASE_URL)
+        val SEARCH_ROUTE = stringPreferencesKey(SettingsSchema.SEARCH_ROUTE)
     }
 }
