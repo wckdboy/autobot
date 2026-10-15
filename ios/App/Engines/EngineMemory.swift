@@ -15,6 +15,8 @@ enum ResidentEngine: String, Sendable, CaseIterable {
     case whisper
     /// Core ML 4× upscaler (the model plus the image buffers).
     case upscaler
+    /// Stable Audio Open Small text to audio (T5, DiT and the VAE decoder on Core ML).
+    case audio
 }
 
 /**
@@ -39,12 +41,12 @@ actor EngineMemory {
     }
 
     /**
-     Engines to unload before [kind] loads, of those [resident]. Image generation and upscaling
-     take most of the memory a phone grants an app, so they run alone. Chat, dictation and the
+     Engines to unload before [kind] loads, of those [resident]. Image generation, upscaling and
+     text to audio take most of the memory a phone grants an app, so they run alone. Chat, dictation and the
      voice run together (voice mode needs all three) but never next to those two.
      */
     nonisolated static func evictions(before kind: ResidentEngine, resident: Set<ResidentEngine>) -> Set<ResidentEngine> {
-        let alone: Set<ResidentEngine> = [.diffusion, .upscaler]
+        let alone: Set<ResidentEngine> = [.diffusion, .upscaler, .audio]
         let evict = alone.contains(kind) ? Set(ResidentEngine.allCases).subtracting([kind]) : alone
         return evict.intersection(resident)
     }
@@ -122,6 +124,7 @@ actor EngineMemory {
             .tts: { await LocalVoice.shared.unload() },
             .whisper: { await SpeechEngine.shared.unload() },
             .upscaler: { await UpscaleEngine.shared.unload() },
+            .audio: { await LocalAudioGen.shared.unload() },
         ]
         #else
         [:]

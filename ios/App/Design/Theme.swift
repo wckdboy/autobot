@@ -275,6 +275,8 @@ struct AutobotTheme: ViewModifier {
     let amoled: Bool
     /// The paper studio is on screen: dark status-bar glyphs whatever the theme.
     var paperOnTop = false
+    /// The Studio's darkroom is on screen: light status-bar glyphs whatever the theme.
+    var darkOnTop = false
     @Environment(\.colorScheme) private var system
 
     func body(content: Content) -> some View {
@@ -287,7 +289,19 @@ struct AutobotTheme: ViewModifier {
         content
             .environment(\.scheme, scheme)
             .tint(scheme.primary)
-            .preferredColorScheme(paperOnTop ? .light : mode == .system ? nil : (dark ? .dark : .light))
+            .preferredColorScheme(paperOnTop ? .light : darkOnTop ? .dark : mode == .system ? nil : (dark ? .dark : .light))
+    }
+}
+
+/// The Studio's darkroom: the ink scheme regardless of the app theme (image and video rooms).
+struct DarkroomTheme: ViewModifier {
+    let amoled: Bool
+
+    func body(content: Content) -> some View {
+        let scheme = amoled ? AutobotScheme.dark.amoled() : .dark
+        content
+            .environment(\.scheme, scheme)
+            .tint(scheme.primary)
     }
 }
 
@@ -302,8 +316,9 @@ struct PaperTheme: ViewModifier {
 }
 
 extension View {
-    func autobotTheme(_ mode: ThemeMode, amoled: Bool = false, paperOnTop: Bool = false) -> some View {
-        modifier(AutobotTheme(mode: mode, amoled: amoled, paperOnTop: paperOnTop))
+    func autobotTheme(_ mode: ThemeMode, amoled: Bool = false, paperOnTop: Bool = false, darkOnTop: Bool = false) -> some View {
+        modifier(AutobotTheme(mode: mode, amoled: amoled, paperOnTop: paperOnTop, darkOnTop: darkOnTop))
     }
     func paperTheme() -> some View { modifier(PaperTheme()) }
+    func darkroomTheme(amoled: Bool = false) -> some View { modifier(DarkroomTheme(amoled: amoled)) }
 }

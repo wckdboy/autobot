@@ -30,12 +30,34 @@ enum Destination: Hashable {
     case vault
 }
 
+/// The Creative Studio's rooms (its own bar while the Studio is open).
+enum StudioRoom: String, CaseIterable, Hashable {
+    case image, audio, video, workflows, library
+
+    var label: String { rawValue }
+
+    /// Darkroom for image and video, paper for the library, the app's theme elsewhere.
+    var surface: StudioSurface {
+        switch self {
+        case .image, .video: .darkroom
+        case .library: .paper
+        case .audio, .workflows: .app
+        }
+    }
+}
+
+enum StudioSurface { case darkroom, paper, app }
+
 /// One back stack whose root is a tab (Android's Navigation 3 `NavDisplay`).
 @MainActor
 @Observable
 final class Navigator {
     var tab: Tab = .run
     var path: [Destination] = []
+    /// The Studio is open on this room (it replaces the app until [leaveStudio]); the app's stack waits underneath.
+    var studio: StudioRoom?
+    /// A workflow handed over to import (share sheet), shown by the Workflows room.
+    var pendingWorkflow: String?
 
     init() {
         #if DEBUG
@@ -58,7 +80,9 @@ final class Navigator {
             case "licenses": tab = .settings; path = [.licenses]
             case "memory": tab = .settings; path = [.memory]
             case "vault": tab = .settings; path = [.vault]
-            default: break
+            case "studio": studio = .image
+            default:
+                if args[i + 1].hasPrefix("studio-") { studio = StudioRoom(rawValue: String(args[i + 1].dropFirst(7))) }
             }
         }
         #endif
@@ -71,6 +95,15 @@ final class Navigator {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { path.append(destination) }
+    }
+
+    /// Opens the Studio (Home, Imagine, the agent's results); the app stays where it was.
+    func enterStudio(_ room: StudioRoom = .image) {
+        withAnimation(.inkSlide) { studio = room }
+    }
+
+    func leaveStudio() {
+        withAnimation(.inkSlide) { studio = nil }
     }
 
     func back() {
@@ -100,8 +133,23 @@ struct AutobotNavHost: View {
     @Environment(\.scheme) private var c
 
     var body: some View {
+        // The app stays underneath (its stack and screens keep their state) while the Studio is open.
+        let inStudio = nav.studio != nil
+        ZStack {
+            app
+                .opacity(inStudio ? 0 : 1)
+                .allowsHitTesting(!inStudio)
+                .accessibilityHidden(inStudio)
+            if inStudio {
+                StudioScreen()
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private var app: some View {
         @Bindable var nav = nav
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             NavigationStack(path: $nav.path) {
                 root
                     .inkArrive()

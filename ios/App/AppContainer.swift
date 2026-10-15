@@ -34,6 +34,8 @@ final class AppContainer {
     let backends: DiffusionBackendRepository
     let memory: MemoryRepository
     let vault: VaultRepository
+    /// The Creative Studio (projects, assets, queue, engines, ComfyUI, workflows).
+    let studio: StudioHub
 
     // Engines, providers, agent
     let llm = LocalLlm()
@@ -83,6 +85,7 @@ final class AppContainer {
         engines = DiffusionEngineFactory(clients: clients, llm: llm)
         generator = ImageGenerator(engines: engines, gallery: gallery, backends: backends, library: library)
         sessions = SessionStore(store: store)
+        studio = StudioHub(store: store, keys: keys, clients: clients, preferences: preferences, secrets: secrets)
         #if canImport(AutobotShared)
         searchSource = WebSearchSourceHost(secrets: secrets)
         let shared = SharedAgentRuntime(
@@ -90,6 +93,9 @@ final class AppContainer {
             attachments: attachments, secrets: secrets, snapshots: snapshots,
         )
         shared.registerTool(GenerateImageTool(generator: generator, backends: backends))
+        // `run_workflow` while there is a saved Studio workflow to run.
+        let runner = studio.bridge.runner
+        studio.onWorkflowsChanged = { [weak shared] any in shared?.setStudio(any ? runner : nil) }
         agent = shared
         #else
         agent = InterimAgentRuntime(store: sessions, conversations: conversations, providers: providers, factory: providerFactory, attachments: attachments)
@@ -98,8 +104,10 @@ final class AppContainer {
         chats = ChatLibrary(conversations: conversations, agent: agent, sessions: sessions, attachments: attachments)
 
         let agent = agent, conversations = conversations, downloader = downloader, generator = generator, clients = clients, store = store, llm = llm
+        let studio = studio
         panicWipe = PanicWipe(keys: keys, secrets: secrets, participants: [
             { agent.shutdown() },
+            { studio.close() },
             { downloader.cancelAll() },
             { generator.cancel() },
             { conversations.clearIncognito() },
@@ -258,6 +266,7 @@ final class AppContainer {
         #endif
         dataLoaded = true
         modelsChanged()
+        await studio.load()
     }
 
     /**
@@ -279,5 +288,6 @@ final class AppContainer {
             }
         }
         backends.syncOnDevice(available: library.models.contains { $0.isReady && $0.engine == .coreML && $0.kind == .image })
+        studio.syncEngines(app: self)
     }
 }

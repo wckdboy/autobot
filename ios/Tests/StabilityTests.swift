@@ -9,8 +9,9 @@ import UIKit
 @Suite struct EngineMemoryTests {
     @Test func imageWorkRunsAlone() {
         let all = Set(ResidentEngine.allCases)
-        #expect(EngineMemory.evictions(before: .diffusion, resident: all) == [.llm, .tts, .whisper, .upscaler])
-        #expect(EngineMemory.evictions(before: .upscaler, resident: all) == [.llm, .tts, .whisper, .diffusion])
+        #expect(EngineMemory.evictions(before: .diffusion, resident: all) == [.llm, .tts, .whisper, .upscaler, .audio])
+        #expect(EngineMemory.evictions(before: .upscaler, resident: all) == [.llm, .tts, .whisper, .diffusion, .audio])
+        #expect(EngineMemory.evictions(before: .audio, resident: all) == [.llm, .tts, .whisper, .diffusion, .upscaler])
         #expect(EngineMemory.evictions(before: .diffusion, resident: []) == [])
     }
 

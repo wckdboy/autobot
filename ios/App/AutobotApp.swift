@@ -32,14 +32,18 @@ struct RootView: View {
 
     var body: some View {
         let settings = app.settings.settings
-        let busy = !app.agent.running.isEmpty || app.generator.isBusy
+        let busy = !app.agent.running.isEmpty || app.generator.isBusy || app.studio.hasRunningOnDevice
         ZStack {
             Content(lockMessage: $lockMessage)
             if phase != .active && !DebugFlags.screenshots {
                 PrivacyCover()
             }
         }
-        .autobotTheme(settings.themeMode, amoled: settings.amoled, paperOnTop: { if case .imagine = nav.path.last { true } else { false } }())
+        .autobotTheme(settings.themeMode, amoled: settings.amoled, paperOnTop: {
+            if let room = nav.studio { return room.surface == .paper }
+            if case .imagine = nav.path.last { return true }
+            return false
+        }(), darkOnTop: nav.studio?.surface == .darkroom)
         // Living paper holds still while heavy work runs.
         .environment(\.inkHeavyWork, busy)
         .onChange(of: phase) { old, new in

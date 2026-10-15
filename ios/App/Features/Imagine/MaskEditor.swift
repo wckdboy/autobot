@@ -29,6 +29,19 @@ struct MaskOverlay: View {
     }
 }
 
+/// What the mask editor edits: Imagine's and the Studio image room's mask.
+@MainActor
+protocol MaskEditing: AnyObject {
+    var mask: MaskState { get }
+    func addStroke(_ stroke: MaskStroke)
+    func undoStroke()
+    func redoStroke()
+    func clearMask()
+    func invertMask()
+}
+
+extension ImagineModel: MaskEditing {}
+
 /**
  Full-screen inpaint mask editor (port of `MaskEditor.kt`). One finger paints (or erases); a
  second finger cancels the stroke in progress and switches to pinch-zoom / pan for the rest of
@@ -37,7 +50,7 @@ struct MaskOverlay: View {
  */
 struct MaskEditor: View {
     let image: UIImage
-    let model: ImagineModel
+    let model: any MaskEditing
     let onDone: () -> Void
     @Environment(\.scheme) private var c
     @State private var erase = false

@@ -49,6 +49,8 @@ import dev.wckdboy.autobot.shared.vault.VaultHost
 import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import dev.wckdboy.autobot.shared.search.WebSearchSource
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
+import dev.wckdboy.autobot.shared.studio.StudioRunner
+import dev.wckdboy.autobot.shared.studio.studioPlugin
 import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.session.SessionProjection
@@ -568,6 +570,7 @@ class AgentBridge(
     private var memoryHandle: Disposable? = null
     private var vaultHandle: Disposable? = null
     private var searchHandle: Disposable? = null
+    private var studioHandle: Disposable? = null
 
     private class QuotaFallback(val enabled: Boolean, val onDevice: LlmCallConfig?)
 
@@ -606,6 +609,15 @@ class AgentBridge(
     fun setWebSearch(source: WebSearchSource?) {
         searchHandle?.dispose()
         searchHandle = source?.let { s -> harness.root.plugin(webSearchPlugin(transport) { withContext(IoDispatcher) { s.config() } }) }
+    }
+
+    /**
+     * The Creative Studio's `run_workflow` on ([runner], usually [StudioBridge.runner]) or off
+     * (null), in every session. GENERATE: it asks like `generate_image`.
+     */
+    fun setStudio(runner: StudioRunner?) {
+        studioHandle?.dispose()
+        studioHandle = runner?.let { harness.root.plugin(studioPlugin(it)) }
     }
 
     /** Skills found in the workspace, as `name: description` lines. */

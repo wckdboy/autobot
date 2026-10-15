@@ -263,6 +263,9 @@ final class SharedAgentRuntime: AgentRuntime {
     /// `web_search` on (settings read per call) or off.
     func setWebSearch(_ source: WebSearchSourceHost?) { bridge.setWebSearch(source: source) }
 
+    /// The Studio's `run_workflow` on (the queue runner) or off.
+    func setStudio(_ runner: (any StudioRunner)?) { bridge.setStudio(runner: runner) }
+
     /// "On limit, fall back" (off by default): a turn whose provider's usage limit is used up is
     /// retried once on the provider's helper model, else on [onDevice] (the "This phone" provider).
     func setQuotaFallback(_ enabled: Bool, onDevice: Provider?) {
