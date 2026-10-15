@@ -21,7 +21,7 @@ struct SecretTests {
     }
 
     @Test func providerDraftRedactsKeyInput() {
-        var draft = ProviderDraft.fromPreset(.deepseek)
+        var draft = ProviderDraft.fromPreset(ProviderPresets.forKind(.deepseek))
         draft.apiKeyInput = "sk-draft-secret"
         #expect(!draft.description.contains("sk-draft-secret"))
         #expect(draft.description.contains(Secret.redacted))

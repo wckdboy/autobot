@@ -119,9 +119,12 @@ enum ApiKeyUpdate: CustomStringConvertible {
 @Observable
 final class ProviderRepository {
     private nonisolated static let collection = "providers"
+    private nonisolated static let modelsCollection = "provider_models"
 
     /// Providers in display order.
     private(set) var providers: [Provider] = []
+    /// Fetched model lists by provider id (sealed in the encrypted store like the providers).
+    private(set) var modelLists: [String: ProviderModels] = [:]
     @ObservationIgnored private let store: EncryptedStore
     @ObservationIgnored private let secrets: SecretStore
     /// Called after every change (keeps the agent bridge's provider snapshot current).
@@ -134,6 +137,17 @@ final class ProviderRepository {
 
     func load() {
         providers = sorted((try? store.all(Self.collection, as: Provider.self)) ?? [])
+        let lists = (try? store.all(Self.modelsCollection, as: ProviderModels.self)) ?? []
+        modelLists = Dictionary(lists.map { ($0.providerId, $0) }, uniquingKeysWith: { a, _ in a })
+        onChange?(providers)
+    }
+
+    /// Stores a fetched model list ([json]: `ModelCache`) for an existing provider.
+    func saveModels(_ providerId: String, fetchedAt: Int64, json: String) {
+        guard get(providerId) != nil else { return }
+        let row = ProviderModels(providerId: providerId, fetchedAt: fetchedAt, json: json)
+        try? store.put(Self.modelsCollection, id: providerId, row)
+        modelLists[providerId] = row
         onChange?(providers)
     }
 
@@ -172,6 +186,8 @@ final class ProviderRepository {
     func delete(_ id: String) {
         if let ref = get(id)?.apiKeyRef { secrets.delete(ref) }
         try? store.delete(Self.collection, id: id)
+        try? store.delete(Self.modelsCollection, id: id)
+        modelLists[id] = nil
         providers.removeAll { $0.id == id }
         onChange?(providers)
     }

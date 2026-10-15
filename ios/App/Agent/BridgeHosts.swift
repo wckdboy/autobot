@@ -18,10 +18,15 @@ final class HostSnapshots: Sendable {
     }
 
     private let providers = Mutex<[String: Provider]>([:])
+    private let modelLists = Mutex<[String: String]>([:])
     private let models = Mutex<[String: LocalModel]>([:])
 
     func setProviders(_ list: [Provider]) { providers.withLock { $0 = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) } }
     func provider(_ id: String) -> Provider? { providers.withLock { $0[id] } }
+
+    /// Cached model lists (`ModelCache` JSON) by provider id; their context windows feed the agent.
+    func setModelLists(_ map: [String: String]) { modelLists.withLock { $0 = map } }
+    func modelList(_ id: String) -> String? { modelLists.withLock { $0[id] } }
 
     func setModels(_ map: [String: LocalModel]) { models.withLock { $0 = map } }
     func model(_ id: String) -> LocalModel? { models.withLock { $0[id] } }
@@ -57,6 +62,8 @@ final class ProviderDirectoryHost: NSObject, ProviderDirectory, @unchecked Senda
             apiKey: p.apiKeyRef.flatMap(secrets.get)?.reveal(),
             defaultModel: p.defaultModel,
             route: p.routing.rawValue,
+            presetId: p.presetId,
+            modelsJson: snapshots.modelList(p.id),
         )
     }
 }
@@ -217,6 +224,7 @@ enum SharedMapping {
         case .openRouter: .openrouter
         case .ollama: .ollama
         case .local: .local
+        case .anthropic: .anthropic
         }
     }
 

@@ -1,3 +1,4 @@
+import AutobotShared
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -712,11 +713,13 @@ private struct ModelSheet: View {
     @Environment(\.scheme) private var c
     @State private var providerId: String?
     @State private var modelId = ""
+    @State private var refreshing = false
+    @State private var refreshError: String?
 
     var body: some View {
         let providers = app.providers.providers
         let selected = providers.first { $0.id == (providerId ?? routing.provider?.id) }
-        let suggestions: [String] = selected.map(Self.suggestions) ?? []
+        let models: [RemoteModelItem] = selected.map(models) ?? []
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 SectionLabel("route")
@@ -748,16 +751,30 @@ private struct ModelSheet: View {
                     .buttonStyle(PressStyle())
                 }
                 Hairline().padding(.vertical, 4)
-                SectionLabel("model")
-                if !suggestions.isEmpty {
-                    ChatFlow(spacing: 6) {
-                        ForEach(suggestions, id: \.self) { s in
-                            let active: Bool = s == modelId
-                            Tag(s, accent: active ? c.primary : c.onSurfaceVariant, filled: active, action: { modelId = s })
-                        }
+                HStack(spacing: 8) {
+                    SectionLabel("model")
+                    Spacer(minLength: 0)
+                    if let selected { MicroLabel(refreshError ?? modelsLabel(selected), color: refreshError != nil ? c.error : nil) }
+                    if let selected, canRefresh(selected) {
+                        TextAction(refreshing ? "…" : "Refresh", color: c.primary, enabled: !refreshing) { refresh(selected) }
                     }
                 }
-                ConsoleTextField(text: $modelId, label: "Model id", kind: .mono)
+                ConsoleTextField(text: $modelId, label: "Model id · type to search", kind: .mono)
+                // The field searches the list unless it already names one of its models.
+                let query = models.contains { $0.id == modelId } ? "" : modelId
+                ForEach(ModelLists.filter(models, query, limit: 30)) { m in
+                    let active = m.id == modelId
+                    Button { modelId = m.id } label: {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text((active ? "● " : "") + m.id).textStyle(.code).foregroundStyle(active ? c.primary : c.onSurface).lineLimit(1)
+                            if !m.caption.isEmpty { MicroLabel(m.caption) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressStyle())
+                }
                 PrimaryButton("Use model", enabled: !modelId.trimmingCharacters(in: .whitespaces).isEmpty && selected != nil) {
                     if let selected { app.agent.setRoute(conversationId, providerId: selected.id, model: modelId.trimmingCharacters(in: .whitespaces)) }
                     onDismiss()
@@ -773,9 +790,39 @@ private struct ModelSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private static func suggestions(_ p: Provider) -> [String] {
-        var seen = Set<String>()
-        return ([p.defaultModel] + ProviderPresets.forKind(p.kind).suggestedModels).filter { !$0.isEmpty && seen.insert($0).inserted }
+    /// The provider's fetched list, else its preset's offline suggestions; the default model leads.
+    private func models(_ p: Provider) -> [RemoteModelItem] {
+        let list = ModelLists.models(app.providers.modelLists[p.id]?.json) ?? ProviderPresets.resolve(p).suggestedModels.map { RemoteModelItem(id: $0) }
+        if p.defaultModel.isEmpty || list.contains(where: { $0.id == p.defaultModel }) { return list }
+        return [RemoteModelItem(id: p.defaultModel)] + list
+    }
+
+    private func modelsLabel(_ p: Provider) -> String {
+        guard let stored = app.providers.modelLists[p.id], let list = ModelLists.models(stored.json) else { return "offline list" }
+        return "\(list.count) models · \(ModelLists.age(fetchedAt: stored.fetchedAt))"
+    }
+
+    private func canRefresh(_ p: Provider) -> Bool { p.kind != .local && ProviderPresets.resolve(p).hasModelsEndpoint }
+
+    /// Refetches the provider's list (kill switch, route and audit log apply) and caches it.
+    private func refresh(_ p: Provider) {
+        guard let shared = app.agent as? SharedAgentRuntime else { return }
+        refreshing = true
+        refreshError = nil
+        let providers = app.providers
+        let spec = ProviderSpec(
+            id: p.id, kind: SharedMapping.kind(p.kind), displayName: p.displayName, baseUrl: p.baseUrl,
+            apiKey: providers.apiKey(p)?.reveal(), defaultModel: p.defaultModel, route: p.routing.rawValue, presetId: p.presetId, modelsJson: nil,
+        )
+        Task {
+            let (json, error) = await shared.listModels(spec)
+            refreshing = false
+            if let json, let cache = ModelCache.companion.decode(json: json) {
+                providers.saveModels(p.id, fetchedAt: cache.fetchedAt, json: json)
+            } else {
+                refreshError = error
+            }
+        }
     }
 }
 

@@ -83,35 +83,3 @@ protocol ChatProvider: Sendable {
     /// Lightweight authenticated request (`GET /models`) to verify reachability and credentials.
     func testConnection() async -> ConnectionTestResult
 }
-
-/// UI defaults for each [ProviderKind].
-struct ProviderPreset: Sendable {
-    let kind: ProviderKind
-    let displayName: String
-    let baseUrl: String
-    let defaultModel: String
-    let suggestedModels: [String]
-    let requiresApiKey: Bool
-}
-
-enum ProviderPresets {
-    static let deepSeekBaseUrl = "https://api.deepseek.com"
-    static let openRouterBaseUrl = "https://openrouter.ai/api/v1"
-    static let ollamaBaseUrl = "http://127.0.0.1:11434/v1"
-    /// Placeholder base URL of the on-device provider; it is never dialled.
-    static let localBaseUrl = "local://this-phone"
-    static let localProviderId = "local-this-phone"
-
-    static let all: [ProviderPreset] = [
-        ProviderPreset(kind: .deepseek, displayName: "DeepSeek", baseUrl: deepSeekBaseUrl, defaultModel: "deepseek-chat",
-                       suggestedModels: ["deepseek-chat", "deepseek-reasoner"], requiresApiKey: true),
-        ProviderPreset(kind: .openRouter, displayName: "OpenRouter", baseUrl: openRouterBaseUrl, defaultModel: "deepseek/deepseek-chat",
-                       suggestedModels: ["deepseek/deepseek-chat", "deepseek/deepseek-r1", "qwen/qwen3-235b-a22b"], requiresApiKey: true),
-        ProviderPreset(kind: .ollama, displayName: "Ollama (local)", baseUrl: ollamaBaseUrl, defaultModel: "llama3.2",
-                       suggestedModels: ["llama3.2", "qwen3", "deepseek-r1"], requiresApiKey: false),
-        ProviderPreset(kind: .local, displayName: "This phone", baseUrl: localBaseUrl, defaultModel: "", suggestedModels: [], requiresApiKey: false),
-        ProviderPreset(kind: .openAICompatible, displayName: "OpenAI-compatible", baseUrl: "https://", defaultModel: "", suggestedModels: [], requiresApiKey: false),
-    ]
-
-    static func forKind(_ kind: ProviderKind) -> ProviderPreset { all.first { $0.kind == kind }! }
-}

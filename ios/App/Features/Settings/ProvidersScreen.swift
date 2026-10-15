@@ -1,12 +1,11 @@
-import SwiftUI
-#if canImport(AutobotShared)
 import AutobotShared
-#endif
+import SwiftUI
 
 /// Editor state. [apiKeyInput] is only held in memory and is redacted from [description].
 struct ProviderDraft: Equatable, CustomStringConvertible {
     var id: String? = nil
-    var kind: ProviderKind = .deepseek
+    var presetId = "openai-compatible"
+    var kind: ProviderKind = .openAICompatible
     var displayName = ""
     var baseUrl = ""
     var defaultModel = ""
@@ -16,6 +15,10 @@ struct ProviderDraft: Equatable, CustomStringConvertible {
     var clearStoredKey = false
 
     var isNew: Bool { id == nil }
+
+    var preset: ProviderPreset {
+        ProviderPresets.resolve(Provider(id: id ?? "", kind: kind, displayName: displayName, baseUrl: baseUrl, defaultModel: defaultModel, presetId: presetId))
+    }
 
     var baseUrlValid: Bool {
         guard let url = URL(string: baseUrl.trimmingCharacters(in: .whitespaces)), let scheme = url.scheme?.lowercased(),
@@ -28,14 +31,22 @@ struct ProviderDraft: Equatable, CustomStringConvertible {
     }
 
     var description: String {
-        "ProviderDraft(id=\(id ?? "nil"), kind=\(kind), displayName=\(displayName), baseUrl=\(baseUrl), model=\(defaultModel), " +
+        "ProviderDraft(id=\(id ?? "nil"), preset=\(presetId), displayName=\(displayName), baseUrl=\(baseUrl), model=\(defaultModel), " +
             "routing=\(routing), apiKeyInput=\(apiKeyInput.isEmpty ? "" : Secret.redacted), hasStoredKey=\(hasStoredKey))"
     }
 
-    static func fromPreset(_ kind: ProviderKind) -> ProviderDraft {
-        let preset = ProviderPresets.forKind(kind)
-        return ProviderDraft(kind: kind, displayName: preset.displayName, baseUrl: preset.baseUrl, defaultModel: preset.defaultModel)
+    static func fromPreset(_ preset: ProviderPreset) -> ProviderDraft {
+        ProviderDraft(presetId: preset.id, kind: preset.kind, displayName: preset.displayName, baseUrl: preset.baseUrl, defaultModel: preset.defaultModel)
     }
+}
+
+/// The model list in the editor: fetched (with its `ModelCache` JSON and age) or the preset's offline list.
+struct EditorModels: Equatable {
+    var models: [RemoteModelItem] = []
+    var json: String? = nil
+    var fetchedAt: Int64? = nil
+    var loading = false
+    var error: String? = nil
 }
 
 enum ProviderTestState: Equatable {
@@ -50,21 +61,22 @@ struct ProvidersScreen: View {
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
     @State private var editor: ProviderDraft?
+    @State private var picking = false
 
     var body: some View {
         let providers = app.providers.providers
         VStack(spacing: 0) {
             AutobotTopBar(title: "Providers", onBack: { nav.back() }) {
-                IconAction(symbol: "plus", label: "Add provider", tint: c.primary) { editor = ProviderDraft.fromPreset(.deepseek) }
+                IconAction(symbol: "plus", label: "Add provider", tint: c.primary) { picking = true }
             }
             if providers.isEmpty {
                 VStack(spacing: 10) {
                     Spacer()
-                    Text("No providers yet. Tap + to add DeepSeek, OpenRouter, Ollama or any OpenAI-compatible endpoint.\nAPI keys are kept in the Keychain on this device.")
+                    Text("No providers yet. Tap + to pick a cloud API, an open-model host or a server on your network.\nAPI keys are kept in the Keychain on this device.")
                         .textStyle(.bodyMedium)
                         .foregroundStyle(c.onSurfaceVariant)
                         .multilineTextAlignment(.center)
-                    PrimaryButton("Add provider") { editor = ProviderDraft.fromPreset(.deepseek) }.frame(maxWidth: 260)
+                    PrimaryButton("Add provider") { picking = true }.frame(maxWidth: 260)
                     Spacer()
                 }
                 .padding(32)
@@ -80,22 +92,33 @@ struct ProvidersScreen: View {
             }
         }
         .background(c.background)
+        .sheet(isPresented: $picking) {
+            PresetPickerSheet { preset in
+                picking = false
+                editor = ProviderDraft.fromPreset(preset)
+            }
+        }
         .sheet(item: Binding(get: { editor.map(EditorItem.init) }, set: { if $0 == nil { editor = nil } })) { item in
             ProviderEditorSheet(initial: item.draft) { editor = nil }
         }
     }
 
     private func row(_ p: Provider) -> some View {
-        VStack(spacing: 0) {
+        let preset = ProviderPresets.resolve(p)
+        let models = app.providers.modelLists[p.id]
+        return VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Button { startEdit(p) } label: {
                     VStack(alignment: .leading, spacing: 3) {
                         MicroLabel(p.baseUrl)
                         Text(p.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                        Text("\(ProviderPresets.forKind(p.kind).displayName) · \(p.defaultModel.isEmpty ? "—" : p.defaultModel) · \(p.routing.label)" + (p.apiKeyRef != nil ? " · key ✓" : ""))
+                        Text("\(preset.displayName) · \(p.defaultModel.isEmpty ? "—" : p.defaultModel) · \(p.routing.label)" + (p.apiKeyRef != nil ? " · key ✓" : ""))
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
                             .lineLimit(1)
+                        if let models, let list = ModelLists.models(models.json) {
+                            MicroLabel("\(list.count) models · \(ModelLists.age(fetchedAt: models.fetchedAt))")
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -115,24 +138,76 @@ struct ProvidersScreen: View {
     private func startEdit(_ p: Provider) {
         guard p.kind != .local else { return }
         editor = ProviderDraft(
-            id: p.id, kind: p.kind, displayName: p.displayName, baseUrl: p.baseUrl, defaultModel: p.defaultModel,
-            routing: p.routing, hasStoredKey: app.providers.hasApiKey(p),
+            id: p.id, presetId: ProviderPresets.resolve(p).id, kind: p.kind, displayName: p.displayName, baseUrl: p.baseUrl,
+            defaultModel: p.defaultModel, routing: p.routing, hasStoredKey: app.providers.hasApiKey(p),
         )
     }
 
     private struct EditorItem: Identifiable {
         let draft: ProviderDraft
-        var id: String { draft.id ?? "new" }
+        var id: String { draft.id ?? "new-\(draft.presetId)" }
+    }
+}
+
+/// "Add provider": every shared preset, searchable, grouped Cloud · Open-model hosts · Local servers · This phone.
+private struct PresetPickerSheet: View {
+    let onPick: (ProviderPreset) -> Void
+    @State private var query = ""
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        let groups = ProviderPresets.search(query)
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("add provider")
+            ConsoleTextField(text: $query, placeholder: "Search providers or hosts")
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if groups.isEmpty { MicroLabel("no match · try “Other OpenAI-compatible”").padding(.vertical, 16) }
+                    ForEach(groups, id: \.group) { group in
+                        MicroLabel("// \(group.group) · \(group.presets.count)", color: c.primary).padding(.top, 14).padding(.bottom, 4)
+                        ForEach(group.presets) { preset in
+                            Button { if !preset.isThisPhone { onPick(preset) } } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack(spacing: 8) {
+                                        Text(preset.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface)
+                                        if preset.kind == .anthropic { Tag("native") }
+                                        if !preset.requiresApiKey && !preset.isThisPhone { Tag("no key") }
+                                    }
+                                    MicroLabel(preset.isThisPhone ? "added automatically" : preset.host)
+                                    if let note = preset.note {
+                                        Text(note).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 10)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(PressStyle())
+                            .disabled(preset.isThisPhone)
+                            .accessibilityIdentifier("preset-\(preset.id)")
+                            Hairline()
+                        }
+                    }
+                }
+                .padding(.bottom, 24)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 20)
+        .background(c.surfaceContainerLow.ignoresSafeArea())
+        .presentationDetents([.large])
     }
 }
 
 private struct ProviderEditorSheet: View {
     let onDismiss: () -> Void
     @State private var draft: ProviderDraft
+    @State private var models = EditorModels()
     @State private var test: ProviderTestState = .idle
     @State private var saving = false
     @State private var error: String?
     @State private var testTask: Task<Void, Never>?
+    @State private var modelsTask: Task<Void, Never>?
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
 
@@ -142,25 +217,27 @@ private struct ProviderEditorSheet: View {
     }
 
     var body: some View {
-        let preset = ProviderPresets.forKind(draft.kind)
+        let preset = draft.preset
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 SectionLabel(draft.isNew ? "add provider" : "edit provider")
-                MicroLabel("type")
-                ChipRow(items: ProviderKind.allCases.filter { $0 != .local }, selected: draft.kind, label: { ProviderPresets.forKind($0).displayName }) { changeKind($0) }
+                HStack(spacing: 8) {
+                    Text(preset.displayName).textStyle(.titleLarge).foregroundStyle(c.onSurface)
+                    Spacer(minLength: 0)
+                    Tag(preset.group)
+                }
+                if let note = preset.note {
+                    Text(note).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                }
 
                 ConsoleTextField(text: field(\.displayName), label: "Name")
                 VStack(alignment: .leading, spacing: 4) {
                     ConsoleTextField(text: field(\.baseUrl), label: "Base URL", kind: .url)
                     MicroLabel(
-                        !draft.baseUrl.isEmpty && !draft.baseUrlValid ? "invalid url" : "requests go to {base}/chat/completions · cleartext http only for 127.0.0.1 / localhost",
+                        !draft.baseUrl.isEmpty && !draft.baseUrlValid ? "invalid url" : "cleartext http only for 127.0.0.1 / localhost",
                         color: !draft.baseUrl.isEmpty && !draft.baseUrlValid ? c.error : nil,
                         lines: 2,
                     )
-                }
-                ConsoleTextField(text: field(\.defaultModel), label: "Default model", kind: .mono)
-                if !preset.suggestedModels.isEmpty {
-                    ChipRow(items: preset.suggestedModels, selected: draft.defaultModel, label: { $0 }) { m in update { $0.defaultModel = m } }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -170,7 +247,7 @@ private struct ProviderEditorSheet: View {
                         label: preset.requiresApiKey ? "API key" : "API key (optional)",
                         kind: .secret,
                     )
-                    MicroLabel("kept in the keychain on this device · never logged or displayed", lines: 2)
+                    MicroLabel("kept in the keychain on this device · sent only to \(preset.host.isEmpty ? "this host" : preset.host)", lines: 2)
                     if draft.hasStoredKey && draft.apiKeyInput.isEmpty {
                         TextAction(draft.clearStoredKey ? "Keep saved key" : "Remove saved key", color: draft.clearStoredKey ? c.primary : c.error) {
                             update { $0.clearStoredKey.toggle() }
@@ -178,12 +255,21 @@ private struct ProviderEditorSheet: View {
                     }
                 }
 
+                modelPicker(preset)
+
                 MicroLabel("routing")
                 ChipRow(items: ProviderRouting.allCases, selected: draft.routing, label: { $0.label }) { r in update { $0.routing = r } }
                 Text("Offline mode always blocks remote requests. Direct cannot bypass a global Tor/SOCKS5 mode.")
                     .textStyle(.bodySmall)
                     .foregroundStyle(c.onSurfaceVariant)
                     .fixedSize(horizontal: false, vertical: true)
+                if let privacy = preset.privacyNote {
+                    VStack(alignment: .leading, spacing: 2) {
+                        MicroLabel("privacy")
+                        Text(privacy).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                        if let url = preset.privacyUrl { MicroLabel(url, lines: 2) }
+                    }
+                }
 
                 testResult
                 if let error { MicroLabel(error, color: c.error, lines: 3) }
@@ -199,7 +285,52 @@ private struct ProviderEditorSheet: View {
         }
         .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
-        .onDisappear { testTask?.cancel() }
+        .onAppear(perform: loadModels)
+        .onDisappear {
+            testTask?.cancel()
+            modelsTask?.cancel()
+        }
+    }
+
+    /// Default model: a field that also searches the fetched (or offline) list below it.
+    @ViewBuilder private func modelPicker(_ preset: ProviderPreset) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ConsoleTextField(text: field(\.defaultModel), label: "Default model", kind: .mono)
+            HStack(spacing: 8) {
+                let status: String = if models.loading {
+                    "fetching models…"
+                } else if let e = models.error {
+                    e
+                } else if let at = models.fetchedAt {
+                    "\(models.models.count) models · \(ModelLists.age(fetchedAt: at))"
+                } else if preset.hasModelsEndpoint {
+                    "offline list · refresh to fetch"
+                } else {
+                    "no models endpoint · documented list"
+                }
+                MicroLabel(status, color: models.error != nil ? c.error : nil, lines: 2)
+                Spacer(minLength: 0)
+                if preset.hasModelsEndpoint {
+                    TextAction("Refresh", color: c.primary, enabled: draft.baseUrlValid && !models.loading, action: refreshModels)
+                }
+            }
+            let query = models.models.contains { $0.id == draft.defaultModel } ? "" : draft.defaultModel
+            let all = ModelLists.filter(models.models, query, limit: .max)
+            ForEach(all.prefix(24)) { m in
+                let active = m.id == draft.defaultModel
+                Button { update { $0.defaultModel = m.id } } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text((active ? "● " : "") + m.id).textStyle(.code).foregroundStyle(active ? c.primary : c.onSurface).lineLimit(1)
+                        if !m.caption.isEmpty { MicroLabel(m.caption) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressStyle())
+            }
+            if all.count > 24 { MicroLabel("+\(all.count - 24) more · type to search") }
+        }
     }
 
     @ViewBuilder private var testResult: some View {
@@ -225,17 +356,12 @@ private struct ProviderEditorSheet: View {
         test = .idle
     }
 
-    /// Switching kind on a new provider re-applies that kind's preset.
-    private func changeKind(_ kind: ProviderKind) {
-        if draft.isNew {
-            var next = ProviderDraft.fromPreset(kind)
-            next.apiKeyInput = draft.apiKeyInput
-            next.routing = draft.routing
-            draft = next
+    private func loadModels() {
+        if let id = draft.id, let stored = app.providers.modelLists[id], let list = ModelLists.models(stored.json) {
+            models = EditorModels(models: list, json: stored.json, fetchedAt: stored.fetchedAt)
         } else {
-            draft.kind = kind
+            models = EditorModels(models: draft.preset.suggestedModels.map { RemoteModelItem(id: $0) })
         }
-        resetTest()
     }
 
     private func provider() -> Provider {
@@ -247,6 +373,20 @@ private struct ProviderEditorSheet: View {
             defaultModel: draft.defaultModel.trimmingCharacters(in: .whitespaces),
             routing: draft.routing,
             apiKeyRef: draft.id.flatMap(app.providers.get)?.apiKeyRef,
+            presetId: draft.presetId,
+        )
+    }
+
+    private func draftKey() -> Secret? {
+        let existing = draft.id.flatMap(app.providers.get)
+        return !draft.apiKeyInput.isEmpty ? Secret(draft.apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines))
+            : draft.clearStoredKey ? nil : existing.flatMap(app.providers.apiKey)
+    }
+
+    private func spec(_ p: Provider, _ key: Secret?) -> ProviderSpec {
+        ProviderSpec(
+            id: p.id, kind: SharedMapping.kind(p.kind), displayName: p.displayName, baseUrl: p.baseUrl,
+            apiKey: key?.reveal(), defaultModel: p.defaultModel, route: p.routing.rawValue, presetId: p.presetId, modelsJson: nil,
         )
     }
 
@@ -254,18 +394,58 @@ private struct ProviderEditorSheet: View {
         guard draft.canSave, !saving else { return }
         saving = true
         defer { saving = false }
-        let key: ApiKeyUpdate = !draft.apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty
-            ? .set(Secret(draft.apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)))
-            : draft.clearStoredKey ? .clear : .keep
+        let trimmed = draft.apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key: ApiKeyUpdate = !trimmed.isEmpty ? .set(Secret(trimmed)) : draft.clearStoredKey ? .clear : .keep
         do {
-            try app.providers.save(provider(), apiKey: key)
+            let stored = try app.providers.save(provider(), apiKey: key)
+            if let json = models.json, let at = models.fetchedAt, !draft.clearStoredKey {
+                // A list fetched in the editor (test / refresh) is kept as is.
+                app.providers.saveModels(stored.id, fetchedAt: at, json: json)
+            } else if case .set = key {
+                fetchInBackground(stored)
+            } else if !draft.preset.requiresApiKey {
+                fetchInBackground(stored)
+            }
             onDismiss()
         } catch {
             self.error = "Could not save: \(error.localizedDescription)"
         }
     }
 
-    /// Calls `GET /models` through the policy-enforcing client (blocked while Offline).
+    /// A new key (or a provider without keys): fetch its model list once saved.
+    private func fetchInBackground(_ stored: Provider) {
+        guard draft.preset.hasModelsEndpoint, let shared = app.agent as? SharedAgentRuntime else { return }
+        let providers = app.providers
+        let spec = spec(stored, providers.apiKey(stored))
+        Task {
+            let (json, _) = await shared.listModels(spec)
+            if let json, let cache = ModelCache.companion.decode(json: json) { providers.saveModels(stored.id, fetchedAt: cache.fetchedAt, json: json) }
+        }
+    }
+
+    private func accept(_ json: String?) {
+        guard let json, let cache = ModelCache.companion.decode(json: json) else { return }
+        let list = cache.models.map(RemoteModelItem.init)
+        models = EditorModels(models: list, json: json, fetchedAt: cache.fetchedAt)
+        // Servers whose model is whatever is loaded (llama.cpp, vLLM, LM Studio) start without one.
+        if draft.defaultModel.isEmpty, let first = list.first { draft.defaultModel = first.id }
+    }
+
+    private func refreshModels() {
+        guard draft.baseUrlValid, let shared = app.agent as? SharedAgentRuntime else { return }
+        modelsTask?.cancel()
+        models.loading = true
+        models.error = nil
+        let spec = spec(provider(), draftKey())
+        modelsTask = Task {
+            let (json, error) = await shared.listModels(spec)
+            if Task.isCancelled { return }
+            models.loading = false
+            if let error { models.error = error } else { accept(json) }
+        }
+    }
+
+    /// Calls the models endpoint through the policy-enforcing client (blocked while Offline).
     private func testConnection() {
         guard draft.baseUrlValid else {
             test = .failure("Invalid base URL")
@@ -274,25 +454,16 @@ private struct ProviderEditorSheet: View {
         testTask?.cancel()
         test = .running
         let p = provider()
-        let existing = draft.id.flatMap(app.providers.get)
-        let key: Secret? = !draft.apiKeyInput.isEmpty ? Secret(draft.apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines))
-            : draft.clearStoredKey ? nil : existing.flatMap(app.providers.apiKey)
+        let key = draftKey()
         testTask = Task {
             let result: ProviderTestState
-            #if canImport(AutobotShared)
             if let shared = app.agent as? SharedAgentRuntime {
-                let spec = ProviderSpec(
-                    id: p.id, kind: SharedMapping.kind(p.kind), displayName: p.displayName, baseUrl: p.baseUrl,
-                    apiKey: key?.reveal(), defaultModel: p.defaultModel, route: p.routing.rawValue,
-                )
-                let (ok, message) = await shared.testConnection(spec)
-                result = ok ? .success("Connected · \(message)") : .failure(message)
+                let outcome = await shared.testConnection(spec(p, key))
+                if outcome.ok { accept(outcome.modelsJson) }
+                result = outcome.ok ? .success(outcome.message) : .failure(outcome.message)
             } else {
                 result = await Self.direct(app.providerFactory.create(p, apiKey: key))
             }
-            #else
-            result = await Self.direct(app.providerFactory.create(p, apiKey: key))
-            #endif
             if !Task.isCancelled { test = result }
         }
     }

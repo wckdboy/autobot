@@ -14,8 +14,8 @@ enum DemoSeed {
         let now = nowMillis()
         app.settings.setOnboarded()
 
-        _ = try? app.providers.save(Provider(id: "demo-deepseek", kind: .deepseek, displayName: "DeepSeek", baseUrl: ProviderPresets.deepSeekBaseUrl, defaultModel: "deepseek-chat"))
-        _ = try? app.providers.save(Provider(id: "demo-ollama", kind: .ollama, displayName: "Ollama (local)", baseUrl: ProviderPresets.ollamaBaseUrl, defaultModel: "qwen3", routing: .direct))
+        _ = try? app.providers.save(Provider(id: "demo-deepseek", kind: .deepseek, displayName: "DeepSeek", baseUrl: ProviderPresets.deepSeekBaseUrl, defaultModel: "deepseek-flash", presetId: "deepseek"))
+        _ = try? app.providers.save(Provider(id: "demo-ollama", kind: .ollama, displayName: "Ollama", baseUrl: ProviderPresets.ollamaBaseUrl, defaultModel: "qwen3:8b", routing: .direct, presetId: "ollama"))
 
         let plan = ModelPlan(
             id: "catalog:qwen3-4b-2507-q4_0", kind: .chat, source: .catalog, title: "Qwen3 4B Instruct 2507", subtitle: "Q4_0 · strong tool calling",

@@ -94,6 +94,7 @@ final class AppContainer {
     private func providersChanged(_ list: [Provider]) {
         #if canImport(AutobotShared)
         snapshots.setProviders(list)
+        snapshots.setModelLists(providers.modelLists.mapValues(\.json))
         #endif
     }
 
