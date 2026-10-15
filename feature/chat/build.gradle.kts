@@ -6,6 +6,8 @@ plugins {
 
 android {
     namespace = "dev.wckdboy.autobot.feature.chat"
+    // Recomposition-count tests render screens with Robolectric.
+    testOptions.unitTests.isIncludeAndroidResources = true
 }
 
 dependencies {
@@ -23,4 +25,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.serialization.json)
+
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.activity.compose)
 }

@@ -57,6 +57,9 @@ class ConversationRepository @Inject constructor(
 
     fun isIncognito(conversationId: String): Boolean = incognito.isIncognito(conversationId)
 
+    /** The incognito chats (process memory only, no database read). */
+    fun incognitoConversations(): List<Conversation> = incognito.conversations.value
+
     suspend fun createConversation(
         incognito: Boolean,
         providerId: String?,
@@ -190,6 +193,9 @@ class ConversationRepository @Inject constructor(
         // A chat deleted meanwhile has no row to attach the text to.
         if (db.conversationDao().get(id) != null) db.conversationDao().upsertSearchText(ConversationTextRow(id, text))
     }
+
+    /** Stored (not incognito) chats. */
+    suspend fun storedCount(): Int = withContext(io) { database.get().conversationDao().count() }
 
     suspend fun unindexedConversations(): List<String> = withContext(io) { database.get().conversationDao().unindexed() }
 

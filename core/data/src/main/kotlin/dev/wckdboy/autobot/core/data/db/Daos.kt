@@ -59,6 +59,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET folderId = NULL WHERE folderId = :folderId")
     suspend fun clearFolder(folderId: String)
 
+    @Query("SELECT COUNT(*) FROM conversations")
+    suspend fun count(): Int
+
     /** Chats without searchable text yet (from before 1.5, or imported). */
     @Query("SELECT id FROM conversations WHERE id NOT IN (SELECT conversationId FROM conversation_text)")
     suspend fun unindexed(): List<String>
