@@ -56,6 +56,7 @@ class FakeMcpServer(
     var session: String? = "sess-1",
 ) {
     var pages: List<List<String>> = listOf(listOf("echo"))
+    val toolOverrides = HashMap<String, JsonObject>()
     var callResult: (name: String, args: JsonObject) -> JsonObject = { _, args ->
         buildJsonObject {
             putJsonArray("content") { add(buildJsonObject { put("type", "text"); put("text", "echo: ${args["text"]?.jsonPrimitive?.content}") }) }
@@ -87,7 +88,7 @@ class FakeMcpServer(
                 val cursor = (body["params"] as? JsonObject)?.get("cursor")?.jsonPrimitive?.content
                 val index = cursor?.removePrefix("page")?.toInt() ?: 0
                 buildJsonObject {
-                    put("tools", buildJsonArray { pages[index].forEach { add(tool(it)) } })
+                    put("tools", buildJsonArray { pages[index].forEach { add(toolOverrides[it] ?: tool(it)) } })
                     if (index + 1 < pages.size) put("nextCursor", "page${index + 1}")
                 }
             }

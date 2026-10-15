@@ -137,8 +137,9 @@ class McpHub(
     }
 
     /**
-     * Harness wiring: registers the remote tools, the approval gate (every call asks unless the
-     * server is trusted; then the permission preset decides) and the per-turn `mcp-servers`
+     * Harness wiring: registers the remote tools, the approval gate (every call to an untrusted
+     * server asks; a trusted server's calls follow the permission preset like `web_fetch`) and the
+     * per-turn `mcp-servers`
      * context, which also triggers [prepare].
      */
     val plugin: Plugin = plugin("mcp", ToolRegistry.Key, SystemPromptService.Key) { ctx ->
@@ -158,10 +159,15 @@ class McpHub(
             val tool = input.tool as? McpToolDefinition ?: return@intercept next(input)
             val spec = spec(tool.serverId)?.takeIf { it.enabled }
                 ?: return@intercept PreToolDecision.Deny("the MCP server ${tool.serverName} is no longer enabled")
+            val reason = "MCP · ${spec.name} · ${tool.host}"
             when {
-                spec.trusted -> next(input)
+                // Trusted: the preset decides as for any network tool; its prompt still names the server.
+                spec.trusted -> when (val decision = next(input)) {
+                    is PreToolDecision.Ask -> PreToolDecision.Ask(reason)
+                    else -> decision
+                }
                 tool.name in input.agent.sessionGrants -> next(input)
-                else -> PreToolDecision.Ask("MCP · ${spec.name} · ${tool.host}")
+                else -> PreToolDecision.Ask(reason)
             }
         }
     }
@@ -257,6 +263,7 @@ class McpHub(
                 name = name,
                 description = McpNames.description(link.spec.name, tool),
                 parameters = McpNames.schema(tool.inputSchema),
+                readOnlyHint = tool.readOnlyHint,
                 client = link.client,
             )
         }

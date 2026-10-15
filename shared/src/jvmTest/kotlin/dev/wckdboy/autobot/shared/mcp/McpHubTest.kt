@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.shared.mcp
 
 import dev.wckdboy.autobot.agent.core.Harness
+import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.shared.AgentBridge
@@ -225,7 +226,12 @@ class McpHubTest {
         }
     }
 
-    private fun runTurn(world: World, servers: List<McpServerSpec>, answer: ((SessionState) -> Unit)?): List<SessionState> = runBlocking {
+    private fun runTurn(
+        world: World,
+        servers: List<McpServerSpec>,
+        preset: PermissionPreset = PermissionPreset.WORKSPACE,
+        answer: ((SessionState) -> Unit)?,
+    ): List<SessionState> = runBlocking {
         val providers = object : ProviderDirectory {
             override fun provider(id: String) = ProviderSpec(id, ProviderKind.OPENAI_COMPATIBLE, "Test", "https://api.example.com/v1", null, "m").takeIf { id == "p" }
         }
@@ -236,6 +242,8 @@ class McpHubTest {
         val json = Json { ignoreUnknownKeys = true }
         val handle = bridge.open("s1", "p", "m") { states += json.decodeFromString(SessionState.serializer(), it) }
         withTimeout(5_000) { while (states.isEmpty()) delay(10) }
+        bridge.setPermission("s1", preset)
+        withTimeout(5_000) { while (states.last().permission != preset.label) delay(10) }
         bridge.send("s1", "Use the notes", emptyList())
         withTimeout(15_000) {
             while (true) {
@@ -276,13 +284,51 @@ class McpHubTest {
     }
 
     @Test
-    fun trustedServerToolsFollowThePermissionPreset() {
+    fun untrustedServerToolsAskEvenUnderFullAccess() {
+        var asked: SessionState? = null
+        runTurn(World("mcp__notes__echo"), listOf(notes, docs), PermissionPreset.FULL_ACCESS) { asked = it }
+        assertEquals("MCP · Notes · notes.example.com", asked!!.approvals.single().reason)
+    }
+
+    @Test
+    fun trustedServerToolsAskLikeWebFetchUnderWorkspaceAndReadOnly() {
+        for (preset in listOf(PermissionPreset.WORKSPACE, PermissionPreset.READ_ONLY)) {
+            var asked: SessionState? = null
+            val world = World("mcp__docs__echo")
+            val states = runTurn(world, listOf(notes, docs), preset) { asked = it }
+            assertEquals(preset.label, "MCP · Docs · docs.example.org", asked?.approvals?.single()?.reason)
+            assertEquals(ToolState.OK, states.last().projection.items.filterIsInstance<SessionItem.Tool>().single().state)
+        }
+    }
+
+    @Test
+    fun trustedServerToolsRunWithoutAskingUnderFullAccess() {
         val world = World("mcp__docs__echo")
-        val states = runTurn(world, listOf(notes, docs), answer = null)
+        val states = runTurn(world, listOf(notes, docs), PermissionPreset.FULL_ACCESS, answer = null)
         assertTrue(states.all { it.approvals.isEmpty() })
         val card = states.last().projection.items.filterIsInstance<SessionItem.Tool>().single()
         assertEquals(ToolState.OK, card.state)
         assertFalse(world.mcp.transport.sent.none { it.url.startsWith("https://docs.example.org") && it.body?.contains("tools/call") == true })
+    }
+
+    @Test
+    fun mcpToolsAreNetworkToolsAndReadOnlyHintIsOnlyShown() = runBlocking {
+        val server = FakeMcpServer()
+        val hosts = Hosts("notes.example.com" to server)
+        val readOnly = FakeMcpServer.tool("look").let { t ->
+            kotlinx.serialization.json.JsonObject(t + ("annotations" to buildJsonObject { put("readOnlyHint", true) }))
+        }
+        server.toolOverrides["look"] = readOnly
+        server.pages = listOf(listOf("look"))
+        val hub = hub(hosts)
+        val harness = Harness()
+        harness.root.plugin(hub.plugin)
+        hub.update(listOf(notes))
+        hub.prepare()
+        val tool = harness.tools.get("mcp__notes__look") as McpToolDefinition
+        assertEquals(dev.wckdboy.autobot.agent.core.tools.ToolKind.FETCH, tool.kind)
+        assertEquals(true, tool.readOnlyHint)
+        assertTrue(tool.description.startsWith("[MCP server Notes · read-only]"))
     }
 
     private object NoRun : dev.wckdboy.autobot.agent.core.tools.ToolRunContext {

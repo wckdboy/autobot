@@ -117,7 +117,7 @@ fun McpServersScreen(
             Box(Modifier.padding(padding).fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(
                     "No MCP servers yet. Tap + to add a Model Context Protocol server (Streamable HTTP).\n" +
-                        "Its tools join agent sessions; every call asks first unless you trust the server.",
+                        "Its tools join agent sessions; every call asks first; a trusted server follows the permission preset instead.",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -134,7 +134,7 @@ fun McpServersScreen(
                                 listOfNotNull(
                                     row.host,
                                     row.routing.label,
-                                    if (row.trusted) "trusted" else "asks each call",
+                                    if (row.trusted) "trusted · follows preset" else "asks each call",
                                     "token ✓".takeIf { row.hasToken },
                                 ).joinToString(" · "),
                                 maxLines = 1,
@@ -250,7 +250,7 @@ private fun McpServerEditorSheet(
                 ToggleRow(
                     "Trusted",
                     if (draft.trusted) {
-                        "Calls follow the session's permission preset, without asking"
+                        "Calls follow the permission preset instead of always asking (like web fetch: full-access runs them, the other presets ask)"
                     } else {
                         "Every tool call asks for approval first"
                     },

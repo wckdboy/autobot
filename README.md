@@ -171,8 +171,9 @@ servers over Streamable HTTP (`dev.wckdboy.autobot.shared.mcp`, protocol 2025-11
 server's own schema. Nothing is dialled until a turn with tools starts; every request goes
 through the kill switch, the server's route (Inherit / Direct / Tor / SOCKS5, same rules as
 providers) and the audit log, and redirects are not followed. Each tool call asks for approval
-(the card names the server and its host) unless the server is marked trusted, in which case the
-session's permission preset decides. An optional bearer token is stored like an API key and sent
+(the card names the server and its host). MCP calls are network calls (`FETCH`), so a server
+marked trusted follows the permission preset like `web_fetch` instead of always asking:
+full-access runs its calls, read-only and workspace-write still ask. An optional bearer token is stored like an API key and sent
 only to that server's host. Offline, unreachable or disabled servers contribute no tools and the
 model is told why. Not yet: OAuth sign-in, resources/prompts, images in tool results (shown as a
 placeholder), servers in the `.autobot` export. The runtime is pure Kotlin and covered by JVM tests.

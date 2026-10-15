@@ -12,8 +12,10 @@ import kotlinx.serialization.json.put
 
 /**
  * One remote tool, exposed to the model as `mcp__<server>__<tool>` with the server's own input
- * schema. Kind [ToolKind.OTHER]; the MCP gate ([McpHub.plugin]) asks for approval on every call
- * unless the server is trusted, and the approval card names the server and its host.
+ * schema. Every call is network access, so the kind is [ToolKind.FETCH] (a server's `readOnlyHint`
+ * is shown, never trusted for permissions). The MCP gate ([McpHub.plugin]) asks on every call to an
+ * untrusted server; a trusted server's calls follow the permission preset like `web_fetch`. The
+ * approval card names the server and its host.
  */
 class McpToolDefinition internal constructor(
     val serverId: String,
@@ -23,9 +25,11 @@ class McpToolDefinition internal constructor(
     override val name: String,
     override val description: String,
     override val parameters: JsonObject,
+    /** The server's `readOnlyHint` (display only). */
+    val readOnlyHint: Boolean?,
     private val client: McpClient,
 ) : ToolDefinition {
-    override val kind = ToolKind.OTHER
+    override val kind = ToolKind.FETCH
     override val timeoutMs: Long = TIMEOUT_MS
 
     override fun describeCall(args: JsonObject): String =
@@ -121,7 +125,8 @@ object McpNames {
 
     fun description(server: String, tool: McpTool): String {
         val text = listOfNotNull(tool.title?.takeIf { it != tool.name }, tool.description.takeIf { it.isNotBlank() }).joinToString(" — ")
-        return "[MCP server $server] " + text.ifEmpty { tool.name }.take(MAX_DESCRIPTION)
+        val tag = if (tool.readOnlyHint == true) "MCP server $server · read-only" else "MCP server $server"
+        return "[$tag] " + text.ifEmpty { tool.name }.take(MAX_DESCRIPTION)
     }
 
     private const val MAX_DESCRIPTION = 1_024

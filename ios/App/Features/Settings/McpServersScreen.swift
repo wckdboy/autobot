@@ -48,7 +48,7 @@ struct McpServersScreen: View {
             if servers.isEmpty {
                 VStack(spacing: 10) {
                     Spacer()
-                    Text("No MCP servers yet. Tap + to add a Model Context Protocol server (Streamable HTTP).\nIts tools join agent sessions; every call asks first unless you trust the server.")
+                    Text("No MCP servers yet. Tap + to add a Model Context Protocol server (Streamable HTTP).\nIts tools join agent sessions; every call asks first; a trusted server follows the permission preset instead.")
                         .textStyle(.bodyMedium)
                         .foregroundStyle(c.onSurfaceVariant)
                         .multilineTextAlignment(.center)
@@ -108,7 +108,7 @@ struct McpServersScreen: View {
     }
 
     private func summary(_ s: McpServer) -> String {
-        [URL(string: s.url)?.host() ?? "", s.routing.label, s.trusted ? "trusted" : "asks each call", s.tokenRef != nil ? "token ✓" : nil]
+        [URL(string: s.url)?.host() ?? "", s.routing.label, s.trusted ? "trusted · follows preset" : "asks each call", s.tokenRef != nil ? "token ✓" : nil]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
@@ -197,7 +197,7 @@ private struct McpServerEditorSheet: View {
                 SwitchRow(title: "Enabled", subtitle: "Agent sessions get this server's tools", isOn: Binding(get: { draft.enabled }, set: { v in update { $0.enabled = v } }))
                 SwitchRow(
                     title: "Trusted",
-                    subtitle: draft.trusted ? "Calls follow the session's permission preset, without asking" : "Every tool call asks for approval first",
+                    subtitle: draft.trusted ? "Calls follow the permission preset instead of always asking (like web fetch: full-access runs them, the other presets ask)" : "Every tool call asks for approval first",
                     isOn: Binding(get: { draft.trusted }, set: { v in update { $0.trusted = v } }),
                 )
 
