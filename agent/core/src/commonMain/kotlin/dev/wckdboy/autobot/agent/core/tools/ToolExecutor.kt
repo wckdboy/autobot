@@ -90,8 +90,8 @@ class ToolExecutor(private val agent: Agent) {
             }
         } finally {
             withContext(NonCancellable) {
-                // Commit finished results, then answer every remaining call so history stays valid.
-                while (committed < calls.size && slots[committed] is Slot.Done) commitUpTo(committed + 1)
+                // Answer every remaining call (finished results first) so history stays valid. A
+                // store that fails here must not skip the rest or leave their cards spinning.
                 for (i in committed until calls.size) {
                     val call = calls[i]
                     val output = when (val slot = slots[i]) {
@@ -99,9 +99,12 @@ class ToolExecutor(private val agent: Agent) {
                         Slot.Dispatched -> ToolOutput(TOOL_OUTCOME_UNKNOWN, isError = true, code = "TOOL_OUTCOME_UNKNOWN")
                         Slot.NotStarted -> ToolOutput(ABORTED_BEFORE_DISPATCH, isError = true, code = "ABORTED_BEFORE_DISPATCH")
                     }
-                    agent.log.append(
-                        SessionEvent.ToolResult(call.id, call.name, output.content, output.isError, output.code, output.meta),
-                    )
+                    try {
+                        agent.log.append(
+                            SessionEvent.ToolResult(call.id, call.name, output.content, output.isError, output.code, output.meta),
+                        )
+                    } catch (_: Throwable) {
+                    }
                     agent.markRunning(call.id, false)
                 }
             }

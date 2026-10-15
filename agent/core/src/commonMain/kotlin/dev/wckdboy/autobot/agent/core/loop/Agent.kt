@@ -154,7 +154,17 @@ class Agent(
     private val driver: Job = scope.launch {
         for (signal in wake) {
             while (hasPendingInput()) {
-                val job = launch { runTurn() }
+                // A turn that fails outside its own handling (a store that cannot write) must not
+                // take the driver down with it: the next message still gets a turn.
+                val job = launch {
+                    try {
+                        runTurn()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        _status.value = AgentStatus.IDLE
+                    }
+                }
                 turnJob = job
                 job.join()
                 turnJob = null
@@ -249,8 +259,10 @@ class Agent(
             turnRoute = null
             routeNotice = null
             turnModels.clear()
-            log.append(SessionEvent.TurnStart(turn))
+            // Claimed before anything is logged: a turn that fails on the store still consumes its
+            // input, or the driver would start it again forever.
             val claimed = claimTurnInput()
+            log.append(SessionEvent.TurnStart(turn))
             turnInput = claimed
             logChangedContexts()
             log.appendAll(claimed)
@@ -273,7 +285,7 @@ class Agent(
                 val outcome = try {
                     runStep(turn, steps)
                 } finally {
-                    withContext(NonCancellable) { log.append(SessionEvent.StepEnd(turn, steps)) }
+                    withContext(NonCancellable) { runCatching { log.append(SessionEvent.StepEnd(turn, steps)) } }
                 }
                 when (outcome) {
                     StepOutcome.CONTINUE -> continue
@@ -308,9 +320,14 @@ class Agent(
                 _live.value = null
                 turnRoute = null
                 routeNotice = null
-                if (receipt && answered) appendReceipt(turn)
-                log.append(SessionEvent.TurnEnd(turn, reason, detail))
-                _status.value = AgentStatus.IDLE
+                // The status goes back first: a store that fails here must not leave the agent RUNNING.
+                try {
+                    if (receipt && answered) appendReceipt(turn)
+                    log.append(SessionEvent.TurnEnd(turn, reason, detail))
+                } catch (_: Throwable) {
+                } finally {
+                    _status.value = AgentStatus.IDLE
+                }
             }
         }
     }
@@ -438,7 +455,7 @@ class Agent(
         acc.fallback = acc.fallback ?: routeNotice
         routeNotice = null
 
-        val calls = acc.completedCalls(step)
+        val calls = uniqueCallIds(acc.completedCalls(step), turn, step)
         // An on-device stand-in answered instead of the requested model.
         acc.servedBy?.let { turnModels += callConfig.copy(model = it) }
         log.append(
@@ -465,6 +482,22 @@ class Agent(
         if (calls.isEmpty()) return if (acc.finishReason == "length") StepOutcome.MAX_TOKENS else StepOutcome.IDLE
         val concluded = executor.runAll(calls, config.value.maxParallelToolCalls)
         return if (concluded) StepOutcome.CONCLUDED else StepOutcome.CONTINUE
+    }
+
+    /**
+     * Rewrites call ids already used in this session (or twice in one message): results, approvals
+     * and transcript rows are keyed by call id, and some engines and models repeat them.
+     */
+    private fun uniqueCallIds(calls: List<ToolCallRecord>, turn: Int, step: Int): List<ToolCallRecord> {
+        if (calls.isEmpty()) return calls
+        val seen = HashSet<String>()
+        log.entries.value.forEach { e -> (e.event as? SessionEvent.AssistantMessage)?.toolCalls?.forEach { seen += it.id } }
+        return calls.mapIndexed { i, call ->
+            var id = call.id
+            var n = 0
+            while (!seen.add(id)) id = "${call.id}_${turn}_${step}_${i}_${++n}"
+            if (id == call.id) call else call.copy(id = id)
+        }
     }
 
     private suspend fun streamOnce(provider: String, call: LlmCall, acc: StreamAccumulator) {

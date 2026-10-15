@@ -49,11 +49,14 @@ class SystemModelsTest {
     }
 
     @Test
-    fun tooBigPrefersTheSystemModelButStillTriesWithoutOne() {
+    fun tooBigPrefersTheSystemModelAndIsRefusedWithoutOne() {
         val plan = LocalModelResolver.resolve("big", LocalModelState.TOO_BIG, apple) as LocalPlan.System
         assertEquals("'big' is too big for this phone's memory", plan.fallback)
-        assertEquals(LocalPlan.Gguf("big"), LocalModelResolver.resolve("big", LocalModelState.TOO_BIG, appleOff))
-        assertEquals(LocalPlan.Gguf("big"), LocalModelResolver.resolve("big", LocalModelState.TOO_BIG, null))
+        // Loading it anyway gets the app killed for memory: refused, with what to do instead.
+        val off = LocalModelResolver.resolve("big", LocalModelState.TOO_BIG, appleOff) as LocalPlan.Fail
+        assertTrue(off.message, off.message.startsWith("'big' is too big for this phone's memory. Pick a smaller model"))
+        val none = LocalModelResolver.resolve("big", LocalModelState.TOO_BIG, null) as LocalPlan.Fail
+        assertEquals("'big' is too big for this phone's memory. Pick a smaller model: the Models tab shows which ones fit this phone.", none.message)
     }
 
     @Test

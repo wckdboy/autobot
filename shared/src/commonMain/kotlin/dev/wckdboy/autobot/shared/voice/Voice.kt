@@ -89,11 +89,13 @@ object VoiceText {
      * sentences at a comma or semicolon, else a space. Short pieces join the one before them.
      */
     fun chunks(text: String, maxChars: Int = MAX_CHUNK): List<String> {
-        val sentences = text.split('\n').flatMap { sentences(it.trim()) }.flatMap { split(it, maxChars) }
+        // A limit below one would never shorten a piece (or cut before its start).
+        val max = maxChars.coerceAtLeast(1)
+        val sentences = text.split('\n').flatMap { sentences(it.trim()) }.flatMap { split(it, max) }
         val out = mutableListOf<String>()
         for (s in sentences) {
             val last = out.lastOrNull()
-            if (last != null && out.size > 1 && minOf(s.length, last.length) < MIN_CHUNK && last.length + 1 + s.length <= maxChars) {
+            if (last != null && out.size > 1 && minOf(s.length, last.length) < MIN_CHUNK && last.length + 1 + s.length <= max) {
                 out[out.size - 1] = "$last $s"
             } else {
                 out += s

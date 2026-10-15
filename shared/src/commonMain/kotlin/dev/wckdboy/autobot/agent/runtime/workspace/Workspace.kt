@@ -13,7 +13,11 @@ import okio.Path.Companion.toPath
  * symlink tricks are rejected.
  */
 class Workspace(rootDir: Path, val fs: FileSystem = SystemFileSystem) {
-    val root: Path = rootDir.also { fs.createDirectories(it) }.let(fs::canonicalize)
+    // Created on first use, and retried while it fails (e.g. before the device's first unlock):
+    // a directory that cannot be created fails the tool call, not the host constructing this.
+    private val realRoot = lazy { rootDir.also { fs.createDirectories(it) }.let(fs::canonicalize) }
+
+    val root: Path get() = realRoot.value
 
     class EscapeException(path: String) : IOException("Path is outside the workspace: $path")
 

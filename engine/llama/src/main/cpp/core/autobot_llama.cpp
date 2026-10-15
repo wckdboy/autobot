@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -408,14 +409,15 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         result["content"] = msg.content;
         result["reasoning"] = msg.reasoning_content;
         auto calls = common_json::array();
-        int i = 0;
         for (const auto & call : msg.tool_calls) {
             auto c = common_json::object();
-            c["id"] = call.id.empty() ? ("local_" + std::to_string(n_gen) + "_" + std::to_string(i)) : call.id;
+            // Unique across steps, turns and restarts: the session log keys tool results by call id.
+            static std::atomic<uint64_t> next_call_id{(uint64_t) std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count()};
+            c["id"] = call.id.empty() ? ("local_" + std::to_string(next_call_id.fetch_add(1))) : call.id;
             c["name"] = call.name;
             c["arguments"] = call.arguments;
             calls.push_back(c);
-            ++i;
         }
         result["tool_calls"] = calls;
         result["finish_reason"] = msg.tool_calls.empty() ? finish : std::string("tool_calls");

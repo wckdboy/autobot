@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.agent.core.session.InMemorySessionStore
 import dev.wckdboy.autobot.agent.core.session.LogEntry
 import dev.wckdboy.autobot.agent.core.session.SessionJson
 import dev.wckdboy.autobot.agent.core.session.SessionStore
+import dev.wckdboy.autobot.agent.core.session.StoredLog
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.IncognitoSession
 import dev.wckdboy.autobot.core.data.SessionEventRepository
@@ -17,8 +18,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
 
 /**
- * Session logs in the SQLCipher database (`session_events`). Unreadable rows are skipped. Appended
- * prompts and replies also go into the chat's searchable text (`conversation_text`, `ChatSearch`).
+ * Session logs in the SQLCipher database (`session_events`). Unreadable rows are skipped, but
+ * their seq still counts, so the next append goes above them. Appended prompts and replies also
+ * go into the chat's searchable text (`conversation_text`, `ChatSearch`).
  */
 @Singleton
 class EncryptedSessionStore @Inject constructor(
@@ -26,14 +28,21 @@ class EncryptedSessionStore @Inject constructor(
     private val conversations: ConversationRepository,
 ) : SessionStore {
     private val indexing = Mutex()
-    override suspend fun load(sessionId: String): List<LogEntry> = rows.load(sessionId).mapNotNull { row ->
-        try {
-            SessionJson.decodeFromString(LogEntry.serializer(), row.json)
-        } catch (_: SerializationException) {
-            null
-        } catch (_: IllegalArgumentException) {
-            null
+
+    override suspend fun load(sessionId: String): List<LogEntry> = loadLog(sessionId).entries
+
+    override suspend fun loadLog(sessionId: String): StoredLog {
+        val stored = rows.load(sessionId)
+        val entries = stored.mapNotNull { row ->
+            try {
+                SessionJson.decodeFromString(LogEntry.serializer(), row.json)
+            } catch (_: SerializationException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
         }
+        return StoredLog(entries, stored.maxOfOrNull { it.seq } ?: 0L)
     }
 
     override suspend fun append(sessionId: String, entries: List<LogEntry>) {
@@ -81,6 +90,8 @@ class RoutingSessionStore @Inject constructor(
     private fun route(sessionId: String): SessionStore = if (incognito.isIncognito(sessionId)) memory else encrypted
 
     override suspend fun load(sessionId: String) = route(sessionId).load(sessionId)
+
+    override suspend fun loadLog(sessionId: String) = route(sessionId).loadLog(sessionId)
 
     override suspend fun append(sessionId: String, entries: List<LogEntry>) = route(sessionId).append(sessionId, entries)
 
