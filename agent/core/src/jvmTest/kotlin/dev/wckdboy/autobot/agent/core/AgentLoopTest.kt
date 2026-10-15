@@ -127,6 +127,25 @@ class AgentLoopTest {
     private inline fun <reified T : SessionEvent> Agent.all(): List<T> = events().filterIsInstance<T>()
 
     @Test
+    fun servedByRecordsTheModelThatAnswered() = runTest {
+        val adapter = ScriptedAdapter(
+            mutableListOf({ listOf(StreamChunk.ServedBy("system:apple", "'m' is not installed"), StreamChunk.TextDelta("hi"), StreamChunk.Finish("stop")) }, reply("again")),
+        )
+        val agent = agent(adapter)
+
+        agent.followup("hello")
+        advanceUntilIdle()
+        agent.followup("more")
+        advanceUntilIdle()
+
+        val (first, second) = agent.all<SessionEvent.AssistantMessage>()
+        assertEquals("system:apple", first.model)
+        assertEquals("'m' is not installed", first.fallback)
+        assertEquals("m", second.model)
+        assertEquals(null, second.fallback)
+    }
+
+    @Test
     fun plainTurnLogsPromptSystemAndAnswer() = runTest {
         val adapter = ScriptedAdapter(mutableListOf(reply("hello", TokenUsage(10, 2))))
         val agent = agent(adapter)

@@ -51,6 +51,12 @@ sealed interface StreamChunk {
     data class ToolCallDelta(val index: Int, val id: String?, val name: String?, val argumentsDelta: String) : StreamChunk
     data class Usage(val usage: TokenUsage) : StreamChunk
     data class Finish(val reason: String) : StreamChunk
+
+    /**
+     * The model that actually answered, when it is not the requested one (an on-device route fell
+     * back to the operating system's model). [fallback] says why, for the transcript.
+     */
+    data class ServedBy(val model: String, val fallback: String? = null) : StreamChunk
 }
 
 enum class LlmErrorCode(val retryable: Boolean) {

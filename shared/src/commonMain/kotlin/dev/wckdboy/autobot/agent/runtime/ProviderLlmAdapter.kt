@@ -17,6 +17,7 @@ import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ChatRequest
 import dev.wckdboy.autobot.providers.remote.ChatRole
 import dev.wckdboy.autobot.providers.remote.ErrorKind
+import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.providers.remote.ToolCall
 import dev.wckdboy.autobot.providers.remote.ToolSpec
 import kotlinx.coroutines.flow.Flow
@@ -77,6 +78,7 @@ class ProviderLlmAdapter(
                     )
                     is ChatEvent.Finish -> emit(StreamChunk.Finish(event.reason))
                     is ChatEvent.Error -> throw LlmException(event.toFailure())
+                    is ChatEvent.ServedBy -> emit(StreamChunk.ServedBy(event.model, event.fallback))
                     ChatEvent.Done -> Unit
                 }
             }
@@ -110,6 +112,8 @@ class ProviderLlmAdapter(
         fun modelInfo(kind: ProviderKind, model: String): ModelInfo {
             val m = model.lowercase()
             return when {
+                kind == ProviderKind.LOCAL && SystemModels.isSystem(model) ->
+                    ModelInfo(SystemModels.CONTEXT_TOKENS, defaultMaxTokens = SystemModels.MAX_OUTPUT_TOKENS, supportsTools = false)
                 kind == ProviderKind.LOCAL -> ModelInfo(LOCAL_CONTEXT, defaultMaxTokens = 2048)
                 "deepseek-v4" in m || "deepseek-flash" in m -> ModelInfo(1_000_000, supportsReasoning = true)
                 m == "deepseek-reasoner" || "-r1" in m -> ModelInfo(128_000, supportsReasoning = true)

@@ -57,4 +57,19 @@ class DiagnosticsReportTest {
             report.render(),
         )
     }
+
+    @Test
+    fun listsTheSystemModel() {
+        val report = DiagnosticsReport(
+            app = "Autobot",
+            os = "iOS 27.0",
+            device = DeviceInfo("iPhone 17 Pro"),
+            systemModel = AcceleratorStatus("Apple Intelligence (on-device)", false, "Apple Intelligence is turned off in Settings"),
+        )
+        val text = report.render()
+        assertEquals(
+            true,
+            "### system model\nApple Intelligence (on-device): unavailable · Apple Intelligence is turned off in Settings\n" in text,
+        )
+    }
 }

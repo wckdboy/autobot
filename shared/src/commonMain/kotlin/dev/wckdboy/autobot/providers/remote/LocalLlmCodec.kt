@@ -92,8 +92,8 @@ object LocalLlmCodec {
             val msg = (err["message"] as? JsonPrimitive)?.contentOrNull ?: "engine error"
             return when (code) {
                 "CANCELLED" -> emptyList()
-                "CONTEXT_WINDOW_EXCEEDED" -> listOf(ChatEvent.Error(ErrorKind.BAD_REQUEST, "context length exceeded: $msg"))
-                else -> listOf(ChatEvent.Error(ErrorKind.BAD_REQUEST, msg))
+                "CONTEXT_WINDOW_EXCEEDED" -> listOf(ChatEvent.Error(ErrorKind.BAD_REQUEST, "context length exceeded: $msg", code = code))
+                else -> listOf(ChatEvent.Error(ErrorKind.BAD_REQUEST, msg, code = code))
             }
         }
         val events = mutableListOf<ChatEvent>()
