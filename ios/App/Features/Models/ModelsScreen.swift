@@ -250,6 +250,7 @@ struct ModelsScreen: View {
     @ViewBuilder private func recommended(_ installed: Set<String>) -> some View {
         let sections: [(String, [ModelPlan])] = [
             ("image · neural engine", CoreMLCatalog.all),
+            ("upscale · neural engine", CoreMLCatalog.upscalers),
             ("chat", Catalog.chat),
             ("code", Catalog.code),
             ("speech · dictation", Catalog.speech),

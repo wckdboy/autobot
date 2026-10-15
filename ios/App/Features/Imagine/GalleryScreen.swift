@@ -66,7 +66,7 @@ struct GalleryScreen: View {
         .onAppear { if let openId, app.gallery.get(openId) != nil { open = openId } }
         .fullScreenCover(item: Binding(get: { open.map(OpenId.init) }, set: { open = $0?.id })) { target in
             if let item = app.gallery.get(target.id) {
-                DetailView(item: item, onClose: { open = nil }, onMessage: { message = $0 }) { asInit in
+                DetailView(item: item, onClose: { open = nil }, onMessage: { message = $0 }, onOpen: { open = $0 }) { asInit in
                     open = nil
                     nav.push(.imagine(handoffId: item.id, asInit: asInit))
                 }
@@ -112,12 +112,16 @@ private struct DetailView: View {
     let item: GalleryItem
     let onClose: () -> Void
     let onMessage: (String) -> Void
+    /// Shows another item (the upscaled copy).
+    let onOpen: (String) -> Void
     let onReuse: (Bool) -> Void
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
     @State private var image: UIImage?
     @State private var confirmDelete = false
     @State private var confirmExport = false
+    @State private var upscaling: String?
+    private let upscaler = LocalUpscale()
     @State private var scale: CGFloat = 1
     @State private var baseScale: CGFloat = 1
     @State private var offset: CGSize = .zero
@@ -187,10 +191,11 @@ private struct DetailView: View {
                             UIPasteboard.general.setItems([[UTType.plainText.identifier: parametersText(item)]], options: [.localOnly: true])
                             onMessage("Parameters copied")
                         }
+                        Tag(upscaling == nil ? "upscale 4×" : "upscaling…", accent: c.primary) { upscale(current) }
                         Tag("export", accent: AutobotColors.amber) { confirmExport = true }
                         Tag("delete", accent: c.error) { confirmDelete = true }
                     }
-                    MicroLabel("4× npu upscaling is android-only (hexagon npu)", color: c.outline, lines: 2)
+                    if let upscaling { MicroLabel(upscaling, color: c.primary, lines: 2) }
                     Spacer().frame(height: 8)
                 }
                 .padding(14)
@@ -217,6 +222,25 @@ private struct DetailView: View {
 
     /// Writes a decrypted copy to the photo library (add-only access). This deliberately leaves
     /// the encrypted vault, so the UI asks first.
+    /// Upscales 4× on the Neural Engine and opens the new gallery item.
+    private func upscale(_ item: GalleryItem) {
+        guard upscaling == nil else { return }
+        upscaling = "upscaling 4× on the neural engine…"
+        Task {
+            do {
+                let copy = try await GalleryUpscale.run(item, app: app, upscale: upscaler) { done, total in
+                    Task { @MainActor in upscaling = "upscaling 4× on the neural engine · tile \(done)/\(total)" }
+                }
+                upscaling = nil
+                onMessage("Upscaled to \(copy.width)×\(copy.height)")
+                onOpen(copy.id)
+            } catch {
+                upscaling = nil
+                onMessage("Upscale failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func export() {
         let id = item.id
         Task {

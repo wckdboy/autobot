@@ -228,4 +228,29 @@ enum CoreMLCatalog {
             ],
         ),
     ]
+
+    /**
+     4× super-resolution on the Neural Engine for gallery images (Android's NPU upscaler).
+     `mlboydaisuke/Real-ESRGAN-x4-CoreML` @ f1693203: a coremltools conversion of xinntao/Real-ESRGAN
+     x4plus (BSD-3-Clause), 512² BGRA in → 2048² out, verified against the Hub API (2026-10). The
+     `.mlpackage` is compiled on the phone on first use.
+     */
+    static let upscalers: [ModelPlan] = {
+        let repo = "mlboydaisuke/Real-ESRGAN-x4-CoreML", revision = "f1693203d7a0770ca7055cedfcbefb5260ee0561"
+        func file(_ path: String, _ size: Int64, _ sha: String? = nil) -> ModelFile {
+            ModelFile(role: path.hasSuffix(".mlmodel") ? .model : .other, name: path,
+                      url: "https://huggingface.co/\(repo)/resolve/\(revision)/\(path)", sizeBytes: size, sha256: sha, auth: .huggingFace, keepName: true)
+        }
+        return [ModelPlan(
+            id: "catalog:coreml-realesrgan-x4", kind: .upscaler, source: .catalog, title: "Real-ESRGAN 4×",
+            subtitle: "upscaler · neural engine · tiled 512²", format: .coreML, engine: .coreML, license: "bsd-3-clause",
+            manifest: ModelManifest(
+                files: [
+                    file("RealESRGAN_x4.mlpackage/Manifest.json", 385),
+                    file("RealESRGAN_x4.mlpackage/Data/com.apple.CoreML/model.mlmodel", 66_857_221, "6107dc417de87bf974e5b225a2632e2c78f2849265dc897981f482e922050ec9"),
+                ],
+                pageUrl: "https://huggingface.co/\(repo)",
+            ),
+        )]
+    }()
 }

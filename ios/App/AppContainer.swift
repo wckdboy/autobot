@@ -65,10 +65,12 @@ final class AppContainer {
         generator = ImageGenerator(engines: engines, gallery: gallery, backends: backends, library: library)
         let sessions = SessionStore(store: store)
         #if canImport(AutobotShared)
-        agent = SharedAgentRuntime(
+        let shared = SharedAgentRuntime(
             conversations: conversations, providers: providers, store: sessions, clients: clients, llm: llm,
             attachments: attachments, secrets: secrets, snapshots: snapshots,
         )
+        shared.registerTool(GenerateImageTool(generator: generator, backends: backends))
+        agent = shared
         #else
         agent = InterimAgentRuntime(store: sessions, conversations: conversations, providers: providers, factory: providerFactory, attachments: attachments)
         #endif

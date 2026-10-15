@@ -343,6 +343,14 @@ class AgentBridge(
         }
     }
 
+    /**
+     * Adds a host-implemented tool (e.g. iOS `generate_image`) to every session, behind the same
+     * permission gate as the built-in tools. Registering a name again replaces the tool.
+     */
+    fun registerTool(tool: HostTool) {
+        harness.root.plugin(toolsPlugin("host:${tool.name}", HostToolDefinition(tool)))
+    }
+
     /** Skills found in the workspace, as `name: description` lines. */
     fun skills(): List<String> = contexts.skills().map { "${it.name}: ${it.description}" }
 

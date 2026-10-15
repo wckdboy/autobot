@@ -135,11 +135,11 @@ generation, deletes every Keychain item, the database, files, caches and default
 | `FLAG_SECURE`, no recents thumbnail | Privacy cover while not active | iOS cannot block screenshots |
 | Run screen (CPU state) | Run screen (chip, idle/busy, thermal state, free storage) | |
 | Sessions list, agent session screen | Same | tools, approvals, plans, questions via the shared runtime |
-| `AgentHost` (`:agent:runtime`) | `SharedAgentRuntime` over `AutobotShared.xcframework` | interim plain chat without the framework |
+| `AgentHost` (`:agent:runtime`), `generate_image` tool | `SharedAgentRuntime` over `AutobotShared.xcframework`; `generate_image` is a host tool (`AgentBridge.registerTool`) on the Core ML / PC backends | interim plain chat without the framework |
 | llama.cpp CPU / Adreno OpenCL / Hexagon (planned) | llama.cpp on Metal or CPU | no ANE backend in llama.cpp; "npu" falls back |
 | Images: sd.cpp (CPU), QNN on Hexagon NPU, MNN on GPU | Core ML Stable Diffusion on the Neural Engine (`split_einsum`) or GPU | Apple's `coreml-stable-diffusion-*` repos |
 | LoRA on device | — | Core ML models are compiled; LoRA works on A1111/Forge backends |
-| NPU 4× upscaler | — | no Core ML upscaler yet |
+| NPU 4× upscaler (tiled 192 px) | Real-ESRGAN 4× on the Neural Engine (Core ML, tiled 512 px, cross-faded overlaps) | `mlboydaisuke/Real-ESRGAN-x4-CoreML`, BSD-3-Clause |
 | whisper.cpp dictation | whisper.cpp dictation (Metal, Core ML encoder when present) | |
 | Text-to-speech | `AVSpeechSynthesizer` | |
 | Model manager, catalog, HF browser, accounts | Same; image catalog is Core ML | chat/code/speech entries shared |

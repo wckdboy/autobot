@@ -129,6 +129,9 @@ final class SharedAgentRuntime: AgentRuntime {
         }
     }
 
+    /// Adds a host-implemented tool (e.g. `generate_image`) to every session.
+    func registerTool(_ tool: any HostTool) { bridge.registerTool(tool: tool) }
+
     /// Skills found in the workspace (`name: description`).
     func skills() -> [String] { bridge.skills() }
 }

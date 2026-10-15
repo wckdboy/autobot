@@ -320,7 +320,7 @@ func formatOf(_ name: String, owner: String? = nil) -> ModelFormat {
 /// have no engine here; Core ML replaces them for images).
 func engineFor(_ kind: ModelKind, _ format: ModelFormat) -> EngineKind {
     if kind == .speech { return format == .ggml ? .whisper : .none }
-    if format == .coreML { return kind == .image ? .coreML : .none }
+    if format == .coreML { return kind == .image || kind == .upscaler ? .coreML : .none }
     if kind == .chat || kind == .code { return format == .gguf ? .llama : .none }
     return .none
 }
