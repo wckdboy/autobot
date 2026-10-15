@@ -24,11 +24,29 @@ import okhttp3.Response
  */
 class FileFetcher(private val clients: HttpClientFactory) {
 
+    /** Bytes read back from disk to hash (a resumed part's prefix, or a fallback); tests watch it. */
+    @Volatile
+    internal var bytesHashedFromDisk = 0L
+        private set
+
+    /** SHA-256 of a `*.part` as it is written, so verification never re-reads a multi-GB file. */
+    private class RunningHash {
+        var digest: MessageDigest = MessageDigest.getInstance("SHA-256")
+        /** How many bytes of the part [digest] covers. */
+        var bytes = 0L
+
+        fun reset() {
+            digest = MessageDigest.getInstance("SHA-256")
+            bytes = 0L
+        }
+    }
+
     suspend fun fetch(file: ModelFile, target: File, credential: Secret?, onProgress: suspend (Long, Long) -> Unit): ModelFile {
         target.parentFile?.mkdirs()
         val session = FetchSession(file, credential?.takeUnless { it.isBlank }?.reveal())
         val part = File(target.path + if (file.zipEntry != null) ".z.part" else ".part")
         fun have() = if (part.isFile) part.length() else 0L
+        val hash = RunningHash()
         var step = session.begin(have())
         while (true) {
             step = when (val s = step) {
@@ -40,7 +58,7 @@ class FileFetcher(private val clients: HttpClientFactory) {
                         val headers = r.headers.toMap()
                         when (val next = session.onResponse(r.code, headers, have, r.body.contentLength())) {
                             is FetchStep.Write -> {
-                                stream(r, part, next.append, session.expectedSize, onProgress)
+                                stream(r, part, next.append, session.expectedSize, hash, onProgress)
                                 FetchStep.Verify
                             }
                             FetchStep.Reject -> throw session.failure(r.code, headers, runCatching { r.peekBody(2048).string() }.getOrDefault(""))
@@ -55,7 +73,7 @@ class FileFetcher(private val clients: HttpClientFactory) {
                 is FetchStep.Fail -> throw s.error
                 FetchStep.Verify -> return withContext(Dispatchers.IO) {
                     session.checkComplete(if (part.isFile) part.length() else -1)
-                    if (file.zipEntry != null) inflateAndCommit(session, part, target) else verifyAndCommit(session, part, target)
+                    if (file.zipEntry != null) inflateAndCommit(session, part, target) else verifyAndCommit(session, part, target, hash)
                 }
                 is FetchStep.Write, FetchStep.Reject -> error("$s is answered inside a response")
             }
@@ -98,9 +116,15 @@ class FileFetcher(private val clients: HttpClientFactory) {
         clients.create(tag = "models:download").newCall(request).execute()
     }
 
-    private suspend fun stream(response: Response, part: File, append: Boolean, expectedSize: Long, onProgress: suspend (Long, Long) -> Unit) {
+    private suspend fun stream(response: Response, part: File, append: Boolean, expectedSize: Long, hash: RunningHash, onProgress: suspend (Long, Long) -> Unit) {
         withContext(Dispatchers.IO) {
             if (!append) part.delete()
+            // Resuming: hash what is already on disk once (from an earlier process or attempt), then keep going.
+            val existing = if (part.isFile) part.length() else 0L
+            if (hash.bytes != existing) {
+                hash.reset()
+                if (existing > 0) hashPrefix(part, hash)
+            }
             val source = response.body.source()
             FileOutputStream(part, append).use { out ->
                 val buffer = ByteArray(BUFFER)
@@ -110,6 +134,8 @@ class FileFetcher(private val clients: HttpClientFactory) {
                     val n = source.read(buffer)
                     if (n < 0) break
                     out.write(buffer, 0, n)
+                    hash.digest.update(buffer, 0, n)
+                    hash.bytes += n
                     written += n
                     onProgress(written, expectedSize.coerceAtLeast(written))
                 }
@@ -118,9 +144,30 @@ class FileFetcher(private val clients: HttpClientFactory) {
         }
     }
 
-    private fun verifyAndCommit(session: FetchSession, part: File, target: File): ModelFile {
+    private fun hashPrefix(part: File, hash: RunningHash) {
+        part.inputStream().use { input ->
+            val buffer = ByteArray(BUFFER)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                hash.digest.update(buffer, 0, n)
+                hash.bytes += n
+                bytesHashedFromDisk += n
+            }
+        }
+    }
+
+    private fun verifyAndCommit(session: FetchSession, part: File, target: File, hash: RunningHash): ModelFile {
+        val length = part.length()
+        // The running hash covers the part unless it was written outside this fetch (then hash it once now).
+        if (hash.bytes != length) {
+            hash.reset()
+            hashPrefix(part, hash)
+        }
+        val sha = hash.digest.digest().joinToString("") { "%02x".format(it) }
+        hash.reset()
         val verified = try {
-            session.verify(sha256(part), part.length())
+            session.verify(sha, length)
         } catch (e: DownloadException) {
             part.delete()
             throw e

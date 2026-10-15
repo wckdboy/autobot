@@ -109,12 +109,14 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
         val input = File.createTempFile("up", ".rgb", scratchDir)
         try {
             input.writeBytes(rgbOf(bitmap))
+            val (width, height) = bitmap.width to bitmap.height
+            bitmap.recycle()
             val json = JSONObject()
                 .put("op", "upscale")
                 .put("model", upscaler.paths[FileRole.MODEL])
                 .put("image", input.path)
-                .put("width", bitmap.width)
-                .put("height", bitmap.height)
+                .put("width", width)
+                .put("height", height)
                 .put("out_dir", scratchDir.path)
             var result: ByteArray? = null
             npu.generate(json.toString()).collect { event ->
@@ -177,19 +179,40 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
             return json
         }
 
+        /**
+         * The largest power-of-two subsampling that still decodes [srcW]×[srcH] to at least
+         * [w]×[h], so a 12 MP photo used as a 512² init image is never decoded at full size.
+         */
+        internal fun sampleSize(srcW: Int, srcH: Int, w: Int, h: Int): Int {
+            var n = 1
+            while (srcW / (n * 2) >= w && srcH / (n * 2) >= h) n *= 2
+            return n
+        }
+
+        /** [encoded] decoded at about [w]×[h] (subsampled), then scaled exactly; the intermediate is recycled. */
+        private fun decodeScaled(encoded: ByteArray, w: Int, h: Int, filter: Boolean, what: String): Bitmap {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(encoded, 0, encoded.size, bounds)
+            val opts = BitmapFactory.Options().apply {
+                if (bounds.outWidth > 0 && bounds.outHeight > 0) inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, w, h)
+            }
+            val decoded = BitmapFactory.decodeByteArray(encoded, 0, encoded.size, opts) ?: throw DiffusionException("Unreadable $what", DiffusionException.Code.UNSUPPORTED)
+            if (decoded.width == w && decoded.height == h) return decoded
+            return Bitmap.createScaledBitmap(decoded, w, h, filter).also { if (it !== decoded) decoded.recycle() }
+        }
+
         /** Decodes an encoded image, scales it to [w]×[h] and returns packed RGB bytes. */
         fun rgb(encoded: ByteArray, w: Int, h: Int): ByteArray {
-            val decoded = BitmapFactory.decodeByteArray(encoded, 0, encoded.size) ?: throw DiffusionException("Unreadable init image", DiffusionException.Code.UNSUPPORTED)
-            val scaled = Bitmap.createScaledBitmap(decoded, w, h, true)
-            return rgbOf(scaled)
+            val scaled = decodeScaled(encoded, w, h, filter = true, what = "init image")
+            return rgbOf(scaled).also { scaled.recycle() }
         }
 
         /** A mask: white (painted) = 255 = repaint, black = keep. */
         fun gray(encoded: ByteArray, w: Int, h: Int): ByteArray {
-            val decoded = BitmapFactory.decodeByteArray(encoded, 0, encoded.size) ?: throw DiffusionException("Unreadable mask", DiffusionException.Code.UNSUPPORTED)
-            val scaled = Bitmap.createScaledBitmap(decoded, w, h, false)
+            val scaled = decodeScaled(encoded, w, h, filter = false, what = "mask")
             val px = IntArray(w * h)
             scaled.getPixels(px, 0, w, 0, 0, w, h)
+            scaled.recycle()
             return ByteArray(px.size) { i -> if (Color.red(px[i]) + Color.green(px[i]) + Color.blue(px[i]) > 3 * 127) 255.toByte() else 0 }
         }
 
