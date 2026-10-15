@@ -27,6 +27,8 @@ class DiagnosticsReport(
     val errors: List<String> = emptyList(),
     /** The global network mode (`Offline`, `Direct`, `Tor`, `SOCKS5`). */
     val networkMode: String? = null,
+    /** The OS's own language model (Apple Intelligence, Gemini Nano), when the build can use one. */
+    val systemModel: AcceleratorStatus? = null,
 ) {
     /** Plain text, readable in an issue or a chat message. */
     fun render(): String = buildString {
@@ -48,7 +50,12 @@ class DiagnosticsReport(
         imageAccelerator?.let { a ->
             appendLine()
             appendLine("### image accelerator")
-            appendLine("${a.name}: ${if (a.available) "available" else "unavailable"}${a.detail?.let { " · $it" }.orEmpty()}")
+            appendLine(a.line())
+        }
+        systemModel?.let { a ->
+            appendLine()
+            appendLine("### system model")
+            appendLine(a.line())
         }
         appendLine()
         appendLine("### benchmarks")
@@ -72,6 +79,8 @@ class DiagnosticsReport(
     private companion object {
         const val MAX_ERRORS = 10
         const val MAX_ERROR_CHARS = 300
+
+        fun AcceleratorStatus.line(): String = "$name: ${if (available) "available" else "unavailable"}${detail?.let { " · $it" }.orEmpty()}"
 
         fun gib(bytes: Long): String = "${fmt(bytes / 1_073_741_824.0)} GB"
 

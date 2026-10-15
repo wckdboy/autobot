@@ -7,7 +7,9 @@ import dev.wckdboy.autobot.providers.remote.ChatMessage
 import dev.wckdboy.autobot.providers.remote.ChatRequest
 import dev.wckdboy.autobot.providers.remote.ChatRole
 import dev.wckdboy.autobot.providers.remote.ErrorKind
+import dev.wckdboy.autobot.providers.remote.LocalModelState
 import dev.wckdboy.autobot.providers.remote.SseDecoder
+import dev.wckdboy.autobot.providers.remote.SystemModelStatus
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.ToolState
 import java.io.File
@@ -44,6 +46,9 @@ class AgentBridgeTest {
         override fun chat(modelId: String, requestJson: String, sink: LocalSink): Cancellable? = null
         override fun mmproj(modelId: String): String? = null
         override fun readyModelCount() = 0
+        override fun modelState(modelId: String) = LocalModelState.NOT_INSTALLED
+        override fun systemModel(): SystemModelStatus? = null
+        override fun systemChat(promptJson: String, sink: LocalSink): Cancellable? = null
     }
 
     private class MemoryStore : SessionStoreBridge {

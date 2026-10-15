@@ -59,7 +59,15 @@ sealed interface ChatEvent {
     /** The choice finished: `stop`, `length`, `tool_calls`, `content_filter`, … */
     data class Finish(val reason: String) : ChatEvent
     data object Done : ChatEvent
-    data class Error(val kind: ErrorKind, val message: String, val httpCode: Int? = null) : ChatEvent
+
+    /**
+     * @param code the on-device engine's error code (`LOAD_FAILED`, `CONTEXT_WINDOW_EXCEEDED`, …),
+     *   so a local route can tell a model that never loaded from one that failed mid-answer.
+     */
+    data class Error(val kind: ErrorKind, val message: String, val httpCode: Int? = null, val code: String? = null) : ChatEvent
+
+    /** Another model than the requested one is answering (on-device fallback); [fallback] says why. */
+    data class ServedBy(val model: String, val fallback: String? = null) : ChatEvent
 }
 
 enum class ErrorKind {

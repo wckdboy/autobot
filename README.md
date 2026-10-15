@@ -105,7 +105,8 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
 | `:engine:speech` | whisper.cpp (MIT) in the `:asr` process: on-device dictation |
-| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, host tools (`HostTool`), the MCP client (`mcp`), OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, network policy (`NetworkMode`, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`), `SettingsSchema`, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), the `.autobot` backup format, `DiagnosticsReport`, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
+| `:engine:systemllm` | Gemini Nano through ML Kit GenAI (AICore) as the system model; only in the opt-in `playServices` flavor (brings GMS and ML Kit telemetry, see [System model fallback](#system-model-fallback)) |
+| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, host tools (`HostTool`), the MCP client (`mcp`), on-device model routing with the OS-model fallback (`SystemModels`, `LocalChatRouter`), OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, network policy (`NetworkMode`, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`), `SettingsSchema`, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), the `.autobot` backup format, `DiagnosticsReport`, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
 | `:agent:core` | Kotlin Multiplatform (JVM + iOS) port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
@@ -150,6 +151,39 @@ backend.
 against the SHA-256 published by the hub. A file that fails the check is deleted. Hub tokens are
 sent only to their own host (`huggingface.co`, `civitai.com` / `civitai.red`) and never to CDN
 redirects.
+
+## System model fallback
+
+"This phone" can also run the operating system's own model. It appears as a model of that provider
+and stands in automatically when the requested downloaded model is not installed, is too big for the
+phone's memory, or fails to load. An answer from a stand-in is labelled in the chat
+(`… · system model · fallback — <why>`), so you always know what ran. The decision is one pure
+function in `:shared` (`LocalModelResolver`); the platforms only report availability and load
+failures. Compute and the diagnostics report list the system model and its availability.
+
+The system models have about 4k tokens of context and are offered without tools: earlier tool calls
+and results are passed as text, and long system prompts and old turns are shortened to fit.
+
+- **iOS 26+: Apple Intelligence** (`system:apple`, Foundation Models). On-device only; Private
+  Cloud Compute is never used. Unavailable on ineligible devices, with Apple Intelligence turned
+  off, or while its model is still downloading; iOS 18–25 builds skip it.
+- **Android: Gemini Nano** (`system:gemini-nano`, ML Kit GenAI Prompt API → AICore), **only in the
+  opt-in `playServices` flavor** (`./gradlew :app:assemblePlayServicesRelease`, app id
+  `ai.wckd.autobot.gms`). The published `foss` app does not contain it, because ML Kit cannot be
+  used without Google code and telemetry:
+  - `com.google.mlkit:genai-prompt` pulls in `play-services-basement`/`-base`/`-tasks`,
+    `firebase-components`/`-encoders` and `com.google.android.datatransport` (Firelog/Clearcut),
+    plus `ACCESS_NETWORK_STATE`, a JobScheduler service and an init provider.
+  - ML Kit sends usage metrics (device and app info and a per-install ML Kit id, not prompts) to
+    Google, with no opt-out, as stated in the ML Kit terms. That traffic does not pass Autobot's
+    kill switch or audit log.
+  - Inference itself runs in the AICore system app on the phone. AICore downloads Gemini Nano
+    itself; Autobot asks it to only when you tap `download` under Compute or pick the model.
+  - Supported phones are listed by Google (Pixel 9/10, Galaxy S25/S26 and others; Galaxy S26 with
+    the Snapdragon 8 Elite Gen 5 is on the list). It answers only while the app is in the
+    foreground, has per-app quotas, and does not run with an unlocked bootloader.
+  - Use is subject to the ML Kit Terms and the GenAI additional terms (Generative AI Prohibited
+    Use Policy, 18+).
 
 ## NPU and GPU
 
@@ -273,15 +307,15 @@ Windows (PowerShell):
 
 ```powershell
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-.\gradlew.bat assembleDebug          # debug APK (arm64-v8a)
+.\gradlew.bat assembleFossDebug      # debug APK (arm64-v8a)
 .\gradlew.bat testDebugUnitTest      # JVM unit tests
-.\gradlew.bat :app:assembleRelease   # R8 full mode + resource shrinking (unsigned)
+.\gradlew.bat :app:assembleFossRelease # R8 full mode + resource shrinking (unsigned)
 ```
 
 macOS/Linux:
 
 ```sh
-./gradlew assembleDebug testDebugUnitTest :app:assembleRelease
+./gradlew assembleFossDebug testDebugUnitTest :app:assembleFossRelease
 ```
 
 If AGP fails with *"Several environment variables and/or system properties contain different paths
@@ -305,8 +339,12 @@ keyAlias=autobot
 keyPassword=…
 ```
 
-When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; otherwise the output stays
-`app-release-unsigned.apk`.
+When it exists, `:app:assembleFossRelease` produces a signed `app-foss-release.apk`; otherwise the
+output stays `app-foss-release-unsigned.apk`.
+
+**Flavors.** `foss` is the app Autobot publishes. `playServices` is an opt-in build with Gemini Nano
+(see [System model fallback](#system-model-fallback)); `assembleDebug` / `assembleRelease` build both,
+so use the `Foss` task names for the default app.
 
 ### Tests
 

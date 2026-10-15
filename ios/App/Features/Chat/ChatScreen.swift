@@ -58,6 +58,7 @@ private struct ChatRouting {
         route = isLocal ? .localGpu : loopback ? .localCpu : .cloudApi
         modelLabel = conversation?.model.map { m in
             guard isLocal else { return m }
+            if m == AppleIntelligence.id { return AppleIntelligence.title }
             if let title = app.library.get(m)?.title { return title }
             let tail = m.components(separatedBy: "catalog:").last ?? m
             return (tail.components(separatedBy: "/").last ?? tail).components(separatedBy: ".gguf").first ?? tail
@@ -780,7 +781,9 @@ private struct ModelSheet: View {
 
     private static func suggestions(_ p: Provider) -> [String] {
         var seen = Set<String>()
-        return ([p.defaultModel] + ProviderPresets.forKind(p.kind).suggestedModels).filter { !$0.isEmpty && seen.insert($0).inserted }
+        // "This phone" also offers Apple Intelligence when it can answer.
+        let system = p.kind == .local && AppleIntelligence.unavailability == nil ? [AppleIntelligence.id] : []
+        return ([p.defaultModel] + ProviderPresets.forKind(p.kind).suggestedModels + system).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 }
 

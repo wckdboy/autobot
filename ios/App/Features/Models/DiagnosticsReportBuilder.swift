@@ -65,6 +65,7 @@ enum DiagnosticsReportBuilder {
             benchmarks: lines,
             errors: [devices?.npuError].compactMap { $0 } + EngineErrors.recent,
             networkMode: app.settings.settings.mode.privacyStatus.label,
+            systemModel: AcceleratorStatus(name: AppleIntelligence.title, available: AppleIntelligence.unavailability == nil, detail: AppleIntelligence.unavailability?.detail),
         )
         return report.render()
         #else

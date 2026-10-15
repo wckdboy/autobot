@@ -15,6 +15,8 @@ final class HostSnapshots: Sendable {
         let mmproj: String?
         let contextLength: Int
         let backend: Backend
+        /// Too big for this device by the shared fit rules (the system model may stand in).
+        var tooBig = false
     }
 
     private let providers = Mutex<[String: Provider]>([:])
@@ -191,6 +193,42 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
     func mmproj(modelId: String) -> String? { snapshots.model(modelId)?.mmproj }
 
     func readyModelCount() -> Int32 { Int32(snapshots.readyModelCount) }
+
+    func modelState(modelId: String) -> LocalModelState {
+        guard let model = snapshots.model(modelId) else { return .notInstalled }
+        return model.tooBig ? .tooBig : .ready
+    }
+
+    func systemModel() -> SystemModelStatus? { AppleIntelligence.sharedStatus() }
+
+    func systemChat(promptJson: String, sink: LocalSink) -> (any AutobotShared.Cancellable)? {
+        guard let plan = try? JSONDecoder().decode(SystemPromptPlan.self, from: Data(promptJson.utf8)) else { return nil }
+        #if canImport(FoundationModels)
+        guard #available(iOS 26.0, *) else { return nil }
+        nonisolated(unsafe) let sink = sink
+        let task = Task.detached {
+            let result = await AppleIntelligence.respond(plan) { sink.onContent(text: $0) }
+            if result.contains("\"LOAD_FAILED\"") || result.contains("\"GUARDRAIL\"") { EngineErrors.record("system model: \(result)") }
+            sink.onResult(json: result)
+        }
+        return TaskHandle(task)
+        #else
+        return nil
+        #endif
+    }
+}
+
+extension AppleIntelligence {
+    /// The shared status the router and the Compute screen use.
+    static func sharedStatus() -> SystemModelStatus {
+        let reason = unavailability
+        return SystemModelStatus(
+            id: id,
+            title: title,
+            availability: reason == nil ? .available : reason == .notReady ? .downloading : .unavailable,
+            detail: reason?.detail,
+        )
+    }
 }
 
 /// Session logs as opaque JSON lines, sealed in the encrypted store (incognito: memory only).

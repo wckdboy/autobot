@@ -58,6 +58,8 @@ sealed interface SessionEvent {
         val model: String? = null,
         /** Cut short by cancellation; kept so the next request contains what the user saw. */
         val interrupted: Boolean = false,
+        /** Why [model] answered instead of the requested model (on-device fallback), if it did. */
+        val fallback: String? = null,
     ) : SessionEvent
 
     /** A failed model request (after retries). Not model-visible. */

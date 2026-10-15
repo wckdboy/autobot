@@ -139,6 +139,7 @@ generation, deletes every Keychain item, the database, files, caches and default
 | Sessions list, agent session screen | Same | tools, approvals, plans, questions via the shared runtime |
 | `AgentHost` (`:agent:runtime`), `generate_image` tool | `SharedAgentRuntime` over `AutobotShared.xcframework`; `generate_image` is a host tool (`AgentBridge.registerTool`) on the Core ML / PC backends | interim plain chat without the framework |
 | llama.cpp CPU / Adreno OpenCL / Hexagon (planned) | llama.cpp on Metal or CPU | no ANE backend in llama.cpp; "npu" falls back |
+| System model: Gemini Nano (opt-in `playServices` flavor only) | Apple Intelligence (`system:apple`, Foundation Models, iOS 26+, on-device only; `Engines/AppleIntelligence.swift`) | fallback when no downloaded model can run, chosen by the shared `LocalModelResolver`; FoundationModels is weak-linked so iOS 18–25 still launch |
 | Images: sd.cpp (CPU), QNN on Hexagon NPU, MNN on GPU | Core ML Stable Diffusion on the Neural Engine (`split_einsum`) or GPU | Apple's `coreml-stable-diffusion-*` repos |
 | LoRA on device | — | Core ML models are compiled; LoRA works on A1111/Forge backends |
 | NPU 4× upscaler (tiled 192 px) | Real-ESRGAN 4× on the Neural Engine (Core ML, tiled 512 px, cross-faded overlaps) | `mlboydaisuke/Real-ESRGAN-x4-CoreML`, BSD-3-Clause |

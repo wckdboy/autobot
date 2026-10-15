@@ -6,6 +6,7 @@ import dev.wckdboy.autobot.agent.core.session.TodoItem
 import dev.wckdboy.autobot.agent.core.session.TokenUsage
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
+import dev.wckdboy.autobot.providers.remote.SystemModels
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -98,6 +99,7 @@ fun projectSession(
                 UserMessageKind.CONTEXT -> Unit
             }
             is SessionEvent.AssistantMessage -> {
+                e.fallback?.let { why -> items += SessionItem.Notice("${key}f", SystemModels.fallbackNotice(e.model.orEmpty(), why), NoticeKind.WARN) }
                 if (e.text.isNotBlank() || !e.reasoning.isNullOrBlank()) {
                     items += SessionItem.Assistant(key, e.text, e.reasoning, e.interrupted, e.usage?.outputTokens, e.model)
                 }

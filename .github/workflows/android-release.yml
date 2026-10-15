@@ -64,14 +64,14 @@ jobs:
           } > keystore.properties
 
       - name: Test and build
-        run: ./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest :app:assembleRelease --no-configuration-cache
+        run: ./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest :app:assembleFossRelease --no-configuration-cache
 
       - name: Attach to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          apk=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          apk=$(ls app/build/outputs/apk/foss/release/*.apk | head -1)
           [[ "$apk" == *unsigned* ]] && { echo "Unsigned build: not attaching"; exit 0; }
           out="autobot-${TAG#v}.apk"
           cp "$apk" "$out"

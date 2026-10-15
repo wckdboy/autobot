@@ -111,6 +111,8 @@ targets:
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        # Apple Intelligence (iOS 26+) is optional: iOS 18–25 launch without FoundationModels.
+        OTHER_LDFLAGS: ["$(inherited)", "-weak_framework", "FoundationModels"]
 
   AutobotTests:
     type: bundle.unit-test

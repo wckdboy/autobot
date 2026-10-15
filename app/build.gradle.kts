@@ -62,6 +62,23 @@ android {
             signingConfig = releaseSigning
         }
     }
+
+    // `foss` is the build Autobot ships: no Google Play services, Firebase or telemetry.
+    // `playServices` adds Gemini Nano (ML Kit GenAI → AICore) as the system model, which brings
+    // GMS client libraries, Firebase components and ML Kit's usage metrics to Google; it is opt-in,
+    // installs next to the default app and is never published by scripts/release.sh.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("foss") {
+            dimension = "distribution"
+            isDefault = true
+        }
+        create("playServices") {
+            dimension = "distribution"
+            applicationIdSuffix = ".gms"
+            versionNameSuffix = "-gms"
+        }
+    }
 }
 
 dependencies {
@@ -82,6 +99,8 @@ dependencies {
     implementation(projects.engine.diffusion)
     implementation(projects.engine.npu)
     implementation(projects.engine.speech)
+    // Gemini Nano: only in the opt-in flavor, never on the default (foss) classpath.
+    "playServicesImplementation"(projects.engine.systemllm)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

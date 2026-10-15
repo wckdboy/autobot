@@ -36,6 +36,16 @@ struct ComputeScreen: View {
                             MicroLabel("chat runs on the gpu (metal) or cpu — llama.cpp has no neural engine backend · images run on the neural engine", lines: 3)
                         }
                     }
+                    let system = AppleIntelligence.unavailability
+                    Panel(title: "system model · \(AppleIntelligence.title)", accent: system == nil ? c.primary : nil) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(system.map { "unavailable · \($0.detail)" } ?? "available")
+                                .textStyle(.bodySmall)
+                                .foregroundStyle(system == nil ? c.onSurface : c.onSurfaceVariant)
+                            MicroLabel("fallback when no downloaded model can run · ~4k tokens, no tools", lines: 2)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     if let running { MicroLabel("benchmarking · \(running)", color: c.primary, lines: 2) }
                     SectionLabel("models · auto picks the fastest measured backend", color: c.onSurfaceVariant)
                     ForEach(models) { m in

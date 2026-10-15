@@ -54,6 +54,21 @@ class SessionProjectionTest {
     }
 
     @Test
+    fun labelsAnswersFromTheSystemModelFallback() {
+        val log = entries(
+            SessionEvent.UserMessage("hi"),
+            SessionEvent.AssistantMessage(1, 1, "hello", model = "system:apple", fallback = "'qwen' failed to load (out of memory)"),
+            SessionEvent.AssistantMessage(2, 1, "again", model = "qwen"),
+        )
+        val items = projectSession(log, emptySet(), emptySet()) { _, _ -> "" }.items
+        val notice = items[1] as SessionItem.Notice
+        assertEquals("Apple Intelligence (on-device) · system model · fallback — 'qwen' failed to load (out of memory)", notice.text)
+        assertEquals(NoticeKind.WARN, notice.kind)
+        assertEquals("system:apple", (items[2] as SessionItem.Assistant).model)
+        assertEquals(4, items.size)
+    }
+
+    @Test
     fun pendingApprovalWinsOverStreaming() {
         val log = entries(SessionEvent.AssistantMessage(1, 1, "", toolCalls = listOf(ToolCallRecord("x", "delete", "{}"))))
         val p = projectSession(log, pendingApprovals = setOf("x"), running = emptySet()) { _, _ -> "" }

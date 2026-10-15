@@ -340,7 +340,7 @@ class Agent(
                 if (acc.isEmpty()) throw LlmException(LlmFailure(LlmErrorCode.EMPTY_RESPONSE, "The model returned an empty response"))
                 break
             } catch (e: CancellationException) {
-                withContext(NonCancellable) { commitInterrupted(acc, callConfig.model) }
+                withContext(NonCancellable) { commitInterrupted(acc, acc.servedBy ?: callConfig.model) }
                 throw e
             } catch (e: LlmException) {
                 _live.value = null
@@ -365,7 +365,8 @@ class Agent(
                 reasoning = acc.reasoning.toString().ifEmpty { null },
                 toolCalls = calls,
                 usage = acc.usage,
-                model = callConfig.model,
+                model = acc.servedBy ?: callConfig.model,
+                fallback = acc.fallback,
             ),
         )
         _live.value = null
@@ -402,6 +403,7 @@ class Agent(
                 reasoning = acc.reasoning.toString().ifEmpty { null },
                 model = model,
                 interrupted = true,
+                fallback = acc.fallback,
             ),
         )
     }
@@ -422,6 +424,8 @@ class Agent(
         private val ordered: List<PartialToolCall> get() = calls.entries.sortedBy { it.key }.map { it.value }
         var usage: TokenUsage? = null
         var finishReason: String? = null
+        var servedBy: String? = null
+        var fallback: String? = null
         var chunks = 0
 
         fun accept(chunk: StreamChunk) {
@@ -439,6 +443,10 @@ class Agent(
                 }
                 is StreamChunk.Usage -> usage = chunk.usage
                 is StreamChunk.Finish -> finishReason = chunk.reason
+                is StreamChunk.ServedBy -> {
+                    servedBy = chunk.model
+                    fallback = chunk.fallback
+                }
             }
         }
 
