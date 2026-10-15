@@ -379,11 +379,12 @@ class Agent(
     private suspend fun streamOnce(provider: String, call: LlmCall, acc: StreamAccumulator) {
         val adapter = llm.adapter(provider)
         val flow = ctx.run(Hooks.LlmStream, call) { adapter.stream(it) }
-        var lastPublish = 0L
+        // The clock starts near zero with the process, so the first chunk always publishes.
+        var lastPublish: Long? = null
         flow.collect { chunk ->
             acc.accept(chunk)
             val now = nanoTime()
-            if (now - lastPublish >= PUBLISH_INTERVAL_NS || chunk is StreamChunk.Finish) {
+            if (lastPublish.let { it == null || now - it >= PUBLISH_INTERVAL_NS } || chunk is StreamChunk.Finish) {
                 lastPublish = now
                 _live.value = acc.snapshot()
             }

@@ -30,6 +30,7 @@ func stepTitle(_ name: String) -> String {
     case "todo_write": "Update plan"
     case "ask_user_question": "Ask you"
     case "skill": "Load skill"
+    case "task": "Delegate"
     default: name.replacingOccurrences(of: "_", with: " ").prefix(1).uppercased() + name.replacingOccurrences(of: "_", with: " ").dropFirst()
     }
 }
@@ -336,6 +337,16 @@ private struct StepRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(PressStyle())
+            if expanded, let steps = tool.steps, !steps.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                        Text(step).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 34)
+                .padding(.bottom, 6)
+            }
             if expanded, let output = tool.output {
                 Text(String(output.prefix(4000)))
                     .textStyle(.codeBlock)

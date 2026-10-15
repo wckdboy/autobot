@@ -162,6 +162,7 @@ class ToolExecutor(private val agent: Agent) {
 
     private inner class RunContext(override val callId: String) : ToolRunContext {
         override val sessionId: String get() = agent.id
+        override val agent: Agent get() = this@ToolExecutor.agent
         override fun deferContext(text: String) = agent.inject(text)
         override suspend fun log(event: SessionEvent) {
             agent.log.append(event)

@@ -86,7 +86,8 @@ struct SessionEventTests {
           {"type":"user","key":"e1","text":"hi","images":[]},
           {"type":"assistant","key":"e2","text":"hello","reasoning":null,"interrupted":false,"outputTokens":5,"model":"m"},
           {"type":"tool","key":"tc","callId":"c","name":"read","summary":"a.md","state":"WAITING_APPROVAL","output":null,"code":null,"galleryIds":[],"durationMs":null},
-          {"type":"notice","key":"e3","text":"stopped","kind":"WARN"}],
+          {"type":"notice","key":"e3","text":"stopped","kind":"WARN"},
+          {"type":"tool","key":"tt","callId":"t","name":"task","summary":"read notes","state":"OK","output":"report","code":null,"galleryIds":[],"durationMs":900,"steps":["✓ read · notes.md"]}],
          "todos":[{"content":"x","status":"in_progress"}],"lastUsage":{"inputTokens":1,"outputTokens":2,"totalTokens":null,"cacheReadTokens":null,"reasoningTokens":null},"contextWindow":8192},
          "live":{"text":"t","reasoning":"","toolNames":[],"tokensPerSecond":12.5},"running":true,
          "approvals":[{"callId":"c","toolName":"read","summary":"a.md","reason":"Network access"}],
@@ -94,7 +95,7 @@ struct SessionEventTests {
          "toolsEnabled":true,"permission":"workspace-write","provider":"p","model":"m"}
         """#
         let state = try JSONDecoder().decode(ChatSessionState.self, from: Data(json.utf8))
-        #expect(state.projection.items.count == 4)
+        #expect(state.projection.items.count == 5)
         #expect(state.projection.todos.first?.status == .inProgress)
         #expect(state.live?.tokensPerSecond == 12.5)
         #expect(state.approvals.first?.reason == "Network access")
@@ -102,5 +103,8 @@ struct SessionEventTests {
         #expect(state.permissionPreset == .workspace)
         guard case .tool(let t) = state.projection.items[2] else { Issue.record("not a tool"); return }
         #expect(t.state == .waitingApproval)
+        #expect(t.steps == nil)
+        guard case .tool(let task) = state.projection.items[4] else { Issue.record("not a tool"); return }
+        #expect(task.steps == ["✓ read · notes.md"])
     }
 }

@@ -11,6 +11,10 @@ import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,6 +55,27 @@ class SessionProjectionTest {
         assertEquals(1, p.todos.size)
         assertEquals(128_000, p.contextWindow)
         assertEquals(900, p.lastUsage?.inputTokens)
+    }
+
+    @Test
+    fun taskResultsCarryTheSubagentSteps() {
+        val trace = buildJsonObject {
+            put("subagent", buildJsonObject {
+                put("end", "completed")
+                put("steps", buildJsonArray {
+                    add(buildJsonObject { put("name", "read"); put("summary", "notes.md"); put("state", "ok") })
+                    add(buildJsonObject { put("name", "web_fetch"); put("summary", ""); put("state", "error") })
+                })
+            })
+        }
+        val log = entries(
+            SessionEvent.UserMessage("go"),
+            SessionEvent.AssistantMessage(1, 1, "", toolCalls = listOf(ToolCallRecord("t", "task", "{}"))),
+            SessionEvent.ToolResult("t", "task", "report", meta = trace),
+        )
+        val tool = projectSession(log, emptySet(), emptySet()) { _, _ -> "" }.items.filterIsInstance<SessionItem.Tool>().single()
+        assertEquals(listOf("✓ read · notes.md", "× web_fetch"), tool.steps)
+        assertEquals("report", tool.output)
     }
 
     @Test

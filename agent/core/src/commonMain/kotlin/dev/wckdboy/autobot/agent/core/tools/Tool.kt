@@ -53,6 +53,9 @@ interface ToolRunContext {
 
     /** Asks the user a question through the UI and suspends until answered (or `null`). */
     suspend fun askUser(question: UserQuestion): List<String>?
+
+    /** The agent running this call (`null` outside an agent loop). The `task` tool spawns from it. */
+    val agent: dev.wckdboy.autobot.agent.core.loop.Agent? get() = null
 }
 
 data class UserQuestion(val question: String, val options: List<String>, val multiSelect: Boolean = false)

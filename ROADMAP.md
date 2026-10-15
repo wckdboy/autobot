@@ -67,13 +67,15 @@ Move the remaining duplicated logic into `:shared`, so a fix lands on both platf
 **Exit:** `:shared` holds network, settings and model logic; both apps pass the same test suite. A
 session exported on Android opens on iOS.
 
-## Phase 2 · 1.4: a stronger agent *(1.4.0: MCP, memory, search, providers, OS fallback; subagents and voice next)*
+## Phase 2 · 1.4: a stronger agent *(1.4.0: MCP, memory, search, providers, OS fallback; 1.4.1: subagents; voice next)*
 
 - ✅ **MCP client** (streamable HTTP) in `:shared`. Each server gets its own approval scope and
   network route, and every call appears in the audit log. *(implemented on both platforms against
   MCP 2026-07-28 servers with fallback to 2025-11-25 / 2025-06-18 / 2025-03-26; still to do:
   verification against real servers, OAuth sign-in, MCP servers in the `.autobot` export)*
-- **Subagents**: the DSH task tool, so parallel workers report back to one session.
+- ✅ **Subagents**: the DSH `task` tool, so parallel workers report back to one session. *(1.4.1:
+  in `:agent:core`, so both apps; a subagent inherits the model, preset and grants, its approvals
+  appear on the parent's card, and its steps are listed under the report)*
 - ✅ **Local memory**: an encrypted, user-visible, editable notes store the agent can recall from.
   Off by default.
 - ✅ **Web search tool**: opt-in, through a provider the user configures (SearXNG, Brave and others),

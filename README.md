@@ -257,10 +257,10 @@ Kotlin so it runs inside the app process, under the app's network policy:
 | Tool pipeline (`pre-execute` → approval → `execute` → `post-execute`, barriers, `isConcurrencySafe`) | `ToolExecutor` — parallel batches, exclusive barriers, results committed in model order |
 | `dsh-permission-presets`, `ctx.approval` (fail closed) | `PermissionPreset` (read-only / workspace-write / full-access, network = escalation), `ApprovalService`, plus *allow for session* |
 | `dsh-llm-retry`, tool-result pruner, `dsh-compaction-basic` | `llmRetryPlugin`, `toolResultPrunerPlugin`, `Compactor` (same summary sections) |
+| `task` (subagents) | `TaskTool`: a child `Agent` on the parent's model, preset, approval policy and grants, with a fresh in-memory history; parallel `task` calls run together; no nesting; approvals and questions surface on the parent's `task` card; the report is the tool result and the child's steps go in `meta.subagent` |
 | `read`, `write`, `edit`, `glob`, `grep`, `web_fetch`, `todo_write`, `ask_user_question`, `skill`, `AGENTS.md` | Same names, confined to a private `/workspace` (real paths are never shown to the model) |
 
-Not ported (no equivalent on a phone): `bash`/`pwsh` sandboxes and hooks bridges. Subagents,
-local memory and web search are Phase 2 of the [roadmap](ROADMAP.md). The runtime is Kotlin
+Not ported (no equivalent on a phone): `bash`/`pwsh` sandboxes and hooks bridges. The runtime is Kotlin
 Multiplatform, so the iOS app runs exactly this code; it is covered by JVM tests.
 
 **MCP servers.** Settings → MCP servers adds remote [Model Context Protocol](https://modelcontextprotocol.io)

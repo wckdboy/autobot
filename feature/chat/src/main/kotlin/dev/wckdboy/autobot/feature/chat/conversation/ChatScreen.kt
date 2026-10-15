@@ -134,6 +134,7 @@ private fun stepTitle(name: String): String = when (name) {
     "todo_write" -> "Update plan"
     "ask_user_question" -> "Ask you"
     "skill" -> "Load skill"
+    "task" -> "Delegate"
     // mcp__<server>__<tool> → "Tool · server"
     else -> if (name.startsWith("mcp__") && name.indexOf("__", 5) > 0) {
         val server = name.substring(5, name.indexOf("__", 5))
@@ -364,6 +365,13 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
             )
         }
         val output = item.output
+        if (expanded && item.steps.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(start = 34.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                item.steps.forEach { step ->
+                    Text(step, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
         if (expanded && output != null) {
             Text(
                 output.take(4000),

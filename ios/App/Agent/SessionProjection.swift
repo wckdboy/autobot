@@ -28,6 +28,8 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
         var galleryIds: [String]
         /// Wall time from dispatch to result.
         var durationMs: Int64?
+        /// A subagent's own tool steps (`task`), one line each: `✓ read · notes.md`.
+        var steps: [String]? = nil
     }
 
     var id: String { key }

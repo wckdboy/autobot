@@ -15,6 +15,7 @@ import dev.wckdboy.autobot.agent.core.prompt.SystemPromptService
 import dev.wckdboy.autobot.agent.core.session.SessionLog
 import dev.wckdboy.autobot.agent.core.session.SessionStore
 import dev.wckdboy.autobot.agent.core.tools.AskUserTool
+import dev.wckdboy.autobot.agent.core.tools.TaskTool
 import dev.wckdboy.autobot.agent.core.tools.TodoWriteTool
 import dev.wckdboy.autobot.agent.core.tools.ToolRegistry
 import dev.wckdboy.autobot.agent.core.tools.toolsPlugin
@@ -68,6 +69,7 @@ class Harness(persona: String? = null) {
             toolResultPrunerPlugin(),
             compactionPlugin(),
             toolsPlugin("core-tools", TodoWriteTool, AskUserTool),
+            TaskTool.Plugin,
         )
     }
 }

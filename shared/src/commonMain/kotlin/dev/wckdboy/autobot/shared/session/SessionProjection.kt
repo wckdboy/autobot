@@ -6,6 +6,7 @@ import dev.wckdboy.autobot.agent.core.session.TodoItem
 import dev.wckdboy.autobot.agent.core.session.TokenUsage
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
+import dev.wckdboy.autobot.agent.core.tools.TaskTool
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -54,6 +55,8 @@ sealed interface SessionItem {
         val galleryIds: List<String>,
         /** Wall time from dispatch to result. */
         val durationMs: Long? = null,
+        /** A subagent's own tool steps (`task`), one line each: `✓ read · notes.md`. */
+        val steps: List<String> = emptyList(),
     ) : SessionItem
 
     @Serializable
@@ -137,6 +140,10 @@ fun projectSession(
                     code = e.code,
                     galleryIds = (e.meta?.get("gallery") as? JsonArray)?.map { it.jsonPrimitive.content }.orEmpty(),
                     durationMs = callStarted[e.callId]?.let { entry.time - it }?.takeIf { it >= 0 },
+                    steps = TaskTool.steps(e.meta).map { (name, summary, state) ->
+                        val mark = when (state) { "ok" -> "✓"; "error" -> "×"; else -> "…" }
+                        listOf(name, summary).filter { it.isNotBlank() }.joinToString(" · ", prefix = "$mark ")
+                    },
                 )
             }
             is SessionEvent.TodoWrite -> todos = e.todos
