@@ -44,14 +44,12 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
@@ -109,7 +107,9 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
         }
     }
     // The download progress notification needs this on Android 13+; downloads work without it.
-    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) actions.notificationsDenied()
+    }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
     fun askNotifications() {
         if (!askedNotifications && Build.VERSION.SDK_INT >= 33) {
@@ -141,24 +141,8 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                 Spacer(Modifier.height(14.dp))
             }
 
-            state.progress?.let { p ->
-                item(key = "progress") {
-                    Column(
-                        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall).padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                MicroLabel("downloading", color = MaterialTheme.colorScheme.primary)
-                                Text(p.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            TextButton(onClick = { actions.pause(p.id) }) { Text("PAUSE") }
-                        }
-                        InkProgressBar(p.fraction, Modifier.fillMaxWidth().height(3.dp))
-                        MicroLabel("${formatBytes(p.downloaded)} / ${formatBytes(p.total)} · ${formatBytes(p.bytesPerSecond)}/s")
-                    }
-                    Spacer(Modifier.height(14.dp))
-                }
+            if (!state.downloads.isEmpty) {
+                item(key = "downloads") { DownloadsPanel(state.downloads, actions) }
             }
 
             if (state.installed.isNotEmpty()) {
@@ -257,8 +241,8 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel) {
         Box(Modifier.stamp(model.status, enabled = model.status == ModelStatus.READY)) {
             when (model.status) {
                 ModelStatus.READY -> Tag("ready", accent = MaterialTheme.colorScheme.primary, filled = true)
-                ModelStatus.DOWNLOADING -> Tag("${(model.fraction * 100).toInt()}%", accent = MaterialTheme.colorScheme.primary)
-                ModelStatus.QUEUED -> Tag("queued")
+                ModelStatus.DOWNLOADING -> Tag("${(model.fraction * 100).toInt()}%", accent = MaterialTheme.colorScheme.primary, onClick = { actions.pause(model.id) })
+                ModelStatus.QUEUED -> Tag("queued", onClick = { actions.pause(model.id) })
                 ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
                 ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
             }

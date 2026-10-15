@@ -104,7 +104,15 @@ final class AppContainer {
 
         providers.onChange = { [weak self] list in self?.providersChanged(list) }
         mcpServers.onChange = { [weak self] list in self?.mcpServersChanged(list) }
-        settings.onChange = { [weak self] s in self?.agentFeaturesChanged(s) }
+        settings.onChange = { [weak self] s in
+            self?.agentFeaturesChanged(s)
+            self?.downloader.networkChanged(offline: s.mode == .offline)
+        }
+        // A background relaunch hands its completion handler back once the downloader settled.
+        BackgroundEvents.shared.settled = { [weak downloader] in
+            guard let downloader else { return true }
+            return !downloader.preparing && (!downloader.busy || downloader.hasActiveTransfer)
+        }
         agentFeaturesChanged(settings.settings)
         library.onChange = { [weak self] in self?.modelsChanged() }
         // Apple Intelligence can be switched on (or finish preparing) while the app is in the background.
@@ -176,6 +184,22 @@ final class AppContainer {
         }
         snapshots.setModels(map)
         #endif
+    }
+
+    /**
+     iOS relaunched (or woke) the app in the background for a model download's session events.
+     Only the model registry is loaded (no UI, conversations or other repositories), and only while
+     the device is unlocked: the registry's key is not readable while it is locked. Then a finished
+     body stays on disk and the queue continues on the next unlock or launch.
+     */
+    func resumeDownloadsInBackground(_ identifier: String) {
+        downloader.attachBackgroundSession(identifier)
+        guard !dataLoaded, UIApplication.shared.isProtectedDataAvailable else {
+            BackgroundEvents.shared.check()
+            return
+        }
+        library.load()
+        downloader.recoverAfterRestart()
     }
 
     /// Loads the encrypted repositories (after the device and the app lock are unlocked).

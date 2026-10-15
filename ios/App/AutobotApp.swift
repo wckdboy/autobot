@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct AutobotApp: App {
-    @State private var container = AppContainer()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var container = AppDelegate.makeContainer()
     @State private var navigator = Navigator()
 
     var body: some Scene {
