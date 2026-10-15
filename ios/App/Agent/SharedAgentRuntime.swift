@@ -132,6 +132,12 @@ final class SharedAgentRuntime: AgentRuntime {
     /// Adds a host-implemented tool (e.g. `generate_image`) to every session.
     func registerTool(_ tool: any HostTool) { bridge.registerTool(tool: tool) }
 
+    /// Local memory on (the encrypted notes) or off: tools and recall come and go in every session.
+    func setMemory(_ store: MemoryStoreHost?) { bridge.setMemory(store: store) }
+
+    /// `web_search` on (settings read per call) or off.
+    func setWebSearch(_ source: WebSearchSourceHost?) { bridge.setWebSearch(source: source) }
+
     /// Skills found in the workspace (`name: description`).
     func skills() -> [String] { bridge.skills() }
 }

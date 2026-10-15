@@ -98,7 +98,7 @@ struct BackupSheet: View {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
                 let added = try await BackupService(app: app).import(from: url, passphrase: passphrase) { status = .working($0) }
-                status = .done("Imported \(added.conversations) sessions, \(added.images) images, \(added.providers) providers. Add API keys again under Model providers.")
+                status = .done("Imported \(added.conversations) sessions, \(added.images) images, \(added.providers) providers, \(added.memories) memory notes. Add API keys again under Model providers.")
             } catch {
                 status = .failed(error.localizedDescription.isEmpty ? "import failed" : error.localizedDescription)
             }

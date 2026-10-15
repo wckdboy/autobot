@@ -208,6 +208,35 @@ final class ImageStoreHost: NSObject, ImageStoreBridge, @unchecked Sendable {
     }
 }
 
+/**
+ The current web search settings for `web_search`, read by Kotlin per call on a background thread.
+ The Brave key is read from the Keychain only then, never cached here.
+ */
+final class WebSearchSourceHost: NSObject, WebSearchSource, @unchecked Sendable {
+    private struct Snapshot: Sendable {
+        var provider = "NONE"
+        var baseUrl = ""
+        var route = "INHERIT"
+    }
+
+    private let secrets: SecretStore
+    private let snapshot = Mutex(Snapshot())
+
+    init(secrets: SecretStore) { self.secrets = secrets }
+
+    func update(_ settings: AppSettings) {
+        snapshot.withLock { $0 = Snapshot(provider: settings.searchProvider, baseUrl: settings.searchBaseUrl, route: settings.searchRoute.rawValue) }
+    }
+
+    func config() -> WebSearchConfig? {
+        let s = snapshot.withLock { $0 }
+        let provider = SettingsSchema.shared.searchProvider(value: s.provider)
+        guard provider.name != "NONE" else { return nil }
+        let key = provider.name == "BRAVE" ? secrets.get(AutobotShared.AppSettings.companion.SEARCH_API_KEY_REF)?.reveal() : nil
+        return WebSearchConfig(provider: provider, baseUrl: s.baseUrl, apiKey: key, route: s.route)
+    }
+}
+
 /// Swift ↔ Kotlin enum mapping.
 enum SharedMapping {
     static func kind(_ kind: ProviderKind) -> AutobotShared.ProviderKind {

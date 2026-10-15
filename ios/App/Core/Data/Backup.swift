@@ -72,6 +72,7 @@ struct ImportSummary: Equatable, Sendable {
     var providers = 0
     var images = 0
     var attachments = 0
+    var memories = 0
 }
 
 struct BackupError: LocalizedError {
@@ -85,7 +86,8 @@ struct BackupError: LocalizedError {
 
  Not exported: API keys, incognito sessions, downloaded models (re-download them) and the app's
  own keys. On import, security settings (network mode, loopback, app lock, lock timeout) keep
- this device's values: a file must never switch the app online or unlock it.
+ this device's values: a file must never switch the app online or unlock it. The same goes for
+ the memory switch and the web search setup; memory notes themselves are merged.
  */
 @MainActor
 final class BackupService {
@@ -116,6 +118,7 @@ final class BackupService {
             },
             gallery: images.map(Self.backupImage),
             attachments: attachmentIds,
+            memory: app.memory.notes.map(\.shared),
         )
         let version = Bundle.main.infoDictionary
         let label = "Autobot \(version?["CFBundleShortVersionString"] as? String ?? "?") (\(version?["CFBundleVersion"] as? String ?? "0"))"
@@ -187,6 +190,7 @@ final class BackupService {
             newConversations.insert(c.id)
         }
         added.conversations = newConversations.count
+        added.memories = app.memory.merge(manifest.memory)
         for (name, file) in staged.dropFirst() {
             if name.hasPrefix("sessions/") {
                 let id = String(name.dropFirst("sessions/".count).dropLast(".jsonl".count))

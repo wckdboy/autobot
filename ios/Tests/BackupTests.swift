@@ -25,6 +25,8 @@ struct BackupTests {
         let all = try entries(url.path, "autobot-test-vector")
         let manifest = try BackupManifests.shared.decode(bytes: BackupBytes.shared.fromData(data: try #require(all[BackupKt.MANIFEST])))
         #expect(manifest.settings["theme_mode"] == "LIGHT")
+        // Written before local memory existed: imports with no notes.
+        #expect(manifest.memory.isEmpty)
         let img = try #require(all["attachments/img1"])
         #expect(img == Data((0 ..< 3000).map { UInt8($0 % 251) }))
     }
@@ -49,7 +51,7 @@ struct BackupTests {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("rt-\(UUID().uuidString).autobot").path
         let blob = Data((0 ..< 2_500_000).map { UInt8($0 % 253) })
         let writer = try BackupFileWriter(path: path, crypto: SwiftBackupCrypto(), passphrase: "correct horse battery", app: "test", platform: "ios", createdAt: 1, iterations: 100_000)
-        try writer.entry(name: BackupKt.MANIFEST, bytes: BackupManifest.companion.encode(manifest: BackupManifest(settings: ["amoled": "true"], providers: [], conversations: [], gallery: [], attachments: [])))
+        try writer.entry(name: BackupKt.MANIFEST, bytes: BackupManifest.companion.encode(manifest: BackupManifest(settings: ["amoled": "true"], providers: [], conversations: [], gallery: [], attachments: [], memory: [])))
         try writer.entry(name: "gallery/a.png", bytes: BackupBytes.shared.fromData(data: blob))
         try writer.finish()
         let all = try entries(path, "correct horse battery")
@@ -78,6 +80,28 @@ struct BackupTests {
         app.conversations.delete(c.id)
     }
 
+    /// Memory notes travel in the manifest and merge by id on import.
+    @Test func memoryNotesExportAndMerge() async throws {
+        let app = AppContainer()
+        app.unlockData()
+        guard case .saved(let id) = app.memory.save(id: nil, text: "Backup memory \(UUID().uuidString)", tags: "backup") else {
+            Issue.record("note not saved")
+            return
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("mem-\(UUID().uuidString).autobot")
+        let service = BackupService(app: app, iterations: 100_000)
+        try await service.export(to: url, passphrase: "correct horse battery")
+        let all = try entries(url.path, "correct horse battery")
+        let manifest = try BackupManifests.shared.decode(bytes: BackupBytes.shared.fromData(data: try #require(all[BackupKt.MANIFEST])))
+        #expect(manifest.memory.contains { $0.id == id && $0.tags == ["backup"] })
+
+        #expect(try await service.import(from: url, passphrase: "correct horse battery").memories == 0)
+        app.memory.delete(id)
+        #expect(try await service.import(from: url, passphrase: "correct horse battery").memories >= 1)
+        #expect(app.memory.notes.contains { $0.id == id })
+        app.memory.delete(id)
+    }
+
     @Test func settingsUseTheSharedSchema() {
         var s = AppSettings(values: [:])
         #expect(s.themeMode == .dark)
@@ -89,6 +113,15 @@ struct BackupTests {
         #expect(values["lock_timeout_ms"] == "300000")
         #expect(values["network_mode"] == "offline")
         #expect(AppSettings(values: values) == s)
+        #expect(values["memory_enabled"] == "false")
+        #expect(values["search_provider"] == "NONE")
+        var agent = s
+        agent.memoryEnabled = true
+        agent.searchProvider = "SEARXNG"
+        agent.searchBaseUrl = "https://searx.example.org"
+        agent.searchRoute = .tor
+        #expect(AppSettings(values: agent.values) == agent)
+        #expect(AppSettings(values: ["search_provider": "GOOGLE"]).searchProvider == "NONE")
         #expect(AppSettings(values: ["lock_timeout_ms": "99999999", "theme_mode": "PURPLE"]).lockTimeoutMillis == 900_000)
         #expect(lockTimeoutOptions.map(\.millis) == [0, 30_000, 60_000, 300_000, 900_000])
         #expect(lockTimeoutOptions.map(\.label) == ["Immediately", "30 s", "1 min", "5 min", "15 min"])
