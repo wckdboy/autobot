@@ -1,5 +1,6 @@
 import AutobotShared
 import Foundation
+import ImageIO
 import Observation
 import UIKit
 
@@ -24,20 +25,21 @@ enum ImageInput {
     static let maxSide: CGFloat = 1344
 
     /**
-     Decodes [data] (any format iOS reads, including HEIC), scales it to at most [maxSide], redraws
-     it upright and re-encodes it as JPEG. Redrawing drops EXIF, so location and camera data never
-     reach a model or the attachment store.
+     Decodes [data] (any format iOS reads, including HEIC) straight to at most [maxSide], upright,
+     and re-encodes it as JPEG. ImageIO's thumbnail path never decodes the full image (a 48 MP
+     photo would take ~200 MB), and the new JPEG carries no EXIF, so location and camera data
+     never reach a model or the attachment store.
      */
     static func encode(_ data: Data) -> Data? {
-        guard let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 else { return nil }
-        let longest = max(image.size.width, image.size.height)
-        let scale = min(1, maxSide / longest)
-        let size = CGSize(width: max(1, (image.size.width * scale).rounded()), height: max(1, (image.size.height * scale).rounded()))
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let redrawn = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-        return redrawn.jpegData(compressionQuality: 0.88)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxSide,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary), image.width > 0, image.height > 0 else { return nil }
+        return ImageCodec.jpeg(image, quality: 0.88)
     }
 }
 
@@ -148,7 +150,9 @@ final class ChatModel {
                     return
                 }
                 do {
-                    try app.speech.start()
+                    try app.speech.start(onInterruption: { [weak self] in
+                        Task { @MainActor in self?.recordingInterrupted(app: app) }
+                    })
                     dictation = .recording
                 } catch {
                     notice = "Dictation failed: \(error.localizedDescription)"
@@ -162,6 +166,20 @@ final class ChatModel {
     private func speechModelPath(_ app: AppContainer) -> String? {
         guard let model = app.library.models.first(where: { $0.isReady && $0.engine == .whisper }) else { return nil }
         return app.library.paths(model)[.model]?.path
+    }
+
+    /// The microphone was taken away (a call, Siri, media services reset): end the recording.
+    private func recordingInterrupted(app: AppContainer) {
+        if dictation == .recording {
+            _ = app.speech.stop()
+            dictation = .idle
+            notice = "Dictation stopped: the microphone was interrupted"
+        }
+        if voice?.phase == .listening {
+            _ = app.speech.stop()
+            endOfSpeech = nil
+            voiceFailed("Voice stopped: the microphone was interrupted")
+        }
     }
 
     func stopRecording(app: AppContainer) {
@@ -214,6 +232,7 @@ final class ChatModel {
         guard on else {
             voice = nil
             SpeechAudio.deactivate()
+            Task { await EngineMemory.shared.release([.tts, .whisper]) }
             return
         }
         stopSpeaking()
@@ -250,9 +269,11 @@ final class ChatModel {
             guard !Task.isCancelled, voice != nil else { return }
             endOfSpeech = voice?.handsFree == true ? EndOfSpeech(threshold: 0.05, silenceMs: 1_200, minSpeechMs: 200, noSpeechMs: 8_000) : nil
             do {
-                try app.speech.start(managesSession: false) { [weak self] peak in
+                try app.speech.start(managesSession: false, onLevel: { [weak self] peak in
                     Task { @MainActor in self?.heard(peak) }
-                }
+                }, onInterruption: { [weak self] in
+                    Task { @MainActor in self?.recordingInterrupted(app: app) }
+                })
                 setPhase(.listening)
             } catch {
                 voiceFailed("Voice failed: \(error.localizedDescription)")

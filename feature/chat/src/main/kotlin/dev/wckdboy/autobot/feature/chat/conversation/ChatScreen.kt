@@ -40,6 +40,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
@@ -74,6 +75,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -91,6 +93,8 @@ import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
 import dev.wckdboy.autobot.core.designsystem.component.HalftoneStrip
+import dev.wckdboy.autobot.core.designsystem.component.InkLoader
+import dev.wckdboy.autobot.core.designsystem.component.InkLoaderSize
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PaperButton
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
@@ -103,16 +107,19 @@ import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
 import dev.wckdboy.autobot.core.designsystem.component.TokenRateLabel
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
+import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.InkTweenRow
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.inkEnter
+import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.motion.registerGhost
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkEnterTracker
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.feature.chat.NameDialog
 import dev.wckdboy.autobot.providers.remote.ModelLists
 import dev.wckdboy.autobot.shared.session.NoticeKind
 import dev.wckdboy.autobot.shared.session.Receipt
@@ -188,7 +195,9 @@ fun ChatScreen(
 ) {
     var showModels by rememberSaveable { mutableStateOf(false) }
     var showSession by rememberSaveable { mutableStateOf(false) }
+    var renaming by rememberSaveable { mutableStateOf(false) }
     var openReceipt by remember { mutableStateOf<Receipt?>(null) }
+    var showChanges by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val newest = state.items.lastOrNull()?.key to (state.live != null)
     LaunchedEffect(newest) {
@@ -225,9 +234,10 @@ fun ChatScreen(
             if (state.loaded && state.providers.isEmpty()) Banner("No model yet — download one or add a provider.", "ADD", onOpenProviders)
             state.notice?.let { Banner(it, "OK", actions::dismissNotice) }
 
+            val empty = state.loaded && state.items.isEmpty() && state.live == null
             LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.weight(1f).fillMaxWidth().then(if (empty) Modifier.inkGround(heavyWork = state.running) else Modifier),
                 reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -242,7 +252,12 @@ fun ChatScreen(
                                 if (item.key == firstPromptKey) RunHeader(state, item.text) else FollowUp(item.text)
                                 if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
                             }
-                            is SessionItem.Assistant -> AssistantMessage(item, speaking = state.speakingKey == item.key, onReceipt = { openReceipt = it }) {
+                            is SessionItem.Assistant -> AssistantMessage(
+                                item,
+                                speaking = state.speakingKey == item.key,
+                                onReceipt = { openReceipt = it },
+                                undo = { UndoTurnLine(item.turnChanges, state.running, actions::undoTurn, actions::redo) },
+                            ) {
                                 actions.speak(item.key, item.text)
                             }
                             is SessionItem.Tool -> {
@@ -251,14 +266,14 @@ fun ChatScreen(
                                     val ghost = remember(item.callId) { enter.claim("approval:${item.callId}") }
                                     ApprovalCard(stepNumbers[item.key] ?: 0, item, approval, actions, ghost)
                                 } else {
-                                    StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery)
+                                    StepRow(stepNumbers[item.key] ?: 0, item, actions, onOpenGallery, state.running)
                                 }
                             }
                             is SessionItem.Notice -> NoticeRow(item)
                         }
                     }
                 }
-                if (state.loaded && state.items.isEmpty() && state.live == null) {
+                if (empty) {
                     item(key = "empty") { EmptySession(state) }
                 }
             }
@@ -295,6 +310,19 @@ fun ChatScreen(
         )
     }
     openReceipt?.let { ReceiptSheet(it) { openReceipt = null } }
+    if (renaming) {
+        NameDialog(
+            title = "Rename chat",
+            initial = state.title,
+            confirm = "RENAME",
+            onDismiss = { renaming = false },
+            onConfirm = {
+                actions.rename(it)
+                renaming = false
+            },
+        )
+    }
+    if (showChanges) ChangesSheet(state.changes, state.running, actions::undoStep, actions::undoTurn) { showChanges = false }
     if (showSession) {
         SessionSheet(
             state = state,
@@ -304,6 +332,24 @@ fun ChatScreen(
             onCompact = {
                 actions.compact()
                 showSession = false
+            },
+            onRename = {
+                showSession = false
+                renaming = true
+            },
+            onPin = actions::setPinned,
+            onArchive = {
+                actions.setArchived(it)
+                showSession = false
+            },
+            onDelete = {
+                showSession = false
+                actions.delete()
+                onBack()
+            },
+            onChanges = {
+                showSession = false
+                showChanges = true
             },
         )
     }
@@ -335,7 +381,13 @@ private fun FollowUp(text: String) {
 }
 
 @Composable
-private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onReceipt: (Receipt) -> Unit, onSpeak: () -> Unit) {
+private fun AssistantMessage(
+    item: SessionItem.Assistant,
+    speaking: Boolean,
+    onReceipt: (Receipt) -> Unit,
+    undo: @Composable () -> Unit = {},
+    onSpeak: () -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item.reasoning?.takeIf { it.isNotEmpty() }?.let { ThinkingDisclosure(reasoning = it) }
         if (item.text.isNotEmpty()) {
@@ -360,6 +412,7 @@ private fun AssistantMessage(item: SessionItem.Assistant, speaking: Boolean, onR
             )
         }
         ReceiptLine(item.receipt, onReceipt)
+        undo()
     }
 }
 
@@ -382,7 +435,7 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 HalftoneStrip(cell = 3.dp)
                 Text(stepTitle(name), style = MaterialTheme.typography.titleMedium)
-                MicroLabel("composing…")
+                MicroLabel("composing")
             }
         }
     }
@@ -390,17 +443,18 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
 
 /** `01  Read file / read · notes.md   ✓ 0.4 s` */
 @Composable
-private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel, onOpenGallery: () -> Unit) {
+private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel, onOpenGallery: () -> Unit, running: Boolean = false) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
     // Images this row saw being made get printed in; older ones just show.
     val watched = remember(item.key) { booleanArrayOf(false) }
     val generating = item.name == "generate_image" && item.state == ToolState.RUNNING
     if (generating) watched[0] = true
+    val change = item.change
     val (mark, markColor) = when (item.state) {
-        ToolState.OK -> "✓" to MaterialTheme.colorScheme.onSurfaceVariant
+        ToolState.OK -> (if (item.undone) "undone" else "✓") to MaterialTheme.colorScheme.onSurfaceVariant
         ToolState.ERROR -> "×" to MaterialTheme.colorScheme.error
         ToolState.DENIED -> "denied" to MaterialTheme.colorScheme.onSurfaceVariant
-        ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "…" to MaterialTheme.colorScheme.primary
+        ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "" to MaterialTheme.colorScheme.primary
     }
     Column {
         Row(
@@ -410,14 +464,22 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
         ) {
             Text(String.format(Locale.ROOT, "%02d", number), style = AutobotTheme.styles.readout, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(stepTitle(item.name), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
-                    style = AutobotTheme.styles.micro,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    stepTitle(item.name),
+                    style = MaterialTheme.typography.titleMedium,
+                    textDecoration = if (item.undone) TextDecoration.LineThrough else null,
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
+                        modifier = Modifier.weight(1f, fill = false),
+                        style = AutobotTheme.styles.micro,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (change != null) ChangeCounts(change)
+                }
                 // Why a step failed shouldn't take a tap to find out.
                 // (a bare "denied" only repeats the mark)
                 val reason = item.output?.lineSequence()?.firstOrNull { it.isNotBlank() }?.removePrefix("Error: ")?.takeIf { !it.equals("denied", ignoreCase = true) }
@@ -431,13 +493,17 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
                     )
                 }
             }
-            if (item.state == ToolState.RUNNING) StatusDot(MaterialTheme.colorScheme.primary, live = true)
-            Text(
-                mark + (item.durationMs?.let { " ${String.format(Locale.ROOT, "%.1f", it / 1000f)} s" } ?: ""),
-                modifier = Modifier.stamp(item.state, enabled = item.state == ToolState.OK || item.state == ToolState.ERROR || item.state == ToolState.DENIED),
-                style = AutobotTheme.styles.readout,
-                color = markColor,
-            )
+            if (mark.isEmpty()) {
+                // Still working: the ink loader stands where the mark will be stamped.
+                InkLoader(Modifier.padding(top = 3.dp))
+            } else {
+                Text(
+                    mark + (item.durationMs?.let { " ${String.format(Locale.ROOT, "%.1f", it / 1000f)} s" } ?: ""),
+                    modifier = Modifier.stamp(item.state to item.undone, enabled = item.state == ToolState.OK || item.state == ToolState.ERROR || item.state == ToolState.DENIED),
+                    style = AutobotTheme.styles.readout,
+                    color = markColor,
+                )
+            }
         }
         val output = item.output
         if (expanded && item.steps.isNotEmpty()) {
@@ -447,7 +513,16 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
                 }
             }
         }
-        if (expanded && output != null) {
+        if (expanded && change != null) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                DiffBlock(change)
+                val redoId = item.revertId
+                when {
+                    item.undone && redoId != null -> Tag("↷ redo", accent = MaterialTheme.colorScheme.primary, onClick = { if (!running) actions.redo(redoId) })
+                    !item.undone && change.undoable -> Tag("↶ undo step", accent = MaterialTheme.colorScheme.primary, onClick = { if (!running) actions.undoStep(item.callId) })
+                }
+            }
+        } else if (expanded && output != null) {
             Text(
                 output.take(4000),
                 modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(10.dp),
@@ -730,7 +805,7 @@ private fun InputBar(
                     when (state.dictation) {
                         Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
                         Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary))
-                        Dictation.TRANSCRIBING -> Text("…", style = AutobotTheme.styles.code, color = MaterialTheme.colorScheme.primary)
+                        Dictation.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, contentDescription = "Transcribing")
                     }
                 }
                 ConsoleTextField(
@@ -787,7 +862,11 @@ private fun VoicePanel(
     }
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(
-            Modifier.hairlineEdge(top = true, bottom = false).padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier
+                .hairlineEdge(top = true, bottom = false)
+                // Living paper while the loop waits on the user; still while the phone works.
+                .inkGround(heavyWork = voice.phase == VoicePhase.TRANSCRIBING || voice.phase == VoicePhase.THINKING)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -832,7 +911,7 @@ private fun VoicePanel(
                     when (voice.phase) {
                         VoicePhase.READY -> Icon(AutobotIcons.Mic, contentDescription = "Talk")
                         VoicePhase.LISTENING -> Box(Modifier.size(16.dp).background(MaterialTheme.colorScheme.onPrimary))
-                        VoicePhase.TRANSCRIBING -> Text("…", style = AutobotTheme.styles.code)
+                        VoicePhase.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, color = LocalContentColor.current, contentDescription = "Transcribing")
                         VoicePhase.THINKING -> Box(Modifier.size(14.dp).background(primary))
                         VoicePhase.SPEAKING -> Icon(AutobotIcons.Mic, contentDescription = "Interrupt")
                     }
@@ -929,10 +1008,10 @@ private fun ModelSheet(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SectionLabel("route")
+            SectionLabel("route", Modifier.inkStagger(0))
             if (state.providers.isEmpty()) TextButton(onClick = onOpenProviders) { Text("ADD A PROVIDER") }
             state.providers.forEach { option ->
-                Row(Modifier.fillMaxWidth().clickable(role = Role.RadioButton) { onSelectProvider(option.id) }, verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().inkStagger(1).clickable(role = Role.RadioButton) { onSelectProvider(option.id) }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = option.id == state.selectedProviderId, onClick = null)
                     Spacer(Modifier.width(10.dp))
                     Column {
@@ -942,12 +1021,12 @@ private fun ModelSheet(
                 }
             }
             Hairline(Modifier.padding(vertical = 4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.inkStagger(2), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("model", Modifier.weight(1f))
                 selected?.let { MicroLabel(it.modelsLabel) }
                 if (selected?.canRefresh == true) TextButton(onClick = onRefreshModels) { Text("REFRESH") }
             }
-            ConsoleTextField(model, { model = it }, Modifier.fillMaxWidth(), label = "Model id · type to search", singleLine = true, mono = true)
+            ConsoleTextField(model, { model = it }, Modifier.fillMaxWidth().inkStagger(3), label = "Model id · type to search", singleLine = true, mono = true)
             selected?.let { option ->
                 // The field searches the list unless it already names one of its models.
                 val query = if (option.models.any { it.id == model }) "" else model
@@ -980,27 +1059,57 @@ private fun SessionSheet(
     onTools: (Boolean) -> Unit,
     onPermission: (PermissionPreset) -> Unit,
     onCompact: () -> Unit,
+    onRename: () -> Unit,
+    onPin: (Boolean) -> Unit,
+    onArchive: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+    onChanges: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionLabel("session")
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("chat", Modifier.inkStagger(0))
+            Row(Modifier.inkStagger(1), verticalAlignment = Alignment.CenterVertically) {
+                Text(state.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                TextButton(onClick = onRename) { Text("RENAME") }
+            }
+            Row(Modifier.inkStagger(2), verticalAlignment = Alignment.CenterVertically) {
+                Text("Pin to top", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Switch(checked = state.pinned, onCheckedChange = onPin)
+            }
+            Row(Modifier.inkStagger(3), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { onArchive(!state.archived) }) { Text(if (state.archived) "UNARCHIVE" else "ARCHIVE") }
+                TextButton(onClick = onDelete) { Text("DELETE CHAT", color = MaterialTheme.colorScheme.error) }
+            }
+            SectionLabel("session", Modifier.inkStagger(4))
+            Row(Modifier.inkStagger(5), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Agent tools", style = MaterialTheme.typography.titleMedium)
                     Text("Files in /workspace, web fetch, image generation, skills, plans. Off = plain chat.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(checked = state.toolsEnabled, onCheckedChange = onTools)
             }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.inkStagger(6), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 MicroLabel("permission preset")
                 Segmented(PermissionPreset.entries, state.permission, onPermission, { it.label }, Modifier.fillMaxWidth())
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.inkStagger(7), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Compact context", style = MaterialTheme.typography.titleMedium)
                     Text("Summarize older turns now (also automatic near the limit).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TextButton(onClick = onCompact, enabled = !state.running) { Text("COMPACT") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val files = state.changes.sumOf { it.files.size }
+                Column(Modifier.weight(1f)) {
+                    Text("Files changed", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (files == 0) "Nothing yet. Every file the agent changes can be undone." else "$files file${if (files == 1) "" else "s"} across ${state.changes.size} turn${if (state.changes.size == 1) "" else "s"}; undo a step or a turn.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onChanges) { Text("VIEW") }
             }
         }
     }

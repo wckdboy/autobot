@@ -25,6 +25,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -60,7 +61,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit) {
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SectionLabel("receipt · turn ${receipt.turn}")
+            SectionLabel("receipt · turn ${receipt.turn}", Modifier.inkStagger(0))
             Text(
                 when {
                     receipt.onDevice -> "Nothing left this phone"
@@ -69,6 +70,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit) {
                 },
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.inkStagger(1),
             )
 
             if (receipt.hosts.isNotEmpty()) {
@@ -116,6 +118,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit) {
                 "Built on this phone from the network audit log. Receipts stay in this chat and are never sent anywhere.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.inkStagger(2),
             )
         }
     }

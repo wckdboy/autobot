@@ -44,9 +44,6 @@ final class DiffusionEngineFactory: Sendable {
         case .onDevice: OnDeviceEngine(library: library, llm: llm, diffusion: diffusion)
         }
     }
-
-    /// Frees the Core ML pipeline (panic wipe, memory pressure).
-    func unload() async { await diffusion.unload() }
 }
 
 /**

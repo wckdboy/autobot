@@ -1,6 +1,7 @@
 import AutobotLlama
 import Foundation
 import os
+import Synchronization
 
 /// Kinds of streamed text (AUTOBOT_LLAMA_DELTA_*).
 public enum DeltaKind: Int32, Sendable {
@@ -123,7 +124,9 @@ public actor LlamaEngine {
      * Runs one completion. [requestJSON] is OpenAI-shaped ({messages, tools?, temperature?, top_p?,
      * max_tokens?, seed?, enable_thinking?}); image parts are `{type:"image", path}` and need
      * [mmprojPath]. In the Simulator everything runs on the CPU. Deltas arrive on the engine thread. Cancelling the calling task stops
-     * generation; the partial result then finishes "cancelled".
+     * generation; the partial result then finishes "cancelled". A cancel that arrives while the
+     * request waits for the thread or for the model to load is not lost: the request then fails
+     * with `CANCELLED` once the model is loaded, before generating anything.
      */
     public func chat(
         modelPath: String,
@@ -136,23 +139,46 @@ public actor LlamaEngine {
         try Task.checkCancellation()
         let request = try Self.withMmproj(requestJSON, mmprojPath)
         let session = session
+        let token = session.begin()
+        defer { session.end(token) }
         let json = try await worker.run({
-            try session.chat(path: modelPath, nCtx: contextLength, backend: metalUsable ? backend.rawValue : "cpu", request: request, onDelta: onDelta)
+            try session.chat(path: modelPath, nCtx: contextLength, backend: metalUsable ? backend.rawValue : "cpu", request: request, token: token, onDelta: onDelta)
         }, onCancel: {
-            session.cancel()
+            session.cancel(token)
         })
         return try LlamaResult.decode(json)
     }
 
-    /// Stops the running completion, if any.
-    public nonisolated func cancel() {
-        session.cancel()
+    /**
+     * Embeds [texts] with the GGUF embedding model at [modelPath] (the private vault), kept loaded
+     * next to the chat model: one L2-normalised vector per text, pooled the way the model was
+     * trained. Runs after any running completion; nothing leaves the device. Cancelling the
+     * calling task while it waits (or while the model loads) stops it before embedding.
+     */
+    public func embed(modelPath: String, texts: [String]) async throws -> [[Float]] {
+        try Task.checkCancellation()
+        let session = session
+        let token = session.begin()
+        defer { session.end(token) }
+        return try await worker.run({
+            try session.embed(path: modelPath, texts: texts, backend: metalUsable ? "auto" : "cpu", token: token)
+        }, onCancel: {
+            session.cancel(token)
+        })
     }
 
-    /// Frees the resident model now (e.g. before image generation needs the memory).
+    /// Stops the running completion and those waiting to run.
+    public nonisolated func cancel() {
+        session.cancelAll()
+    }
+
+    /// Frees the resident models now (e.g. before image generation needs the memory).
     public func unload() async {
         let session = session
-        _ = try? await worker.run { session.release() }
+        _ = try? await worker.run {
+            session.release()
+            session.releaseEmbedder()
+        }
     }
 
     static func withMmproj(_ request: Data, _ mmproj: String?) throws -> Data {
@@ -165,14 +191,21 @@ public actor LlamaEngine {
     }
 }
 
-/// Native session state, confined to the engine thread except for [handle] (read by cancel).
+/// Native session state, confined to the engine thread except for [handle] and [requests] (used by cancel).
 private final class Session: @unchecked Sendable {
     let handle = NativeHandle()
+    /// Requests issued and not finished, by token; true once cancelled.
+    private let requests = Mutex<(next: UInt64, cancelled: [UInt64: Bool])>((1, [:]))
     private var initialized = false
     private var devices: Int32 = 0
     private var loadedPath: String?
     private var loadedCtx = 0
     private var loadedBackend: String?
+    private let embedder = NativeHandle()
+    private var embedderPath: String?
+
+    /// Passages are about 512 tokens plus the file name; queries carry an instruction.
+    static let embedContext: Int32 = 1024
 
     private static let log = Logger(subsystem: "ai.wckd.autobot", category: "llama")
 
@@ -193,7 +226,26 @@ private final class Session: @unchecked Sendable {
         initialized = true
     }
 
-    func chat(path: String, nCtx: Int, backend: String, request: Data, onDelta: @escaping @Sendable (DeltaKind, String) -> Void) throws -> String {
+    /// A token for a new request (see [cancel]); [end] it when the request is over.
+    func begin() -> UInt64 {
+        requests.withLock { r in
+            let token = r.next
+            r.next += 1
+            r.cancelled[token] = false
+            return token
+        }
+    }
+
+    func end(_ token: UInt64) {
+        _ = requests.withLock { $0.cancelled.removeValue(forKey: token) }
+    }
+
+    private func isCancelled(_ token: UInt64) -> Bool {
+        requests.withLock { $0.cancelled[token] ?? true }
+    }
+
+    func chat(path: String, nCtx: Int, backend: String, request: Data, token: UInt64, onDelta: @escaping @Sendable (DeltaKind, String) -> Void) throws -> String {
+        if isCancelled(token) { throw EngineError.cancelled }
         initialize()
         if devices == 0 {
             throw EngineError("LOAD_FAILED", "no compute backend available")
@@ -208,11 +260,13 @@ private final class Session: @unchecked Sendable {
             loadedCtx = nCtx
             loadedBackend = backend
         }
+        // Loading takes seconds and cannot be interrupted: a cancel that came meanwhile stops here.
+        if isCancelled(token) { throw EngineError.cancelled }
         let sink = DeltaSink(onDelta)
         let user = Unmanaged.passRetained(sink)
         defer { user.release() }
         let result = request.withUnsafeBytes { raw -> UnsafeMutablePointer<CChar>? in
-            autobot_llama_chat(handle.pointer, raw.baseAddress?.assumingMemoryBound(to: CChar.self), raw.count, { kind, bytes, len, user in
+            autobot_llama_chat_request(handle.pointer, token, raw.baseAddress?.assumingMemoryBound(to: CChar.self), raw.count, { kind, bytes, len, user in
                 guard let bytes, let user else { return 0 }
                 let sink = Unmanaged<DeltaSink>.fromOpaque(user).takeUnretainedValue()
                 let text = String(decoding: UnsafeRawBufferPointer(start: bytes, count: len), as: UTF8.self)
@@ -223,8 +277,63 @@ private final class Session: @unchecked Sendable {
         return takeString(result, free: autobot_llama_string_free)
     }
 
-    func cancel() {
-        handle.withPointer { autobot_llama_cancel($0) }
+    /// Cancels request [token]: before it starts (it then never generates), or while it runs.
+    func cancel(_ token: UInt64) {
+        let known = requests.withLock { r -> Bool in
+            guard r.cancelled[token] != nil else { return false }
+            r.cancelled[token] = true
+            return true
+        }
+        if known { handle.withPointer { autobot_llama_cancel_request($0, token) } }
+    }
+
+    /// Cancels every request issued and not finished.
+    func cancelAll() {
+        let tokens = requests.withLock { r -> [UInt64] in
+            for key in r.cancelled.keys { r.cancelled[key] = true }
+            return Array(r.cancelled.keys)
+        }
+        handle.withPointer { pointer in
+            autobot_llama_cancel(pointer)
+            for token in tokens { autobot_llama_cancel_request(pointer, token) }
+        }
+    }
+
+    func embed(path: String, texts: [String], backend: String, token: UInt64) throws -> [[Float]] {
+        if isCancelled(token) { throw EngineError.cancelled }
+        initialize()
+        if devices == 0 {
+            throw EngineError("LOAD_FAILED", "no compute backend available")
+        }
+        if embedder.pointer == nil || embedderPath != path {
+            releaseEmbedder()
+            guard let loaded = autobot_llama_embed_load(path, Self.embedContext, inferenceThreads(), backend) else {
+                throw EngineError("LOAD_FAILED", "could not load the embedding model (corrupt file or not enough memory)")
+            }
+            embedder.set(loaded)
+            embedderPath = path
+        }
+        // The batch itself cannot be interrupted: a cancel that came during the load stops here.
+        if isCancelled(token) { throw EngineError.cancelled }
+        guard !texts.isEmpty else { return [] }
+        let dims = Int(autobot_llama_embed_dims(embedder.pointer))
+        guard dims > 0 else { throw EngineError("EMBED_FAILED", "the model has no embedding output") }
+        let strings = texts.map { strdup($0) }
+        defer { strings.forEach { free($0) } }
+        let pointers: [UnsafePointer<CChar>?] = strings.map { $0.map { UnsafePointer($0) } }
+        let lengths = texts.map { $0.utf8.count }
+        var out = [Float](repeating: 0, count: dims * texts.count)
+        let rc = out.withUnsafeMutableBufferPointer { buffer in
+            autobot_llama_embed(embedder.pointer, pointers, lengths, Int32(texts.count), buffer.baseAddress)
+        }
+        guard rc == 0 else { throw EngineError("EMBED_FAILED", "embedding failed (\(rc))") }
+        return (0 ..< texts.count).map { Array(out[($0 * dims) ..< (($0 + 1) * dims)]) }
+    }
+
+    func releaseEmbedder() {
+        guard let pointer = embedder.take() else { return }
+        autobot_llama_embed_free(pointer)
+        embedderPath = nil
     }
 
     func release() {

@@ -1,17 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Model downloads are multi-GB and user-initiated: they run in a dataSync foreground service. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- Only for the download progress notification; asked when the first download starts. -->
+    <!-- Model downloads are multi-GB and user-initiated: they run in a user-initiated data
+         transfer job (no daily limit, keeps going when the app is left or swiped away). -->
+    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
+    <!-- The job's network constraint (any network, or unmetered with "Wi-Fi only"). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Only for the download notifications; asked when the first download starts. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
         <service
-            android:name=".ModelDownloadService"
+            android:name=".ModelDownloadJob"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <receiver
+            android:name=".DownloadActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

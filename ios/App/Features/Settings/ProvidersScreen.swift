@@ -112,8 +112,9 @@ struct ProvidersScreen: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         SectionLabel("chat endpoints · \(providers.count)").padding(.vertical, 8)
-                        ForEach(providers) { p in row(p) }
+                        ForEach(providers) { p in row(p).transition(.inkDissolve) }
                     }
+                    .animation(.inkDissolve, value: providers.map(\.id))
                     .padding(.horizontal, Tokens.Spacing.gutter)
                     .padding(.bottom, 96)
                 }
@@ -212,7 +213,7 @@ private struct PresetPickerSheet: View {
 
     var body: some View {
         let groups = ProviderPresets.search(query)
-        VStack(alignment: .leading, spacing: 8) {
+        InkStack(alignment: .leading, spacing: 8) {
             SectionLabel("add provider")
             ConsoleTextField(text: $query, placeholder: "Search providers or hosts")
             ScrollView {
@@ -284,7 +285,7 @@ private struct ProviderEditorSheet: View {
     var body: some View {
         let preset = draft.preset
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            InkStack(alignment: .leading, spacing: 12) {
                 SectionLabel(draft.isNew ? "add provider" : "edit provider")
                 HStack(spacing: 8) {
                     Text(preset.displayName).textStyle(.titleLarge).foregroundStyle(c.onSurface)
@@ -347,7 +348,7 @@ private struct ProviderEditorSheet: View {
                 if let error { MicroLabel(error, color: c.error, lines: 3) }
 
                 HStack(spacing: 8) {
-                    GhostButton(test == .running ? "Testing…" : "Test connection", accent: c.onSurface, enabled: draft.baseUrlValid && test != .running, action: testConnection)
+                    GhostButton("Test connection", accent: c.onSurface, enabled: draft.baseUrlValid && test != .running, busy: test == .running, action: testConnection)
                     PrimaryButton("Save", enabled: draft.canSave && !saving) {
                         if draft.missingKey { confirmNoKey = true } else { save() }
                     }
@@ -429,7 +430,7 @@ private struct ProviderEditorSheet: View {
             ConsoleTextField(text: field(\.defaultModel), label: "Default model", kind: .mono)
             HStack(spacing: 8) {
                 let status: String = if models.loading {
-                    "fetching models…"
+                    "fetching models"
                 } else if let e = models.error {
                     e
                 } else if let at = models.fetchedAt {
@@ -442,7 +443,7 @@ private struct ProviderEditorSheet: View {
                 MicroLabel(status, color: models.error != nil ? c.error : nil, lines: 2)
                 Spacer(minLength: 0)
                 if preset.hasModelsEndpoint {
-                    TextAction("Refresh", color: c.primary, enabled: draft.baseUrlValid && !models.loading, action: refreshModels)
+                    TextAction("Refresh", color: c.primary, enabled: draft.baseUrlValid && !models.loading, busy: models.loading, action: refreshModels)
                 }
             }
             let query = models.models.contains { $0.id == draft.defaultModel } ? "" : draft.defaultModel
@@ -457,7 +458,8 @@ private struct ProviderEditorSheet: View {
     @ViewBuilder private var testResult: some View {
         switch test {
         case .idle: EmptyView()
-        case .running: HStack(spacing: 8) { ProgressView().tint(c.primary); Text("Testing…").textStyle(.bodySmall).foregroundStyle(c.onSurface) }
+        // The Test button carries the loader.
+        case .running: EmptyView()
         case .success(let m): Text(m).textStyle(.bodySmall).foregroundStyle(AutobotColors.green)
         case .failure(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.error)
         }

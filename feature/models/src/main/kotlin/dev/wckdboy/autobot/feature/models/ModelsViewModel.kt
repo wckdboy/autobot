@@ -19,7 +19,10 @@ import dev.wckdboy.autobot.core.models.CivitaiClient
 import dev.wckdboy.autobot.core.models.CivitaiModel
 import dev.wckdboy.autobot.core.models.DeviceProfile
 import dev.wckdboy.autobot.core.models.DeviceProfiler
+import dev.wckdboy.autobot.core.models.DownloadEnvironmentSource
 import dev.wckdboy.autobot.core.models.DownloadProgress
+import dev.wckdboy.autobot.core.models.DownloadQueue
+import dev.wckdboy.autobot.core.models.DownloadsState
 import dev.wckdboy.autobot.core.models.HfModelSummary
 import dev.wckdboy.autobot.core.models.HfRepo
 import dev.wckdboy.autobot.core.models.HuggingFaceClient
@@ -34,6 +37,7 @@ import dev.wckdboy.autobot.core.models.ModelTask
 import dev.wckdboy.autobot.core.models.NpuCatalog
 import dev.wckdboy.autobot.core.models.NpuOffer
 import dev.wckdboy.autobot.core.models.PreviewImages
+import dev.wckdboy.autobot.core.models.formatBytes
 import dev.wckdboy.autobot.core.models.launchOf
 import dev.wckdboy.autobot.providers.remote.LocalProviderSync
 import java.io.File
@@ -95,6 +99,7 @@ data class ModelsUiState(
     val device: DeviceProfile? = null,
     val installed: List<InstalledModel> = emptyList(),
     val progress: DownloadProgress? = null,
+    val downloads: DownloadsState = DownloadsState(),
     val tab: ModelsTab = ModelsTab.RECOMMENDED,
     val hf: HfState = HfState(),
     val civitai: CivitaiState = CivitaiState(),
@@ -123,6 +128,7 @@ class ModelsViewModel @Inject constructor(
     private val providers: ProviderRepository,
     private val host: AgentHost,
     private val settings: SettingsRepository,
+    private val downloadEnvironment: DownloadEnvironmentSource,
     accounts: ModelAccounts,
 ) : ViewModel() {
 
@@ -139,8 +145,8 @@ class ModelsViewModel @Inject constructor(
     private val events = Channel<ModelsEvent>(Channel.BUFFERED)
     val navigation: Flow<ModelsEvent> = events.receiveAsFlow()
 
-    val uiState: StateFlow<ModelsUiState> = combine(library.models, downloader.progress, accounts.state, local) { installed, progress, acc, l ->
-        ModelsUiState(l.device, installed, progress, l.tab, l.hf, l.civitai, acc, l.message)
+    val uiState: StateFlow<ModelsUiState> = combine(library.models, downloader.downloads, accounts.state, local) { installed, downloads, acc, l ->
+        ModelsUiState(l.device, installed, downloads.active, downloads, l.tab, l.hf, l.civitai, acc, l.message)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelsUiState())
 
     init {
@@ -162,7 +168,26 @@ class ModelsViewModel @Inject constructor(
 
     fun install(plan: ModelPlan) {
         downloader.install(plan)
-        local.update { it.copy(message = "Queued ${plan.title}") }
+        viewModelScope.launch {
+            val metered = DownloadQueue.warnMetered(plan.totalBytes, downloadEnvironment.now())
+            local.update {
+                it.copy(
+                    message = if (metered) {
+                        "Queued ${plan.title} · ${formatBytes(plan.totalBytes)} over mobile data — turn on wi-fi only in downloads to wait for wi-fi"
+                    } else {
+                        "Queued ${plan.title}"
+                    },
+                )
+            }
+        }
+    }
+
+    fun setWifiOnly(enabled: Boolean) = downloader.setWifiOnly(enabled)
+    fun pauseAll() = downloader.pauseAll()
+
+    /** Notifications were refused: downloads still run, Android lists them in Task Manager. */
+    fun notificationsDenied() = local.update {
+        it.copy(message = "Downloads continue without notifications — Android shows them under active apps in quick settings")
     }
 
     fun pause(id: String) = downloader.pause(id)

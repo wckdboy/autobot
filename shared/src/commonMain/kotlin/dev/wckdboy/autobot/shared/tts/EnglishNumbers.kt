@@ -25,14 +25,16 @@ internal object EnglishNumbers {
         else -> ones[n / 100] + " hundred and " + belowHundred(n % 100)
     }
 
-    fun cardinal(value: Long): String {
-        if (value < 0) return "minus " + cardinal(-value)
-        if (value == 0L) return "zero"
+    // Unsigned inside: -Long.MIN_VALUE is itself negative.
+    fun cardinal(value: Long): String = if (value < 0) "minus " + cardinal(0uL - value.toULong()) else cardinal(value.toULong())
+
+    private fun cardinal(value: ULong): String {
+        if (value == 0uL) return "zero"
         val groups = mutableListOf<Int>()
         var v = value
-        while (v > 0) {
-            groups += (v % 1000).toInt()
-            v /= 1000
+        while (v > 0uL) {
+            groups += (v % 1000uL).toInt()
+            v /= 1000uL
         }
         val parts = mutableListOf<String>()
         for (i in groups.indices.reversed()) {

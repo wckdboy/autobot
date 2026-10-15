@@ -51,7 +51,7 @@ struct BackupTests {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("rt-\(UUID().uuidString).autobot").path
         let blob = Data((0 ..< 2_500_000).map { UInt8($0 % 253) })
         let writer = try BackupFileWriter(path: path, crypto: SwiftBackupCrypto(), passphrase: "correct horse battery", app: "test", platform: "ios", createdAt: 1, iterations: 100_000)
-        try writer.entry(name: BackupKt.MANIFEST, bytes: BackupManifest.companion.encode(manifest: BackupManifest(settings: ["amoled": "true"], providers: [], conversations: [], gallery: [], attachments: [], memory: [])))
+        try writer.entry(name: BackupKt.MANIFEST, bytes: BackupManifest.companion.encode(manifest: BackupManifest(settings: ["amoled": "true"], providers: [], conversations: [], gallery: [], attachments: [], memory: [], folders: [])))
         try writer.entry(name: "gallery/a.png", bytes: BackupBytes.shared.fromData(data: blob))
         try writer.finish()
         let all = try entries(path, "correct horse battery")
@@ -61,7 +61,7 @@ struct BackupTests {
     /// Export from the app, remove the session, import: it comes back with its log; nothing is duplicated.
     @Test func serviceExportImportMergesWithoutOverwriting() async throws {
         let app = AppContainer()
-        app.unlockData()
+        await app.unlockData()
         let c = app.conversations.create(incognito: false, providerId: nil, model: "m", title: "Backup round trip")
         let entry = LogEntry(seq: 0, time: 1, event: .userMessage(text: "hello export"))
         try app.sessions.append(c.id, [entry])
@@ -83,7 +83,7 @@ struct BackupTests {
     /// Memory notes travel in the manifest and merge by id on import.
     @Test func memoryNotesExportAndMerge() async throws {
         let app = AppContainer()
-        app.unlockData()
+        await app.unlockData()
         guard case .saved(let id) = app.memory.save(id: nil, text: "Backup memory \(UUID().uuidString)", tags: "backup") else {
             Issue.record("note not saved")
             return

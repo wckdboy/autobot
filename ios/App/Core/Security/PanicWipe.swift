@@ -23,15 +23,19 @@ final class PanicWipe {
     private let keys: KeyManager
     private let secrets: SecretStore
     private let participants: [@MainActor () async -> Void]
+    /// How long one participant may take before the wipe goes on without it (an engine unload
+    /// queued behind a model load, a bridge that never answers).
+    private let participantTimeout: Duration
 
-    init(keys: KeyManager, secrets: SecretStore, participants: [@MainActor () async -> Void]) {
+    init(keys: KeyManager, secrets: SecretStore, participants: [@MainActor () async -> Void], participantTimeout: Duration = .seconds(3)) {
         self.keys = keys
         self.secrets = secrets
         self.participants = participants
+        self.participantTimeout = participantTimeout
     }
 
     func wipe() async -> WipeReport {
-        for participant in participants { await participant() }
+        for participant in participants { await Self.run(participant, timeout: participantTimeout) }
         keys.destroyAllKeys()
         secrets.deleteAll()
 
@@ -51,6 +55,35 @@ final class PanicWipe {
         return WipeReport(deletedPaths: deleted, failedPaths: failed)
     }
 
-    /// Terminates the app process immediately.
-    func killProcess() -> Never { exit(0) }
+    /// Terminates the app process immediately: `_exit` skips atexit handlers and static
+    /// destructors, which would otherwise run under Metal, Core ML and llama.cpp threads that are
+    /// still working and crash on the way out.
+    func killProcess() -> Never { _exit(0) }
+
+    /// Runs [participant] for at most [timeout]; a participant still running then is left behind.
+    static func run(_ participant: @escaping @MainActor () async -> Void, timeout: Duration) async {
+        let gate = Gate()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            gate.continuation = continuation
+            Task { @MainActor in
+                await participant()
+                gate.open()
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: timeout)
+                gate.open()
+            }
+        }
+    }
+
+    /// Resumes the waiting wipe once, whichever of the participant and the timeout ends first.
+    @MainActor
+    private final class Gate {
+        var continuation: CheckedContinuation<Void, Never>?
+
+        func open() {
+            continuation?.resume()
+            continuation = nil
+        }
+    }
 }

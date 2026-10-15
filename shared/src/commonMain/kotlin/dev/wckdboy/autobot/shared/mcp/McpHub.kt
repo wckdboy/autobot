@@ -69,7 +69,9 @@ class McpTestResult(val toolCount: Int, val protocolVersion: String) {
  * dialled until an agent turn with tools starts ([prepare], run from the `mcp-servers` prompt
  * context): unreachable, blocked (Offline) or misconfigured servers simply contribute no tools,
  * and the model is told why. A server that announced `tools/list_changed` is re-listed at the
- * next turn; a failed one is retried after [RETRY_MS].
+ * next turn; a failed one is retried after [RETRY_MS], doubling up to [MAX_RETRY_MS]. Connecting
+ * runs in the background: a turn waits for it at most [FIRST_WAIT_MS] (a server's first attempt)
+ * or [RETRY_WAIT_MS] (a retry), so an unreachable server never holds up the conversation.
  */
 class McpHub(
     private val transport: HttpTransport,
@@ -81,6 +83,8 @@ class McpHub(
     private var servers: List<McpServerSpec> = emptyList()
     private val links = HashMap<String, Link>()
     private val pending = HashMap<String, Deferred<Unit>>()
+    /** Failed attempts per configuration (a saved change starts over). */
+    private val failures = HashMap<McpServerSpec, Failures>()
     private var registry: ToolRegistry? = null
 
     private val _status = MutableStateFlow<List<McpServerStatus>>(emptyList())
@@ -91,13 +95,15 @@ class McpHub(
         var registrations: List<Disposable> = emptyList()
         var ready = false
         var error: String? = null
-        var attemptedAt = 0L
     }
+
+    private class Failures(var count: Int, var at: Long)
 
     /** Replaces the configuration; changed, disabled and removed servers are disconnected. */
     fun update(list: List<McpServerSpec>) {
         val dropped = lock.withLock {
             servers = list
+            failures.keys.retainAll(list.toSet())
             val wanted = list.filter { it.enabled }.associateBy { it.id }
             val gone = links.filter { (id, link) -> wanted[id] != link.spec }
             gone.forEach { (id, link) ->
@@ -112,20 +118,20 @@ class McpHub(
 
     fun spec(id: String): McpServerSpec? = lock.withLock { servers.firstOrNull { it.id == id } }
 
-    /** Connects (or re-lists) every enabled server that is due; returns when all have settled. */
+    /**
+     * Starts connecting (or re-listing) every enabled server that is due, and waits for them a
+     * bounded time: [FIRST_WAIT_MS] for a first attempt, [RETRY_WAIT_MS] for a server that failed
+     * before. Whatever is still connecting finishes in the background; its tools register then.
+     */
     suspend fun prepare() {
         val jobs = lock.withLock {
             servers.filter { it.enabled && due(it) }.map { spec ->
-                pending.getOrPut(spec.id) { scope.async { connect(spec) } }
+                val job = pending.getOrPut(spec.id) { scope.async { connect(spec) } }
+                job to if (spec in failures) RETRY_WAIT_MS else FIRST_WAIT_MS
             }
         }
-        jobs.forEach { job ->
-            try {
-                job.await()
-            } catch (e: CancellationException) {
-                if (!job.isCancelled) throw e
-            }
-        }
+        if (jobs.isEmpty()) return
+        coroutineScope { jobs.map { (job, wait) -> async { withTimeoutOrNull(wait) { job.join() } } }.awaitAll() }
     }
 
     /** Ends every session (DELETE) and stops the hub's work (panic wipe, shutdown). */
@@ -199,8 +205,10 @@ class McpHub(
 
     private fun due(spec: McpServerSpec): Boolean {
         if (spec.id in pending) return true
-        val link = links[spec.id]?.takeIf { it.spec == spec } ?: return true
-        return if (link.ready) link.client.toolsChanged else clock() - link.attemptedAt >= RETRY_MS
+        val link = links[spec.id]?.takeIf { it.spec == spec }
+        if (link != null && link.ready) return link.client.toolsChanged
+        val failed = failures[spec] ?: return true
+        return clock() - failed.at >= retryDelay(failed.count)
     }
 
     private suspend fun connect(spec: McpServerSpec) {
@@ -211,11 +219,13 @@ class McpHub(
                 return
             }
             val existing = lock.withLock { links[spec.id]?.takeIf { it.spec == spec } }
-            val link = existing ?: Link(
-                spec,
-                endpoint,
-                McpClient(endpoint, transport, withContext(IoDispatcher) { tokens(spec.id) }, spec.route, tag(spec), scope),
-            )
+            // The host's secret store can fail (e.g. locked): that is this server's failure, not the turn's.
+            val link = existing ?: runCatchingMcp {
+                Link(spec, endpoint, McpClient(endpoint, transport, withContext(IoDispatcher) { tokens(spec.id) }, spec.route, tag(spec), scope))
+            }.getOrElse {
+                record(spec, null, Result.failure(it))
+                return
+            }
             val result = runCatchingMcp {
                 withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
                     link.client.initialize()
@@ -231,6 +241,14 @@ class McpHub(
     private fun record(spec: McpServerSpec, candidate: Link?, result: Result<List<McpTool>>) {
         val orphan = lock.withLock {
             if (servers.none { it == spec }) return@withLock candidate?.client
+            if (result.isSuccess) {
+                failures.remove(spec)
+            } else {
+                failures.getOrPut(spec) { Failures(0, 0) }.apply {
+                    count++
+                    at = clock()
+                }
+            }
             val link = candidate ?: run {
                 links.remove(spec.id)?.let(::unregister)
                 publish(failed = spec to (result.exceptionOrNull()?.let(::describe) ?: "unknown error"))
@@ -239,7 +257,6 @@ class McpHub(
             links[spec.id]?.takeIf { it !== link }?.let(::unregister)
             links[spec.id] = link
             unregister(link)
-            link.attemptedAt = clock()
             result.onSuccess { remote ->
                 link.ready = true
                 link.error = null
@@ -329,6 +346,16 @@ class McpHub(
 
     companion object {
         const val RETRY_MS = 15_000L
+        const val MAX_RETRY_MS = 10 * 60_000L
+
+        /** How long a turn waits for a server's first connection attempt. */
+        const val FIRST_WAIT_MS = 10_000L
+
+        /** How long a turn waits for a server that failed before to come back. */
+        const val RETRY_WAIT_MS = 2_000L
+
+        /** Back-off after [count] failed attempts in a row. */
+        fun retryDelay(count: Int): Long = (RETRY_MS shl (count - 1).coerceIn(0, 10)).coerceAtMost(MAX_RETRY_MS)
         const val CONNECT_TIMEOUT_MS = 30_000L
         const val CLOSE_TIMEOUT_MS = 5_000L
 

@@ -1,9 +1,14 @@
 package dev.wckdboy.autobot.core.data
 
+import dev.wckdboy.autobot.core.data.db.ConversationDao
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
+import dev.wckdboy.autobot.core.data.model.ChatFolderRow
 import dev.wckdboy.autobot.core.data.model.Conversation
+import dev.wckdboy.autobot.core.data.model.ConversationSearchRow
+import dev.wckdboy.autobot.core.data.model.ConversationTextRow
 import dev.wckdboy.autobot.core.data.model.Message
+import dev.wckdboy.autobot.shared.chats.ChatNames
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -119,7 +124,83 @@ class ConversationRepository @Inject constructor(
 
     fun newMessageId(): String = UUID.randomUUID().toString()
 
+    // Organization: renaming, pinning, archiving, folders. Incognito chats keep these in memory.
+
+    /** Renames [id] (blank names are ignored). A renamed chat keeps its name: auto-titling only replaces [DEFAULT_TITLE]. */
+    suspend fun rename(id: String, title: String) {
+        val name = ChatNames.title(title) ?: return
+        edit(listOf(id), { it.copy(title = name) }) { dao, _ -> dao.rename(id, name) }
+    }
+
+    suspend fun setPinned(ids: Collection<String>, pinned: Boolean) =
+        edit(ids, { it.copy(pinned = pinned) }) { dao, stored -> dao.setPinned(stored, pinned) }
+
+    suspend fun setArchived(ids: Collection<String>, archived: Boolean) =
+        edit(ids, { it.copy(archived = archived) }) { dao, stored -> dao.setArchived(stored, archived) }
+
+    /** Moves chats into [folderId] (null: out of any folder). */
+    suspend fun moveToFolder(ids: Collection<String>, folderId: String?) =
+        edit(ids, { it.copy(folderId = folderId) }) { dao, stored -> dao.setFolder(stored, folderId) }
+
+    private suspend fun edit(
+        ids: Collection<String>,
+        ephemeral: (Conversation) -> Conversation,
+        stored: suspend (ConversationDao, List<String>) -> Unit,
+    ) {
+        val (memory, persistent) = ids.distinct().partition(incognito::isIncognito)
+        memory.forEach { id -> incognito.conversation(id)?.let { incognito.updateConversation(ephemeral(it)) } }
+        if (persistent.isNotEmpty()) withContext(io) { stored(database.get().conversationDao(), persistent) }
+    }
+
+    fun observeFolders(): Flow<List<ChatFolderRow>> = flow { emitAll(database.get().chatFolderDao().observeAll()) }.flowOn(io)
+
+    suspend fun folders(): List<ChatFolderRow> = withContext(io) { database.get().chatFolderDao().all() }
+
+    /** Creates a folder, or returns null when the name is empty or taken ([ChatNames.folderProblem]). */
+    suspend fun createFolder(name: String): ChatFolderRow? = withContext(io) {
+        val dao = database.get().chatFolderDao()
+        if (ChatNames.folderProblem(name, dao.all().map { it.name }) != null) return@withContext null
+        ChatFolderRow(UUID.randomUUID().toString(), ChatNames.folderName(name), clock()).also { dao.upsert(it) }
+    }
+
+    suspend fun renameFolder(id: String, name: String): Boolean = withContext(io) {
+        val dao = database.get().chatFolderDao()
+        val folder = dao.get(id) ?: return@withContext false
+        if (ChatNames.folderProblem(name, dao.all().filter { it.id != id }.map { it.name }) != null) return@withContext false
+        dao.upsert(folder.copy(name = ChatNames.folderName(name)))
+        true
+    }
+
+    /** Deletes a folder; its chats stay, outside any folder. */
+    suspend fun deleteFolder(id: String) {
+        withContext(io) {
+            val db = database.get()
+            db.conversationDao().clearFolder(id)
+            db.chatFolderDao().delete(id)
+        }
+        incognito.conversations.value.filter { it.folderId == id }.forEach { incognito.updateConversation(it.copy(folderId = null)) }
+    }
+
+    // Search text (see `:shared` ChatSearch), fed from the session log by the agent runtime.
+
+    suspend fun searchText(id: String): String? = withContext(io) { database.get().conversationDao().searchText(id) }
+
+    suspend fun putSearchText(id: String, text: String) = withContext(io) {
+        val db = database.get()
+        // A chat deleted meanwhile has no row to attach the text to.
+        if (db.conversationDao().get(id) != null) db.conversationDao().upsertSearchText(ConversationTextRow(id, text))
+    }
+
+    suspend fun unindexedConversations(): List<String> = withContext(io) { database.get().conversationDao().unindexed() }
+
+    suspend fun searchCandidates(likePattern: String): List<ConversationSearchRow> =
+        withContext(io) { database.get().conversationDao().searchCandidates(likePattern) }
+
+    /** Every stored and incognito conversation id (for "Delete all chats"). */
+    suspend fun allIds(): List<String> =
+        incognito.conversations.value.map { it.id } + withContext(io) { database.get().conversationDao().allIds() }
+
     companion object {
-        const val DEFAULT_TITLE = "New chat"
+        const val DEFAULT_TITLE = ChatNames.DEFAULT_TITLE
     }
 }

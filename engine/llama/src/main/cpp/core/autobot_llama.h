@@ -10,6 +10,7 @@
 #define AUTOBOT_LLAMA_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #if defined(_WIN32)
 #define AUTOBOT_LLAMA_API
@@ -80,13 +81,50 @@ AUTOBOT_LLAMA_API char * autobot_llama_model_info(autobot_llama_session * sessio
 AUTOBOT_LLAMA_API char * autobot_llama_chat(autobot_llama_session * session, const char * request, size_t request_len,
                                             autobot_llama_delta_fn on_delta, void * user);
 
+/**
+ * autobot_llama_chat for one request identified by `token` (non-zero, unique per request): a
+ * cancel for that token sent before the chat starts still stops it (autobot_llama_cancel is
+ * cleared when a chat starts, so it only reaches a chat already running).
+ */
+AUTOBOT_LLAMA_API char * autobot_llama_chat_request(autobot_llama_session * session, uint64_t token, const char * request,
+                                                    size_t request_len, autobot_llama_delta_fn on_delta, void * user);
+
 /** Asks a running chat on `session` to stop at the next token. Safe from any thread. */
 AUTOBOT_LLAMA_API void autobot_llama_cancel(autobot_llama_session * session);
+
+/** Asks the chat started with `token` to stop, whether it is running or still to start. Safe from any thread. */
+AUTOBOT_LLAMA_API void autobot_llama_cancel_request(autobot_llama_session * session, uint64_t token);
 
 /** Frees the session (waits for a running chat to return). */
 AUTOBOT_LLAMA_API void autobot_llama_free(autobot_llama_session * session);
 
 AUTOBOT_LLAMA_API void autobot_llama_string_free(char * s);
+
+/**
+ * An embedding model (the private vault), separate from chat sessions so both can be resident.
+ * Pooling is the model's own (e.g. last token for Qwen3-Embedding, mean for BERT-style models);
+ * texts are tokenized with the model's special tokens (BOS/EOS as it was trained) and cut to
+ * `n_ctx` tokens.
+ */
+typedef struct autobot_llama_embedder autobot_llama_embedder;
+
+/** Loads an embedding model on `backend` (as autobot_llama_load, CPU fallback). NULL on failure. */
+AUTOBOT_LLAMA_API autobot_llama_embedder * autobot_llama_embed_load(const char * path, int n_ctx, int n_threads, const char * backend);
+
+/** Output dimensions of the model. */
+AUTOBOT_LLAMA_API int autobot_llama_embed_dims(autobot_llama_embedder * embedder);
+
+/**
+ * Embeds `n` UTF-8 texts (`lens[i]` bytes each) into `out` (n × dims floats), each vector
+ * L2-normalised. Blocking; calls on one embedder are serialised. Returns 0, or a negative code
+ * (-1 bad input, -2 decode failed, -3 the model has no pooled output).
+ */
+AUTOBOT_LLAMA_API int autobot_llama_embed(autobot_llama_embedder * embedder, const char * const * texts, const size_t * lens, int n, float * out);
+
+/** Where the embedder actually loaded: "cpu", "gpu" or "npu" (static string). */
+AUTOBOT_LLAMA_API const char * autobot_llama_embed_backend(autobot_llama_embedder * embedder);
+
+AUTOBOT_LLAMA_API void autobot_llama_embed_free(autobot_llama_embedder * embedder);
 
 #ifdef __cplusplus
 }

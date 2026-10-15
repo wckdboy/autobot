@@ -32,7 +32,7 @@ struct SessionProjectionTests {
         #expect(tools[2].summary == "args of read")
         guard case .user(_, let text, _) = p.items.first else { Issue.record("first item is not a user message"); return }
         #expect(text == "draw a cat")
-        let reasoning = p.items.compactMap { item -> String?? in if case .assistant(_, _, let r, _, _, _, _) = item { r } else { nil } }
+        let reasoning = p.items.compactMap { item -> String?? in if case .assistant(_, _, let r, _, _, _, _, _) = item { r } else { nil } }
         #expect(reasoning == ["plan"])
         guard case .notice = p.items.last else { Issue.record("last item is not a notice"); return }
         #expect(p.todos.count == 1)
@@ -45,5 +45,16 @@ struct SessionProjectionTests {
         let p = projectSession(log, pendingApprovals: ["x"], running: []) { _, _ in "" }
         guard p.items.count == 1, case .tool(let t) = p.items[0] else { Issue.record("expected one tool row"); return }
         #expect(t.state == .waitingApproval)
+    }
+
+    /// Tool rows are keyed by position (`t<seq>_<i>`): a model that repeats call ids still gives unique keys.
+    @Test func repeatedCallIdsGetUniqueKeys() {
+        let call = ToolCallRecord(id: "dup", name: "read", arguments: "{}")
+        let log = entries(
+            .assistantMessage(.init(turn: 1, step: 1, text: "", toolCalls: [call, call])),
+            .assistantMessage(.init(turn: 1, step: 2, text: "", toolCalls: [call])),
+        )
+        let keys = projectSession(log, pendingApprovals: [], running: []) { _, _ in "" }.items.map(\.key)
+        #expect(keys == ["t1_0", "t1_1", "t2_0"])
     }
 }

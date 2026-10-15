@@ -31,6 +31,7 @@ import dev.wckdboy.autobot.core.data.db.DatabaseState
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
+import dev.wckdboy.autobot.core.designsystem.component.InkPrintAway
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.core.security.LockState
@@ -183,6 +184,8 @@ class MainActivity : FragmentActivity() {
                         }
                         AutobotNavDisplay(backStack)
                     }
+                    // On unlock, the lock screen's paper prints away over the app.
+                    if (lockReady) InkPrintAway(locked = lockState is LockState.Locked)
                 }
             }
         }

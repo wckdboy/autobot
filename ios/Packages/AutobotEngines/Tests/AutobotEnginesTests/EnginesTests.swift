@@ -241,3 +241,27 @@ private final class Deltas: @unchecked Sendable {
         lock.withLock { parts.filter { $0.0 == kind }.map(\.1).joined() }
     }
 }
+
+/// Upscale memory caps and the file-backed output.
+@Suite struct UpscaleMemoryTests {
+    @Test func capsByOutputSideAndAvailableMemory() {
+        let plenty = 4 << 30
+        #expect(UpscaleEngine.fits(width: 1024, height: 1024, scale: 4, availableBytes: plenty))
+        // 8192 → 32768 px a side: never.
+        #expect(!UpscaleEngine.fits(width: 8192, height: 8192, scale: 4, availableBytes: Int.max / 2))
+        #expect(!UpscaleEngine.fits(width: 2049, height: 16, scale: 4, availableBytes: plenty))
+        // 2048² → 8192²: 256 MB of result plus the source, too much with 300 MB left.
+        #expect(!UpscaleEngine.fits(width: 2048, height: 2048, scale: 4, availableBytes: 300 << 20))
+        #expect(!UpscaleEngine.fits(width: 0, height: 10, scale: 4, availableBytes: plenty))
+        #expect(!UpscaleEngine.fits(width: Int.max / 2, height: 1, scale: 4, availableBytes: plenty))
+    }
+
+    @Test func mappedPixelsRoundTrip() throws {
+        let pixels = try MappedPixels(count: 16)
+        for i in 0 ..< 16 { pixels.pixels[i] = UInt8(i * 10) }
+        let data = try pixels.finish()
+        #expect(Array(data) == (0 ..< 16).map { UInt8($0 * 10) })
+        let image = try UpscaleEngine.image(data, width: 2, height: 2)
+        #expect(image.width == 2 && image.height == 2)
+    }
+}

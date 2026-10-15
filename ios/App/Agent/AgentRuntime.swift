@@ -33,6 +33,11 @@ protocol AgentRuntime: AnyObject {
     /// The session for [conversationId], opening it on first use with the conversation's
     /// provider and model.
     func session(_ conversationId: String) -> AgentSession
+    /// The session if it is open or previewed, without opening it (safe while a view renders).
+    func existingSession(_ conversationId: String) -> AgentSession?
+    /// No screen shows [conversationId] any more: stop streaming its state (a running turn goes
+    /// on). The next [session] call resumes it.
+    func close(_ conversationId: String)
     /// Shows [state] for [conversationId] without opening it on the runtime, so nothing replaces
     /// it (snapshots and demo data).
     func preview(_ conversationId: String, state: ChatSessionState)
@@ -54,4 +59,17 @@ protocol AgentRuntime: AnyObject {
     func discard(_ conversationId: String)
     /// Panic wipe: stop everything and drop in-memory logs.
     func shutdown()
+    /// Undoes one file step of the agent (and later changes to the same files); idle sessions only.
+    func undoStep(_ conversationId: String, callId: String)
+    /// Undoes every file change of [turn].
+    func undoTurn(_ conversationId: String, turn: Int)
+    /// Re-applies what an undo ([revertId]) put back.
+    func redo(_ conversationId: String, revertId: String)
+}
+
+/// Runtimes without file tools have nothing to undo.
+extension AgentRuntime {
+    func undoStep(_ conversationId: String, callId: String) {}
+    func undoTurn(_ conversationId: String, turn: Int) {}
+    func redo(_ conversationId: String, revertId: String) {}
 }

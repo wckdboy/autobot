@@ -294,6 +294,8 @@ struct InstalledModel: Codable, Identifiable, Equatable, Sendable {
     var backend: Backend = .auto
 
     var isReady: Bool { status == .ready }
+    /// A ready llama.cpp model that chats (embedding models run on llama.cpp too, but only for the vault).
+    var isLocalChat: Bool { isReady && engine == .llama && kind != .embedding }
     var fraction: Double { totalBytes <= 0 ? 0 : min(max(Double(downloadedBytes) / Double(totalBytes), 0), 1) }
     var runnable: Bool { isReady && engine != .none && engine.runsOnIOS }
 }

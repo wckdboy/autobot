@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct AutobotApp: App {
-    @State private var container = AppContainer()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var container = AppDelegate.makeContainer()
     @State private var navigator = Navigator()
 
     var body: some Scene {
@@ -39,6 +40,8 @@ struct RootView: View {
             }
         }
         .autobotTheme(settings.themeMode, amoled: settings.amoled, paperOnTop: { if case .imagine = nav.path.last { true } else { false } }())
+        // Living paper holds still while heavy work runs.
+        .environment(\.inkHeavyWork, busy)
         .onChange(of: phase) { old, new in
             switch new {
             case .background:
@@ -54,11 +57,11 @@ struct RootView: View {
         }
         .onChange(of: busy) { _, now in grace.workChanged(busy: now) }
         .onChange(of: app.lock.state) { _, state in
-            if state == .unlocked { app.unlockData() }
+            if state == .unlocked { Task { await app.unlockData() } }
         }
         .task {
             if let inbox = SharedInbox.defaultRoot { SharedInbox.sweep(root: inbox) }
-            if app.lock.state == .unlocked { app.unlockData() }
+            if app.lock.state == .unlocked { await app.unlockData() }
             #if DEBUG
             // `-AutobotOpen chat|agent` (UI work): open the newest plain / tool session.
             let args = ProcessInfo.processInfo.arguments
@@ -79,6 +82,7 @@ struct RootView: View {
         @Environment(AppContainer.self) private var app
         @Environment(Navigator.self) private var nav
         @Environment(\.scheme) private var c
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             Group {
@@ -90,6 +94,8 @@ struct RootView: View {
                         lockMessage = nil
                         Task { lockMessage = await app.lock.authenticate(reason: "Your conversations are encrypted on this device") }
                     }
+                    // On unlock the paper prints away.
+                    .transition(.inkPrintAway)
                 } else if !app.settings.settings.onboarded {
                     WelcomeScreen(
                         onSetUp: {
@@ -111,6 +117,7 @@ struct RootView: View {
                 }
             }
             .background(c.background.ignoresSafeArea())
+            .animation(reduceMotion ? .inkReduced : .linear(duration: Double(Tokens.Motion.printMillis) / 1000), value: app.lock.state)
         }
     }
 }

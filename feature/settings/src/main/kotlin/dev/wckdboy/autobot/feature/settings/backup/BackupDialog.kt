@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -27,6 +30,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.backup.BackupService
+import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import java.time.LocalDate
@@ -73,7 +77,7 @@ class BackupViewModel @Inject constructor(
 
     private fun run(what: String, block: suspend () -> String) {
         if (_state.value is BackupState.Working) return
-        _state.value = BackupState.Working("$what…")
+        _state.value = BackupState.Working(what)
         viewModelScope.launch {
             _state.value = try {
                 BackupState.Done(block())
@@ -137,7 +141,11 @@ fun BackupDialog(onDismiss: () -> Unit, viewModel: BackupViewModel = hiltViewMod
                 }
                 MicroLabel("at least $MIN_PASSPHRASE characters · it cannot be recovered")
                 when (val s = state) {
-                    is BackupState.Working -> MicroLabel(s.status, color = MaterialTheme.colorScheme.primary)
+                    is BackupState.Working -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        MicroLabel(s.status.removeSuffix("…"), color = MaterialTheme.colorScheme.primary)
+                        // Export/import report phases, not a fraction: the indeterminate ink bar.
+                        InkProgressBar(null, Modifier.fillMaxWidth().height(2.dp))
+                    }
                     is BackupState.Done -> Text(s.message, style = MaterialTheme.typography.bodySmall)
                     is BackupState.Failed -> Text(s.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     BackupState.Idle -> Unit

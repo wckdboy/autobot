@@ -40,6 +40,11 @@ final class InterimAgentRuntime: AgentRuntime {
         sessions[id] = s
     }
 
+    func existingSession(_ id: String) -> AgentSession? { sessions[id] }
+
+    /// Turns stream into the session object directly: nothing to stop.
+    func close(_ id: String) {}
+
     func session(_ id: String) -> AgentSession {
         if let s = sessions[id] { return s }
         let s = AgentSession(id: id)

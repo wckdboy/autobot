@@ -66,21 +66,38 @@ class KokoroFrontend private constructor(
     private val british: Lazy<G2P>?,
     val vocab: KokoroVocab,
 ) {
-    private fun g2p(voice: String): G2P = if (isBritish(voice) && british != null) british.value else american.value
+    // The British lexicon loads on first use; one that cannot be read leaves British voices on the American one.
+    private fun g2p(voice: String): G2P =
+        british?.takeIf { isBritish(voice) }?.let { runCatching { it.value }.getOrNull() } ?: american.value
+
+    /** [sentence] read by [g2p]; never throws (see [G2P.phonemize]). */
+    private fun phonemize(g2p: G2P, sentence: String): List<Phonemized> = try {
+        g2p.phonemize(sentence)
+    } catch (_: Exception) {
+        emptyList()
+    }
 
     /** The phoneme string for [text] as misaki writes it (after normalization), for tests and debugging. */
     fun phonemes(text: String, voice: String = DEFAULT_VOICE): String =
-        sentences(text).joinToString(" ") { s -> psOf(g2p(voice).phonemize(s)) }
+        sentences(text).joinToString(" ") { s -> psOf(phonemize(g2p(voice), s)) }
 
     /**
      * [text] as speech pieces of at most [maxTokens] phonemes (510 for the full model; less for
-     * engines with a smaller fixed input), in order. Pieces with nothing to say are skipped.
+     * engines with a smaller fixed input, at least 16), in order. Pieces with nothing to say are
+     * skipped. Total: any text gives pieces or none, never an exception (the host calls this from
+     * Swift, where an exception ends the app).
      */
     fun chunks(text: String, voice: String = DEFAULT_VOICE, maxTokens: Int = MAX_TOKENS): List<KokoroChunk> {
-        require(maxTokens >= 16) { "maxTokens is too small" }
+        val max = maxTokens.coerceAtLeast(16)
         val g2p = g2p(voice)
-        return sentences(text).flatMap { sentence -> split(g2p.phonemize(sentence), maxTokens) }.mapNotNull { (graphemes, ps) ->
-            val trimmed = ps.take(maxTokens)
+        return sentences(text).flatMap { sentence ->
+            try {
+                split(phonemize(g2p, sentence), max)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }.mapNotNull { (graphemes, ps) ->
+            val trimmed = ps.take(max)
             val ids = vocab.encode(trimmed)
             if (ids.none { it > LAST_PUNCT_ID }) null else KokoroChunk(graphemes, trimmed, ids)
         }
@@ -149,6 +166,7 @@ class KokoroFrontend private constructor(
         fun isBritish(voice: String) = voice.startsWith("b")
 
         /** Loads the frontend from a Kokoro voice folder ([CONFIG] and the misaki lexicons); the British lexicon on first use. */
+        @Throws(Throwable::class)
         fun load(dir: String): KokoroFrontend = load(dir, SystemFileSystem)
 
         /** [load] from [fileSystem] (tests). */
@@ -180,7 +198,12 @@ class KokoroFrontend private constructor(
         /** [text], normalized, as sentences: split at line breaks and at `.` `!` `?` `…` before a space and a non-lowercase word. */
         fun sentences(text: String): List<String> {
             val out = mutableListOf<String>()
-            for (line in TextNormalizer.normalize(text).split('\n')) {
+            val normalized = try {
+                TextNormalizer.normalize(text)
+            } catch (_: Exception) {
+                text
+            }
+            for (line in normalized.split('\n')) {
                 var start = 0
                 var i = 0
                 while (i < line.length) {

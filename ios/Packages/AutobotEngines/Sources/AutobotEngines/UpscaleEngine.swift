@@ -2,6 +2,8 @@ import CoreGraphics
 import CoreML
 import CoreVideo
 import Foundation
+import os
+import Synchronization
 
 /**
  Tiling for a fixed-size super-resolution model: the image is cut into model-sized tiles that
@@ -83,42 +85,73 @@ public struct UpscaleTiling: Sendable, Equatable {
 public actor UpscaleEngine {
     public static let shared = UpscaleEngine()
     public static let overlap = 32
+    /// Largest output side: beyond it the encoded result alone takes hundreds of megabytes.
+    public static let maxOutputSide = 8192
 
     private var loaded: (url: URL, model: MLModel, input: String, output: String, tile: Int, scale: Int)?
-    private var cancelled = false
+    /// Requests running, by token; true once cancelled.
+    private nonisolated let requests = Mutex<(next: UInt64, cancelled: [UInt64: Bool])>((1, [:]))
 
     public init() {}
 
+    /**
+     Whether a [width]×[height] image can be upscaled [scale]× within [availableBytes] of memory
+     (default: what the system grants this process now, `os_proc_available_memory`; where that is
+     unknown, as in the Simulator, half the RAM). Counts the
+     decoded source twice (the image and its RGBA copy) and the result once (encoded and sealed
+     afterwards; the pixels themselves go to a file), with headroom for the model.
+     */
+    public static func fits(width: Int, height: Int, scale: Int, availableBytes: Int = os_proc_available_memory()) -> Bool {
+        guard width > 0, height > 0, scale > 0 else { return false }
+        let (outW, o1) = width.multipliedReportingOverflow(by: scale)
+        let (outH, o2) = height.multipliedReportingOverflow(by: scale)
+        guard !o1, !o2, max(outW, outH) <= maxOutputSide else { return false }
+        let available = availableBytes > 0 ? availableBytes : Int(ProcessInfo.processInfo.physicalMemory / 2)
+        let needed = width * height * 8 + outW * outH * 4 + 256 << 20
+        return needed <= available / 10 * 8
+    }
+
     /// Upscales [image] with the model in [folder] (a `.mlmodelc`, or an `.mlpackage` compiled on
-    /// first use and kept next to it). [onProgress] gets (done, total) tiles.
+    /// first use and kept next to it). [onProgress] gets (done, total) tiles. The result is backed
+    /// by a temporary file mapped into memory, so its pixels never count as the app's own memory.
     public func upscale(folder: URL, image: CGImage, onProgress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }) async throws -> CGImage {
-        cancelled = false
+        let token = requests.withLock { r in
+            let token = r.next
+            r.next += 1
+            r.cancelled[token] = false
+            return token
+        }
+        defer { _ = requests.withLock { $0.cancelled.removeValue(forKey: token) } }
         let m = try await load(folder)
+        guard Self.fits(width: image.width, height: image.height, scale: m.scale) else {
+            throw EngineError("TOO_LARGE", "this image is too large to upscale on this phone right now")
+        }
         let tiling = UpscaleTiling(tile: m.tile, overlap: min(Self.overlap, m.tile / 4), scale: m.scale)
         let width = image.width, height = image.height
         let source = try Self.rgba(image)
         let outW = width * m.scale, outH = height * m.scale
-        var out = [UInt8](repeating: 255, count: outW * outH * 4)
+        let out = try MappedPixels(count: outW * outH * 4)
         let tiles = tiling.tiles(width: width, height: height)
         for (i, t) in tiles.enumerated() {
             try Task.checkCancellation()
-            if cancelled { throw EngineError.cancelled }
+            if requests.withLock({ $0.cancelled[token] ?? true }) { throw EngineError.cancelled }
             let input = try Self.tileBuffer(source, width: width, tile: t, size: m.tile)
             let result = try Self.predict(m.model, MLDictionaryFeatureProvider(dictionary: [m.input: MLFeatureValue(pixelBuffer: input)]))
             guard let buffer = result.featureValue(for: m.output)?.imageBufferValue else {
                 throw EngineError("BAD_RESULT", "the upscaler returned no image")
             }
-            Self.blend(buffer, into: &out, outWidth: outW, tile: t, tiling: tiling)
+            Self.blend(buffer, into: out.pixels, outWidth: outW, tile: t, tiling: tiling)
             onProgress(i + 1, tiles.count)
         }
-        return try Self.image(out, width: outW, height: outH)
+        return try Self.image(out.finish(), width: outW, height: outH)
     }
 
+    /// Stops the running upscale after the current tile.
     public nonisolated func cancel() {
-        Task { await self.markCancelled() }
+        requests.withLock { r in
+            for key in r.cancelled.keys { r.cancelled[key] = true }
+        }
     }
-
-    private func markCancelled() { cancelled = true }
 
     /// Frees the model.
     public func unload() { loaded = nil }
@@ -192,8 +225,8 @@ public actor UpscaleEngine {
         return pb
     }
 
-    /// Cross-fades the tile's output into [out] (RGBA) with the tiling's edge ramps.
-    static func blend(_ buffer: CVPixelBuffer, into out: inout [UInt8], outWidth: Int, tile t: UpscaleTiling.Tile, tiling: UpscaleTiling) {
+    /// Cross-fades the tile's output into [dst] (RGBA) with the tiling's edge ramps.
+    static func blend(_ buffer: CVPixelBuffer, into dst: UnsafeMutableBufferPointer<UInt8>, outWidth: Int, tile t: UpscaleTiling.Tile, tiling: UpscaleTiling) {
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         let row = CVPixelBufferGetBytesPerRow(buffer)
@@ -201,7 +234,7 @@ public actor UpscaleEngine {
         let bgra = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA
         let s = tiling.scale
         let (ri, bi) = bgra ? (2, 0) : (0, 2)
-        out.withUnsafeMutableBufferPointer { dst in
+        do {
             for dy in 0 ..< t.height * s {
                 for dx in 0 ..< t.width * s {
                     let w = tiling.weight(t, dx: dx, dy: dy)
@@ -223,12 +256,57 @@ public actor UpscaleEngine {
         }
     }
 
-    static func image(_ rgba: [UInt8], width: Int, height: Int) throws -> CGImage {
-        guard let provider = CGDataProvider(data: Data(rgba) as CFData),
+    static func image(_ rgba: Data, width: Int, height: Int) throws -> CGImage {
+        guard let provider = CGDataProvider(data: rgba as CFData),
               let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
                                   provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
         else { throw EngineError("BAD_IMAGE", "cannot build the upscaled image") }
         return image
+    }
+}
+
+/**
+ The upscaled pixels in a temporary file mapped into memory: written tile by tile, then handed
+ over as mapped `Data` (the file is unlinked at once; the mapping keeps it alive). File-backed
+ pages can be written out and dropped under pressure, so a large result does not push the app
+ over its memory limit.
+ */
+final class MappedPixels {
+    let pixels: UnsafeMutableBufferPointer<UInt8>
+    private let url: URL
+    private var mapped: Bool
+
+    init(count: Int) throws {
+        url = FileManager.default.temporaryDirectory.appending(path: "upscale-\(UUID().uuidString).rgba")
+        let fd = open(url.path, O_RDWR | O_CREAT | O_EXCL, 0o600)
+        guard fd >= 0 else { throw EngineError("NO_MEMORY", "cannot create the output file") }
+        defer { close(fd) }
+        guard ftruncate(fd, off_t(count)) == 0,
+              let base = mmap(nil, count, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0), base != UnsafeMutableRawPointer(bitPattern: -1)
+        else {
+            unlink(url.path)
+            throw EngineError("NO_MEMORY", "not enough storage for the upscaled image")
+        }
+        pixels = UnsafeMutableBufferPointer(start: base.assumingMemoryBound(to: UInt8.self), count: count)
+        mapped = true
+    }
+
+    /// The pixels as file-backed `Data`; the writable mapping and the file name are gone afterwards.
+    func finish() throws -> Data {
+        unmap()
+        defer { unlink(url.path) }
+        return try Data(contentsOf: url, options: .alwaysMapped)
+    }
+
+    private func unmap() {
+        guard mapped else { return }
+        munmap(pixels.baseAddress, pixels.count)
+        mapped = false
+    }
+
+    deinit {
+        unmap()
+        unlink(url.path)
     }
 }

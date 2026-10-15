@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,10 +27,13 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -38,9 +43,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.motion.InkMath
+import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkSlide
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.Locale
 
 /** Uppercase, tracked mono caption: `// SAMPLER`, `CTX`, `SEED`. */
@@ -203,7 +211,10 @@ fun ValueSlider(
     }
 }
 
-/** Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. */
+/**
+ * Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The red selection block slides
+ * to the new option (ease-out, `transitionMillis`) and leaves a one-frame registration ghost.
+ */
 @Composable
 fun <T> Segmented(
     options: List<T>,
@@ -213,26 +224,43 @@ fun <T> Segmented(
     modifier: Modifier = Modifier,
 ) {
     val shape = MaterialTheme.shapes.small
+    val slide = rememberInkSlide(options.indexOf(selected).coerceAtLeast(0))
+    val block = MaterialTheme.colorScheme.primary
+    val n = options.size.coerceAtLeast(1)
     Row(
         modifier = modifier
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .clip(shape)
+            .drawBehind {
+                val divider = 1.dp.toPx()
+                val slot = (size.width - divider * (n - 1)) / n
+                if (slide.ghost) {
+                    val g = Motion.registerOffset.dp.toPx()
+                    drawRect(block, Offset(slide.ghostSlot * (slot + divider) + g, g), Size(slot, size.height), alpha = 0.4f)
+                }
+                drawRect(block, Offset(slide.position * (slot + divider), 0f), Size(slot, size.height))
+            }
             .selectableGroup(),
     ) {
         options.forEachIndexed { index, option ->
             val isSelected = option == selected
             if (index > 0) Box(Modifier.width(1.dp).height(34.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            val text by animateColorAsState(
+                if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                tween(if (LocalInkMotion.current.reduced) 0 else Motion.transitionMillis),
+                label = "segment",
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(34.dp)
-                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
                     .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(option) }),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label(option).uppercase(Locale.ROOT),
                     style = AutobotTheme.styles.micro,
-                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = text,
                     maxLines = 1,
                 )
             }

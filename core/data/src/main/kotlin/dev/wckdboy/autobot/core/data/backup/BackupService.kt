@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.SessionEventRepository
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.IoDispatcher
+import dev.wckdboy.autobot.core.data.model.ChatFolderRow
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.Provider
@@ -22,6 +23,8 @@ import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.shared.backup.BackupConversation
 import dev.wckdboy.autobot.shared.backup.BackupException
+import dev.wckdboy.autobot.shared.backup.BackupFolder
+import dev.wckdboy.autobot.shared.backup.FolderImport
 import dev.wckdboy.autobot.shared.backup.BackupImage
 import dev.wckdboy.autobot.shared.backup.BackupManifest
 import dev.wckdboy.autobot.shared.backup.BackupProvider
@@ -88,7 +91,10 @@ class BackupService @Inject constructor(
             providers = providers.observeProviders().first().map {
                 BackupProvider(it.id, it.kind.name, it.displayName, it.baseUrl, it.defaultModel, it.routing.name, it.presetId, it.helperModel)
             },
-            conversations = conversations.map { BackupConversation(it.id, it.title, it.providerId, it.model, it.createdAt, it.updatedAt) },
+            conversations = conversations.map {
+                BackupConversation(it.id, it.title, it.providerId, it.model, it.createdAt, it.updatedAt, it.pinned, it.archived, it.folderId)
+            },
+            folders = db.chatFolderDao().all().map { BackupFolder(it.id, it.name, it.createdAt) },
             gallery = images.map { it.toBackup() },
             attachments = attachmentIds.toList(),
             memory = memory.all(),
@@ -131,9 +137,12 @@ class BackupService @Inject constructor(
                                 added = added.copy(providers = added.providers + 1)
                             }
                         }
+                        val folders = importFolders(m)
                         m.conversations.forEach { c ->
                             if (db.conversationDao().get(c.id) == null) {
-                                db.conversationDao().upsert(Conversation(c.id, c.title, c.providerId, c.model, c.createdAt, c.updatedAt))
+                                db.conversationDao().upsert(
+                                    Conversation(c.id, c.title, c.providerId, c.model, c.createdAt, c.updatedAt, c.pinned, c.archived, folders.localId(c.folderId)),
+                                )
                                 newConversations += c.id
                             }
                         }
@@ -203,6 +212,14 @@ class BackupService @Inject constructor(
         override fun timeout(): Timeout = Timeout.NONE
 
         override fun close() = Unit
+    }
+
+    /** Adds the export's folders, merging those that exist by id or name ([FolderImport]). */
+    private suspend fun importFolders(manifest: BackupManifest): FolderImport {
+        val dao = database.get().chatFolderDao()
+        val plan = FolderImport.plan(dao.all().map { BackupFolder(it.id, it.name, it.createdAt) }, manifest.folders)
+        plan.create.forEach { dao.upsert(ChatFolderRow(it.id, it.name, it.createdAt)) }
+        return plan
     }
 
     /** Adds notes whose id is new, up to the memory cap; existing notes are kept as they are. */

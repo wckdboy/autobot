@@ -17,6 +17,7 @@ import dev.wckdboy.autobot.agent.core.session.LogEntry
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.SessionJson
 import dev.wckdboy.autobot.agent.core.session.SessionStore
+import dev.wckdboy.autobot.agent.core.session.StoredLog
 import dev.wckdboy.autobot.agent.core.tools.ToolExecutor
 import dev.wckdboy.autobot.agent.core.tools.ToolRegistry
 import dev.wckdboy.autobot.agent.core.tools.UserQuestion
@@ -27,6 +28,7 @@ import dev.wckdboy.autobot.agent.runtime.WebFetchTool
 import dev.wckdboy.autobot.agent.runtime.workspace.FileTools
 import dev.wckdboy.autobot.agent.runtime.workspace.Workspace
 import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
+import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceJournal
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
@@ -43,6 +45,8 @@ import dev.wckdboy.autobot.shared.memory.BridgedMemoryStore
 import dev.wckdboy.autobot.shared.memory.Memory
 import dev.wckdboy.autobot.shared.memory.MemoryStoreBridge
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
+import dev.wckdboy.autobot.shared.vault.VaultHost
+import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import dev.wckdboy.autobot.shared.search.WebSearchSource
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.core.network.AuditLog
@@ -52,7 +56,10 @@ import dev.wckdboy.autobot.shared.session.receiptsPlugin
 import dev.wckdboy.autobot.shared.session.projectSession
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -74,6 +81,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okio.Path.Companion.toPath
 
 /**
@@ -153,6 +163,20 @@ class ApprovalState(
 @Serializable
 class QuestionState(val callId: String, val question: String, val options: List<String>, val multiSelect: Boolean)
 
+/** A [SessionState] without its projection, which [AgentBridge.open] encodes only when it changes. */
+@Serializable
+internal class SessionFrame(
+    val sessionId: String,
+    val live: LiveState?,
+    val running: Boolean,
+    val approvals: List<ApprovalState>,
+    val question: QuestionState?,
+    val toolsEnabled: Boolean,
+    val permission: String,
+    val provider: String,
+    val model: String,
+)
+
 /** Everything a chat screen renders, computed by the same code as on Android. */
 @Serializable
 class SessionState(
@@ -175,6 +199,9 @@ class SessionState(
  *
  * [audit] is the host's audit log (the one its [transport] records into): each turn's privacy
  * receipt lists the traffic it tied to that turn. Null leaves the receipts' network part unknown.
+ *
+ * [journalDir] holds the undo journal (copies of files the agent replaced); keep it next to the
+ * workspace with the same file protection. Null turns undo off.
  */
 class AgentBridge(
     workspaceDir: String,
@@ -185,9 +212,15 @@ class AgentBridge(
     images: ImageStoreBridge?,
     mcpTokens: McpTokenSource,
     audit: AuditLog? = null,
+    journalDir: String? = null,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // An exception escaping a launch must not reach Kotlin/Native's default handler, which
+    // terminates the process: it is logged and only that job ends.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, t -> println("AgentBridge: ${t::class.simpleName}: ${t.message}") },
+    )
     val workspace = Workspace(workspaceDir.toPath())
+    private val journal = journalDir?.let { WorkspaceJournal(workspace, it.toPath()) }
     val harness = Harness()
     private val contexts = WorkspaceContexts(workspace)
     private val sessions = BridgedSessionStore(store)
@@ -251,7 +284,7 @@ class AgentBridge(
                 }
             },
         )
-        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
+        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))
         root.plugin(contexts.plugin)
         root.plugin(mcp.plugin)
@@ -289,12 +322,13 @@ class AgentBridge(
      * Providers screen "test connection": [callback] gets success, a summary (model count and the
      * first ids, or the error) and, on success, the model list to cache ([ModelCache] JSON).
      */
-    fun testConnection(spec: ProviderSpec, callback: (Boolean, String, String?) -> Unit) {
-        scope.launch {
-            when (val result = chatProvider(spec).testConnection()) {
-                is ConnectionTestResult.Success -> callback(true, result.summary(), cache(result.models, spec))
-                is ConnectionTestResult.Failure -> callback(false, result.message, null)
-            }
+    fun testConnection(spec: ProviderSpec, callback: (Boolean, String, String?) -> Unit) = launchAnswering(
+        callback = { (ok, message, models): Triple<Boolean, String, String?> -> callback(ok, message, models) },
+        failed = { Triple(false, it, null) },
+    ) {
+        when (val result = chatProvider(spec).testConnection()) {
+            is ConnectionTestResult.Success -> Triple(true, result.summary(), cache(result.models, spec))
+            is ConnectionTestResult.Failure -> Triple(false, result.message, null)
         }
     }
 
@@ -307,20 +341,40 @@ class AgentBridge(
     }
 
     /** MCP "test connection" (initialize + tools/list); [callback] gets the tool count or an error message. */
-    fun testMcpServer(spec: McpServerSpec, token: String?, callback: (Boolean, String) -> Unit) {
-        scope.launch {
-            McpHub.test(transport, spec, token)
-                .onSuccess { callback(true, it.toString()) }
-                .onFailure { callback(false, McpHub.describe(it)) }
-        }
+    fun testMcpServer(spec: McpServerSpec, token: String?, callback: (Boolean, String) -> Unit) = launchAnswering(
+        callback = { (ok, message): Pair<Boolean, String> -> callback(ok, message) },
+        failed = { false to it },
+    ) {
+        McpHub.test(transport, spec, token).fold({ true to it.toString() }, { false to McpHub.describe(it) })
     }
 
     /** Fetches the provider's chat models; [callback] gets the [ModelCache] JSON or an error message. */
-    fun listModels(spec: ProviderSpec, callback: (String?, String?) -> Unit) {
-        scope.launch {
-            when (val result = chatProvider(spec).listModels()) {
-                is ModelListResult.Success -> callback(cache(result.models, spec), null)
-                is ModelListResult.Failure -> callback(null, result.message)
+    fun listModels(spec: ProviderSpec, callback: (String?, String?) -> Unit) = launchAnswering(
+        callback = { (models, error): Pair<String?, String?> -> callback(models, error) },
+        failed = { null to it },
+    ) {
+        when (val result = chatProvider(spec).listModels()) {
+            is ModelListResult.Success -> cache(result.models, spec) to null
+            is ModelListResult.Failure -> null to result.message
+        }
+    }
+
+    /**
+     * Runs [block] on the bridge scope and hands its result to [callback] exactly once. When the
+     * block fails, is cancelled, or never starts because the bridge was shut down, [callback]
+     * gets [failed] with a message instead, so a host awaiting it (a Swift continuation) always
+     * resumes.
+     */
+    private fun <R> launchAnswering(callback: (R) -> Unit, failed: (String) -> R, block: suspend () -> R) {
+        val answered = AtomicBoolean(false)
+        fun answer(result: R) {
+            if (answered.compareAndSet(expectedValue = false, newValue = true)) callback(result)
+        }
+        scope.launch { answer(block()) }.invokeOnCompletion { cause ->
+            when (cause) {
+                null -> Unit
+                is CancellationException -> answer(failed("Cancelled"))
+                else -> answer(failed(cause.message ?: (cause::class.simpleName ?: "error")))
             }
         }
     }
@@ -358,37 +412,60 @@ class AgentBridge(
     fun open(sessionId: String, providerId: String, model: String, listener: SessionListener): Cancellable {
         val job = scope.launch {
             val a = agent(sessionId, providerId, model)
-            combine(
-                combine(a.log.entries, a.runningTools, interactions) { e, r, i -> Triple(e, r, i) },
-                a.live,
-                a.status,
-                a.config,
-                a.permission,
-            ) { (entries, runningTools, pending), live, status, config, permission ->
+            // Tool summaries parse the call's arguments: once per call, not once per frame.
+            val summaries = HashMap<String, String>()
+            var last = EncodedProjection(SessionProjection(emptyList(), emptyList(), null, null))
+            // The transcript is re-projected (and re-encoded) only when the log, the running tools
+            // or the pending interactions change; streamed chunks reuse it.
+            val transcript = combine(a.log.entries, a.runningTools, interactions) { entries, runningTools, pending ->
                 val mine = pending.filter { it.sessionId == sessionId }
                 val approvals = mine.filterIsInstance<Pending.Approval>().map { it.state }
                 val question = mine.filterIsInstance<Pending.Question>().firstOrNull()?.let {
                     QuestionState(it.callId, it.question.question, it.question.options, it.question.multiSelect)
                 }
-                val projection = projectSession(entries, approvals.map { it.callId }.toSet(), runningTools) { name, args -> describe(a, name, args) }
-                SessionState(
-                    sessionId = sessionId,
-                    projection = projection,
-                    live = live?.toState(),
-                    running = status == AgentStatus.RUNNING,
-                    approvals = approvals,
-                    question = question,
-                    toolsEnabled = config.toolsEnabled,
-                    permission = permission.label,
-                    provider = config.llm.provider,
-                    model = config.llm.model,
+                last = try {
+                    EncodedProjection(
+                        projectSession(entries, approvals.map { it.callId }.toSet(), runningTools) { name, args ->
+                            summaries.getOrPut("$name\u0000$args") { describe(a, name, args) }
+                        },
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (t: Throwable) {
+                    // Never lose the screen over one row: keep showing the last good transcript.
+                    last
+                }
+                Triple(last, approvals, question)
+            }
+            combine(transcript, a.live, a.status, a.config, a.permission) { (projection, approvals, question), live, status, config, permission ->
+                projection.splice(
+                    SessionFrame(
+                        sessionId = sessionId,
+                        live = live?.toState(),
+                        running = status == AgentStatus.RUNNING,
+                        approvals = approvals,
+                        question = question,
+                        toolsEnabled = config.toolsEnabled,
+                        permission = permission.label,
+                        provider = config.llm.provider,
+                        model = config.llm.model,
+                    ),
                 )
-            }.conflate().collect { state ->
-                listener.onState(BridgeJson.encodeToString(SessionState.serializer(), state))
+            }.conflate().collect { json ->
+                listener.onState(json)
                 delay(FRAME_MS)
             }
         }
         return Cancellable { job.cancel() }
+    }
+
+    /** A projection encoded once and spliced into every frame until the transcript changes. */
+    private class EncodedProjection(projection: SessionProjection) {
+        private val json = BridgeJson.encodeToString(SessionProjection.serializer(), projection)
+
+        /** The [SessionState] JSON: [frame]'s fields plus `projection`. */
+        fun splice(frame: SessionFrame): String =
+            "{\"projection\":" + json + "," + BridgeJson.encodeToString(SessionFrame.serializer(), frame).removePrefix("{")
     }
 
     /** Sessions with a turn in progress, for list indicators. */
@@ -435,8 +512,18 @@ class AgentBridge(
         a.ctx[Compactor.Key]?.compact(a, "manual")
     }
 
+    /** Undoes one file step (and later changes to the same files); only while the session is idle. */
+    fun undoStep(sessionId: String, callId: String) = withAgent(sessionId) { a -> journal?.undoStep(a, callId) }
+
+    /** Undoes every file change of [turn]. */
+    fun undoTurn(sessionId: String, turn: Int) = withAgent(sessionId) { a -> journal?.undoTurn(a, turn) }
+
+    /** Re-applies what an undo ([revertId]) put back. */
+    fun redo(sessionId: String, revertId: String) = withAgent(sessionId) { a -> journal?.redo(a, revertId) }
+
     /** Stops and forgets the agent (before deleting its conversation). */
     fun discard(sessionId: String) {
+        journal?.drop(sessionId)
         scope.launch {
             val agent = mutex.withLock {
                 watchers.remove(sessionId)?.cancel()
@@ -450,6 +537,8 @@ class AgentBridge(
 
     /** Panic wipe: stop every agent and the bridge itself. */
     fun shutdown(done: () -> Unit) {
+        // [done] runs once in every case, also when the bridge is already shut down.
+        val finished = AtomicBoolean(false)
         scope.launch {
             val all = mutex.withLock {
                 watchers.values.forEach { it.cancel() }
@@ -458,7 +547,8 @@ class AgentBridge(
             }
             all.forEach { runCatching { it.dispose() } }
             runCatching { mcp.close() }
-            done()
+        }.invokeOnCompletion {
+            if (finished.compareAndSet(expectedValue = false, newValue = true)) done()
             scope.cancel()
         }
     }
@@ -468,10 +558,15 @@ class AgentBridge(
      * permission gate as the built-in tools. Registering a name again replaces the tool.
      */
     fun registerTool(tool: HostTool) {
-        harness.root.plugin(toolsPlugin("host:${tool.name}", HostToolDefinition(tool)))
+        try {
+            harness.root.plugin(toolsPlugin("host:${tool.name}", HostToolDefinition(tool)))
+        } catch (t: Throwable) {
+            println("AgentBridge: tool ${tool.name} not registered: ${t.message}")
+        }
     }
 
     private var memoryHandle: Disposable? = null
+    private var vaultHandle: Disposable? = null
     private var searchHandle: Disposable? = null
 
     private class QuotaFallback(val enabled: Boolean, val onDevice: LlmCallConfig?)
@@ -498,6 +593,15 @@ class AgentBridge(
         memoryHandle = store?.let { harness.root.plugin(memoryPlugin(Memory(BridgedMemoryStore(it)))) }
     }
 
+    /**
+     * Private vault on ([host] = the host's encrypted vault and embedding engine) or off (null):
+     * `vault_search` and the vault context come and go with it, in every session.
+     */
+    fun setVault(host: VaultHost?) {
+        vaultHandle?.dispose()
+        vaultHandle = host?.let { harness.root.plugin(vaultPlugin(it.vault)) }
+    }
+
     /** `web_search` on (the host's current search settings, read per call) or off (null). */
     fun setWebSearch(source: WebSearchSource?) {
         searchHandle?.dispose()
@@ -505,7 +609,7 @@ class AgentBridge(
     }
 
     /** Skills found in the workspace, as `name: description` lines. */
-    fun skills(): List<String> = contexts.skills().map { "${it.name}: ${it.description}" }
+    fun skills(): List<String> = runCatching { contexts.skills().map { "${it.name}: ${it.description}" } }.getOrDefault(emptyList())
 
     /**
      * Runs [block] on the session's agent. A call made right after [open] (e.g. "chat" turning
@@ -516,7 +620,14 @@ class AgentBridge(
             val agent = mutex.withLock { agents[sessionId] }
                 ?: withTimeoutOrNull(OPEN_WAIT_MS) { created.map { it[sessionId] }.filterNotNull().first() }
                 ?: return@launch
-            block(agent)
+            try {
+                block(agent)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                // e.g. the store failing to log a settings change: the call is dropped, the bridge lives.
+                println("AgentBridge: ${t::class.simpleName}: ${t.message}")
+            }
         }
     }
 
@@ -545,19 +656,31 @@ class AgentBridge(
     }
 }
 
-/** [SessionStore] over the host's [SessionStoreBridge]; unreadable lines are skipped. */
+/**
+ * [SessionStore] over the host's [SessionStoreBridge]; unreadable lines are skipped, but their
+ * seq still counts (read from the raw line, or else one above the line before), so the next
+ * append goes above them.
+ */
 internal class BridgedSessionStore(private val bridge: SessionStoreBridge) : SessionStore {
-    override suspend fun load(sessionId: String): List<LogEntry> = withContext(IoDispatcher) {
-        bridge.load(sessionId).mapNotNull { line ->
-            try {
+    override suspend fun load(sessionId: String): List<LogEntry> = loadLog(sessionId).entries
+
+    override suspend fun loadLog(sessionId: String): StoredLog = withContext(IoDispatcher) {
+        var lastSeq = 0L
+        val entries = bridge.load(sessionId).mapNotNull { line ->
+            val entry = try {
                 SessionJson.decodeFromString(LogEntry.serializer(), line)
             } catch (_: SerializationException) {
                 null
             } catch (_: IllegalArgumentException) {
                 null
             }
+            lastSeq = maxOf(lastSeq, entry?.seq ?: rawSeq(line) ?: (lastSeq + 1))
+            entry
         }
+        StoredLog(entries, lastSeq)
     }
+
+    private fun rawSeq(line: String): Long? = runCatching { Json.parseToJsonElement(line).jsonObject["seq"]?.jsonPrimitive?.longOrNull }.getOrNull()
 
     override suspend fun append(sessionId: String, entries: List<LogEntry>) = withContext(IoDispatcher) {
         bridge.append(sessionId, entries.map { SessionJson.encodeToString(LogEntry.serializer(), it) })

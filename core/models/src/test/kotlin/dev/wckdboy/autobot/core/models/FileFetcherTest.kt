@@ -10,6 +10,7 @@ import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.SocketEffect
 import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -85,6 +86,33 @@ class FileFetcherTest {
         assertEquals("bytes=100000-", server.takeRequest().headers["Range"])
         assertEquals(sha, result.sha256)
         assertTrue(target.readBytes().contentEquals(content))
+    }
+
+    @Test
+    fun connectionDroppedMidFileResumesWithRangeInANewProcess() = runBlocking {
+        val target = File(dir, "out.gguf")
+        // The connection dies part-way through the body: what arrived stays in the part file.
+        server.enqueue(MockResponse.Builder().code(200).body(Buffer().write(content)).onResponseBody(SocketEffect.CloseSocket()).build())
+        val first = runCatching { fetcher.fetch(file(sha256 = sha).copy(sizeBytes = content.size.toLong()), target, null) { _, _ -> } }
+        assertTrue(first.isFailure)
+        val kept = File(target.path + ".part").length()
+        assertTrue("some bytes kept ($kept)", kept in 1 until content.size)
+        server.takeRequest()
+
+        // A new process: a fresh fetcher continues from the part file with Range.
+        server.enqueue(
+            MockResponse.Builder().code(206)
+                .setHeader("Content-Range", "bytes $kept-${content.size - 1}/${content.size}")
+                .body(Buffer().write(content.copyOfRange(kept.toInt(), content.size)))
+                .build(),
+        )
+        val again = FileFetcher(HttpClientFactory(NetworkPolicy(), AuditLog(capacity = 50, clock = { 0L })))
+        val result = again.fetch(file(sha256 = sha).copy(sizeBytes = content.size.toLong()), target, null) { _, _ -> }
+
+        assertEquals("bytes=$kept-", server.takeRequest().headers["Range"])
+        assertEquals(sha, result.sha256)
+        assertTrue(target.readBytes().contentEquals(content))
+        assertFalse(File(target.path + ".part").exists())
     }
 
     @Test

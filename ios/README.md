@@ -152,7 +152,7 @@ generation, deletes every Keychain item, the database, files, caches and default
 | Text-to-speech | `AVSpeechSynthesizer` | |
 | Model manager, catalog, HF browser, accounts | Same; image catalog is Core ML | chat/code/speech entries shared |
 | Civitai browser | Browser and account; checkpoints/LoRAs are for PC backends | Core ML cannot load them |
-| Foreground download service | Background `URLSession` | resume by Range, SHA-256 verified |
+| User-initiated transfer job | Background `URLSession` (relaunches the app in the background to verify and chain files) | resume by Range, SHA-256 verified |
 | Compute screen (CPU/GPU/NPU) | CPU / GPU (Metal) / Neural Engine, force backend, benchmark, auto = fastest | |
 | A1111/Forge and SSE backends | Same | |
 | MCP servers (Room row + Keystore token) | MCP servers (`EncryptedStore` row + Keychain token) | client, tools and approval gate are shared Kotlin |

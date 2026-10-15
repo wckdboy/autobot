@@ -49,6 +49,8 @@ import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.shared.memory.MemoryNote
 import dev.wckdboy.autobot.shared.memory.MemoryRules
 import dev.wckdboy.autobot.shared.memory.SaveResult
@@ -145,6 +147,7 @@ fun MemoryScreen(
     var draft by remember { mutableStateOf<Draft?>(null) }
     var confirmDeleteAll by rememberSaveable { mutableStateOf(false) }
     val dates = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
+    val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -206,12 +209,12 @@ fun MemoryScreen(
                         val tagLine: (@Composable () -> Unit)? =
                             if (note.tags.isEmpty()) null else ({ Text(note.tags.joinToString(" ") { "#$it" }) })
                         ListItem(
-                            modifier = Modifier.clickable { draft = Draft(note.id, note.text, note.tags.joinToString(", ")) },
+                            modifier = Modifier.inkDissolve(dissolve, note.id).clickable { draft = Draft(note.id, note.text, note.tags.joinToString(", ")) },
                             overlineContent = { Text(note.id + " · " + dates.format(Date(note.updatedAt))) },
                             headlineContent = { Text(note.text, maxLines = 4, overflow = TextOverflow.Ellipsis) },
                             supportingContent = tagLine,
                             trailingContent = {
-                                IconButton(onClick = { onDelete(note.id) }) { Icon(Icons.Filled.Delete, contentDescription = "Delete note ${note.id}") }
+                                IconButton(onClick = { dissolve.dissolve(note.id) { onDelete(note.id) } }) { Icon(Icons.Filled.Delete, contentDescription = "Delete note ${note.id}") }
                             },
                         )
                     }

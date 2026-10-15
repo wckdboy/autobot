@@ -131,7 +131,7 @@ class RunViewModel @Inject constructor(
         val titles = models.associate { it.id to it.title }
         val local = input.providers.firstOrNull { it.kind == ProviderKind.LOCAL }
         val remote = input.providers.filter { it.kind != ProviderKind.LOCAL }
-        val readyChat = models.filter { it.isReady && it.engine == EngineKind.LLAMA }
+        val readyChat = models.filter { it.isLocalChat }
         val codeModel = readyChat.firstOrNull { it.kind == ModelKind.CODE }
 
         fun target(p: Provider, model: String = p.defaultModel) =
@@ -151,7 +151,7 @@ class RunViewModel @Inject constructor(
 
         val providerById = input.providers.associateBy { it.id }
         val recent = (
-            convs.take(12).map { c ->
+            convs.filterNot { it.archived }.take(12).map { c ->
                 RecentRun(
                     key = "c-${c.id}",
                     title = c.title,

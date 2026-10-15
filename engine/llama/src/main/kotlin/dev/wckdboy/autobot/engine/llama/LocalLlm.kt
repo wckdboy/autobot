@@ -201,6 +201,20 @@ class LocalLlm(context: Context, private val idleMillis: Long = 5 * 60_000L) {
         }
     }
 
+    /**
+     * Embeds [texts] with the GGUF embedding model at [modelPath], in the engine process: one
+     * L2-normalised vector per text. Throws when the model cannot be loaded or run.
+     */
+    suspend fun embed(modelPath: String, texts: List<String>): List<FloatArray> {
+        if (texts.isEmpty()) return emptyList()
+        // The embedding model is loaded next to the chat model: free the image engines first.
+        beforeJob()
+        val flat = call { it.embed(modelPath, texts.toTypedArray()) }
+            ?: throw IllegalStateException("The embedding model could not be loaded or run")
+        val dims = flat.size / texts.size
+        return List(texts.size) { i -> flat.copyOfRange(i * dims, (i + 1) * dims) }
+    }
+
     /** Frees the resident model now (e.g. before image generation needs the memory). */
     fun unloadModel() {
         runCatching { engine?.unload() }

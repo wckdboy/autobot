@@ -9,6 +9,8 @@ struct AccountsScreen: View {
     @State private var hfToken = ""
     @State private var civitaiKey = ""
     @State private var busy = false
+    /// The panel whose check runs (its button shows the loader).
+    @State private var busyPanel = ""
     @State private var message: String?
     @State private var confirmMature = false
 
@@ -33,7 +35,8 @@ struct AccountsScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                         if accounts.huggingFaceUser == nil {
                             ConsoleTextField(text: $hfToken, placeholder: "hf_…", kind: .secret)
-                            PrimaryButton("Verify & save", enabled: !hfToken.trimmingCharacters(in: .whitespaces).isEmpty && !busy) {
+                            PrimaryButton("Verify & save", enabled: !hfToken.trimmingCharacters(in: .whitespaces).isEmpty && !busy, busy: busy && busyPanel == "hf") {
+                                busyPanel = "hf"
                                 let token = Secret(hfToken.trimmingCharacters(in: .whitespacesAndNewlines))
                                 hfToken = ""
                                 run {
@@ -54,7 +57,8 @@ struct AccountsScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                         if accounts.civitaiUser == nil {
                             ConsoleTextField(text: $civitaiKey, placeholder: "api key", kind: .secret)
-                            PrimaryButton("Verify & save", enabled: !civitaiKey.trimmingCharacters(in: .whitespaces).isEmpty && !busy) {
+                            PrimaryButton("Verify & save", enabled: !civitaiKey.trimmingCharacters(in: .whitespaces).isEmpty && !busy, busy: busy && busyPanel == "civitai") {
+                                busyPanel = "civitai"
                                 let key = Secret(civitaiKey.trimmingCharacters(in: .whitespacesAndNewlines))
                                 civitaiKey = ""
                                 run {

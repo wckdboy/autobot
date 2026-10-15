@@ -100,14 +100,16 @@ final class LocalLlm: Sendable {
     ) async throws -> LocalLlmResult {
         #if canImport(AutobotEngines)
         do {
-            let r = try await LlamaEngine.shared.chat(
-                modelPath: modelPath,
-                mmprojPath: mmprojPath,
-                contextLength: contextLength,
-                backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto,
-                requestJSON: requestJSON,
-                onDelta: { kind, text in onDelta(kind == .reasoning ? .reasoning(text) : .content(text)) },
-            )
+            let r = try await EngineMemory.using(.llm) {
+                try await LlamaEngine.shared.chat(
+                    modelPath: modelPath,
+                    mmprojPath: mmprojPath,
+                    contextLength: contextLength,
+                    backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto,
+                    requestJSON: requestJSON,
+                    onDelta: { kind, text in onDelta(kind == .reasoning ? .reasoning(text) : .content(text)) },
+                )
+            }
             return LocalLlmResult(
                 content: r.content,
                 reasoning: r.reasoning,
@@ -140,14 +142,16 @@ final class LocalLlm: Sendable {
     ) async throws -> String {
         #if canImport(AutobotEngines)
         do {
-            return try await LlamaEngine.shared.chat(
-                modelPath: modelPath,
-                mmprojPath: mmprojPath,
-                contextLength: contextLength,
-                backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto,
-                requestJSON: requestJSON,
-                onDelta: { kind, text in onDelta(kind == .reasoning ? .reasoning(text) : .content(text)) },
-            ).json
+            return try await EngineMemory.using(.llm) {
+                try await LlamaEngine.shared.chat(
+                    modelPath: modelPath,
+                    mmprojPath: mmprojPath,
+                    contextLength: contextLength,
+                    backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto,
+                    requestJSON: requestJSON,
+                    onDelta: { kind, text in onDelta(kind == .reasoning ? .reasoning(text) : .content(text)) },
+                ).json
+            }
         } catch {
             throw Engines.map(error)
         }
@@ -162,11 +166,25 @@ final class LocalLlm: Sendable {
         #endif
     }
 
-    /// Frees the resident model (before image generation needs the memory).
-    func unload() async {
+    /// Embeds [texts] with the GGUF embedding model at [modelPath] (the private vault). It shares
+    /// llama.cpp with the chat model, so it counts as the chat engine for [EngineMemory].
+    func embed(modelPath: String, texts: [String]) async throws -> [[Float]] {
         #if canImport(AutobotEngines)
-        await LlamaEngine.shared.unload()
+        do {
+            return try await EngineMemory.using(.llm) {
+                try await LlamaEngine.shared.embed(modelPath: modelPath, texts: texts)
+            }
+        } catch {
+            throw Engines.map(error)
+        }
+        #else
+        throw EngineUnavailable()
         #endif
+    }
+
+    /// Frees the resident models (panic wipe; image generation does it through [EngineMemory]).
+    func unload() async {
+        await EngineMemory.shared.release([.llm])
     }
 
     func devices() async -> [LocalDevice] {
@@ -203,10 +221,15 @@ final class LocalSpeech: Sendable {
         #endif
     }
 
-    /// Starts recording; see `AudioRecorder.start` for [managesSession] and [onLevel] (audio thread).
-    func start(managesSession: Bool = true, onLevel: @escaping @Sendable (Float) -> Void = { _ in }) throws {
+    /// Starts recording; see `AudioRecorder.start` for [managesSession], [onLevel] (audio thread)
+    /// and [onInterruption] (any thread: capture stopped, the samples so far are kept for [stop]).
+    func start(
+        managesSession: Bool = true,
+        onLevel: @escaping @Sendable (Float) -> Void = { _ in },
+        onInterruption: @escaping @Sendable () -> Void = {},
+    ) throws {
         #if canImport(AutobotEngines)
-        do { try recorder.start(managesSession: managesSession, onLevel: onLevel) } catch { throw Engines.map(error) }
+        do { try recorder.start(managesSession: managesSession, onLevel: onLevel, onInterruption: onInterruption) } catch { throw Engines.map(error) }
         #else
         throw EngineUnavailable()
         #endif
@@ -223,7 +246,13 @@ final class LocalSpeech: Sendable {
 
     func transcribe(modelPath: String, samples: [Float]) async throws -> String {
         #if canImport(AutobotEngines)
-        do { return try await SpeechEngine.shared.transcribe(modelPath: modelPath, pcm16kMono: samples) } catch { throw Engines.map(error) }
+        do {
+            return try await EngineMemory.using(.whisper) {
+                try await SpeechEngine.shared.transcribe(modelPath: modelPath, pcm16kMono: samples)
+            }
+        } catch {
+            throw Engines.map(error)
+        }
         #else
         throw EngineUnavailable()
         #endif

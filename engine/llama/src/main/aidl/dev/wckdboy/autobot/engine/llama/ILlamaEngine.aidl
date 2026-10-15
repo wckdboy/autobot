@@ -21,4 +21,11 @@ interface ILlamaEngine {
 
     /** Frees the loaded model. */
     oneway void unload();
+
+    /**
+     * Embeds [texts] with the embedding model at [modelPath] (loaded next to the chat model and
+     * kept until [unload]): texts.length × dims floats, each vector L2-normalised, or null when the
+     * model cannot be loaded or run. Blocks the caller; runs after any queued chat.
+     */
+    float[] embed(String modelPath, in String[] texts);
 }
