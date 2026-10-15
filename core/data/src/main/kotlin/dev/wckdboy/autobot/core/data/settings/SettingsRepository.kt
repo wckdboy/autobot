@@ -40,6 +40,7 @@ class SettingsRepository @Inject constructor(
                 incognitoByDefault = prefs[Keys.INCOGNITO_DEFAULT] ?: false,
                 onboarded = prefs[Keys.ONBOARDED] ?: false,
                 memoryEnabled = prefs[Keys.MEMORY_ENABLED] ?: false,
+                vaultEnabled = prefs[Keys.VAULT_ENABLED] ?: false,
                 searchProvider = SettingsSchema.searchProvider(prefs[Keys.SEARCH_PROVIDER]),
                 searchBaseUrl = prefs[Keys.SEARCH_BASE_URL].orEmpty(),
                 searchRoute = SettingsSchema.searchRoute(prefs[Keys.SEARCH_ROUTE]),
@@ -58,6 +59,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setIncognitoByDefault(enabled: Boolean) = edit { it[Keys.INCOGNITO_DEFAULT] = enabled }
     suspend fun setOnboarded() = edit { it[Keys.ONBOARDED] = true }
     suspend fun setMemoryEnabled(enabled: Boolean) = edit { it[Keys.MEMORY_ENABLED] = enabled }
+    suspend fun setVaultEnabled(enabled: Boolean) = edit { it[Keys.VAULT_ENABLED] = enabled }
     suspend fun setQuotaFallback(enabled: Boolean) = edit { it[Keys.QUOTA_FALLBACK] = enabled }
 
     suspend fun setWebSearch(provider: SearchProvider, baseUrl: String, route: RouteOverride) = edit {
@@ -81,6 +83,7 @@ class SettingsRepository @Inject constructor(
         val INCOGNITO_DEFAULT = booleanPreferencesKey(SettingsSchema.INCOGNITO_DEFAULT)
         val ONBOARDED = booleanPreferencesKey(SettingsSchema.ONBOARDED)
         val MEMORY_ENABLED = booleanPreferencesKey(SettingsSchema.MEMORY_ENABLED)
+        val VAULT_ENABLED = booleanPreferencesKey(SettingsSchema.VAULT_ENABLED)
         val SEARCH_PROVIDER = stringPreferencesKey(SettingsSchema.SEARCH_PROVIDER)
         val SEARCH_BASE_URL = stringPreferencesKey(SettingsSchema.SEARCH_BASE_URL)
         val SEARCH_ROUTE = stringPreferencesKey(SettingsSchema.SEARCH_ROUTE)

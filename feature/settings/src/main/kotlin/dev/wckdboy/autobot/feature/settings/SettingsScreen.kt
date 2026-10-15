@@ -68,6 +68,7 @@ data class SettingsUiState(
     val lockTimeoutMillis: Long = AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS,
     val incognitoByDefault: Boolean = false,
     val memoryEnabled: Boolean = false,
+    val vaultEnabled: Boolean = false,
     val quotaFallback: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.NONE,
     val offline: Boolean = false,
@@ -90,6 +91,7 @@ class SettingsViewModel @Inject constructor(
             lockTimeoutMillis = it.lockTimeoutMillis,
             incognitoByDefault = it.incognitoByDefault,
             memoryEnabled = it.memoryEnabled,
+            vaultEnabled = it.vaultEnabled,
             quotaFallback = it.quotaFallback,
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
@@ -121,6 +123,7 @@ fun SettingsRoute(
     onOpenImageBackends: () -> Unit = {},
     onOpenMcpServers: () -> Unit = {},
     onOpenMemory: () -> Unit = {},
+    onOpenVault: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -144,6 +147,7 @@ fun SettingsRoute(
         onOpenBackup = { showBackup = true },
         onMemoryEnabled = viewModel::setMemoryEnabled,
         onOpenMemory = onOpenMemory,
+        onOpenVault = onOpenVault,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
     )
@@ -167,6 +171,7 @@ fun SettingsScreen(
     onOpenMcpServers: () -> Unit = {},
     onMemoryEnabled: (Boolean) -> Unit = {},
     onOpenMemory: () -> Unit = {},
+    onOpenVault: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
 ) {
@@ -203,6 +208,11 @@ fun SettingsScreen(
                 onMemoryEnabled,
             )
             NavigationRow("Memory notes", "View, search, edit and delete what the agent remembers", onOpenMemory)
+            NavigationRow(
+                "Vault",
+                if (state.vaultEnabled) "On · your files, searched by meaning on this phone" else "Off · private search over your own files",
+                onOpenVault,
+            )
             SwitchRow(
                 "On limit, fall back",
                 "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",

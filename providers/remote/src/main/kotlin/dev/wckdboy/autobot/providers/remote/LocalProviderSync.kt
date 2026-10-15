@@ -3,7 +3,6 @@ package dev.wckdboy.autobot.providers.remote
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
-import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.models.SystemModel
 import javax.inject.Inject
@@ -29,7 +28,7 @@ class LocalProviderSync @Inject constructor(
         scope.launch { systemModel.refresh() }
         scope.launch {
             val installed = library.models
-                .map { list -> list.filter { it.isReady && it.engine == EngineKind.LLAMA }.sortedBy { it.addedAt }.map { it.id } }
+                .map { list -> list.filter { it.isLocalChat }.sortedBy { it.addedAt }.map { it.id } }
             combine(installed, systemModel.status) { ids, status -> localModels(ids, status) }
                 .distinctUntilChanged()
                 .collect { ids -> sync(ids) }

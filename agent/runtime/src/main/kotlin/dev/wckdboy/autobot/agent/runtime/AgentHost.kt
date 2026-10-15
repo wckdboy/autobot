@@ -39,6 +39,7 @@ import dev.wckdboy.autobot.providers.remote.ChatRoutes
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
+import dev.wckdboy.autobot.providers.remote.vault.OnDeviceVault
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
@@ -46,6 +47,7 @@ import dev.wckdboy.autobot.shared.search.SearchProvider
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.session.receiptsPlugin
+import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -112,6 +114,7 @@ class AgentHost @Inject constructor(
     private val attachments: AttachmentRepository,
     mcpServers: McpServerRepository,
     memory: MemoryRepository,
+    vault: OnDeviceVault,
     settings: SettingsRepository,
     search: WebSearchRepository,
     clients: HttpClientFactory,
@@ -187,6 +190,7 @@ class AgentHost @Inject constructor(
         // provider is chosen. Each plugin brings and takes away its tools and contexts.
         val searchTransport = OkHttpTransport(clients)
         toggle(settings.settings.map { it.memoryEnabled }) { memoryPlugin(memory.memory) }
+        toggle(settings.settings.map { it.vaultEnabled }) { vaultPlugin(vault.vault) }
         toggle(settings.settings.map { it.searchProvider != SearchProvider.NONE }) { webSearchPlugin(searchTransport) { search.config() } }
 
         root.intercept(Hooks.ApprovalRequest) { request, _ ->

@@ -114,7 +114,7 @@ class ComputeViewModel @Inject constructor(
     private val device = MutableStateFlow<DeviceProfile?>(null)
 
     val uiState: StateFlow<ComputeUiState> = combine(library.models, profile.benchmarks, devices, running, device) { models, results, d, r, p ->
-        val runnable = models.filter { it.isReady && (it.engine == EngineKind.LLAMA || (it.engine == EngineKind.NPU && it.manifest.npu?.arch != "upscaler")) }
+        val runnable = models.filter { it.isReady && (it.isLocalChat || (it.engine == EngineKind.NPU && it.manifest.npu?.arch != "upscaler")) }
         ComputeUiState(
             device = p,
             devices = d,

@@ -30,6 +30,10 @@ struct SettingsScreen: View {
                         isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
                     )
                     NavigationRow(title: "Memory notes", subtitle: "View, search, edit and delete what the agent remembers") { nav.push(.memory) }
+                    NavigationRow(
+                        title: "Vault",
+                        subtitle: settings.vaultEnabled ? "On · your files, searched by meaning on this phone" : "Off · private search over your own files",
+                    ) { nav.push(.vault) }
                     SwitchRow(
                         title: "On limit, fall back",
                         subtitle: "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",

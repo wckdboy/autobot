@@ -1083,7 +1083,7 @@ private struct ModelSheet: View {
     private func models(_ p: Provider) -> [RemoteModelItem] {
         // "This phone" lists every downloaded chat model, newest first, by title.
         var list = p.kind == .local
-            ? app.library.models.filter { $0.isReady && $0.engine == .llama }.sorted { $0.addedAt > $1.addedAt }.map { RemoteModelItem(id: $0.id, caption: $0.title) }
+            ? app.library.models.filter(\.isLocalChat).sorted { $0.addedAt > $1.addedAt }.map { RemoteModelItem(id: $0.id, caption: $0.title) }
             : ModelLists.models(app.providers.modelLists[p.id]?.json, presetId: ProviderPresets.resolve(p).id)
                 ?? ProviderPresets.resolve(p).suggestedModels.map { RemoteModelItem(id: $0, presetId: ProviderPresets.resolve(p).id) }
         // "This phone" also offers Apple Intelligence when it can answer.

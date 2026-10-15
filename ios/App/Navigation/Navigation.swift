@@ -26,6 +26,7 @@ enum Destination: Hashable {
     case compute
     case licenses
     case memory
+    case vault
 }
 
 /// One back stack whose root is a tab (Android's Navigation 3 `NavDisplay`).
@@ -55,6 +56,7 @@ final class Navigator {
             case "mcp": tab = .settings; path = [.mcpServers]
             case "licenses": tab = .settings; path = [.licenses]
             case "memory": tab = .settings; path = [.memory]
+            case "vault": tab = .settings; path = [.vault]
             default: break
             }
         }
@@ -134,6 +136,7 @@ struct AutobotNavHost: View {
         case .compute: ComputeScreen()
         case .licenses: LicensesScreen()
         case .memory: MemoryScreen()
+        case .vault: VaultScreen()
         }
     }
 }

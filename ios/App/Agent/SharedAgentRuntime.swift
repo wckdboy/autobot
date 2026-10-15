@@ -177,6 +177,9 @@ final class SharedAgentRuntime: AgentRuntime {
     /// Local memory on (the encrypted notes) or off: tools and recall come and go in every session.
     func setMemory(_ store: MemoryStoreHost?) { bridge.setMemory(store: store) }
 
+    /// The private vault on (`vault_search` in every session) or off.
+    func setVault(_ host: VaultHost?) { bridge.setVault(host: host) }
+
     /// `web_search` on (settings read per call) or off.
     func setWebSearch(_ source: WebSearchSourceHost?) { bridge.setWebSearch(source: source) }
 

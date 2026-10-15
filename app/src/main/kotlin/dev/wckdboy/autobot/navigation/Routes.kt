@@ -55,3 +55,6 @@ data object Compute : NavKey
 
 @Serializable
 data object Memory : NavKey
+
+@Serializable
+data object Vault : NavKey
