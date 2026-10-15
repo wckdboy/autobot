@@ -19,6 +19,7 @@ final class HostSnapshots: Sendable {
 
     private let providers = Mutex<[String: Provider]>([:])
     private let models = Mutex<[String: LocalModel]>([:])
+    private let mcpTokenRefs = Mutex<[String: String]>([:])
 
     func setProviders(_ list: [Provider]) { providers.withLock { $0 = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) } }
     func provider(_ id: String) -> Provider? { providers.withLock { $0[id] } }
@@ -26,6 +27,11 @@ final class HostSnapshots: Sendable {
     func setModels(_ map: [String: LocalModel]) { models.withLock { $0 = map } }
     func model(_ id: String) -> LocalModel? { models.withLock { $0[id] } }
     var readyModelCount: Int { models.withLock { $0.count } }
+
+    func setMcpServers(_ list: [McpServer]) {
+        mcpTokenRefs.withLock { $0 = Dictionary(list.compactMap { s in s.tokenRef.map { (s.id, $0) } }, uniquingKeysWith: { a, _ in a }) }
+    }
+    func mcpTokenRef(_ serverId: String) -> String? { mcpTokenRefs.withLock { $0[serverId] } }
 }
 
 /// A Kotlin-facing handle that cancels a Swift task.
@@ -59,6 +65,19 @@ final class ProviderDirectoryHost: NSObject, ProviderDirectory, @unchecked Senda
             route: p.routing.rawValue,
         )
     }
+}
+
+/// MCP bearer tokens, read from the Keychain only when the shared hub connects to that server.
+final class McpTokenSourceHost: NSObject, McpTokenSource, @unchecked Sendable {
+    private let snapshots: HostSnapshots
+    private let secrets: SecretStore
+
+    init(snapshots: HostSnapshots, secrets: SecretStore) {
+        self.snapshots = snapshots
+        self.secrets = secrets
+    }
+
+    func token(serverId: String) -> String? { snapshots.mcpTokenRef(serverId).flatMap(secrets.get)?.reveal() }
 }
 
 /**
@@ -228,6 +247,13 @@ enum SharedMapping {
         case .cancelled: .cancelled
         case .unavailable: .unavailable
         }
+    }
+
+    static func mcpSpec(_ server: McpServer) -> McpServerSpec {
+        McpServerSpec(
+            id: server.id, name: server.name, url: server.url, route: server.routing.rawValue,
+            enabled: server.enabled, trusted: server.trusted, revision: server.updatedAt,
+        )
     }
 
     static func preset(_ preset: PermissionPreset) -> AutobotShared.PermissionPreset {

@@ -15,12 +15,15 @@ import Observation
 @Observable
 final class SharedAgentRuntime: AgentRuntime {
     private(set) var running: Set<String> = []
+    /// Connection state of the configured MCP servers, by server id.
+    private(set) var mcpStatus: [String: McpServerStatus] = [:]
     let supportsTools = true
 
     @ObservationIgnored private let bridge: AgentBridge
     @ObservationIgnored private var sessions: [String: AgentSession] = [:]
     @ObservationIgnored private var handles: [String: any AutobotShared.Cancellable] = [:]
     @ObservationIgnored private var runningHandle: (any AutobotShared.Cancellable)?
+    @ObservationIgnored private var mcpHandle: (any AutobotShared.Cancellable)?
     @ObservationIgnored private let conversations: ConversationRepository
     @ObservationIgnored private let providers: ProviderRepository
     @ObservationIgnored private let store: SessionStore
@@ -46,10 +49,16 @@ final class SharedAgentRuntime: AgentRuntime {
             local: LocalEngineHost(snapshots: snapshots, llm: llm),
             store: SessionStoreHost(store: store),
             images: ImageStoreHost(attachments: attachments),
+            mcpTokens: McpTokenSourceHost(snapshots: snapshots, secrets: secrets),
         )
         let listener = RunningListenerBox { [weak self] ids in self?.running = Set(ids) }
         listeners.add(listener)
         runningHandle = bridge.observeRunning(listener: listener)
+        let mcpListener = McpStatusListenerBox { [weak self] list in
+            self?.mcpStatus = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        }
+        listeners.add(mcpListener)
+        mcpHandle = bridge.observeMcpStatus(listener: mcpListener)
     }
 
     func session(_ id: String) -> AgentSession {
@@ -117,6 +126,7 @@ final class SharedAgentRuntime: AgentRuntime {
         handles.values.forEach { $0.cancel() }
         handles.removeAll()
         runningHandle?.cancel()
+        mcpHandle?.cancel()
         sessions.removeAll()
         bridge.shutdown {}
         store.clearIncognito()
@@ -126,6 +136,18 @@ final class SharedAgentRuntime: AgentRuntime {
     func testConnection(_ spec: ProviderSpec) async -> (Bool, String) {
         await withCheckedContinuation { continuation in
             bridge.testConnection(spec: spec) { ok, message in continuation.resume(returning: (ok.boolValue, message)) }
+        }
+    }
+
+    /// The configured MCP servers; sessions pick up enabled servers' tools at their next turn.
+    func setMcpServers(_ servers: [McpServer]) { bridge.setMcpServers(servers: servers.map(SharedMapping.mcpSpec)) }
+
+    /// MCP "test connection" (initialize + tools/list) through the app's transport.
+    func testMcpServer(_ server: McpServer, token: Secret?) async -> (Bool, String) {
+        await withCheckedContinuation { continuation in
+            bridge.testMcpServer(spec: SharedMapping.mcpSpec(server), token: token?.reveal()) { ok, message in
+                continuation.resume(returning: (ok.boolValue, message))
+            }
         }
     }
 
@@ -146,6 +168,18 @@ private final class SessionListenerBox: NSObject, SessionListener, @unchecked Se
         guard let state = try? JSONDecoder().decode(ChatSessionState.self, from: Data(json.utf8)) else { return }
         let deliver = deliver
         DispatchQueue.main.async { MainActor.assumeIsolated { deliver(state) } }
+    }
+}
+
+private final class McpStatusListenerBox: NSObject, McpStatusListener, @unchecked Sendable {
+    private let deliver: @MainActor ([McpServerStatus]) -> Void
+
+    init(_ deliver: @escaping @MainActor ([McpServerStatus]) -> Void) { self.deliver = deliver }
+
+    func onStatus(servers: [McpServerStatus]) {
+        let deliver = deliver
+        nonisolated(unsafe) let servers = servers
+        DispatchQueue.main.async { MainActor.assumeIsolated { deliver(servers) } }
     }
 }
 

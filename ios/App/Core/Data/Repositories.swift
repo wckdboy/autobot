@@ -187,6 +187,82 @@ final class ProviderRepository {
 }
 
 /**
+ MCP server configurations. Bearer tokens are stored exclusively in the Keychain ([SecretStore])
+ like provider API keys; the row only holds an opaque reference.
+ */
+@MainActor
+@Observable
+final class McpServerRepository {
+    private nonisolated static let collection = "mcp_servers"
+
+    /// Servers in display order.
+    private(set) var servers: [McpServer] = []
+    @ObservationIgnored private let store: EncryptedStore
+    @ObservationIgnored private let secrets: SecretStore
+    @ObservationIgnored private let clock: () -> Int64
+    /// Called after every change (keeps the agent bridge's server list current).
+    @ObservationIgnored var onChange: (([McpServer]) -> Void)?
+
+    init(store: EncryptedStore, secrets: SecretStore, clock: @escaping () -> Int64 = nowMillis) {
+        self.store = store
+        self.secrets = secrets
+        self.clock = clock
+    }
+
+    func load() {
+        servers = sorted((try? store.all(Self.collection, as: McpServer.self)) ?? [])
+        onChange?(servers)
+    }
+
+    func get(_ id: String) -> McpServer? { servers.first { $0.id == id } }
+
+    func newId() -> String { UUID().uuidString.lowercased() }
+
+    /// Upserts [server] (bumping [McpServer.updatedAt]) and applies [token]. Returns the stored server.
+    @discardableResult
+    func save(_ server: McpServer, token: ApiKeyUpdate = .keep) throws -> McpServer {
+        let existing = get(server.id)
+        let currentRef = existing?.tokenRef ?? server.tokenRef
+        var ref: String?
+        switch token {
+        case .keep:
+            ref = currentRef
+        case .clear:
+            if let currentRef { secrets.delete(currentRef) }
+            ref = nil
+        case .set(let secret):
+            let newRef = currentRef ?? secrets.newRef()
+            try secrets.put(newRef, secret)
+            ref = newRef
+        }
+        var stored = server
+        stored.tokenRef = ref
+        stored.updatedAt = max(clock(), (existing?.updatedAt ?? 0) + 1)
+        try store.put(Self.collection, id: stored.id, stored)
+        servers = sorted(servers.filter { $0.id != stored.id } + [stored])
+        onChange?(servers)
+        return stored
+    }
+
+    /// Deletes [id] and its stored token.
+    func delete(_ id: String) {
+        if let ref = get(id)?.tokenRef { secrets.delete(ref) }
+        try? store.delete(Self.collection, id: id)
+        servers.removeAll { $0.id == id }
+        onChange?(servers)
+    }
+
+    /// Decrypts the token of [server], if one is stored. Only for requests to that server.
+    func token(_ server: McpServer) -> Secret? { server.tokenRef.flatMap(secrets.get) }
+
+    func hasToken(_ server: McpServer) -> Bool { server.tokenRef.map(secrets.contains) ?? false }
+
+    private func sorted(_ list: [McpServer]) -> [McpServer] {
+        list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}
+
+/**
  Generated images. Metadata lives in the encrypted store; pixels are AES-256-GCM sealed files
  under `gallery/` using the media key, with the item id as associated data so files cannot be
  swapped between rows. Nothing is written to the photo library unless the user exports an image.

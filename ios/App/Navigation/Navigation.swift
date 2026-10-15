@@ -18,6 +18,7 @@ enum Destination: Hashable {
     case imagine(handoffId: String? = nil, asInit: Bool = false)
     case gallery(openId: String? = nil)
     case providers
+    case mcpServers
     case privacyCenter
     case imageBackends
     case accounts
@@ -49,6 +50,7 @@ final class Navigator {
             case "sessions": path = [.chatList]
             case "privacy": tab = .settings; path = [.privacyCenter]
             case "providers": tab = .settings; path = [.providers]
+            case "mcp": tab = .settings; path = [.mcpServers]
             case "licenses": tab = .settings; path = [.licenses]
             default: break
             }
@@ -122,6 +124,7 @@ struct AutobotNavHost: View {
         case .imagine(let handoff, let asInit): ImagineScreen(handoffId: handoff, asInit: asInit).paperTheme()
         case .gallery(let openId): GalleryScreen(openId: openId)
         case .providers: ProvidersScreen()
+        case .mcpServers: McpServersScreen()
         case .privacyCenter: PrivacyCenterScreen()
         case .imageBackends: BackendsScreen()
         case .accounts: AccountsScreen()
