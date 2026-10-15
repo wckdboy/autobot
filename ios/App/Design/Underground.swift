@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Uppercase, tracked mono caption: `// SAMPLER`, `CTX`, `SEED`.
 struct MicroLabel: View {
@@ -157,21 +158,65 @@ struct Tag: View {
     }
 }
 
-/// Status dot; pulses while [live].
+/**
+ Status dot; pulses while [live]. The pulse is a Core Animation opacity loop, so it runs in the
+ render server: no SwiftUI animation ticking at the display rate in every live row. Still with
+ Reduce Motion.
+ */
 struct StatusDot: View {
     let color: Color
     var live = false
     var size: CGFloat = Tokens.Spacing.statusDot
-    @State private var dim = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.inkStill) private var still
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: size, height: size)
-            .opacity(live && dim ? Tokens.Motion.statusDotPulseMinAlpha : 1)
-            .animation(live ? .easeInOut(duration: Tokens.Motion.statusDotPulseMillis / 1000).repeatForever(autoreverses: true) : .default, value: dim)
-            .onAppear { if live { dim = true } }
-            .onChange(of: live) { _, isLive in dim = isLive }
+        if live && !reduceMotion && !still {
+            PulseDot(color: UIColor(color))
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        } else {
+            Circle()
+                .fill(color)
+                .frame(width: size, height: size)
+        }
+    }
+}
+
+/// A circle whose layer pulses between full and `statusDotPulseMinAlpha` opacity.
+private struct PulseDot: UIViewRepresentable {
+    let color: UIColor
+
+    final class DotView: UIView {
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layer.cornerRadius = min(bounds.width, bounds.height) / 2
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // Animations are removed when a layer leaves the window; add it back on return.
+            guard window != nil, layer.animation(forKey: "pulse") == nil else { return }
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1
+            pulse.toValue = Tokens.Motion.statusDotPulseMinAlpha
+            pulse.duration = Tokens.Motion.statusDotPulseMillis / 1000
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(pulse, forKey: "pulse")
+        }
+    }
+
+    func makeUIView(context: Context) -> DotView {
+        let view = DotView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = color
+        return view
+    }
+
+    func updateUIView(_ view: DotView, context: Context) {
+        view.backgroundColor = color
     }
 }
 

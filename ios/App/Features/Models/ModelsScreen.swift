@@ -216,6 +216,7 @@ struct ModelsScreen: View {
     @State private var model = ModelsModel()
 
     var body: some View {
+        let _ = InkProbe.hit("body.models")
         let installedIds = Set(app.library.models.map(\.id))
         VStack(spacing: 0) {
             AutobotTopBar(title: "Models") {
@@ -353,8 +354,7 @@ private struct EmptyResults: View {
     var body: some View {
         Color.clear
             .frame(height: 180)
-            .inkGround()
-            .mask(LinearGradient(colors: [.black, .clear], startPoint: .center, endPoint: .bottom))
+            .inkGround(fade: .bottom)
             .accessibilityHidden(true)
     }
 }

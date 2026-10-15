@@ -105,6 +105,7 @@ struct RunScreen: View {
     @State private var lastImage: UIImage?
 
     var body: some View {
+        let _ = InkProbe.hit("body.run")
         let state = RunState(app: app, device: device)
         VStack(spacing: 0) {
             AutobotTopBar {
@@ -140,12 +141,6 @@ struct RunScreen: View {
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.vertical, 8)
             }
-            .background(alignment: .top) {
-                // Living paper behind the hero, fading out above the cards.
-                InkGround()
-                    .frame(height: 240)
-                    .mask(LinearGradient(colors: [.black, .clear], startPoint: .center, endPoint: .bottom))
-            }
         }
         .background(c.background)
         .task {
@@ -178,14 +173,14 @@ struct RunScreen: View {
                     }
                     .frame(width: width * 1.1 / 2.1)
                     VStack(spacing: 8) {
-                        ModeCard(index: "02", title: "Chat", subtitle: state.chat?.label ?? "add a model", route: state.chat?.route) { start(.chat, state) }
-                        ModeCard(index: "03", title: "Agent", subtitle: state.agent?.label ?? "add a model", route: state.agent?.route) { start(.agent, state) }
+                        ModeCard(index: "02", title: "Chat", subtitle: state.chat?.label ?? "add a model", route: state.chat?.route, living: true) { start(.chat, state) }
+                        ModeCard(index: "03", title: "Agent", subtitle: state.agent?.label ?? "add a model", route: state.agent?.route, living: true, seed: 2.1) { start(.agent, state) }
                     }
                     .frame(width: width / 2.1)
                 }
             }
             .frame(height: 268)
-            ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route) { start(.code, state) }
+            ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route, living: true, seed: 4.2) { start(.code, state) }
                 .frame(height: 100)
         }
     }
