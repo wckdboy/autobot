@@ -19,6 +19,10 @@ val fetchQairtHeaders by tasks.registering(FetchZipEntriesTask::class) {
     prefixes.set(listOf("qairt/$qairtVersion/include/QNN/"))
     stripPrefix.set("qairt/$qairtVersion/")
     outputDir.set(qairtDir)
+    // The headers are versioned by directory: once fetched there is nothing to refresh, and a
+    // clean build must not depend on Qualcomm's download server being reachable.
+    val headers = qairtDir.dir("include/QNN").asFile
+    onlyIf { !headers.isDirectory }
 }
 
 android {

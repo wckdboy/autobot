@@ -2,6 +2,8 @@ package dev.wckdboy.autobot.shared.memory
 
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.core.data.model.ProviderKind
+import dev.wckdboy.autobot.providers.remote.LocalModelState
+import dev.wckdboy.autobot.providers.remote.SystemModelStatus
 import dev.wckdboy.autobot.shared.AgentBridge
 import dev.wckdboy.autobot.shared.Cancellable
 import dev.wckdboy.autobot.shared.HttpRequestSpec
@@ -52,7 +54,9 @@ class MemoryAgentTest {
         override fun chat(modelId: String, requestJson: String, sink: LocalSink): Cancellable? = null
         override fun mmproj(modelId: String): String? = null
         override fun readyModelCount() = 0
-    }
+        override fun modelState(modelId: String) = LocalModelState.NOT_INSTALLED
+        override fun systemModel(): SystemModelStatus? = null
+        override fun systemChat(promptJson: String, sink: LocalSink): Cancellable? = null    }
 
     private object NoStore : SessionStoreBridge {
         override fun load(sessionId: String): List<String> = emptyList()
