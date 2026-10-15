@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Foundation
 import Synchronization
 
@@ -77,9 +77,12 @@ public final class AudioRecorder: Sendable {
         }
         engine.prepare()
         try engine.start()
+        // The engine is only touched under the lock from here on; older compilers cannot prove the
+        // hand-off of this non-Sendable reference into the mutex is safe.
+        nonisolated(unsafe) let running = engine
         state.withLock {
             $0.samples = []
-            $0.engine = engine
+            $0.engine = running
         }
     }
 

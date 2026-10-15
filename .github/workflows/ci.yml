@@ -74,7 +74,13 @@ jobs:
           key: konan-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', '**/*.gradle.kts') }}
 
       - name: Tools
-        run: brew install xcodegen
+        shell: bash
+        run: |
+          # Newest installed Xcode: the app builds against current SDKs (e.g. FoundationModels).
+          xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          brew install xcodegen
 
       - name: Kotlin/Native
         run: ./gradlew --configure-on-demand --no-configuration-cache :shared:compileKotlinIosArm64 :shared:assembleAutobotSharedDebugXCFramework
