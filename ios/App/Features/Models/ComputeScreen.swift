@@ -13,7 +13,7 @@ struct ComputeScreen: View {
     @State private var report: String?
 
     var body: some View {
-        let models = app.library.models.filter { $0.isReady && ($0.engine == .llama || ($0.engine == .coreML && $0.kind == .image)) }
+        let models = app.library.models.filter { $0.isReady && ($0.isLocalChat || ($0.engine == .coreML && $0.kind == .image)) }
         VStack(spacing: 0) {
             AutobotTopBar(title: "Compute", onBack: { nav.back() }) {
                 if DiagnosticsReportBuilder.available {

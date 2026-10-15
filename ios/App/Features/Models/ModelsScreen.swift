@@ -291,6 +291,7 @@ struct ModelsScreen: View {
             ("code", Catalog.code),
             ("speech · dictation", Catalog.speech),
             ("voice · read aloud", CoreMLCatalog.voices),
+            ("embedding · vault", Catalog.embedding),
         ]
         ForEach(sections, id: \.0) { label, plans in
             SectionLabel(label, color: c.onSurfaceVariant)

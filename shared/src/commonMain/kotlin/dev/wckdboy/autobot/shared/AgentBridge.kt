@@ -44,6 +44,8 @@ import dev.wckdboy.autobot.shared.memory.BridgedMemoryStore
 import dev.wckdboy.autobot.shared.memory.Memory
 import dev.wckdboy.autobot.shared.memory.MemoryStoreBridge
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
+import dev.wckdboy.autobot.shared.vault.VaultHost
+import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import dev.wckdboy.autobot.shared.search.WebSearchSource
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.core.network.AuditLog
@@ -488,6 +490,7 @@ class AgentBridge(
     }
 
     private var memoryHandle: Disposable? = null
+    private var vaultHandle: Disposable? = null
     private var searchHandle: Disposable? = null
 
     private class QuotaFallback(val enabled: Boolean, val onDevice: LlmCallConfig?)
@@ -512,6 +515,15 @@ class AgentBridge(
     fun setMemory(store: MemoryStoreBridge?) {
         memoryHandle?.dispose()
         memoryHandle = store?.let { harness.root.plugin(memoryPlugin(Memory(BridgedMemoryStore(it)))) }
+    }
+
+    /**
+     * Private vault on ([host] = the host's encrypted vault and embedding engine) or off (null):
+     * `vault_search` and the vault context come and go with it, in every session.
+     */
+    fun setVault(host: VaultHost?) {
+        vaultHandle?.dispose()
+        vaultHandle = host?.let { harness.root.plugin(vaultPlugin(it.vault)) }
     }
 
     /** `web_search` on (the host's current search settings, read per call) or off (null). */

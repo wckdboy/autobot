@@ -15,6 +15,8 @@ enum Catalog {
     static var chat: [ModelPlan] { shared.filter { $0.kind == .chat } }
     static var code: [ModelPlan] { shared.filter { $0.kind == .code } }
     static var speech: [ModelPlan] { shared.filter { $0.kind == .speech } }
+    /// Embedding models for the private vault (llama.cpp in embedding mode).
+    static var embedding: [ModelPlan] { shared.filter { $0.kind == .embedding } }
     static var all: [ModelPlan] { shared + CoreMLCatalog.all }
 }
 

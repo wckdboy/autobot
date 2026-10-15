@@ -224,7 +224,7 @@ class ChatViewModel @AssistedInject constructor(
 
     /** Downloaded chat models, newest first, by title: what "This phone" can switch between. */
     private val installedChat = library.models.map { list ->
-        list.filter { it.isReady && it.engine == EngineKind.LLAMA }.sortedByDescending { it.addedAt }.map { RemoteModel(it.id, name = it.title) }
+        list.filter { it.isLocalChat }.sortedByDescending { it.addedAt }.map { RemoteModel(it.id, name = it.title) }
     }
     private val providerModels = combine(providers.observeProviders(), providers.observeModelCaches(), installedChat) { list, caches, installed ->
         Triple(list, caches, installed)
