@@ -123,8 +123,8 @@ enum InkMath {
     static func cycle(_ t: Double) -> Double { t - t.rounded(.down) }
 
     /// Loader: the drop's width along the diagonal and the resting dot fill (of the full radius).
-    static let loaderDropWidth = 0.3
-    static let loaderRestFill = 0.3
+    static let loaderDropWidth = 0.34
+    static let loaderRestFill = 0.4
     /// Loader peak radius (of half the cell): just past touching, so the drop reads as one blot.
     static let loaderPeak = 1.08
     static var loaderCycleSeconds: Double { Double(Tokens.Motion.loaderCycleMillis) / 1000 }
@@ -135,7 +135,7 @@ enum InkMath {
     /// Where the drop is along the diagonal at cycle position [t]: it enters before the first dot
     /// and leaves after the last, easing in and out.
     static func loaderDropCenter(_ t: Double) -> Double {
-        -loaderDropWidth + (1 + 2 * loaderDropWidth) * easeInOutCubic(cycle(t))
+        -loaderDropWidth + (1 + 2 * loaderDropWidth) * smoothstep(cycle(t))
     }
 
     /// How much the loader dot at ([x], [y]) (0…1) swells (0…1) as the drop passes, at [t].
@@ -159,8 +159,8 @@ enum InkMath {
     }
 
     /// Indeterminate bar: the sweeping segment and its trail, as shares of the track.
-    static let sweepLength = 0.22
-    static let sweepTrail = 0.3
+    static let sweepLength = 0.2
+    static let sweepTrail = 0.24
     static var sweepSeconds: Double { Double(Tokens.Motion.indeterminateSweepMillis) / 1000 }
 
     /// The segment's leading edge (0 … 1 + length + trail) at sweep position [t]: it enters from
@@ -209,14 +209,16 @@ enum InkMath {
     /// A dissolving row's dot radius (share of its cell) at ([x], [y]) at progress [t]: the dots
     /// shrink to nothing along the flow diagonal.
     static func dissolveRadius(t: Double, x: Double, y: Double) -> Double {
-        dissolveCover * (1 - developLocal(t: t, x: x, y: y, stagger: dissolveStagger))
+        // Linear per dot: an eased shrink empties the row before the collapse is seen.
+        let s = dissolveStagger
+        return dissolveCover * (1 - clamp01((t - s * (x + y) / 2) / (1 - s)))
     }
 
     /// Ink alpha of paper printing away at [p] (0…1) from its resting [rest]: it darkens to a
     /// print for a moment, then lifts off (0 at the end).
     static func printAwayAlpha(_ p: Double, rest: Double) -> Double {
         guard p > 0 else { return rest }
-        let peak = max(rest, 0.35)
+        let peak = max(rest, 0.28)
         return lerp(rest, peak, smoothstep(p / 0.3)) * (1 - smoothstep((p - 0.35) / 0.65))
     }
 }
@@ -435,6 +437,8 @@ struct InkProgressBar: View {
                         .animation(reduced ? .inkReduced : .inkProgress, value: value)
                 }
             }
+            // Dense dots merge into a solid rule at the bar's height.
+            .clipped()
             .overlay(alignment: .leading) {
                 let width = geo.size.width * value
                 if case .progress(_, true) = state, !reduced, value < 1 {

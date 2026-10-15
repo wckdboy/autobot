@@ -418,13 +418,13 @@ private struct StepRow: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if mark.isEmpty {
-                        InkLoader().padding(.top, 4)
-                    } else {
+                    // The mark keeps its identity so it can stamp in when the step settles.
+                    ZStack(alignment: .topTrailing) {
                         Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
                             .textStyle(.readout)
                             .foregroundStyle(markColor)
                             .stamp(StampKey(state: tool.state, undone: tool.isUndone), when: { Self.settled($0.state) })
+                        if mark.isEmpty { InkLoader().padding(.top, 4) }
                     }
                 }
                 .padding(.vertical, 8)
