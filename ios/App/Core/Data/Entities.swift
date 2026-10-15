@@ -53,6 +53,22 @@ struct Provider: Codable, Identifiable, Equatable, Sendable {
 }
 
 /**
+ A configured MCP server (Streamable HTTP). The bearer token is never stored here; [tokenRef] is
+ an opaque reference into the Keychain-backed [SecretStore]. Untrusted servers ask before every
+ tool call; [updatedAt] changes on every save so the agent reconnects with the new settings.
+ */
+struct McpServer: Codable, Identifiable, Equatable, Sendable {
+    var id: String
+    var name: String
+    var url: String
+    var routing: ProviderRouting = .inherit
+    var enabled = true
+    var trusted = false
+    var tokenRef: String? = nil
+    var updatedAt: Int64 = 0
+}
+
+/**
  A generated image. Pixels live in an encrypted file; this row holds the searchable parameters.
  [paramsJson] keeps the full request for "reuse parameters".
  */

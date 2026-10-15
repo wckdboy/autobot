@@ -28,6 +28,9 @@ import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
+import dev.wckdboy.autobot.shared.mcp.McpHub
+import dev.wckdboy.autobot.shared.mcp.McpServerSpec
+import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.projectSession
 import kotlinx.coroutines.CompletableDeferred
@@ -86,6 +89,16 @@ fun interface SessionListener {
     fun onState(json: String)
 }
 
+/** The host's MCP bearer tokens (Keychain), read on a background thread when a server connects. */
+fun interface McpTokenSource {
+    fun token(serverId: String): String?
+}
+
+/** Receives the MCP servers' connection state. */
+fun interface McpStatusListener {
+    fun onStatus(servers: List<McpServerStatus>)
+}
+
 /** Receives the ids of sessions with a turn in progress. */
 fun interface RunningListener {
     fun onRunning(sessionIds: List<String>)
@@ -127,12 +140,14 @@ class AgentBridge(
     private val local: LocalEngine,
     store: SessionStoreBridge,
     images: ImageStoreBridge?,
+    mcpTokens: McpTokenSource,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val workspace = Workspace(workspaceDir.toPath())
     val harness = Harness()
     private val contexts = WorkspaceContexts(workspace)
     private val sessions = BridgedSessionStore(store)
+    private val mcp = McpHub(transport, { id -> mcpTokens.token(id) })
     private val attachments = images?.let { bridge ->
         object : ImageAttachments {
             override suspend fun openPlain(id: String): String? = withContext(IoDispatcher) { bridge.openPlain(id) }
@@ -172,6 +187,7 @@ class AgentBridge(
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))
         root.plugin(contexts.plugin)
+        root.plugin(mcp.plugin)
         root.intercept(Hooks.ApprovalRequest) { request, _ ->
             val pending = Pending.Approval(
                 request.agent.id,
@@ -209,6 +225,23 @@ class AgentBridge(
                 is ConnectionTestResult.Success -> callback(true, result.modelCount?.let { "$it models" } ?: "connected")
                 is ConnectionTestResult.Failure -> callback(false, result.message)
             }
+        }
+    }
+
+    /** The configured MCP servers; sessions pick up enabled servers' tools at their next turn. */
+    fun setMcpServers(servers: List<McpServerSpec>) = mcp.update(servers)
+
+    fun observeMcpStatus(listener: McpStatusListener): Cancellable {
+        val job = scope.launch { mcp.status.collect { listener.onStatus(it) } }
+        return Cancellable { job.cancel() }
+    }
+
+    /** MCP "test connection" (initialize + tools/list); [callback] gets the tool count or an error message. */
+    fun testMcpServer(spec: McpServerSpec, token: String?, callback: (Boolean, String) -> Unit) {
+        scope.launch {
+            McpHub.test(transport, spec, token)
+                .onSuccess { callback(true, it.toString()) }
+                .onFailure { callback(false, McpHub.describe(it)) }
         }
     }
 
@@ -338,6 +371,7 @@ class AgentBridge(
                 agents.values.toList().also { agents.clear() }
             }
             all.forEach { runCatching { it.dispose() } }
+            runCatching { mcp.close() }
             done()
             scope.cancel()
         }

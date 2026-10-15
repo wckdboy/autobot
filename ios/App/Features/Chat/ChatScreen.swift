@@ -12,7 +12,12 @@ private let commands: [(String, String)] = [
 
 /// Human names for tool steps (mockup: "Read calendar / calendar.list").
 func stepTitle(_ name: String) -> String {
-    switch name {
+    // mcp__<server>__<tool> → "Tool · server"
+    let rest = name.dropFirst(5)
+    if name.hasPrefix("mcp__"), let split = rest.range(of: "__"), split.upperBound < rest.endIndex {
+        return stepTitle(String(rest[split.upperBound...])) + " · " + rest[..<split.lowerBound]
+    }
+    return switch name {
     case "read": "Read file"
     case "write": "Write file"
     case "edit": "Edit file"

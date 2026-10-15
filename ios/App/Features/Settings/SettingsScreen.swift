@@ -15,6 +15,7 @@ struct SettingsScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     NavigationRow(title: "Model providers", subtitle: "Chat endpoints and API keys") { nav.push(.providers) }
+                    NavigationRow(title: "MCP servers", subtitle: "Remote tools for agent sessions, each call approved") { nav.push(.mcpServers) }
                     NavigationRow(title: "Image backends", subtitle: "Diffusion servers: Local Dream host, A1111/Forge, local SSE engines") { nav.push(.imageBackends) }
                     NavigationRow(title: "Privacy Center", subtitle: "Network mode, audit log, panic wipe") { nav.push(.privacyCenter) }
                     NavigationRow(title: "Export & import", subtitle: "Move sessions and gallery between phones, sealed with a passphrase") { showBackup = true }

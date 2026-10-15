@@ -36,6 +36,9 @@ data class Gallery(val openId: String? = null) : NavKey
 data object Providers : NavKey
 
 @Serializable
+data object McpServers : NavKey
+
+@Serializable
 data object PrivacyCenter : NavKey
 
 @Serializable

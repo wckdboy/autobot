@@ -124,7 +124,7 @@ class AgentBridgeTest {
                 ProviderSpec(id, ProviderKind.OPENAI_COMPATIBLE, "Test", "https://api.example.com/v1", "secret", "m").takeIf { id == "p" }
         }
         val store = MemoryStore()
-        val bridge = AgentBridge(dir.path, providers, transport, NoLocal, store, null)
+        val bridge = AgentBridge(dir.path, providers, transport, NoLocal, store, null, { null })
         val states = CopyOnWriteArrayList<SessionState>()
         val json = Json { ignoreUnknownKeys = true }
         val handle = bridge.open("s1", "p", "m") { states += json.decodeFromString(SessionState.serializer(), it) }

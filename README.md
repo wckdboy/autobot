@@ -105,7 +105,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
 | `:engine:speech` | whisper.cpp (MIT) in the `:asr` process: on-device dictation |
-| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, host tools (`HostTool`), OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, network policy (`NetworkMode`, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`), `SettingsSchema`, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), the `.autobot` backup format, `DiagnosticsReport`, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
+| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, host tools (`HostTool`), the MCP client (`mcp`), OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, network policy (`NetworkMode`, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`), `SettingsSchema`, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), the `.autobot` backup format, `DiagnosticsReport`, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
 | `:agent:core` | Kotlin Multiplatform (JVM + iOS) port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
@@ -115,7 +115,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:core:data` | Room + SQLCipher (`Conversation`, `Message`, `Provider`), repositories, DataStore settings under the shared `SettingsSchema`, `IncognitoSession`, settings→policy sync, `BackupService` (`.autobot` export/import) |
 | `:providers:remote` | `ChatProvider` SSE streaming: OpenAI-compatible, DeepSeek (`reasoning_content`), OpenRouter, Ollama, and the on-device `LocalChatProvider`; `ProviderFactory` |
 | `:feature:chat` | Session list (live indicators, incognito) and agent session screen (streaming, reasoning, tool cards with inline approvals, plan/todos, questions, context gauge, slash commands, model switcher) |
-| `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection) |
+| `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection), MCP servers editor (masked token, routing, trusted, test connection) |
 | `ios/App` | The SwiftUI app: riso design system from the shared tokens, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
 | `ios/Packages/AutobotEngines` | Swift package over the shared llama.cpp / whisper.cpp C cores (Metal, Core ML encoder) and Apple's ml-stable-diffusion; built into `AutobotLlama` / `AutobotWhisper` xcframeworks with dSYMs |
 | `scripts/` | `bump-version.sh` (one version for both apps), `release.sh` (test, build, sign, TestFlight, GitHub release) |
@@ -207,9 +207,25 @@ Kotlin so it runs inside the app process, under the app's network policy:
 | `dsh-llm-retry`, tool-result pruner, `dsh-compaction-basic` | `llmRetryPlugin`, `toolResultPrunerPlugin`, `Compactor` (same summary sections) |
 | `read`, `write`, `edit`, `glob`, `grep`, `web_fetch`, `todo_write`, `ask_user_question`, `skill`, `AGENTS.md` | Same names, confined to a private `/workspace` (real paths are never shown to the model) |
 
-Not ported (no equivalent on a phone): `bash`/`pwsh` sandboxes and hooks bridges. MCP servers,
-subagents, local memory and web search are Phase 2 of the [roadmap](ROADMAP.md). The runtime is
-Kotlin Multiplatform, so the iOS app runs exactly this code; it is covered by JVM tests.
+Not ported (no equivalent on a phone): `bash`/`pwsh` sandboxes and hooks bridges. Subagents,
+local memory and web search are Phase 2 of the [roadmap](ROADMAP.md). The runtime is Kotlin
+Multiplatform, so the iOS app runs exactly this code; it is covered by JVM tests.
+
+**MCP servers.** Settings → MCP servers adds remote [Model Context Protocol](https://modelcontextprotocol.io)
+servers over Streamable HTTP (`dev.wckdboy.autobot.shared.mcp`). Each server's protocol is
+detected once per configuration: the stateless 2026-07-28 revision first (`server/discover`,
+per-request `_meta`, `Mcp-Method` / `Mcp-Name` / `x-mcp-header` headers, `subscriptions/listen`
+for tool-list changes), falling back to the session-based 2025-11-25, 2025-06-18 and 2025-03-26
+revisions as the spec's backward-compatibility rules describe. Their tools join agent sessions as `mcp__<server>__<tool>` with the
+server's own schema. Nothing is dialled until a turn with tools starts; every request goes
+through the kill switch, the server's route (Inherit / Direct / Tor / SOCKS5, same rules as
+providers) and the audit log, and redirects are not followed. Each tool call asks for approval
+(the card names the server and its host). MCP calls are network calls (`FETCH`), so a server
+marked trusted follows the permission preset like `web_fetch` instead of always asking:
+full-access runs its calls, read-only and workspace-write still ask. An optional bearer token is stored like an API key and sent
+only to that server's host. Offline, unreachable or disabled servers contribute no tools and the
+model is told why. Not yet: OAuth sign-in, resources/prompts, images in tool results (shown as a
+placeholder), servers in the `.autobot` export.
 
 ## Image generation
 

@@ -20,11 +20,16 @@ import dev.wckdboy.autobot.agent.runtime.workspace.Workspace
 import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
+import dev.wckdboy.autobot.core.data.McpServerRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.MessageRole
+import dev.wckdboy.autobot.core.data.toSpec
 import dev.wckdboy.autobot.core.network.HttpClientFactory
+import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
+import dev.wckdboy.autobot.shared.mcp.McpHub
+import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import java.io.File
 import okio.Path.Companion.toOkioPath
 import javax.inject.Inject
@@ -81,12 +86,19 @@ class AgentHost @Inject constructor(
     private val conversations: ConversationRepository,
     private val store: RoutingSessionStore,
     private val attachments: AttachmentRepository,
+    mcpServers: McpServerRepository,
     clients: HttpClientFactory,
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
     val workspace = Workspace(File(context.filesDir, WORKSPACE_DIR).toOkioPath())
     val harness = Harness()
     private val contexts = WorkspaceContexts(workspace)
+
+    /** MCP servers: tools of enabled servers join every session at its next turn. */
+    private val mcp = McpHub(OkHttpTransport(clients), { id -> mcpServers.token(id)?.reveal() })
+
+    /** Connection state per configured MCP server. */
+    val mcpStatus: StateFlow<List<McpServerStatus>> get() = mcp.status
 
     /** Attachments are decrypted into short-lived files for a single model call. */
     private val images = object : ImageAttachments {
@@ -117,6 +129,7 @@ class AgentHost @Inject constructor(
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))
         root.plugin(contexts.plugin)
+        root.plugin(mcp.plugin)
         contributions.forEach { root.plugin(it.plugin()) }
 
         root.intercept(Hooks.ApprovalRequest) { request, _ ->
@@ -129,6 +142,7 @@ class AgentHost @Inject constructor(
         root.intercept(Hooks.UserQuestion) { request, _ ->
             await(Interaction.Question(request.agent.id, request.callId, request.question, CompletableDeferred()))
         }
+        scope.launch { mcpServers.observeServers().collect { list -> mcp.update(list.map { it.toSpec() }) } }
     }
 
     private suspend fun <T> await(interaction: Interaction): T {
@@ -254,6 +268,7 @@ class AgentHost @Inject constructor(
         }
         _running.value = emptySet()
         all.forEach { runCatching { it.dispose() } }
+        runCatching { mcp.close() }
         store.clearIncognito()
     }
 

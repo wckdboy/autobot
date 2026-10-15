@@ -131,7 +131,11 @@ private fun stepTitle(name: String): String = when (name) {
     "todo_write" -> "Update plan"
     "ask_user_question" -> "Ask you"
     "skill" -> "Load skill"
-    else -> name.replace('_', ' ').replaceFirstChar { it.titlecase(Locale.ROOT) }
+    // mcp__<server>__<tool> → "Tool · server"
+    else -> if (name.startsWith("mcp__") && name.indexOf("__", 5) > 0) {
+        val server = name.substring(5, name.indexOf("__", 5))
+        stepTitle(name.substring(name.indexOf("__", 5) + 2)) + " · " + server
+    } else name.replace('_', ' ').replaceFirstChar { it.titlecase(Locale.ROOT) }
 }
 
 /**

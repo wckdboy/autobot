@@ -23,6 +23,7 @@ final class AppContainer {
     let store: EncryptedStore
     let conversations: ConversationRepository
     let providers: ProviderRepository
+    let mcpServers: McpServerRepository
     let gallery: GalleryRepository
     let attachments: AttachmentRepository
     let library: ModelLibrary
@@ -54,6 +55,7 @@ final class AppContainer {
         store = EncryptedStore(keys: keys)
         conversations = ConversationRepository(store: store)
         providers = ProviderRepository(store: store, secrets: secrets)
+        mcpServers = McpServerRepository(store: store, secrets: secrets)
         gallery = GalleryRepository(store: store, keys: keys)
         attachments = AttachmentRepository(keys: keys)
         library = ModelLibrary(store: store)
@@ -88,12 +90,20 @@ final class AppContainer {
         ])
 
         providers.onChange = { [weak self] list in self?.providersChanged(list) }
+        mcpServers.onChange = { [weak self] list in self?.mcpServersChanged(list) }
         library.onChange = { [weak self] in self?.modelsChanged() }
     }
 
     private func providersChanged(_ list: [Provider]) {
         #if canImport(AutobotShared)
         snapshots.setProviders(list)
+        #endif
+    }
+
+    private func mcpServersChanged(_ list: [McpServer]) {
+        #if canImport(AutobotShared)
+        snapshots.setMcpServers(list)
+        (agent as? SharedAgentRuntime)?.setMcpServers(list)
         #endif
     }
 
@@ -118,6 +128,7 @@ final class AppContainer {
         guard !dataLoaded else { return }
         conversations.load()
         providers.load()
+        mcpServers.load()
         gallery.load()
         library.load()
         compute.load()
