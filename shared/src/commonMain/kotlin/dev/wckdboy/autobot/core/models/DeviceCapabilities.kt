@@ -30,13 +30,15 @@ data class DeviceCapabilities(
     /**
      * Weights + KV cache / buffers should stay under about half of physical RAM (which also keeps
      * clear of iOS's per-app memory limit). Engines the app does not ship are [Fit.UNSUPPORTED].
+     * [contextTokens] adds a chat model's KV cache for that context ([kvCacheBytes]); 0 counts
+     * only the usual buffers.
      */
-    fun fit(kind: ModelKind, bytes: Long, engine: EngineKind): Fit {
+    fun fit(kind: ModelKind, bytes: Long, engine: EngineKind, contextTokens: Int = 0): Fit {
         if (engine == EngineKind.NONE || !platform.runs(engine)) return Fit.UNSUPPORTED
         if (engine == EngineKind.DIFFUSION && !supportsImageEngine) return Fit.UNSUPPORTED
         if (engine == EngineKind.NPU && kind == ModelKind.IMAGE && bytes > 3_000_000_000 && htpArch !in SDXL_NPUS) return Fit.UNSUPPORTED
         val working = when (kind) {
-            ModelKind.CHAT, ModelKind.CODE -> bytes * 13 / 10
+            ModelKind.CHAT, ModelKind.CODE -> bytes * 13 / 10 + kvCacheBytes(bytes, contextTokens)
             ModelKind.IMAGE -> bytes * 14 / 10
             // The voice's weights plus activations for a sentence and its lexicons in memory.
             ModelKind.VOICE -> bytes * 3 / 2
@@ -50,8 +52,27 @@ data class DeviceCapabilities(
         }
     }
 
-    private companion object {
+    /**
+     * The longest context (a power of two from [MIN_CONTEXT] to [MAX_CONTEXT]) whose KV cache
+     * still lets a chat model of [bytes] fit this phone; [MIN_CONTEXT] when even that is tight.
+     */
+    fun recommendedContext(bytes: Long, engine: EngineKind = EngineKind.LLAMA): Int {
+        var context = MAX_CONTEXT
+        while (context > MIN_CONTEXT && fit(ModelKind.CHAT, bytes, engine, context) == Fit.TOO_BIG) context /= 2
+        return context
+    }
+
+    companion object {
+        const val MIN_CONTEXT = 2_048
+        const val MAX_CONTEXT = 32_768
+
+        /**
+         * Rough KV-cache size of a quantized chat model of [bytes] at [contextTokens]: about
+         * 1/20 000 of the weights per token (a 2.5 GB 4-bit 4B model: ~125 KB, 4 GB at 32k).
+         */
+        fun kvCacheBytes(bytes: Long, contextTokens: Int): Long = bytes / 20_000 * contextTokens.coerceAtLeast(0)
+
         /** Hexagon generations with room for SDXL packages (Snapdragon 8 Gen 3 and newer). */
-        val SDXL_NPUS = setOf("v75", "v79", "v81")
+        private val SDXL_NPUS = setOf("v75", "v79", "v81")
     }
 }

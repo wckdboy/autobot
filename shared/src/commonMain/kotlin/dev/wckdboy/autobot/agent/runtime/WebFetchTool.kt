@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.agent.core.tools.ToolRunContext
 import dev.wckdboy.autobot.agent.core.tools.schema
 import dev.wckdboy.autobot.agent.core.tools.string
 import dev.wckdboy.autobot.shared.IoDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
@@ -63,7 +64,11 @@ class WebFetchTool(private val fetcher: WebFetcher) : ToolDefinition {
             return@withContext ToolOutput.error("unsupported content type ${response.contentType}", "UNSUPPORTED")
         }
         val raw = response.body
-        val text = if (type?.substringAfter('/')?.contains("html") == true || raw.trimStart().startsWith("<")) htmlToText(raw) else raw
+        val text = if (type?.substringAfter('/')?.contains("html") == true || raw.trimStart().startsWith("<")) {
+            htmlToText(raw, coroutineContext[Job])
+        } else {
+            raw
+        }
         ToolOutput(text.ifBlank { "(empty response)" })
     }
 
@@ -77,14 +82,44 @@ class WebFetchTool(private val fetcher: WebFetcher) : ToolDefinition {
         private val SPACES = Regex("[ \\t\\x0B\\f\\r]+")
         private val BLANKS = Regex("\\n\\s*\\n+")
 
-        fun htmlToText(html: String): String = html
-            .replace(DROP, " ")
-            .replace(BLOCK, "\n")
-            .replace(TAG, "")
-            .replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-            .replace("&quot;", "\"").replace("&#39;", "'")
-            .replace(SPACES, " ")
-            .replace(BLANKS, "\n\n")
-            .trim()
+        /** Time the regex pass over one page may take before the plain tag stripper takes over. */
+        private const val HTML_BUDGET_MS = 5_000L
+
+        /**
+         * Readable text of [html]. The page is the web's: its regex pass stops with [job] and after
+         * a time budget, and then falls back to [stripTags], which is linear.
+         */
+        fun htmlToText(html: String, job: Job? = null): String {
+            val deadline = InterruptibleChars.deadline(HTML_BUDGET_MS)
+            fun CharSequence.guarded() = InterruptibleChars(this, job, deadline)
+            val text = try {
+                DROP.replace(html.guarded(), " ")
+                    .let { BLOCK.replace(it.guarded(), "\n") }
+                    .let { TAG.replace(it.guarded(), "") }
+            } catch (_: RegexTimeoutException) {
+                stripTags(html)
+            }
+            return text
+                .replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+                .replace("&quot;", "\"").replace("&#39;", "'")
+                .replace(SPACES, " ")
+                .replace(BLANKS, "\n\n")
+                .trim()
+        }
+
+        /** Drops everything between `<` and `>` in one pass. */
+        private fun stripTags(html: String): String = buildString(html.length) {
+            var inTag = false
+            for (c in html) {
+                when {
+                    c == '<' -> inTag = true
+                    c == '>' && inTag -> {
+                        inTag = false
+                        append(' ')
+                    }
+                    !inTag -> append(c)
+                }
+            }
+        }
     }
 }

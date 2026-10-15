@@ -82,7 +82,7 @@ sealed interface LocalPlan {
  *
  * requested system model → it, if available · requested GGUF ready → it · not installed / failed
  * to load → the system model if available · too big → the system model if available, otherwise
- * the GGUF anyway (it may still fit) · otherwise an error that says what to do.
+ * refused (loading it gets the app killed for memory) · otherwise an error that says what to do.
  */
 object LocalModelResolver {
     /** Engine error codes that mean the model never started answering. */
@@ -104,9 +104,9 @@ object LocalModelResolver {
             else -> "$name is too big for this phone's memory"
         }
         if (system != null && system.usable) return LocalPlan.System(system.id, reason)
-        if (state == LocalModelState.TOO_BIG && loadError == null) return LocalPlan.Gguf(requested)
         val guidance = when {
             loadError != null -> "Try a smaller model or a shorter context."
+            state == LocalModelState.TOO_BIG -> "Pick a smaller model: the Models tab shows which ones fit this phone."
             requested.isNotBlank() && state == LocalModelState.NOT_INSTALLED ->
                 "Pick another model in the chat's model menu, or download one in the Models tab."
             else -> "Download a chat model in the Models tab."

@@ -16,6 +16,13 @@ import kotlinx.serialization.json.put
  * object with tool calls, usage and finish reason out.
  */
 object LocalLlmCodec {
+    /**
+     * The engine's code for a generation it stopped. Decoded as an error with this code (not as
+     * an empty answer, which reads as a finished one or gets retried); the agent ends the turn as
+     * stopped.
+     */
+    const val CANCELLED = "CANCELLED"
+
     fun encode(request: ChatRequest, mmproj: String? = null): JsonObject = buildJsonObject {
         put(
             "messages",
@@ -91,7 +98,7 @@ object LocalLlmCodec {
             val code = (err["code"] as? JsonPrimitive)?.contentOrNull
             val msg = (err["message"] as? JsonPrimitive)?.contentOrNull ?: "engine error"
             return when (code) {
-                "CANCELLED" -> emptyList()
+                CANCELLED -> listOf(ChatEvent.Error(ErrorKind.PROTOCOL, "the on-device engine stopped generating", code = CANCELLED))
                 "CONTEXT_WINDOW_EXCEEDED" -> listOf(ChatEvent.Error(ErrorKind.BAD_REQUEST, "context length exceeded: $msg", code = code))
                 else -> listOf(ChatEvent.Error(ErrorKind.BAD_REQUEST, msg, code = code))
             }

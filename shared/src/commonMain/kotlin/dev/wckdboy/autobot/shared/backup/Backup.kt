@@ -75,6 +75,9 @@ internal val BackupJson = Json {
 private val MAGIC = byteArrayOf('A'.code.toByte(), 'U'.code.toByte(), 'T'.code.toByte(), 'O'.code.toByte(), 'B'.code.toByte(), 'O'.code.toByte(), 'T'.code.toByte(), 1)
 private const val MAX_HEADER = 64 * 1024
 private const val MAX_NAME = 1024
+
+/** Largest entry a reader accepts: consumers read an entry into memory by its stated size. */
+const val MAX_BACKUP_ENTRY = 1L shl 30
 private const val TAG = 16
 
 /** OWASP 2023 guidance for PBKDF2-HMAC-SHA256. */
@@ -182,9 +185,9 @@ class BackupReader(private val source: BufferedSource, private val crypto: Backu
     init {
         val magic = runCatching { source.readByteArray(MAGIC.size.toLong()) }.getOrNull()
         if (magic == null || !magic.contentEquals(MAGIC)) throw BackupException("Not an Autobot export")
-        val length = source.readInt()
+        val length = truncatedIsTyped { source.readInt() }
         if (length <= 0 || length > MAX_HEADER) throw BackupException("Damaged export header")
-        headerBytes = source.readByteArray(length.toLong())
+        headerBytes = truncatedIsTyped { source.readByteArray(length.toLong()) }
         header = runCatching { BackupJson.decodeFromString(BackupHeader.serializer(), headerBytes.decodeToString()) }
             .getOrElse { throw BackupException("Damaged export header") }
         if (header.format != BackupHeader.FORMAT) throw BackupException("Export format ${header.format} is not supported by this version")
@@ -204,13 +207,13 @@ class BackupReader(private val source: BufferedSource, private val crypto: Backu
         val key = crypto.deriveKey(passphrase, salt, header.iterations)
         val plain = ChunkSource(key, prefix).buffer()
         while (true) {
-            val nameLength = plain.readShort().toInt() and 0xffff
+            val nameLength = truncatedIsTyped { plain.readShort().toInt() and 0xffff }
             if (nameLength == 0) break
             if (nameLength > MAX_NAME) throw BackupException("Damaged export")
-            val name = plain.readUtf8(nameLength.toLong())
+            val name = truncatedIsTyped { plain.readUtf8(nameLength.toLong()) }
             if (!isSafeEntryName(name)) throw BackupException("Unsafe entry name in export")
-            val size = plain.readLong()
-            if (size < 0) throw BackupException("Damaged export")
+            val size = truncatedIsTyped { plain.readLong() }
+            if (size < 0 || size > MAX_BACKUP_ENTRY) throw BackupException("Damaged export")
             val view = BoundedSource(plain, size).buffer()
             onEntry(name, size, view)
             // Drain whatever the consumer left, so the next entry starts at the right byte.
@@ -218,6 +221,15 @@ class BackupReader(private val source: BufferedSource, private val crypto: Backu
             while (view.read(discard, 8192) != -1L) discard.clear()
         }
         if (!plain.exhausted()) throw BackupException("Damaged export: data after the end marker")
+    }
+
+    /** A read that runs off the end of the file is a [BackupException], not an `EOFException`. */
+    private inline fun <T> truncatedIsTyped(read: () -> T): T = try {
+        read()
+    } catch (e: BackupException) {
+        throw e
+    } catch (_: IOException) {
+        throw BackupException("Export is truncated")
     }
 
     /** Decrypted stream of chunk plaintexts; ends after the final chunk. */

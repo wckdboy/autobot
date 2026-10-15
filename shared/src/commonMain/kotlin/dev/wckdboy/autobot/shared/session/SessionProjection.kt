@@ -12,7 +12,8 @@ import dev.wckdboy.autobot.providers.remote.SystemModels
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 @Serializable
 enum class ToolState { STREAMING, WAITING_APPROVAL, RUNNING, OK, ERROR, DENIED }
@@ -113,13 +114,14 @@ fun projectSession(
                     items += SessionItem.Assistant(key, e.text, e.reasoning, e.interrupted, e.usage?.outputTokens, e.model)
                 }
                 e.usage?.let { usage = it }
-                e.toolCalls.forEach { call ->
+                e.toolCalls.forEachIndexed { i, call ->
                     toolIndex[call.id] = items.size
                     items += SessionItem.Tool(
-                        key = "t${call.id}",
+                        // Keyed by position, not call id: logs written before ids were unique repeat them.
+                        key = "t${entry.seq}_$i",
                         callId = call.id,
                         name = call.name,
-                        summary = describe(call.name, call.arguments),
+                        summary = runCatching { describe(call.name, call.arguments) }.getOrDefault(""),
                         state = when (call.id) {
                             in pendingApprovals -> ToolState.WAITING_APPROVAL
                             in running -> ToolState.RUNNING
@@ -134,7 +136,7 @@ fun projectSession(
             is SessionEvent.ToolCall -> callStarted[e.callId] = entry.time
             is SessionEvent.ToolResult -> {
                 val index = toolIndex[e.callId] ?: continue
-                val tool = items[index] as SessionItem.Tool
+                val tool = items[index] as? SessionItem.Tool ?: continue
                 val denied = e.code in setOf("PERMISSION_DENIED", "USER_REJECTED", "APPROVAL_UNAVAILABLE", "APPROVAL_CANCELLED")
                 items[index] = tool.copy(
                     state = when {
@@ -144,7 +146,7 @@ fun projectSession(
                     },
                     output = e.content,
                     code = e.code,
-                    galleryIds = (e.meta?.get("gallery") as? JsonArray)?.map { it.jsonPrimitive.content }.orEmpty(),
+                    galleryIds = (e.meta?.get("gallery") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty(),
                     durationMs = callStarted[e.callId]?.let { entry.time - it }?.takeIf { it >= 0 },
                     steps = TaskTool.steps(e.meta).map { (name, summary, state) ->
                         val mark = when (state) { "ok" -> "✓"; "error" -> "×"; else -> "…" }
@@ -154,7 +156,8 @@ fun projectSession(
             }
             is SessionEvent.TurnStart -> lastAnswer = null
             is SessionEvent.TurnReceipt -> lastAnswer?.let { i ->
-                items[i] = (items[i] as SessionItem.Assistant).copy(receipt = Receipts.summarize(e))
+                val answer = items.getOrNull(i) as? SessionItem.Assistant ?: return@let
+                items[i] = answer.copy(receipt = runCatching { Receipts.summarize(e) }.getOrNull())
             }
             is SessionEvent.TodoWrite -> todos = e.todos
             is SessionEvent.TurnEnd -> when (e.reason) {
