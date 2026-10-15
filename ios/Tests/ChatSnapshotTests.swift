@@ -21,12 +21,12 @@ struct ChatSnapshotTests {
         var agent = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
         agent.title = "Plan a trip to Lisbon"
         app.conversations.update(agent)
-        app.agent.session(agent.id).state = Self.agentState(agent.id)
+        app.agent.preview(agent.id, state: Self.agentState(agent.id))
 
         var chat = app.conversations.create(incognito: true, providerId: nil, model: "qwen3")
         chat.title = "Reverse a list in Swift"
         app.conversations.update(chat)
-        app.agent.session(chat.id).state = Self.chatState(chat.id)
+        app.agent.preview(chat.id, state: Self.chatState(chat.id))
 
         let empty = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
 

@@ -411,7 +411,8 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
                     overflow = TextOverflow.Ellipsis,
                 )
                 // Why a step failed shouldn't take a tap to find out.
-                val reason = item.output?.lineSequence()?.firstOrNull { it.isNotBlank() }?.removePrefix("Error: ")
+                // (a bare "denied" only repeats the mark)
+                val reason = item.output?.lineSequence()?.firstOrNull { it.isNotBlank() }?.removePrefix("Error: ")?.takeIf { !it.equals("denied", ignoreCase = true) }
                 if (!expanded && reason != null && (item.state == ToolState.ERROR || item.state == ToolState.DENIED)) {
                     Text(
                         reason,

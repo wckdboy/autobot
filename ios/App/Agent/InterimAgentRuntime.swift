@@ -34,6 +34,12 @@ final class InterimAgentRuntime: AgentRuntime {
         self.attachments = attachments
     }
 
+    func preview(_ id: String, state: ChatSessionState) {
+        let s = sessions[id] ?? AgentSession(id: id)
+        s.state = state
+        sessions[id] = s
+    }
+
     func session(_ id: String) -> AgentSession {
         if let s = sessions[id] { return s }
         let s = AgentSession(id: id)

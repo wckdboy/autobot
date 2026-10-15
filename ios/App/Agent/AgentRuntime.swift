@@ -33,6 +33,9 @@ protocol AgentRuntime: AnyObject {
     /// The session for [conversationId], opening it on first use with the conversation's
     /// provider and model.
     func session(_ conversationId: String) -> AgentSession
+    /// Shows [state] for [conversationId] without opening it on the runtime, so nothing replaces
+    /// it (snapshots and demo data).
+    func preview(_ conversationId: String, state: ChatSessionState)
     /// Sends a prompt (with attached image ids): a new turn, or queued behind the running one.
     func send(_ conversationId: String, text: String, images: [String]) async
     func cancel(_ conversationId: String)

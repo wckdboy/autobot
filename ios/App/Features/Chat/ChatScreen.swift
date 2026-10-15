@@ -356,7 +356,8 @@ private struct StepRow: View {
                             .lineLimit(1)
                         // Why a step failed shouldn't take a tap to find out.
                         if !expanded, tool.state == .error || tool.state == .denied,
-                           let reason = tool.output?.split(whereSeparator: \.isNewline).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                           let reason = tool.output?.split(whereSeparator: \.isNewline).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
+                           !["denied", "error: denied"].contains(reason.lowercased()) {
                             Text(reason.hasPrefix("Error: ") ? String(reason.dropFirst(7)) : String(reason))
                                 .textStyle(.bodySmall)
                                 .foregroundStyle(tool.state == .error ? c.error : c.onSurfaceVariant)
