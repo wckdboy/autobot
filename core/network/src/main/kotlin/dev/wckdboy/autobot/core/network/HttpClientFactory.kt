@@ -35,7 +35,7 @@ import okhttp3.OkHttpClient
 @Singleton
 class HttpClientFactory @Inject constructor(
     private val policy: NetworkPolicy,
-    private val auditLog: AuditLog,
+    internal val auditLog: AuditLog,
 ) {
     private val pools = ConcurrentHashMap<String, ConnectionPool>()
 

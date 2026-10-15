@@ -1,6 +1,11 @@
 package dev.wckdboy.autobot.shared.backup
 
 import dev.wckdboy.autobot.shared.memory.MemoryNote
+import dev.wckdboy.autobot.shared.studio.PromptSnippet
+import dev.wckdboy.autobot.shared.studio.StudioAsset
+import dev.wckdboy.autobot.shared.studio.StudioCodec
+import dev.wckdboy.autobot.shared.studio.StudioProject
+import dev.wckdboy.autobot.shared.studio.StudioWorkflow
 import kotlinx.serialization.Serializable
 
 /**
@@ -11,6 +16,7 @@ import kotlinx.serialization.Serializable
  * - `sessions/<conversationId>.jsonl`: the session log, one `LogEntry` JSON per line
  * - `gallery/<id>.png` (or `.jpg`, `.webp`): the image as generated
  * - `attachments/<id>`: images attached to chat messages (referenced by id from session events)
+ * - `studio/<assetId>.<ext>`: Creative Studio asset files ([studioEntry])
  */
 @Serializable
 class BackupManifest(
@@ -22,11 +28,18 @@ class BackupManifest(
     val attachments: List<String> = emptyList(),
     /** Local memory notes (absent in exports made before 1.4, which import with none). */
     val memory: List<MemoryNote> = emptyList(),
+    /** Creative Studio projects, assets (records; files in [studioEntry]), saved workflows and the prompt library (absent before Studio). */
+    val studioProjects: List<StudioProject> = emptyList(),
+    val studioAssets: List<StudioAsset> = emptyList(),
+    val studioWorkflows: List<StudioWorkflow> = emptyList(),
+    val studioSnippets: List<PromptSnippet> = emptyList(),
 ) {
     companion object {
         fun sessionEntry(conversationId: String) = "sessions/$conversationId.jsonl"
 
         fun attachmentEntry(id: String) = "attachments/$id"
+
+        fun studioEntry(asset: StudioAsset) = "studio/${asset.id}.${StudioCodec.extension(asset.mimeType)}"
 
         fun encode(manifest: BackupManifest): ByteArray = BackupJson.encodeToString(serializer(), manifest).encodeToByteArray()
 

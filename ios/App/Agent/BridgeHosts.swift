@@ -98,7 +98,7 @@ final class McpTokenSourceHost: NSObject, McpTokenSource, @unchecked Sendable {
  */
 final class URLSessionTransport: NSObject, HttpTransport, @unchecked Sendable {
     private static let errorBodyLimit = 16 * 1024
-    private let clients: HttpClientFactory
+    fileprivate let clients: HttpClientFactory
 
     init(clients: HttpClientFactory) { self.clients = clients }
 
@@ -158,6 +158,190 @@ final class URLSessionTransport: NSObject, HttpTransport, @unchecked Sendable {
             }
         }
         return TaskHandle(task)
+    }
+}
+
+/**
+ The binary and WebSocket siblings of [URLSessionTransport] (Studio media backends such as
+ ComfyUI), through the same policy-bound client: kill switch (`ws` is cleartext, `wss` TLS),
+ route, header scrub, audit log with the bytes received, no redirects.
+ */
+extension URLSessionTransport: BinaryHttpTransport, WebSocketTransport {
+    private static let binaryErrorLimit = 16 * 1024
+
+    func exchange(request: HttpRequestSpec, body: KotlinByteArray?, sink: BinarySink) -> any AutobotShared.Cancellable {
+        let override = RouteOverride(rawValue: request.route) ?? .inherit
+        let client = clients.create(tag: request.tag, override: override)
+        let trace = request.trace.map { AuditTrace(session: $0.sessionId, turn: Int($0.turn)) }
+        let payload = body.map { BackupBytes.shared.toData(bytes: $0) as Data } ?? request.body.map { Data($0.utf8) }
+        let spec = (method: request.method, url: request.url, headers: request.headers, tag: request.tag, maxBytes: request.maxBytes)
+        nonisolated(unsafe) let sink = sink
+        let task = Task.detached {
+            guard let url = URL(string: spec.url) else {
+                sink.onFailure(blocked: false, message: "Invalid URL")
+                return
+            }
+            var http = URLRequest(url: url)
+            http.httpMethod = spec.method
+            spec.headers.forEach { http.setValue($0.value, forHTTPHeaderField: $0.key) }
+            http.httpBody = payload
+            do {
+                let response = try await client.fetch(http, tag: spec.tag, trace: trace)
+                if Task.isCancelled { return }
+                var headers: [String: String] = [:]
+                response.headers.forEach { headers[$0.key.lowercased()] = $0.value }
+                if response.isSuccessful && Int64(response.body.count) > spec.maxBytes {
+                    sink.onFailure(blocked: false, message: "Response larger than \(spec.maxBytes) bytes")
+                    return
+                }
+                let data = response.isSuccessful ? response.body : response.body.prefix(Self.binaryErrorLimit)
+                sink.onResponse(status: Int32(response.status), headers: headers, body: BackupBytes.shared.fromData(data: data))
+            } catch let blocked as NetworkBlockedError {
+                sink.onFailure(blocked: true, message: blocked.message)
+            } catch {
+                if !Task.isCancelled { sink.onFailure(blocked: false, message: error.localizedDescription) }
+            }
+        }
+        return TaskHandle(task)
+    }
+
+    func connect(spec: WebSocketSpec, listener: WebSocketListener) -> any WebSocketConnection {
+        let override = RouteOverride(rawValue: spec.route) ?? .inherit
+        let client = clients.create(tag: spec.tag, override: override)
+        let trace = spec.trace.map { AuditTrace(session: $0.sessionId, turn: Int($0.turn)) }
+        guard let url = URL(string: spec.url) else {
+            listener.onFailure(blocked: false, message: "Invalid URL")
+            return SocketConnection.closed
+        }
+        var request = URLRequest(url: url)
+        spec.headers.forEach { request.setValue($0.value, forHTTPHeaderField: $0.key) }
+        do {
+            let (task, entry) = try client.webSocket(request, tag: spec.tag, trace: trace)
+            task.maximumMessageSize = Int(min(spec.maxMessageBytes, Int64(Int.max)))
+            let connection = SocketConnection(task: task, listener: listener, audit: clients.auditLog, entry: entry)
+            connection.start()
+            return connection
+        } catch let blocked as NetworkBlockedError {
+            listener.onFailure(blocked: true, message: blocked.message)
+        } catch {
+            listener.onFailure(blocked: false, message: error.localizedDescription)
+        }
+        return SocketConnection.closed
+    }
+}
+
+/// One URLSession WebSocket for the shared code: callbacks serialised under a lock, the open
+/// event delivered once (before the first message), and the bytes received audited at the end.
+final class SocketConnection: NSObject, WebSocketConnection, URLSessionWebSocketDelegate, @unchecked Sendable {
+    static let closed = SocketConnection(task: nil, listener: nil, audit: nil, entry: 0)
+
+    private struct State {
+        var opened = false
+        var finished = false
+        var received: Int64 = 0
+    }
+
+    private let task: URLSessionWebSocketTask?
+    nonisolated(unsafe) private let listener: WebSocketListener?
+    private let audit: AuditLog?
+    private let entry: Int64
+    private let state = Mutex(State())
+    private let reader = Mutex<Task<Void, Never>?>(nil)
+
+    init(task: URLSessionWebSocketTask?, listener: WebSocketListener?, audit: AuditLog?, entry: Int64) {
+        self.task = task
+        self.listener = listener
+        self.audit = audit
+        self.entry = entry
+    }
+
+    func start() {
+        guard let task else { return }
+        task.delegate = self
+        task.resume()
+        let loop = Task.detached { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    let message = try await task.receive()
+                    self?.deliver(message)
+                } catch {
+                    self?.ended(error)
+                    return
+                }
+            }
+        }
+        reader.withLock { $0 = loop }
+    }
+
+    private func emit(_ block: (WebSocketListener) -> Void) {
+        state.withLock { s in
+            guard !s.finished, let listener else { return }
+            if !s.opened {
+                s.opened = true
+                listener.onOpen()
+            }
+            block(listener)
+        }
+    }
+
+    private func deliver(_ message: URLSessionWebSocketTask.Message) {
+        switch message {
+        case .string(let text):
+            state.withLock { $0.received += Int64(text.utf8.count) }
+            emit { $0.onText(text: text) }
+        case .data(let data):
+            state.withLock { $0.received += Int64(data.count) }
+            emit { $0.onBinary(bytes: BackupBytes.shared.fromData(data: data)) }
+        @unknown default:
+            break
+        }
+    }
+
+    private func ended(_ error: Error) {
+        let code = task?.closeCode ?? .invalid
+        let reason = task?.closeReason.map { String(decoding: $0, as: UTF8.self) } ?? ""
+        finish { listener in
+            if code != .invalid {
+                listener.onClosed(code: Int32(code.rawValue), reason: reason)
+            } else {
+                listener.onFailure(blocked: false, message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Ends the socket once: reports the bytes and tells the listener (unless cancelled).
+    private func finish(_ tell: ((WebSocketListener) -> Void)?) {
+        let received: Int64? = state.withLock { s in
+            guard !s.finished else { return nil }
+            s.finished = true
+            if let tell, let listener { tell(listener) }
+            return s.received
+        }
+        if let received, task != nil { audit?.received(id: entry, bytes: received) }
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        state.withLock { s in
+            guard !s.finished, !s.opened, let listener else { return }
+            s.opened = true
+            listener.onOpen()
+        }
+    }
+
+    func sendText(text: String) -> Bool {
+        guard let task, state.withLock({ !$0.finished }) else { return false }
+        task.send(.string(text)) { _ in }
+        return true
+    }
+
+    func close(code: Int32, reason: String) {
+        task?.cancel(with: URLSessionWebSocketTask.CloseCode(rawValue: Int(code)) ?? .normalClosure, reason: Data(reason.utf8))
+    }
+
+    func cancel() {
+        finish(nil)
+        reader.withLock { $0?.cancel() }
+        task?.cancel()
     }
 }
 

@@ -122,6 +122,11 @@ final class BackupService {
             gallery: images.map(Self.backupImage),
             attachments: attachmentIds,
             memory: app.memory.notes.map(\.shared),
+            // Creative Studio records join the export once the iOS Studio store exists.
+            studioProjects: [],
+            studioAssets: [],
+            studioWorkflows: [],
+            studioSnippets: [],
         )
         let version = Bundle.main.infoDictionary
         let label = "Autobot \(version?["CFBundleShortVersionString"] as? String ?? "?") (\(version?["CFBundleVersion"] as? String ?? "0"))"

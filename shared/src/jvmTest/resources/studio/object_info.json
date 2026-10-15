@@ -1,0 +1,130 @@
+{
+  "KSampler": {
+    "input": {
+      "required": {
+        "model": ["MODEL", {"tooltip": "The model used for denoising the input latent."}],
+        "seed": ["INT", {"default": 0, "min": 0, "max": 18446744073709551615, "control_after_generate": true, "tooltip": "The random seed used for creating the noise."}],
+        "steps": ["INT", {"default": 20, "min": 1, "max": 10000, "tooltip": "The number of steps used in the denoising process."}],
+        "cfg": ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}],
+        "sampler_name": [["euler", "euler_cfg_pp", "euler_ancestral", "heun", "dpm_2", "lms", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddim", "uni_pc", "lcm"], {"tooltip": "The algorithm used when sampling."}],
+        "scheduler": [["simple", "sgm_uniform", "karras", "exponential", "ddim_uniform", "beta", "normal", "linear_quadratic", "kl_optimal"], {}],
+        "positive": ["CONDITIONING", {}],
+        "negative": ["CONDITIONING", {}],
+        "latent_image": ["LATENT", {}],
+        "denoise": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}]
+      }
+    },
+    "input_order": {"required": ["model", "seed", "steps", "cfg", "sampler_name", "scheduler", "positive", "negative", "latent_image", "denoise"]},
+    "output": ["LATENT"],
+    "output_is_list": [false],
+    "output_name": ["LATENT"],
+    "name": "KSampler",
+    "display_name": "KSampler",
+    "description": "Uses the provided model, positive and negative conditioning to denoise the latent image.",
+    "python_module": "nodes",
+    "category": "sampling",
+    "output_node": false
+  },
+  "CheckpointLoaderSimple": {
+    "input": {"required": {"ckpt_name": [["sd_xl_base_1.0.safetensors", "v1-5-pruned-emaonly-fp16.safetensors"], {"tooltip": "The name of the checkpoint (model) to load."}]}},
+    "input_order": {"required": ["ckpt_name"]},
+    "output": ["MODEL", "CLIP", "VAE"],
+    "output_is_list": [false, false, false],
+    "output_name": ["MODEL", "CLIP", "VAE"],
+    "name": "CheckpointLoaderSimple",
+    "display_name": "Load Checkpoint",
+    "description": "Loads a diffusion model checkpoint.",
+    "python_module": "nodes",
+    "category": "loaders",
+    "output_node": false
+  },
+  "CLIPTextEncode": {
+    "input": {"required": {"text": ["STRING", {"multiline": true, "dynamicPrompts": true}], "clip": ["CLIP", {}]}},
+    "input_order": {"required": ["text", "clip"]},
+    "output": ["CONDITIONING"],
+    "output_is_list": [false],
+    "output_name": ["CONDITIONING"],
+    "name": "CLIPTextEncode",
+    "display_name": "CLIP Text Encode (Prompt)",
+    "python_module": "nodes",
+    "category": "conditioning",
+    "output_node": false
+  },
+  "EmptyLatentImage": {
+    "input": {"required": {
+      "width": ["INT", {"default": 512, "min": 16, "max": 16384, "step": 8}],
+      "height": ["INT", {"default": 512, "min": 16, "max": 16384, "step": 8}],
+      "batch_size": ["INT", {"default": 1, "min": 1, "max": 4096}]
+    }},
+    "input_order": {"required": ["width", "height", "batch_size"]},
+    "output": ["LATENT"],
+    "output_is_list": [false],
+    "output_name": ["LATENT"],
+    "name": "EmptyLatentImage",
+    "display_name": "Empty Latent Image",
+    "python_module": "nodes",
+    "category": "latent",
+    "output_node": false
+  },
+  "VAEDecode": {
+    "input": {"required": {"samples": ["LATENT", {}], "vae": ["VAE", {}]}},
+    "output": ["IMAGE"],
+    "output_is_list": [false],
+    "output_name": ["IMAGE"],
+    "name": "VAEDecode",
+    "display_name": "VAE Decode",
+    "python_module": "nodes",
+    "category": "latent",
+    "output_node": false
+  },
+  "SaveImage": {
+    "input": {"required": {"images": ["IMAGE", {}], "filename_prefix": ["STRING", {"default": "ComfyUI"}]}, "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"}},
+    "output": [],
+    "output_is_list": [],
+    "output_name": [],
+    "name": "SaveImage",
+    "display_name": "Save Image",
+    "python_module": "nodes",
+    "category": "image",
+    "output_node": true
+  },
+  "LoadImage": {
+    "input": {"required": {"image": [["example.png", "autobot/input.png"], {"image_upload": true}]}},
+    "output": ["IMAGE", "MASK"],
+    "output_is_list": [false, false],
+    "output_name": ["IMAGE", "MASK"],
+    "name": "LoadImage",
+    "display_name": "Load Image",
+    "python_module": "nodes",
+    "category": "image",
+    "output_node": false
+  },
+  "KSamplerSelect": {
+    "input": {"required": {"sampler_name": ["COMBO", {"options": ["euler", "euler_ancestral", "dpmpp_2m"], "multiselect": false}]}},
+    "output": ["SAMPLER"],
+    "output_is_list": [false],
+    "output_name": ["SAMPLER"],
+    "name": "KSamplerSelect",
+    "display_name": "KSamplerSelect",
+    "python_module": "comfy_extras.nodes_custom_sampler",
+    "category": "sampling/custom_sampling/samplers",
+    "output_node": false
+  },
+  "LoraLoader": {
+    "input": {"required": {
+      "model": ["MODEL", {}],
+      "clip": ["CLIP", {}],
+      "lora_name": [["pixel-art-xl-v1.1.safetensors"], {}],
+      "strength_model": ["FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}],
+      "strength_clip": ["FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}]
+    }},
+    "output": ["MODEL", "CLIP"],
+    "output_is_list": [false, false],
+    "output_name": ["MODEL", "CLIP"],
+    "name": "LoraLoader",
+    "display_name": "Load LoRA",
+    "python_module": "nodes",
+    "category": "loaders",
+    "output_node": false
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "system_stats": {
+    "system": {
+      "os": "posix",
+      "ram_total": 67108864000,
+      "ram_free": 52428800000,
+      "comfyui_version": "0.3.66",
+      "required_frontend_version": "1.28.6",
+      "python_version": "3.12.9 (main, Feb 12 2025, 14:50:50) [Clang 19.1.6 ]",
+      "pytorch_version": "2.8.0+cu128",
+      "embedded_python": false,
+      "argv": ["main.py", "--listen", "0.0.0.0"]
+    },
+    "devices": [
+      {"name": "cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync", "type": "cuda", "index": 0, "vram_total": 25386352640, "vram_free": 23899045888, "torch_vram_total": 0, "torch_vram_free": 0}
+    ]
+  },
+  "queue": {
+    "queue_running": [[11, "running-id", {}, {"client_id": "x"}, ["9"]]],
+    "queue_pending": [[12, "pending-a", {}, {"client_id": "x"}, ["9"]], [13, "pending-b", {}, {"client_id": "x"}, ["9"]]]
+  },
+  "prompt_ok": {"prompt_id": "PROMPT", "number": 7, "node_errors": {}},
+  "prompt_refused": {
+    "error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation", "details": "", "extra_info": {}},
+    "node_errors": {
+      "4": {
+        "errors": [{
+          "type": "value_not_in_list",
+          "message": "Value not in list",
+          "details": "ckpt_name: 'missing.safetensors' not in ['sd_xl_base_1.0.safetensors']",
+          "extra_info": {"input_name": "ckpt_name", "input_config": null, "received_value": "missing.safetensors"}
+        }],
+        "dependent_outputs": ["9"],
+        "class_type": "CheckpointLoaderSimple"
+      }
+    }
+  },
+  "upload": {"name": "input.png", "subfolder": "autobot", "type": "input"}
+}
