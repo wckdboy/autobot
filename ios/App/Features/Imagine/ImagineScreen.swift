@@ -17,6 +17,7 @@ private func aspectSize(_ base: Int, _ ratio: (Int, Int)) -> (Int, Int) {
 struct ImagineScreen: View {
     var handoffId: String? = nil
     var asInit = false
+    var modelId: String? = nil
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
@@ -41,6 +42,7 @@ struct ImagineScreen: View {
                 let m = ImagineModel(app: app)
                 model = m
                 m.onAppear()
+                if let modelId { m.useModel(modelId) }
                 if let handoffId {
                     m.reuseParams(handoffId)
                     if asInit { await m.useAsInit(handoffId) }
@@ -72,6 +74,16 @@ struct ImagineScreen: View {
                     }
                     PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate)
                     if !m.chips.isEmpty { chipRow(m) }
+                    if m.catalogStatus == .error, let error = m.catalogError {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("Can't reach \(m.backend?.name ?? "the backend"): \(error)")
+                                .textStyle(.bodySmall)
+                                .foregroundStyle(c.error)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            TextAction("Retry", color: c.primary) { m.refreshCatalog() }
+                        }
+                    }
                     Hairline(color: c.onBackground)
                     HStack {
                         BigReadout(label: "Steps", value: "\(request.steps)") { showTune = true }
@@ -240,7 +252,7 @@ private struct ProofGrid: View {
                 HalftoneField(dot: c.outlineVariant, cell: 9)
             }
             if let running, i == running.image {
-                Tag(running.total > 0 ? "step \(running.step)/\(running.total)" : "loading", accent: c.primary, filled: true).padding(6)
+                Tag(model.phase == nil && running.total > 0 ? "step \(running.step)/\(running.total)" : "loading", accent: c.primary, filled: true).padding(6)
             }
         }
         .frame(maxWidth: .infinity)
@@ -262,7 +274,7 @@ private struct StudioBar: View {
         VStack(spacing: 8) {
             HStack {
                 TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                    Text(status(now: context.date)).textStyle(.bodyMedium).foregroundStyle(c.onBackground).lineLimit(1)
+                    Text(status(now: context.date)).textStyle(.bodyMedium).foregroundStyle(c.onBackground).lineLimit(2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if case .running(_, _, let r, _, _, _, _, _) = model.running {
@@ -303,10 +315,12 @@ private struct StudioBar: View {
         let r = model.request
         if case .running(let source, let backend, _, _, _, _, _, let started) = model.running {
             let seconds = Int(now.timeIntervalSince(started))
+            if let phase = model.phase { return "\(phase) · \(seconds) s" }
             if source == .agent { return "Agent is generating · \(seconds) s" }
             return "Running \(model.backend?.kind == .onDevice ? "on device" : "on \(backend)") · \(seconds) s"
         }
         if !model.results.isEmpty { return "Done · \(model.results.count) image\(model.results.count == 1 ? "" : "s")" }
+        if let blocker = model.generateBlocker { return blocker }
         return "\(r.mode.label) · \(r.sampler.isEmpty ? "default sampler" : r.sampler) · cfg \(String(format: "%.1f", r.cfgScale))"
     }
 }
@@ -344,7 +358,7 @@ private struct InitStrip: View {
         .onChange(of: picked) { _, item in
             guard let item else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self) { await model.setInitImage(data) }
+                if let data = try? await item.loadTransferable(type: Data.self) { await model.setInitImage(data) } else { model.photoLoadFailed() }
                 picked = nil
             }
         }

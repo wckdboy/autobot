@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -40,6 +41,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -117,6 +121,7 @@ private val ProviderRouting.label: String
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
+    var deleting by remember { mutableStateOf<ProviderRow?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -148,17 +153,21 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
                         headlineContent = { Text(row.name) },
                         supportingContent = {
                             Column {
-                                Text(
-                                    "${row.presetName} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                Row {
+                                    Text(
+                                        "${row.presetName} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (row.requiresKey && !row.hasKey) Text(" · no key", color = MaterialTheme.colorScheme.error, maxLines = 1)
+                                }
                                 row.models?.let { MicroLabel(it) }
                             }
                         },
                         overlineContent = { Text(row.baseUrl, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingContent = {
-                            IconButton(onClick = { actions.delete(row.id) }) {
+                            IconButton(onClick = { deleting = row }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
                             }
                         },
@@ -170,6 +179,31 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
 
     state.pickerQuery?.let { query -> PresetPickerSheet(query, actions) }
     state.editor?.let { draft -> ProviderEditorSheet(draft, state, actions) }
+    deleting?.let { row ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete ${row.name}?") },
+            text = { Text(deleteMessage(row, state.providers)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    actions.delete(row.id)
+                    deleting = null
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Its API key goes with it; chats on it move to the next provider (`ChatRoutes`). */
+private fun deleteMessage(row: ProviderRow, providers: List<ProviderRow>): String {
+    val next = providers.firstOrNull { it.id != row.id }
+    val used = if (row.chats == 1) "1 chat uses it" else "${row.chats} chats use it"
+    return "Its API key is deleted from this phone." + when {
+        row.chats == 0 -> ""
+        next != null -> " $used and will switch to ${next.name}."
+        else -> " $used; it will have no provider until you add one."
+    }
 }
 
 /** "Add provider": every preset, searchable, grouped Cloud · Open-model hosts · Local servers · This phone. */
@@ -187,6 +221,16 @@ private fun PresetPickerSheet(query: String, actions: ProvidersActions) {
                 if (groups.isEmpty()) item { MicroLabel("no match · try “Other OpenAI-compatible”", Modifier.padding(vertical = 16.dp)) }
                 groups.forEach { (group, presets) ->
                     item(key = "g-${group.name}") { MicroLabel("// ${group.label} · ${presets.size}", Modifier.padding(top = 14.dp, bottom = 4.dp), MaterialTheme.colorScheme.primary) }
+                    if (group == PresetGroup.LOCAL_SERVERS) {
+                        item(key = "n-${group.name}") {
+                            Text(
+                                "127.0.0.1 is this phone: these presets only reach a server running on the phone. For a server on your PC or network use its https address (Tailscale or a reverse proxy) — plain http only works on the phone itself.",
+                                modifier = Modifier.padding(bottom = 4.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     items(presets, key = { it.id }) { preset ->
                         val selectable = preset.group != PresetGroup.THIS_PHONE
                         Column(
@@ -243,9 +287,10 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                         label = "Base URL", singleLine = true, mono = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                     )
+                    val urlProblem = if (draft.baseUrl.isNotBlank() && !draft.baseUrlValid) "invalid url" else draft.cleartextProblem
                     MicroLabel(
-                        if (draft.baseUrl.isNotBlank() && !draft.baseUrlValid) "invalid url" else "cleartext http only for 127.0.0.1 / localhost",
-                        color = if (draft.baseUrl.isNotBlank() && !draft.baseUrlValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        urlProblem ?: "cleartext http only for 127.0.0.1 / localhost",
+                        color = if (urlProblem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
@@ -258,6 +303,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                         keyboardOptions = SecretKeyboardOptions,
                         visualTransformation = PasswordVisualTransformation(),
                     )
+                    if (draft.missingKey) MicroLabel("This provider needs an API key", color = MaterialTheme.colorScheme.error)
                     MicroLabel("encrypted with android keystore · sent only to ${preset.host.ifBlank { "this host" }}")
                     if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
                         TextButton(onClick = { actions.change { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
@@ -291,10 +337,26 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 }
 
                 TestResult(test)
+                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
+                var confirmNoKey by remember { mutableStateOf(false) }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     GhostButton("Test connection", actions::test, Modifier.weight(1f), enabled = draft.baseUrlValid && test != TestState.Running)
-                    PrimaryButton("Save", actions::save, Modifier.weight(1f), enabled = draft.canSave && !state.saving)
+                    PrimaryButton("Save", { if (draft.missingKey) confirmNoKey = true else actions.save() }, Modifier.weight(1f), enabled = draft.canSave && !state.saving)
+                }
+                if (confirmNoKey) {
+                    AlertDialog(
+                        onDismissRequest = { confirmNoKey = false },
+                        title = { Text("Save without an API key?") },
+                        text = { Text("${preset.displayName} needs an API key; requests will be refused until you add one.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                confirmNoKey = false
+                                actions.save()
+                            }) { Text("Save anyway") }
+                        },
+                        dismissButton = { TextButton(onClick = { confirmNoKey = false }) { Text("Cancel") } },
+                    )
                 }
                 TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("CANCEL") }
             }

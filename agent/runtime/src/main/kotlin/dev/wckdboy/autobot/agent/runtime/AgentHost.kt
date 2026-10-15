@@ -26,12 +26,15 @@ import dev.wckdboy.autobot.core.data.MemoryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.MessageRole
+import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.WebSearchRepository
 import dev.wckdboy.autobot.core.data.toSpec
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.OkHttpTransport
+import dev.wckdboy.autobot.providers.remote.ChatRoutes
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
+import dev.wckdboy.autobot.providers.remote.RouteTarget
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
@@ -48,6 +51,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -164,6 +168,18 @@ class AgentHost @Inject constructor(
             await(Interaction.Question(request.agent.id, request.callId, request.question, CompletableDeferred()))
         }
         scope.launch { mcpServers.observeServers().collect { list -> mcp.update(list.map { it.toSpec() }) } }
+        // A chat whose provider was deleted (or that had none yet) moves to the first provider.
+        scope.launch { providers.observeProviders().collect { list -> repoint(list) } }
+    }
+
+    /** Re-points every conversation (and its open agent) whose provider is not in [list] (shared `ChatRoutes`). */
+    private suspend fun repoint(list: List<Provider>) {
+        val targets = list.map { RouteTarget(it.id, it.defaultModel) }
+        for (c in conversations.observeConversations().first()) {
+            val route = ChatRoutes.repoint(c.providerId, c.model, targets) ?: continue
+            conversations.updateConversation(c.copy(providerId = route.providerId, model = route.model))
+            mutex.withLock { agents[c.id] }?.updateConfig { it.copy(llm = it.llm.copy(provider = route.providerId, model = route.model)) }
+        }
     }
 
     private fun toggle(enabled: Flow<Boolean>, plugin: () -> Plugin) {
@@ -201,13 +217,13 @@ class AgentHost @Inject constructor(
     suspend fun agent(conversationId: String): Agent = mutex.withLock {
         agents[conversationId]?.let { return it }
         val conversation = conversations.getConversation(conversationId)
-        val providerId = conversation?.providerId ?: providers.firstProviderId()
-        val provider = providerId?.let { providers.getProvider(it) }
-        val model = conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel.orEmpty()
+        val stored = conversation?.providerId?.let { providers.getProvider(it) }
+        val provider = stored ?: providers.firstProviderId()?.let { providers.getProvider(it) }
+        val model = conversation?.model?.takeIf { it.isNotBlank() && stored != null } ?: provider?.defaultModel.orEmpty()
         val agent = harness.openAgent(
             sessionId = conversationId,
             store = store,
-            config = AgentConfig(LlmCallConfig(provider = providerId.orEmpty(), model = model)),
+            config = AgentConfig(LlmCallConfig(provider = provider?.id.orEmpty(), model = model)),
             scope = scope,
         )
         if (agent.log.entries.value.isEmpty()) seedLegacyMessages(agent)

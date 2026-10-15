@@ -90,13 +90,26 @@ final class ImagineModel {
     }
 
     var running: GenerationState { app.generator.state }
+    /// Model loading before the first step, when the backend reports it.
+    var phase: String? { app.generator.phase }
     var isRunning: Bool { app.generator.state.isRunning }
     var error: String? { localError ?? app.generator.lastError }
     var tokenEstimate: Int { PromptSyntax.estimateTokens(request.prompt) }
 
-    var canGenerate: Bool {
-        backend != nil && !isRunning && !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            (request.mode == .txt2img || initImage != nil) && (request.mode != .inpaint || !mask.isEmpty)
+    var canGenerate: Bool { !isRunning && generateBlocker == nil }
+
+    /// Why Generate is disabled (shown in place of the settings line), or nil when it can run.
+    var generateBlocker: String? {
+        if backend == nil { return "No image engine yet: get a model or add a PC" }
+        if request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Type a prompt to generate" }
+        if request.mode != .txt2img && initImage == nil { return "\(request.mode.label) needs an input image" }
+        if request.mode == .inpaint && mask.isEmpty { return "Paint a mask over the part to repaint" }
+        return nil
+    }
+
+    /// A photo from the picker could not be loaded (e.g. it is still in iCloud).
+    func photoLoadFailed() {
+        localError = "Couldn't load that photo (it may still be downloading from iCloud)"
     }
 
     /// The route tag of the current backend.
@@ -189,6 +202,15 @@ final class ImagineModel {
             r.height = rec.height ?? r.height
             if r.negativePrompt.isEmpty { r.negativePrompt = rec.negativePrompt ?? "" }
         }
+    }
+
+    /// Selects an installed on-device model (tapped on the Models screen) with its recommended settings.
+    func useModel(_ id: String) {
+        guard let chip = chips.first(where: { $0.onDevice && $0.model == id }) else {
+            localError = "\(app.library.get(id)?.title ?? "That model") can't run in the studio on this phone"
+            return
+        }
+        selectChip(chip)
     }
 
     // MARK: Backend

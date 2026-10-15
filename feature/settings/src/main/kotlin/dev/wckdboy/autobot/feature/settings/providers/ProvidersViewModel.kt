@@ -5,11 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.ApiKeyUpdate
+import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
+import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
 import dev.wckdboy.autobot.providers.remote.ModelCache
@@ -20,6 +22,7 @@ import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.RemoteModel
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +46,10 @@ data class ProviderRow(
     val hasKey: Boolean,
     /** `42 models · fetched 3 min ago`, or null before the first fetch. */
     val models: String? = null,
+    /** Its preset needs an API key. */
+    val requiresKey: Boolean = false,
+    /** Conversations set to this provider. */
+    val chats: Int = 0,
 )
 
 /** Editor state. [apiKeyInput] is only held in memory and is redacted from [toString]. */
@@ -62,13 +69,25 @@ data class ProviderDraft(
     val isNew: Boolean get() = id == null
     val preset: ProviderPreset get() = ProviderPresets.resolve(presetId, kind, baseUrl)
     val baseUrlValid: Boolean get() = baseUrl.trim().toHttpUrlOrNull() != null
-    val canSave: Boolean get() = displayName.isNotBlank() && baseUrlValid && defaultModel.isNotBlank()
+    /** Why the base URL cannot work: the kill switch refuses cleartext to anything but loopback. */
+    val cleartextProblem: String? get() = cleartextProblem(baseUrl)
+    val canSave: Boolean get() = displayName.isNotBlank() && baseUrlValid && cleartextProblem == null && defaultModel.isNotBlank()
+
+    /** The preset needs a key and none is typed or kept. */
+    val missingKey: Boolean get() = preset.requiresApiKey && apiKeyInput.isBlank() && (!hasStoredKey || clearStoredKey)
 
     override fun toString(): String =
         "ProviderDraft(id=$id, preset=$presetId, displayName=$displayName, baseUrl=$baseUrl, model=$defaultModel, " +
             "routing=$routing, apiKeyInput=${if (apiKeyInput.isEmpty()) "" else Secret.REDACTED}, hasStoredKey=$hasStoredKey)"
 
     companion object {
+        /** `http://` to a host other than loopback: blocked on every request. */
+        fun cleartextProblem(url: String): String? {
+            val parsed = url.trim().toHttpUrlOrNull() ?: return null
+            if (parsed.isHttps || Loopback.isLoopback(parsed.host)) return null
+            return "Use https — plain http only works for servers on this phone; use Tailscale or a reverse proxy"
+        }
+
         fun fromPreset(preset: ProviderPreset): ProviderDraft = ProviderDraft(
             presetId = preset.id,
             kind = preset.kind,
@@ -105,12 +124,15 @@ data class ProvidersUiState(
     val models: EditorModels = EditorModels(),
     val test: TestState = TestState.Idle,
     val saving: Boolean = false,
+    /** Why the last save failed (the editor stays open). */
+    val error: String? = null,
     val now: Long = 0,
 )
 
 @HiltViewModel
 class ProvidersViewModel @Inject constructor(
     private val repository: ProviderRepository,
+    conversations: ConversationRepository,
     private val providerFactory: ProviderFactory,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
@@ -120,11 +142,13 @@ class ProvidersViewModel @Inject constructor(
     private val models = MutableStateFlow(EditorModels())
     private val test = MutableStateFlow<TestState>(TestState.Idle)
     private val saving = MutableStateFlow(false)
+    private val error = MutableStateFlow<String?>(null)
     private var testJob: Job? = null
     private var modelsJob: Job? = null
 
-    private val rows = combine(repository.observeProviders(), repository.observeModelCaches()) { list, caches ->
+    private val rows = combine(repository.observeProviders(), repository.observeModelCaches(), conversations.observeConversations()) { list, caches, chats ->
         val now = System.currentTimeMillis()
+        val usage = chats.groupingBy { it.providerId }.eachCount()
         list.map { p ->
             ProviderRow(
                 id = p.id,
@@ -136,6 +160,8 @@ class ProvidersViewModel @Inject constructor(
                 routing = p.routing,
                 hasKey = p.apiKeyRef != null,
                 models = caches[p.id]?.let { "${it.models.size} models · ${it.ageLabel(now)}" },
+                requiresKey = p.preset().requiresApiKey,
+                chats = usage[p.id] ?: 0,
             )
         }
     }
@@ -145,8 +171,9 @@ class ProvidersViewModel @Inject constructor(
         models,
         test,
         saving,
-    ) { (r, p, e), m, t, s ->
-        ProvidersUiState(providers = r, pickerQuery = p, editor = e, models = m, test = t, saving = s, now = System.currentTimeMillis())
+        error,
+    ) { (r, p, e), m, t, s, err ->
+        ProvidersUiState(providers = r, pickerQuery = p, editor = e, models = m, test = t, saving = s, error = err, now = System.currentTimeMillis())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProvidersUiState())
 
     /** Opens the preset search ("add provider"). */
@@ -199,6 +226,7 @@ class ProvidersViewModel @Inject constructor(
 
     fun dismissEditor() {
         resetTest()
+        error.value = null
         modelsJob?.cancel()
         editor.value = null
     }
@@ -207,6 +235,7 @@ class ProvidersViewModel @Inject constructor(
         val draft = editor.value ?: return
         if (!draft.canSave || saving.value) return
         saving.value = true
+        error.value = null
         viewModelScope.launch {
             try {
                 val existing = draft.id?.let { repository.getProvider(it) }
@@ -224,6 +253,10 @@ class ProvidersViewModel @Inject constructor(
                     keyUpdate is ApiKeyUpdate.Set || !stored.preset().requiresApiKey -> appScope.launch { refreshStored(stored) }
                 }
                 editor.value = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error.value = "Could not save: ${e.message ?: e::class.simpleName}"
             } finally {
                 saving.value = false
             }

@@ -1,6 +1,8 @@
+import AutobotShared
 import CryptoKit
 import Foundation
 import Observation
+import UIKit
 
 /**
  Conversations. Transparently routes incognito conversations (id prefix [incognitoPrefix]) to
@@ -19,9 +21,15 @@ final class ConversationRepository {
     @ObservationIgnored private var stored: [String: Conversation] = [:]
     @ObservationIgnored private var incognito: [String: Conversation] = [:]
     @ObservationIgnored private let store: EncryptedStore
+    /// Saves that failed while the device was locked, retried in order ([PendingWrites]).
+    @ObservationIgnored private let unsaved: PendingWrites<Conversation>
 
     init(store: EncryptedStore) {
         self.store = store
+        unsaved = PendingWrites { [store] c in try store.put(Self.collection, id: c.id, c) }
+        NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { [weak unsaved] _ in
+            unsaved?.flush()
+        }
     }
 
     /// Loads persisted conversations (needs the device to be unlocked).
@@ -48,7 +56,7 @@ final class ConversationRepository {
             incognito[conversation.id] = conversation
         } else {
             stored[conversation.id] = conversation
-            try? store.put(Self.collection, id: conversation.id, conversation)
+            unsaved.submit(conversation)
         }
         publish()
     }
@@ -76,10 +84,31 @@ final class ConversationRepository {
             incognito.removeValue(forKey: id)
         } else {
             stored.removeValue(forKey: id)
+            unsaved.discard { $0.id == id }
             try? store.delete(Self.collection, id: id)
             try? store.deleteEvents(sessionId: id)
         }
         publish()
+    }
+
+    /**
+     Moves conversations whose provider is gone (or that never had one) to the first of [providers]
+     with its default model (shared `ChatRoutes`). [only] limits it to one conversation. Returns the
+     conversations that changed.
+     */
+    @discardableResult
+    func repoint(providers: [Provider], only id: String? = nil) -> [Conversation] {
+        let targets = providers.map { RouteTarget(id: $0.id, defaultModel: $0.defaultModel) }
+        var changed: [Conversation] = []
+        let candidates = if let id { get(id).map { [$0] } ?? [] } else { conversations }
+        for var c in candidates {
+            guard let route = ChatRoutes.shared.repoint(providerId: c.providerId, model: c.model, providers: targets) else { continue }
+            c.providerId = route.providerId
+            c.model = route.model
+            update(c)
+            changed.append(c)
+        }
+        return changed
     }
 
     /// Drops every incognito conversation (panic wipe).

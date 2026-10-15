@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -59,6 +63,7 @@ import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.feature.settings.providers.ProviderDraft
 import dev.wckdboy.autobot.feature.settings.providers.TestState
 
 @Composable
@@ -100,6 +105,7 @@ fun McpServersScreen(
     onTest: () -> Unit,
     onDismissEditor: () -> Unit,
 ) {
+    var deleting by remember { mutableStateOf<McpServerRow?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -125,6 +131,10 @@ fun McpServersScreen(
             }
         } else {
             LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                // A failed enable/disable from the list (an editor shows its own).
+                if (state.editor == null) {
+                    state.error?.let { item { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+                }
                 items(state.servers, key = { it.id }, contentType = { "mcp" }) { row ->
                     ListItem(
                         modifier = Modifier.clickable { onEdit(row.id) },
@@ -145,7 +155,7 @@ fun McpServersScreen(
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Switch(checked = row.enabled, onCheckedChange = { onEnabled(row.id, it) })
-                                IconButton(onClick = { onDelete(row.id) }) {
+                                IconButton(onClick = { deleting = row }) {
                                     Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
                                 }
                             }
@@ -161,10 +171,25 @@ fun McpServersScreen(
             draft = draft,
             test = state.test,
             saving = state.saving,
+            error = state.error,
             onDraftChange = onDraftChange,
             onSave = onSave,
             onTest = onTest,
             onDismiss = onDismissEditor,
+        )
+    }
+    deleting?.let { row ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete ${row.name}?") },
+            text = { Text("Its tools leave agent sessions" + if (row.hasToken) " and its token is deleted from this phone." else ".") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(row.id)
+                    deleting = null
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
 }
@@ -175,6 +200,7 @@ private fun McpServerEditorSheet(
     draft: McpServerDraft,
     test: TestState,
     saving: Boolean,
+    error: String?,
     onDraftChange: ((McpServerDraft) -> McpServerDraft) -> Unit,
     onSave: () -> Unit,
     onTest: () -> Unit,
@@ -206,8 +232,10 @@ private fun McpServerEditorSheet(
                     value = draft.url,
                     onValueChange = { v -> onDraftChange { it.copy(url = v) } },
                     label = { Text("URL") },
-                    supportingText = { Text("The server's MCP endpoint, e.g. https://example.com/mcp. Cleartext http is only allowed for 127.0.0.1/localhost.") },
-                    isError = draft.url.isNotBlank() && !draft.urlValid,
+                    supportingText = {
+                        Text(ProviderDraft.cleartextProblem(draft.url) ?: "The server's MCP endpoint, e.g. https://example.com/mcp. Cleartext http is only allowed for 127.0.0.1/localhost.")
+                    },
+                    isError = draft.url.isNotBlank() && (!draft.urlValid || ProviderDraft.cleartextProblem(draft.url) != null),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
@@ -258,6 +286,7 @@ private fun McpServerEditorSheet(
                 ) { v -> onDraftChange { it.copy(trusted = v) } }
 
                 TestResult(test)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(onClick = onTest, enabled = draft.urlValid && test != TestState.Running) {

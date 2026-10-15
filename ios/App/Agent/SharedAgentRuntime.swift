@@ -20,6 +20,7 @@ final class SharedAgentRuntime: AgentRuntime {
     let supportsTools = true
 
     @ObservationIgnored private let bridge: AgentBridge
+    @ObservationIgnored private let sessionStore: SessionStoreHost
     @ObservationIgnored private var sessions: [String: AgentSession] = [:]
     @ObservationIgnored private var handles: [String: any AutobotShared.Cancellable] = [:]
     @ObservationIgnored private var runningHandle: (any AutobotShared.Cancellable)?
@@ -42,12 +43,14 @@ final class SharedAgentRuntime: AgentRuntime {
         self.conversations = conversations
         self.providers = providers
         self.store = store
+        let sessionStore = SessionStoreHost(store: store)
+        self.sessionStore = sessionStore
         bridge = AgentBridge(
             workspaceDir: AppPaths.workspace.path,
             providers: ProviderDirectoryHost(snapshots: snapshots, secrets: secrets),
             transport: URLSessionTransport(clients: clients),
             local: LocalEngineHost(snapshots: snapshots, llm: llm),
-            store: SessionStoreHost(store: store),
+            store: sessionStore,
             images: ImageStoreHost(attachments: attachments),
             mcpTokens: McpTokenSourceHost(snapshots: snapshots, secrets: secrets),
         )
@@ -65,6 +68,7 @@ final class SharedAgentRuntime: AgentRuntime {
         if let s = sessions[id] { return s }
         let s = AgentSession(id: id)
         sessions[id] = s
+        conversations.repoint(providers: providers.providers, only: id)
         let conversation = conversations.get(id)
         let provider = conversation?.providerId.flatMap(providers.get) ?? providers.providers.first
         let model = conversation?.model.flatMap { $0.isEmpty ? nil : $0 } ?? provider?.defaultModel ?? ""
@@ -110,6 +114,12 @@ final class SharedAgentRuntime: AgentRuntime {
         bridge.setRoute(sessionId: id, providerId: providerId, model: model)
     }
 
+    func providersChanged(_ list: [Provider]) {
+        for c in conversations.repoint(providers: list) where sessions[c.id] != nil {
+            bridge.setRoute(sessionId: c.id, providerId: c.providerId ?? "", model: c.model ?? "")
+        }
+    }
+
     func compact(_ id: String) {
         _ = session(id)
         bridge.compact(sessionId: id)
@@ -119,6 +129,7 @@ final class SharedAgentRuntime: AgentRuntime {
         handles.removeValue(forKey: id)?.cancel()
         sessions[id] = nil
         bridge.discard(sessionId: id)
+        sessionStore.forget(sessionId: id)
         store.delete(id)
     }
 
@@ -179,7 +190,14 @@ private final class SessionListenerBox: NSObject, SessionListener, @unchecked Se
     init(_ deliver: @escaping @MainActor (ChatSessionState) -> Void) { self.deliver = deliver }
 
     func onState(json: String) {
-        guard let state = try? JSONDecoder().decode(ChatSessionState.self, from: Data(json.utf8)) else { return }
+        let state: ChatSessionState
+        do {
+            state = try JSONDecoder().decode(ChatSessionState.self, from: Data(json.utf8))
+        } catch {
+            // A shared/Swift mismatch would otherwise freeze the chat with no trace.
+            EngineErrors.record("session state decode: \(error)")
+            return
+        }
         let deliver = deliver
         DispatchQueue.main.async { MainActor.assumeIsolated { deliver(state) } }
     }

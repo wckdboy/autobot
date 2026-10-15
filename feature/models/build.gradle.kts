@@ -10,11 +10,13 @@ android {
 
 dependencies {
     implementation(projects.core.designsystem)
+    implementation(projects.core.data)
     implementation(projects.core.models)
     implementation(projects.core.diffusion)
     implementation(projects.core.security)
     implementation(projects.core.network)
     implementation(projects.shared)
+    implementation(projects.agent.runtime)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

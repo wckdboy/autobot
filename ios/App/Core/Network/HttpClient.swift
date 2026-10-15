@@ -151,6 +151,7 @@ final class HttpClient: Sendable {
     private struct Admitted {
         let request: URLRequest
         let session: URLSession
+        let proxy: Proxy
         let route: String
         let tag: String
     }
@@ -181,7 +182,7 @@ final class HttpClient: Sendable {
             throw NetworkBlockedError(message: blockReason)
         }
         let proxy = RouteResolver.proxy(for: expectedRoute, host: host) ?? .none
-        return Admitted(request: HeaderScrub.scrub(request), session: factory.session(for: proxy, route: route), route: route, tag: label)
+        return Admitted(request: HeaderScrub.scrub(request), session: factory.session(for: proxy, route: route), proxy: proxy, route: route, tag: label)
     }
 
     private func audit(_ request: URLRequest, tag: String?, route: String, blocked: Bool, status: Int? = nil, received: Int64? = nil, error: String? = nil) {
@@ -204,7 +205,18 @@ final class HttpClient: Sendable {
         if !(error is CancellationError) && (error as? URLError)?.code != .cancelled {
             audit(a.request, tag: a.tag, route: a.route, blocked: false, error: name)
         }
-        return error
+        return Self.proxyFailure(error, proxy: a.proxy)
+    }
+
+    /**
+     A request through a SOCKS proxy that could not connect almost always means the proxy itself
+     (Orbot, a custom SOCKS5 app) is not running: say so instead of URLSession's generic "Could not
+     connect to the server". The code stays the same for callers that check it.
+     */
+    static func proxyFailure(_ error: Error, proxy: Proxy) -> Error {
+        guard case .socks(let host, let port) = proxy, let url = error as? URLError,
+              [.cannotConnectToHost, .timedOut, .networkConnectionLost].contains(url.code) else { return error }
+        return URLError(url.code, userInfo: [NSLocalizedDescriptionKey: "Tor/SOCKS proxy at \(host):\(port) isn't reachable", NSUnderlyingErrorKey: url])
     }
 
     /// Sends [request] and buffers the whole body (JSON APIs, small downloads).

@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import Testing
 
@@ -94,6 +95,18 @@ import Testing
         #expect(size?.width == 64)
         #expect(size?.height == 96)
         #expect(CoreMLDiffusionModel.latentSize(metadata: Data("{}".utf8)) == nil)
+    }
+
+    @Test func latentPreviewMapsChannelsToRGB() throws {
+        // 3 wide, 2 high; channel 0 = 1 everywhere, the rest 0 → SD factors row 0 → (0.35, 0.23, 0.32).
+        var scalars = [Float32](repeating: 0, count: 4 * 6)
+        for i in 0..<6 { scalars[i] = 1 }
+        let image = try #require(LatentPreview.image(MLShapedArray(scalars: scalars, shape: [1, 4, 2, 3]), sdxl: false))
+        #expect(image.width == 3)
+        #expect(image.height == 2)
+        let pixel = try #require(image.dataProvider?.data as Data?)
+        #expect(Array(pixel.prefix(3)) == [172, 156, 168])
+        #expect(LatentPreview.image(MLShapedArray(scalars: [Float32](repeating: 0, count: 3 * 4), shape: [1, 3, 2, 2]), sdxl: false) == nil)
     }
 
     @Test func inspectsModelFolder() throws {

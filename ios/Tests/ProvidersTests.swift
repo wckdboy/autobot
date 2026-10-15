@@ -89,4 +89,67 @@ struct ProvidersTests {
         #expect(!draft.description.contains("lm-secret"))
         #expect(draft.preset.id == "lmstudio")
     }
+
+    @Test func chatsFollowDeletedAndNewProviders() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("routes-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let conversations = ConversationRepository(store: EncryptedStore(url: dir.appendingPathComponent("db.sqlite"), keys: KeyManager()))
+        conversations.load()
+        let kept = conversations.create(incognito: true, providerId: "b", model: "custom")
+        let orphan = conversations.create(incognito: true, providerId: "gone", model: "gone-model")
+        let unset = conversations.create(incognito: true, providerId: nil, model: nil)
+        let a = Provider(id: "a", kind: .openAICompatible, displayName: "A", baseUrl: "https://a.example", defaultModel: "model-a")
+        let b = Provider(id: "b", kind: .openAICompatible, displayName: "B", baseUrl: "https://b.example", defaultModel: "model-b")
+
+        #expect(conversations.repoint(providers: []).isEmpty)
+        #expect(conversations.get(orphan.id)?.providerId == "gone")
+
+        #expect(conversations.repoint(providers: [a, b], only: orphan.id).map(\.id) == [orphan.id])
+        #expect(conversations.get(unset.id)?.providerId == nil)
+
+        let changed = conversations.repoint(providers: [a, b])
+        #expect(changed.map(\.id) == [unset.id])
+        #expect(conversations.get(orphan.id)?.providerId == "a")
+        #expect(conversations.get(orphan.id)?.model == "model-a")
+        #expect(conversations.get(unset.id)?.model == "model-a")
+        #expect(conversations.get(kept.id)?.model == "custom")
+
+        // "b" deleted: its chat moves to the first provider left, with that provider's model.
+        #expect(conversations.repoint(providers: [a]).map(\.id) == [kept.id])
+        #expect(conversations.get(kept.id)?.providerId == "a")
+        #expect(conversations.get(kept.id)?.model == "model-a")
+    }
+
+    @Test func editorExplainsWhatAPhoneCanReach() {
+        #expect(ProviderDraft.cleartextProblem("http://192.168.1.20:11434/v1")?.hasPrefix("Use https") == true)
+        #expect(ProviderDraft.cleartextProblem("http://my-pc.local:1234/v1") != nil)
+        #expect(ProviderDraft.cleartextProblem("https://my-pc.tail1234.ts.net/v1") == nil)
+        #expect(ProviderDraft.cleartextProblem("http://127.0.0.1:11434/v1") == nil)
+        #expect(ProviderDraft.loopbackNote("http://127.0.0.1:11434/v1")?.contains("this iPhone") == true)
+        #expect(ProviderDraft.loopbackNote("https://api.groq.com/openai/v1") == nil)
+
+        var draft = ProviderDraft(presetId: "groq", displayName: "Groq", baseUrl: "https://api.groq.com/openai/v1", defaultModel: "m")
+        #expect(draft.missingKey)
+        #expect(draft.canSave) // allowed after a confirmation
+        draft.hasStoredKey = true
+        #expect(!draft.missingKey)
+        draft.clearStoredKey = true
+        #expect(draft.missingKey)
+        draft.apiKeyInput = "sk-test"
+        #expect(!draft.missingKey)
+        #expect(!ProviderDraft(presetId: "ollama", kind: .ollama, baseUrl: "http://127.0.0.1:11434/v1").missingKey)
+
+        let lan = ProviderDraft(presetId: "ollama", kind: .ollama, displayName: "PC", baseUrl: "http://192.168.1.20:11434/v1", defaultModel: "m")
+        #expect(!lan.canSave)
+    }
+
+    @Test func proxyConnectFailuresNameTheProxy() {
+        let refused = URLError(.cannotConnectToHost)
+        let mapped = HttpClient.proxyFailure(refused, proxy: .socks(host: "127.0.0.1", port: 9050))
+        #expect((mapped as? URLError)?.code == .cannotConnectToHost)
+        #expect(mapped.localizedDescription == "Tor/SOCKS proxy at 127.0.0.1:9050 isn't reachable")
+        #expect(HttpClient.proxyFailure(refused, proxy: .none).localizedDescription == refused.localizedDescription)
+        let notFound = URLError(.badServerResponse)
+        #expect(HttpClient.proxyFailure(notFound, proxy: .socks(host: "h", port: 1)).localizedDescription == notFound.localizedDescription)
+    }
 }

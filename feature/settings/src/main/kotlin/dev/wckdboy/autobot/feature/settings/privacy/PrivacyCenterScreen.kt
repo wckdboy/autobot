@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,9 +57,13 @@ import dev.wckdboy.autobot.core.designsystem.theme.CodeFontFamily
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.feature.settings.SwitchRow
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun PrivacyCenterRoute(onBack: () -> Unit, viewModel: PrivacyCenterViewModel = hiltViewModel()) {
@@ -198,6 +203,17 @@ private fun NetworkModeSelector(mode: NetworkMode, onModeChange: (NetworkMode) -
     var torPort by remember(mode) { mutableStateOf(((mode as? NetworkMode.Tor)?.port ?: NetworkMode.DEFAULT_TOR_PORT).toString()) }
     var socksHost by remember(mode) { mutableStateOf((mode as? NetworkMode.Socks5)?.host ?: NetworkPolicy.DEFAULT_SOCKS_HOST) }
     var socksPort by remember(mode) { mutableStateOf(((mode as? NetworkMode.Socks5)?.port ?: NetworkPolicy.DEFAULT_SOCKS_PORT).toString()) }
+    // Set when nothing answers at the selected proxy (the mode still applies).
+    var proxyWarning by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(mode) {
+        proxyWarning = null
+        val (host, port) = when (mode) {
+            is NetworkMode.Tor -> mode.host to mode.port
+            is NetworkMode.Socks5 -> mode.host to mode.port
+            else -> return@LaunchedEffect
+        }
+        if (!proxyReachable(host, port)) proxyWarning = "No SOCKS proxy at $host:$port — start Orbot or check the port"
+    }
 
     fun build(kind: ModeKind): NetworkMode? = when (kind) {
         ModeKind.OFFLINE -> NetworkMode.Offline
@@ -232,10 +248,25 @@ private fun NetworkModeSelector(mode: NetworkMode, onModeChange: (NetworkMode) -
                     onApply = { build(kind)?.let(onModeChange) },
                     canApply = build(kind) != null && build(kind) != mode,
                 )
+                proxyWarning?.let {
+                    Text(
+                        it,
+                        Modifier.padding(start = 52.dp, end = 16.dp, bottom = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }
 }
+
+/** Whether something accepts TCP connections at the proxy (a plain connect, nothing is sent). */
+private suspend fun proxyReachable(host: String, port: Int): Boolean = withContext(Dispatchers.IO) {
+    runCatching { Socket().use { it.connect(InetSocketAddress(host, port), PROBE_TIMEOUT_MS) } }.isSuccess
+}
+
+private const val PROBE_TIMEOUT_MS = 2_000
 
 @Composable
 private fun EndpointEditor(

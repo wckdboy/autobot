@@ -14,13 +14,27 @@ struct DownloadError: LocalizedError, Equatable, Sendable {
 /// session (the background URLSession). Returns a temporary file with the body.
 protocol BulkTransfer: Sendable {
     /// [vetHop] checks every redirect the transfer meets (kill switch, route, audit, credentials)
-    /// and returns the request to follow; it throws to refuse the hop.
+    /// and returns the request to follow; it throws to refuse the hop. [resume] is where the
+    /// transfer keeps its resume data when it is paused or interrupted ([TransferResume]), and
+    /// what it continues from when that data matches [request].
+    func download(
+        _ request: URLRequest,
+        proxy: Proxy,
+        resume: URL?,
+        vetHop: @escaping @Sendable (URLRequest) throws -> URLRequest,
+        progress: @escaping @Sendable (Int64) -> Void,
+    ) async throws -> (URL, HTTPURLResponse)
+}
+
+extension BulkTransfer {
     func download(
         _ request: URLRequest,
         proxy: Proxy,
         vetHop: @escaping @Sendable (URLRequest) throws -> URLRequest,
         progress: @escaping @Sendable (Int64) -> Void,
-    ) async throws -> (URL, HTTPURLResponse)
+    ) async throws -> (URL, HTTPURLResponse) {
+        try await download(request, proxy: proxy, resume: nil, vetHop: vetHop, progress: progress)
+    }
 }
 
 /// The redirect policy of a transfer handed to another session: the policy client admits the
@@ -78,13 +92,16 @@ struct FileFetcher: Sendable {
                         let (admitted, proxy) = try client.admitForTransfer(request)
                         let base = append ? have : 0
                         let auth = file.auth
-                        let (tmp, result) = try await bulk.download(admitted, proxy: proxy, vetHop: { hop in
+                        let (tmp, result) = try await bulk.download(admitted, proxy: proxy, resume: TransferResume.file(for: part), vetHop: { hop in
                             try vetTransferHop(hop, client: client, proxy: proxy, original: url, auth: auth)
                         }) { written in
                             onProgress(base + written, max(expected, base + written))
                         }
-                        guard result.statusCode == status else { throw DownloadError(message: "HTTP \(result.statusCode)") }
-                        try Self.commitChunk(tmp, to: part, append: append)
+                        guard let appends = Self.bulkAppends(status: result.statusCode, have: have) else {
+                            try? FileManager.default.removeItem(at: tmp)
+                            throw DownloadError(message: "HTTP \(result.statusCode)")
+                        }
+                        try Self.commitChunk(tmp, to: part, append: appends)
                     } else {
                         try await Self.stream(bytes, to: part, append: append, expectedSize: expected, onProgress: onProgress)
                     }
@@ -98,6 +115,7 @@ struct FileFetcher: Sendable {
                 }
             } else if step is FetchStepRestart {
                 try? FileManager.default.removeItem(at: part)
+                TransferResume.discard(TransferResume.file(for: part))
                 step = FetchStepNext.shared
             } else if let fail = step as? FetchStepFail {
                 throw DownloadError(fail.error)
@@ -120,6 +138,7 @@ struct FileFetcher: Sendable {
             try? fm.removeItem(at: part)
             throw error
         }
+        TransferResume.discard(TransferResume.file(for: part))
         try? fm.removeItem(at: target)
         do { try fm.moveItem(at: part, to: target) } catch { throw DownloadError(message: "Could not store \(session.file.name)") }
         return ModelFile(verified)
@@ -181,6 +200,21 @@ struct FileFetcher: Sendable {
         onProgress(written, max(expectedSize, written))
     }
 
+    /**
+     Whether a body the background session brought ([status]) continues a part file of [have]
+     bytes; nil for a status that is no body of the file. Its request asked for `bytes=have-` when
+     [have] > 0, so a 206 continues the part file and a 200 (the range was ignored, or a resumed
+     transfer the server restarted) is the whole file. A transfer resumed from the system's resume
+     data reports the 206 of its last leg even when it started from 0: still the whole file.
+     */
+    static func bulkAppends(status: Int, have: Int64) -> Bool? {
+        switch status {
+        case 200: false
+        case 206: have > 0
+        default: nil
+        }
+    }
+
     /// Appends (or moves) a transferred chunk onto the part file.
     static func commitChunk(_ chunk: URL, to part: URL, append: Bool) throws {
         let fm = FileManager.default
@@ -217,77 +251,271 @@ struct FileFetcher: Sendable {
  audit log in [urlSession(_:task:willPerformHTTPRedirection:newRequest:)], and hub credentials
  are dropped for any other host. Background sessions may follow redirects without asking their
  delegate, so a transfer whose final URL differs from every vetted one is discarded (fail closed).
+
+ Nothing received is thrown away: a pause (or a dropped connection) keeps the system's resume
+ data ([TransferResume]) and the next transfer of the same part file continues from it. After a
+ relaunch [reconnect] finds the transfers an earlier process left running; the fetch of the same
+ part file adopts its transfer instead of starting a second one, and [dropOrphans] stops the
+ rest (keeping their resume data).
  */
 final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelegate, Sendable {
     static let identifier = "ai.wckd.autobot.models"
+    /// Routes that have had a background session, so a relaunch can reconnect to them.
+    static let routesKey = "ai.wckd.autobot.models.routes"
+
+    private typealias Outcome = Result<(URL, HTTPURLResponse), Error>
 
     private struct Pending {
         let continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>
         let vetHop: @Sendable (URLRequest) throws -> URLRequest
         let progress: @Sendable (Int64) -> Void
-        var file: URL?
+        /// The request as admitted, and where its resume data goes.
+        let request: URLRequest
+        let resume: URL?
         /// URLs this transfer may end at: the original and every vetted hop.
         var vetted: Set<URL>
+        var file: URL?
         var refused: Error?
+        /// Paused: the outcome waits for the resume data, so the caller sees the bytes kept.
+        var pausing = false
+        var resumeKept = false
+        var outcome: Outcome?
+    }
+
+    /// A transfer an earlier process started, until the fetch of its part file adopts it.
+    private struct Orphan {
+        let task: URLSessionDownloadTask
+        var file: URL?
+        var completed = false
+        var failed = false
+    }
+
+    private struct State {
+        var pending: [String: Pending] = [:]
+        var orphans: [String: Orphan] = [:]
     }
 
     private let sessions = Mutex<[String: URLSession]>([:])
-    private let pending = Mutex<[String: Pending]>([:])
+    private let state = Mutex(State())
     /// Session configuration per route; tests substitute an ephemeral one with a stub protocol.
     private let makeConfiguration: @Sendable (String) -> URLSessionConfiguration
+    /// Thread-safe (documented), though not marked Sendable.
+    nonisolated(unsafe) private let routes: UserDefaults?
 
-    init(makeConfiguration: @escaping @Sendable (String) -> URLSessionConfiguration = { URLSessionConfiguration.background(withIdentifier: $0) }) {
+    init(
+        makeConfiguration: @escaping @Sendable (String) -> URLSessionConfiguration = { URLSessionConfiguration.background(withIdentifier: $0) },
+        routes: UserDefaults? = .standard,
+    ) {
         self.makeConfiguration = makeConfiguration
+        self.routes = routes
     }
 
     func download(
         _ request: URLRequest,
         proxy: Proxy,
+        resume: URL?,
         vetHop: @escaping @Sendable (URLRequest) throws -> URLRequest,
         progress: @escaping @Sendable (Int64) -> Void,
     ) async throws -> (URL, HTTPURLResponse) {
         let session = session(for: proxy)
-        let task = session.downloadTask(with: request)
+        if let resume, let adopted = await adoptable(resume, request: request, session: session, vetHop: vetHop) {
+            return try await run(session, adopted.task, request: request, vetted: adopted.vetted, resume: resume, vetHop: vetHop, progress: progress)
+        }
+        if let resume, let saved = TransferResume.take(resume, matching: request) {
+            do {
+                let task = session.downloadTask(withResumeData: saved.data)
+                let (file, response) = try await run(session, task, request: request, vetted: [URL(string: saved.url)].compactMap { $0 },
+                                                     resume: resume, vetHop: vetHop, progress: progress)
+                if [200, 206].contains(response.statusCode) { return (file, response) }
+                // The URL it replays went stale (an expired signature): start over from the part file.
+                try? FileManager.default.removeItem(at: file)
+            } catch let e as URLError where e.code != .cancelled && e.downloadTaskResumeData == nil {
+                // The system could not continue (its temporary file is gone): start over.
+            }
+            try Task.checkCancellation()
+        }
+        return try await run(session, session.downloadTask(with: request), request: request, vetted: [], resume: resume, vetHop: vetHop, progress: progress)
+    }
+
+    private func run(
+        _ session: URLSession,
+        _ task: URLSessionDownloadTask,
+        request: URLRequest,
+        vetted: [URL],
+        resume: URL?,
+        vetHop: @escaping @Sendable (URLRequest) throws -> URLRequest,
+        progress: @escaping @Sendable (Int64) -> Void,
+    ) async throws -> (URL, HTTPURLResponse) {
+        try Task.checkCancellation()
+        if let resume, task.taskDescription == nil { task.taskDescription = TransferResume.tag(resume) }
         let key = key(session, task)
-        let start = Set([request.url].compactMap { $0 })
+        let allowed = Set([request.url].compactMap { $0 } + vetted)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                pending.withLock { $0[key] = Pending(continuation: continuation, vetHop: vetHop, progress: progress, vetted: start) }
-                task.resume()
+                let entry = Pending(continuation: continuation, vetHop: vetHop, progress: progress, request: request, resume: resume, vetted: allowed)
+                // An adopted transfer may have finished already.
+                let finished: Orphan? = state.withLock { s in
+                    let orphan = s.orphans.removeValue(forKey: key)
+                    if let orphan, orphan.completed { return orphan }
+                    var e = entry
+                    e.file = orphan?.file
+                    s.pending[key] = e
+                    return nil
+                }
+                if let finished {
+                    var e = entry
+                    e.file = finished.file
+                    continuation.resume(with: outcome(e, task, error: nil))
+                } else {
+                    task.resume()
+                }
             }
         } onCancel: {
-            task.cancel()
+            pause(session, task)
         }
+    }
+
+    /// Cancels [task] keeping its resume data; the caller's outcome waits until it is kept.
+    private func pause(_ session: URLSession, _ task: URLSessionDownloadTask) {
+        let key = key(session, task)
+        let entry = state.withLock { s -> Pending? in
+            s.pending[key]?.pausing = true
+            return s.pending[key]
+        }
+        guard let entry else {
+            task.cancel()
+            return
+        }
+        let (request, resume) = (entry.request, entry.resume)
+        task.cancel(byProducingResumeData: { [weak self] data in
+            if let resume { Self.keep(data, task: task, request: request, at: resume) }
+            self?.resumeKept(key)
+        })
+    }
+
+    private func resumeKept(_ key: String) {
+        let done = state.withLock { s -> Pending? in
+            guard s.pending[key]?.outcome == nil else { return s.pending.removeValue(forKey: key) }
+            s.pending[key]?.resumeKept = true
+            return nil
+        }
+        if let done, let outcome = done.outcome { done.continuation.resume(with: outcome) }
+    }
+
+    /// The transfer an earlier process left for [resume], when it continues [request] on this
+    /// route; any other one is stopped (its resume data kept, for [TransferResume.take]).
+    private func adoptable(
+        _ resume: URL,
+        request: URLRequest,
+        session: URLSession,
+        vetHop: @Sendable (URLRequest) throws -> URLRequest,
+    ) async -> (task: URLSessionDownloadTask, vetted: [URL])? {
+        let tag = TransferResume.tag(resume)
+        let prefix = "\(session.configuration.identifier ?? ""):"
+        guard let found = state.withLock({ s in s.orphans.first { $0.value.task.taskDescription == tag } }) else { return nil }
+        let (key, orphan) = (found.key, found.value)
+        let task = orphan.task
+        // Wherever it was redirected in the earlier process must pass the kill switch now.
+        let reached = [task.currentRequest?.url, (task.response as? HTTPURLResponse)?.url].compactMap { $0 }
+        let vetted = reached.allSatisfy { url in
+            url == task.originalRequest?.url || (try? vetHop(URLRequest(url: url))) != nil
+        }
+        if key.hasPrefix(prefix), !orphan.failed, vetted, TransferResume.continues(task.originalRequest, request) {
+            return (task, [task.originalRequest?.url].compactMap { $0 } + reached)
+        }
+        let dropped = state.withLock { $0.orphans.removeValue(forKey: key) }
+        if let file = dropped?.file { try? FileManager.default.removeItem(at: file) }
+        if dropped?.completed == false {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                task.cancel(byProducingResumeData: { data in
+                    Self.keep(data, task: task, request: nil, at: resume)
+                    done.resume()
+                })
+            }
+        }
+        return nil
+    }
+
+    /**
+     After a relaunch: reconnects to the background session of every route an earlier process
+     used and keeps their transfers for the fetch of the same part file to adopt. Returns the
+     resume tags ([TransferResume.tag]) of the part files they belong to.
+     */
+    func reconnect() async -> Set<String> {
+        for route in routes?.stringArray(forKey: Self.routesKey) ?? [] {
+            guard let proxy = Self.proxy(route: route) else { continue }
+            let session = session(for: proxy)
+            for task in await session.allTasks {
+                guard let download = task as? URLSessionDownloadTask, download.taskDescription != nil,
+                      task.state == .running || task.state == .suspended else {
+                    if task.state != .completed { task.cancel() }
+                    continue
+                }
+                let key = key(session, download)
+                state.withLock { s in
+                    if s.pending[key] == nil && s.orphans[key] == nil { s.orphans[key] = Orphan(task: download) }
+                }
+            }
+        }
+        return state.withLock { Set($0.orphans.values.compactMap(\.task.taskDescription)) }
+    }
+
+    /// Stops the transfers no fetch adopted, keeping their resume data for a later resume.
+    func dropOrphans() {
+        let left = state.withLock { s -> [Orphan] in
+            defer { s.orphans.removeAll() }
+            return Array(s.orphans.values)
+        }
+        for orphan in left {
+            if let file = orphan.file { try? FileManager.default.removeItem(at: file) }
+            guard !orphan.completed, let tag = orphan.task.taskDescription else { continue }
+            let task = orphan.task
+            task.cancel(byProducingResumeData: { data in Self.keep(data, task: task, request: nil, at: TransferResume.path(tag)) })
+        }
+    }
+
+    /// Keeps resume [data] of [task] (the transfer of [request], when it is one of ours).
+    private static func keep(_ data: Data?, task: URLSessionTask, request: URLRequest?, at resume: URL) {
+        let original = task.originalRequest
+        // The URL the data replays; the range is the part file's (a resumed task's own request
+        // does not say where the part file stood).
+        let range = (request ?? original)?.value(forHTTPHeaderField: "Range")
+        let persist = [request, original].allSatisfy { $0?.value(forHTTPHeaderField: "Authorization") == nil }
+        TransferResume.keep(data, url: original?.url ?? request?.url, range: range, at: resume, persist: persist)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest) async -> URLRequest? {
         let key = key(session, task)
-        guard let vet = pending.withLock({ $0[key]?.vetHop }) else { return nil }
+        guard let vet = state.withLock({ $0.pending[key]?.vetHop }) else {
+            // Nothing vets a hop for a transfer no fetch adopted yet: stop it.
+            if state.withLock({ $0.orphans.removeValue(forKey: key) }) != nil { task.cancel() }
+            return nil
+        }
         do {
             let hop = try vet(request)
-            pending.withLock { p in if let url = hop.url { p[key]?.vetted.insert(url) } }
+            state.withLock { s in if let url = hop.url { s.pending[key]?.vetted.insert(url) } }
             return hop
         } catch {
-            pending.withLock { $0[key]?.refused = error }
+            state.withLock { $0.pending[key]?.refused = error }
             task.cancel()
             return nil
         }
     }
 
-    /// Cancels every running transfer (panic wipe, network switched off).
+    /// Cancels every running transfer and forgets all resume data (panic wipe).
     func cancelAll() {
         let all = sessions.withLock { s -> [URLSession] in defer { s.removeAll() }; return Array(s.values) }
         all.forEach { $0.invalidateAndCancel() }
+        let orphans = state.withLock { s -> [Orphan] in defer { s.orphans.removeAll() }; return Array(s.orphans.values) }
+        orphans.compactMap(\.file).forEach { try? FileManager.default.removeItem(at: $0) }
+        TransferResume.forgetAll()
     }
 
     private func session(for proxy: Proxy) -> URLSession {
-        let key: String = switch proxy {
-        case .none: "direct"
-        case .socks(let host, let port): "socks-\(host)-\(port)"
-        }
+        let route = Self.route(proxy)
         return sessions.withLock { s in
-            if let existing = s[key] { return existing }
-            let config = makeConfiguration("\(Self.identifier).\(key)")
+            if let existing = s[route] { return existing }
+            let config = makeConfiguration("\(Self.identifier).\(route)")
             config.isDiscretionary = false
             config.sessionSendsLaunchEvents = false
             config.urlCache = nil
@@ -299,15 +527,35 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
             config.httpAdditionalHeaders = ["User-Agent": HeaderScrub.userAgent, "Accept-Language": HeaderScrub.acceptLanguage]
             config.proxyConfigurations = RouteResolver.proxyConfigurations(proxy)
             let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
-            s[key] = session
+            s[route] = session
+            if config.identifier != nil, let routes {
+                let known = routes.stringArray(forKey: Self.routesKey) ?? []
+                if !known.contains(route) { routes.set(known + [route], forKey: Self.routesKey) }
+            }
             return session
         }
+    }
+
+    /// The session key of a route (part of the background session identifier).
+    static func route(_ proxy: Proxy) -> String {
+        switch proxy {
+        case .none: "direct"
+        case .socks(let host, let port): "socks-\(host)-\(port)"
+        }
+    }
+
+    /// The route of a session key; nil when it is not one.
+    static func proxy(route: String) -> Proxy? {
+        if route == "direct" { return Proxy.none }
+        guard route.hasPrefix("socks-"), let dash = route.lastIndex(of: "-"), let port = Int(route[route.index(after: dash)...]) else { return nil }
+        let host = String(route[route.index(route.startIndex, offsetBy: 6) ..< dash])
+        return host.isEmpty ? nil : .socks(host: host, port: port)
     }
 
     private func key(_ session: URLSession, _ task: URLSessionTask) -> String { "\(session.configuration.identifier ?? ""):\(task.taskIdentifier)" }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite _: Int64) {
-        let progress = pending.withLock { $0[key(session, downloadTask)]?.progress }
+        let progress = state.withLock { $0.pending[key(session, downloadTask)]?.progress }
         progress?(totalBytesWritten)
     }
 
@@ -315,26 +563,68 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
         // The system deletes [location] when this returns: move it now.
         let kept = AppPaths.models.appendingPathComponent(".transfer-\(UUID().uuidString)")
         let moved = (try? FileManager.default.moveItem(at: location, to: kept)) != nil
-        pending.withLock { $0[key(session, downloadTask)]?.file = moved ? kept : nil }
+        let key = key(session, downloadTask)
+        let owned = state.withLock { s -> Bool in
+            if s.pending[key] != nil {
+                s.pending[key]?.file = moved ? kept : nil
+                return true
+            }
+            // Finished while no process was there: kept for the fetch that adopts it.
+            guard downloadTask.taskDescription != nil else { return false }
+            var orphan = s.orphans[key] ?? Orphan(task: downloadTask)
+            orphan.file = moved ? kept : nil
+            s.orphans[key] = orphan
+            return true
+        }
+        if !owned, moved { try? FileManager.default.removeItem(at: kept) }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let entry = pending.withLock({ $0.removeValue(forKey: key(session, task)) }) else { return }
+        let key = key(session, task)
+        let entry = state.withLock { s -> Pending? in
+            if let entry = s.pending[key] { return entry }
+            s.orphans[key]?.completed = true
+            s.orphans[key]?.failed = error != nil
+            return nil
+        }
+        guard let entry else {
+            // An earlier process's transfer that failed: keep what it received.
+            if let tag = task.taskDescription { Self.keep((error as? URLError)?.downloadTaskResumeData, task: task, request: nil, at: TransferResume.path(tag)) }
+            return
+        }
+        let outcome = outcome(entry, task, error: error)
+        let deliver = state.withLock { s -> Pending? in
+            guard let current = s.pending[key] else { return nil }
+            if current.pausing && !current.resumeKept {
+                s.pending[key]?.outcome = outcome
+                return nil
+            }
+            return s.pending.removeValue(forKey: key)
+        }
+        deliver?.continuation.resume(with: outcome)
+    }
+
+    private func outcome(_ entry: Pending, _ task: URLSessionTask, error: Error?) -> Outcome {
         let final = (task.response as? HTTPURLResponse)?.url ?? task.currentRequest?.url
+        func discard() { if let file = entry.file { try? FileManager.default.removeItem(at: file) } }
         if let refused = entry.refused {
-            if let file = entry.file { try? FileManager.default.removeItem(at: file) }
-            entry.continuation.resume(throwing: refused)
+            discard()
+            return .failure(refused)
         } else if error == nil, let final, !entry.vetted.contains(final) {
             // Followed a redirect without asking: nothing vetted that hop, so its bytes are discarded.
-            if let file = entry.file { try? FileManager.default.removeItem(at: file) }
-            entry.continuation.resume(throwing: NetworkBlockedError(message: "Download was redirected to \(final.host() ?? "another host") without the kill switch; discarded"))
+            discard()
+            return .failure(NetworkBlockedError(message: "Download was redirected to \(final.host() ?? "another host") without the kill switch; discarded"))
         } else if let error {
-            if let file = entry.file { try? FileManager.default.removeItem(at: file) }
-            entry.continuation.resume(throwing: error)
+            discard()
+            // A dropped connection: keep what arrived for the next attempt.
+            if let resume = entry.resume, let data = (error as? URLError)?.downloadTaskResumeData {
+                Self.keep(data, task: task, request: entry.request, at: resume)
+            }
+            return .failure(error)
         } else if let file = entry.file, let response = task.response as? HTTPURLResponse {
-            entry.continuation.resume(returning: (file, response))
+            return .success((file, response))
         } else {
-            entry.continuation.resume(throwing: DownloadError(message: "Download produced no data"))
+            return .failure(DownloadError(message: "Download produced no data"))
         }
     }
 }

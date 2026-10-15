@@ -121,7 +121,7 @@ class LlmService {
     }
 
     suspend fun adapter(provider: String): LlmAdapter {
-        if (provider.isBlank()) throw LlmException(LlmFailure(LlmErrorCode.BAD_REQUEST, "No model provider selected — add one under SYSTEM › Model providers"))
+        if (provider.isBlank()) throw LlmException(LlmFailure(LlmErrorCode.BAD_REQUEST, "No model provider selected — add one under Settings › Model providers"))
         return lock.withLock { adapters[provider] } ?: resolver?.invoke(provider)
             ?: throw LlmException(LlmFailure(LlmErrorCode.BAD_REQUEST, "Model provider '$provider' no longer exists"))
     }

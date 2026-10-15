@@ -69,6 +69,8 @@ targets:
       path: App/Autobot.entitlements
       properties:
         com.apple.developer.default-data-protection: NSFileProtectionComplete
+        # Image and chat models need more than the default per-app memory limit.
+        com.apple.developer.kernel.increased-memory-limit: true
     info:
       path: App/Info.plist
       properties:

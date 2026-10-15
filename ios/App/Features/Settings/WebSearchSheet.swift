@@ -32,6 +32,7 @@ struct WebSearchSheet: View {
     let onDismiss: () -> Void
     @State private var draft = WebSearchDraft()
     @State private var loaded = false
+    @State private var error: String?
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
 
@@ -60,6 +61,7 @@ struct WebSearchSheet: View {
                     ChipRow(items: ProviderRouting.allCases, selected: draft.route, label: { $0.label }) { draft.route = $0 }
                 }
                 if let problem = draft.problem { MicroLabel(problem, color: c.error, lines: 3) }
+                if let error { MicroLabel(error, color: c.error, lines: 3) }
                 PrimaryButton("Save", enabled: draft.problem == nil, action: save)
                 TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
             }
@@ -82,7 +84,13 @@ struct WebSearchSheet: View {
             // Turning search off also forgets the Brave key.
             app.secrets.delete(Self.keyRef)
         } else if !key.isEmpty {
-            try? app.secrets.put(Self.keyRef, Secret(key))
+            do {
+                try app.secrets.put(Self.keyRef, Secret(key))
+            } catch {
+                // Keep the sheet (and the typed key) so the user can retry.
+                self.error = saveFailure(error)
+                return
+            }
         }
         app.settings.setWebSearch(provider: draft.provider, baseUrl: draft.baseUrl, route: draft.route)
         onDismiss()

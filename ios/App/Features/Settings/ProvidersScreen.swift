@@ -26,13 +26,35 @@ struct ProviderDraft: Equatable, CustomStringConvertible {
         return true
     }
 
+    /// Why the base URL cannot work from this phone (the kill switch refuses cleartext to anything but loopback).
+    var cleartextProblem: String? { ProviderDraft.cleartextProblem(baseUrl) }
+
     var canSave: Bool {
-        !displayName.trimmingCharacters(in: .whitespaces).isEmpty && baseUrlValid && !defaultModel.trimmingCharacters(in: .whitespaces).isEmpty
+        !displayName.trimmingCharacters(in: .whitespaces).isEmpty && baseUrlValid && cleartextProblem == nil
+            && !defaultModel.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The preset needs a key and none is typed or kept.
+    var missingKey: Bool {
+        preset.requiresApiKey && apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!hasStoredKey || clearStoredKey)
     }
 
     var description: String {
         "ProviderDraft(id=\(id ?? "nil"), preset=\(presetId), displayName=\(displayName), baseUrl=\(baseUrl), model=\(defaultModel), " +
             "routing=\(routing), apiKeyInput=\(apiKeyInput.isEmpty ? "" : Secret.redacted), hasStoredKey=\(hasStoredKey))"
+    }
+
+    /// `http://` to a host other than loopback: the shared kill switch blocks it on every request.
+    static func cleartextProblem(_ url: String) -> String? {
+        guard let u = URL(string: url.trimmingCharacters(in: .whitespaces)), u.scheme?.lowercased() == "http", let host = u.host(), !host.isEmpty,
+              !Loopback.isLoopback(host) else { return nil }
+        return "Use https — plain http only works for servers on this phone; use Tailscale or a reverse proxy"
+    }
+
+    /// Loopback on a phone is the phone itself, not the PC the server usually runs on.
+    static func loopbackNote(_ url: String) -> String? {
+        guard let host = URL(string: url.trimmingCharacters(in: .whitespaces))?.host(), Loopback.isLoopback(host) else { return nil }
+        return "\(host) is this iPhone — the server has to run on the phone itself; for a PC use its https address"
     }
 
     static func fromPreset(_ preset: ProviderPreset) -> ProviderDraft {
@@ -62,6 +84,7 @@ struct ProvidersScreen: View {
     @Environment(\.scheme) private var c
     @State private var editor: ProviderDraft?
     @State private var picking = false
+    @State private var deleting: Provider?
 
     var body: some View {
         let providers = app.providers.providers
@@ -101,6 +124,28 @@ struct ProvidersScreen: View {
         .sheet(item: Binding(get: { editor.map(EditorItem.init) }, set: { if $0 == nil { editor = nil } })) { item in
             ProviderEditorSheet(initial: item.draft) { editor = nil }
         }
+        .alert(
+            "Delete \(deleting?.displayName ?? "provider")?",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            presenting: deleting,
+        ) { p in
+            Button("Delete", role: .destructive) { app.providers.delete(p.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { p in
+            Text(deleteMessage(p))
+        }
+    }
+
+    /// Its API key goes with it; chats on it move to the next provider (`ChatRoutes`).
+    private func deleteMessage(_ p: Provider) -> String {
+        let chats = app.conversations.conversations.filter { $0.providerId == p.id }.count
+        let next = app.providers.providers.first { $0.id != p.id }
+        var text = "Its API key is removed from the Keychain."
+        if chats > 0 {
+            let used = chats == 1 ? "1 chat uses it" : "\(chats) chats use it"
+            text += next.map { " \(used) and will switch to \($0.displayName)." } ?? " \(used); it will have no provider until you add one."
+        }
+        return text
     }
 
     private func row(_ p: Provider) -> some View {
@@ -112,10 +157,15 @@ struct ProvidersScreen: View {
                     VStack(alignment: .leading, spacing: 3) {
                         MicroLabel(p.baseUrl)
                         Text(p.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                        Text("\(preset.displayName) · \(p.defaultModel.isEmpty ? "—" : p.defaultModel) · \(p.routing.label)" + (p.apiKeyRef != nil ? " · key ✓" : ""))
-                            .textStyle(.micro)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .lineLimit(1)
+                        HStack(spacing: 0) {
+                            Text("\(preset.displayName) · \(p.defaultModel.isEmpty ? "—" : p.defaultModel) · \(p.routing.label)" + (p.apiKeyRef != nil ? " · key ✓" : ""))
+                                .foregroundStyle(c.onSurfaceVariant)
+                                .lineLimit(1)
+                            if preset.requiresApiKey && p.apiKeyRef == nil {
+                                Text(" · no key").foregroundStyle(c.error).fixedSize()
+                            }
+                        }
+                        .textStyle(.micro)
                         if let models, let list = ModelLists.models(models.json) {
                             MicroLabel("\(list.count) models · \(ModelLists.age(fetchedAt: models.fetchedAt))")
                         }
@@ -127,7 +177,7 @@ struct ProvidersScreen: View {
                 if p.kind == .local {
                     RouteTag(route: .localGpu)
                 } else {
-                    IconAction(symbol: "trash", label: "Delete \(p.displayName)", tint: c.onSurfaceVariant, size: 16) { app.providers.delete(p.id) }
+                    IconAction(symbol: "trash", label: "Delete \(p.displayName)", tint: c.onSurfaceVariant, size: 16) { deleting = p }
                 }
             }
             .padding(.vertical, 12)
@@ -165,6 +215,13 @@ private struct PresetPickerSheet: View {
                     if groups.isEmpty { MicroLabel("no match · try “Other OpenAI-compatible”").padding(.vertical, 16) }
                     ForEach(groups, id: \.group) { group in
                         MicroLabel("// \(group.group) · \(group.presets.count)", color: c.primary).padding(.top, 14).padding(.bottom, 4)
+                        if group.group == AutobotShared.PresetGroup.localServers.label {
+                            Text("127.0.0.1 is this iPhone: these presets only reach a server running on the phone. For a server on your PC or network use its https address (Tailscale or a reverse proxy) — plain http only works on the phone itself.")
+                                .textStyle(.bodySmall)
+                                .foregroundStyle(c.onSurfaceVariant)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.bottom, 4)
+                        }
                         ForEach(group.presets) { preset in
                             Button { if !preset.isThisPhone { onPick(preset) } } label: {
                                 VStack(alignment: .leading, spacing: 3) {
@@ -206,6 +263,7 @@ private struct ProviderEditorSheet: View {
     @State private var test: ProviderTestState = .idle
     @State private var saving = false
     @State private var error: String?
+    @State private var confirmNoKey = false
     @State private var testTask: Task<Void, Never>?
     @State private var modelsTask: Task<Void, Never>?
     @Environment(AppContainer.self) private var app
@@ -233,11 +291,15 @@ private struct ProviderEditorSheet: View {
                 ConsoleTextField(text: field(\.displayName), label: "Name")
                 VStack(alignment: .leading, spacing: 4) {
                     ConsoleTextField(text: field(\.baseUrl), label: "Base URL", kind: .url)
-                    MicroLabel(
-                        !draft.baseUrl.isEmpty && !draft.baseUrlValid ? "invalid url" : "cleartext http only for 127.0.0.1 / localhost",
-                        color: !draft.baseUrl.isEmpty && !draft.baseUrlValid ? c.error : nil,
-                        lines: 2,
-                    )
+                    if !draft.baseUrl.isEmpty && !draft.baseUrlValid {
+                        MicroLabel("invalid url", color: c.error, lines: 2)
+                    } else if let problem = draft.cleartextProblem {
+                        MicroLabel(problem, color: c.error, lines: 3)
+                    } else if let note = ProviderDraft.loopbackNote(draft.baseUrl) {
+                        MicroLabel(note, lines: 3)
+                    } else {
+                        MicroLabel("cleartext http only for 127.0.0.1 / localhost", lines: 2)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -247,6 +309,7 @@ private struct ProviderEditorSheet: View {
                         label: preset.requiresApiKey ? "API key" : "API key (optional)",
                         kind: .secret,
                     )
+                    if draft.missingKey { MicroLabel("This provider needs an API key", color: c.error, lines: 2) }
                     MicroLabel("kept in the keychain on this device · sent only to \(preset.host.isEmpty ? "this host" : preset.host)", lines: 2)
                     if draft.hasStoredKey && draft.apiKeyInput.isEmpty {
                         TextAction(draft.clearStoredKey ? "Keep saved key" : "Remove saved key", color: draft.clearStoredKey ? c.primary : c.error) {
@@ -276,7 +339,9 @@ private struct ProviderEditorSheet: View {
 
                 HStack(spacing: 8) {
                     GhostButton(test == .running ? "Testing…" : "Test connection", accent: c.onSurface, enabled: draft.baseUrlValid && test != .running, action: testConnection)
-                    PrimaryButton("Save", enabled: draft.canSave && !saving, action: save)
+                    PrimaryButton("Save", enabled: draft.canSave && !saving) {
+                        if draft.missingKey { confirmNoKey = true } else { save() }
+                    }
                 }
                 TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
             }
@@ -289,6 +354,12 @@ private struct ProviderEditorSheet: View {
         .onDisappear {
             testTask?.cancel()
             modelsTask?.cancel()
+        }
+        .alert("Save without an API key?", isPresented: $confirmNoKey) {
+            Button("Save anyway", action: save)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(preset.displayName) needs an API key; requests will be refused until you add one.")
         }
     }
 
@@ -408,7 +479,7 @@ private struct ProviderEditorSheet: View {
             }
             onDismiss()
         } catch {
-            self.error = "Could not save: \(error.localizedDescription)"
+            self.error = saveFailure(error)
         }
     }
 
@@ -474,6 +545,11 @@ private struct ProviderEditorSheet: View {
         case .failure(_, let message): .failure(message)
         }
     }
+}
+
+/// Why a settings editor could not save: a Keychain write (the sheet stays open) or the store.
+func saveFailure(_ error: Error) -> String {
+    error is KeychainError ? "Couldn't store the key in the Keychain: \(error.localizedDescription)" : "Could not save: \(error.localizedDescription)"
 }
 
 /// Wrapping row of selectable tags (Material FilterChips in riso type).

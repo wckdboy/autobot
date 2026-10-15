@@ -278,7 +278,7 @@ class Agent(
             detail = e.message
             throw e
         } catch (e: LlmException) {
-            reason = TurnEndReason.ERROR
+            reason = if (e.failure.code == LlmErrorCode.BLOCKED) TurnEndReason.BLOCKED else TurnEndReason.ERROR
             detail = "${e.failure.code}: ${e.failure.message}"
         } catch (t: Throwable) {
             reason = TurnEndReason.ERROR
@@ -371,6 +371,13 @@ class Agent(
         )
         _live.value = null
 
+        // An answer cut short by the engine or a provider filter must not read as a finished one.
+        when (acc.finishReason) {
+            "error" -> throw LlmException(
+                LlmFailure(LlmErrorCode.PROTOCOL, "the model stopped mid-answer (on-device: out of memory, or the app was in the background)"),
+            )
+            "content_filter" -> throw LlmException(LlmFailure(LlmErrorCode.PROTOCOL, "the provider's content filter cut the answer off"))
+        }
         if (calls.isEmpty()) return if (acc.finishReason == "length") StepOutcome.MAX_TOKENS else StepOutcome.IDLE
         val concluded = executor.runAll(calls, config.value.maxParallelToolCalls)
         return if (concluded) StepOutcome.CONCLUDED else StepOutcome.CONTINUE

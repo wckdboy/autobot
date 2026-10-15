@@ -102,6 +102,7 @@ fun ImagineRoute(
     onOpenBackends: () -> Unit,
     onOpenModels: () -> Unit,
     handoff: GalleryHandoff? = null,
+    modelId: String? = null,
     viewModel: ImagineViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -110,6 +111,7 @@ fun ImagineRoute(
         viewModel.reuseParams(handoff.galleryId)
         if (handoff.asInit) viewModel.useAsInit(handoff.galleryId)
     }
+    LaunchedEffect(modelId) { modelId?.let(viewModel::useModel) }
     ImagineScreen(state, viewModel, onBack, onOpenGallery, onOpenBackends, onOpenModels)
 }
 

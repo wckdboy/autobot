@@ -71,11 +71,29 @@ import dev.wckdboy.autobot.core.models.ModelPlan
 import dev.wckdboy.autobot.core.models.LocalDream
 import dev.wckdboy.autobot.core.models.NpuOffer
 import dev.wckdboy.autobot.core.models.ModelStatus
+import dev.wckdboy.autobot.core.models.ModelTask
 import dev.wckdboy.autobot.core.models.formatBytes
+import dev.wckdboy.autobot.core.models.launchOf
 
 @Composable
-fun ModelsRoute(onOpenAccounts: () -> Unit, onOpenCompute: () -> Unit, viewModel: ModelsViewModel = hiltViewModel()) {
+fun ModelsRoute(
+    onOpenAccounts: () -> Unit,
+    onOpenCompute: () -> Unit,
+    onOpenSession: (String) -> Unit,
+    onOpenImagine: (modelId: String) -> Unit,
+    onOpenGallery: () -> Unit,
+    viewModel: ModelsViewModel = hiltViewModel(),
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel) {
+        viewModel.navigation.collect { event ->
+            when (event) {
+                is ModelsEvent.OpenSession -> onOpenSession(event.conversationId)
+                is ModelsEvent.OpenImagine -> onOpenImagine(event.modelId)
+                ModelsEvent.OpenGallery -> onOpenGallery()
+            }
+        }
+    }
     ModelsScreen(state, viewModel, onOpenAccounts, onOpenCompute)
 }
 
@@ -226,6 +244,8 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
 @Composable
 private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel) {
     var confirm by remember { mutableStateOf(false) }
+    // Tapping a ready model opens the task it runs (the × tag still removes it).
+    val task = remember(model.kind, model.engine, model.isReady) { launchOf(model.kind, model.engine, model.isReady).task }
     RunRow(
         title = model.title,
         subtitle = listOfNotNull(
@@ -234,6 +254,7 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel) {
             formatBytes(model.totalBytes).takeIf { model.totalBytes > 0 },
             model.engine.label.takeIf { model.engine != EngineKind.NONE } ?: "not runnable here",
         ).joinToString(" · "),
+        onClick = if (task != ModelTask.NONE) ({ actions.use(model) }) else null,
     ) {
         when (model.status) {
             ModelStatus.READY -> Tag("ready", accent = MaterialTheme.colorScheme.primary, filled = true)

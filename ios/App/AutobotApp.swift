@@ -17,16 +17,19 @@ struct AutobotApp: App {
 /**
  Lock gate, first-run welcome and the navigation host. While the app is not active a privacy
  cover hides its content from the app switcher (iOS has no FLAG_SECURE; this is the equivalent
- for recents thumbnails).
+ for recents thumbnails). Sent to the background while an agent turn or an image job runs, the
+ app asks for time to finish it ([BackgroundGrace]).
  */
 struct RootView: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scenePhase) private var phase
     @State private var lockMessage: String?
+    @State private var grace = BackgroundGrace()
 
     var body: some View {
         let settings = app.settings.settings
+        let busy = !app.agent.running.isEmpty || app.generator.isBusy
         ZStack {
             Content(lockMessage: $lockMessage)
             if phase != .active && !DebugFlags.screenshots {
@@ -36,11 +39,18 @@ struct RootView: View {
         .autobotTheme(settings.themeMode, amoled: settings.amoled, paperOnTop: { if case .imagine = nav.path.last { true } else { false } }())
         .onChange(of: phase) { old, new in
             switch new {
-            case .background: app.lock.didEnterBackground()
-            case .active: if old == .background || old == .inactive { app.lock.willEnterForeground() }
+            case .background:
+                app.lock.didEnterBackground()
+                AppActivity.shared.enteredBackground()
+                grace.enteredBackground(busy: busy)
+            case .active:
+                AppActivity.shared.enteredForeground()
+                grace.finish()
+                if old == .background || old == .inactive { app.lock.willEnterForeground() }
             default: break
             }
         }
+        .onChange(of: busy) { _, now in grace.workChanged(busy: now) }
         .onChange(of: app.lock.state) { _, state in
             if state == .unlocked { app.unlockData() }
         }

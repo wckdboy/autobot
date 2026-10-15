@@ -7,6 +7,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.agent.runtime.AgentHost
+import dev.wckdboy.autobot.core.data.ConversationRepository
+import dev.wckdboy.autobot.core.data.ProviderRepository
+import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.models.AccountState
 import dev.wckdboy.autobot.core.models.Catalog
 import dev.wckdboy.autobot.core.models.CivitaiClient
@@ -24,17 +28,25 @@ import dev.wckdboy.autobot.core.models.ModelDownloader
 import dev.wckdboy.autobot.core.models.ModelKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.models.ModelPlan
+import dev.wckdboy.autobot.core.models.ModelTask
 import dev.wckdboy.autobot.core.models.NpuCatalog
 import dev.wckdboy.autobot.core.models.NpuOffer
 import dev.wckdboy.autobot.core.models.PreviewImages
+import dev.wckdboy.autobot.core.models.launchOf
+import dev.wckdboy.autobot.providers.remote.LocalProviderSync
+import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -90,6 +102,13 @@ data class ModelsUiState(
     fun installedIds(): Set<String> = installed.map { it.id }.toSet()
 }
 
+/** Where tapping an installed model goes. */
+sealed interface ModelsEvent {
+    data class OpenSession(val conversationId: String) : ModelsEvent
+    data class OpenImagine(val modelId: String) : ModelsEvent
+    data object OpenGallery : ModelsEvent
+}
+
 @HiltViewModel
 class ModelsViewModel @Inject constructor(
     private val library: ModelLibrary,
@@ -98,6 +117,10 @@ class ModelsViewModel @Inject constructor(
     private val hub: HuggingFaceClient,
     private val civitai: CivitaiClient,
     private val previews: PreviewImages,
+    private val conversations: ConversationRepository,
+    private val providers: ProviderRepository,
+    private val host: AgentHost,
+    private val settings: SettingsRepository,
     accounts: ModelAccounts,
 ) : ViewModel() {
 
@@ -111,6 +134,8 @@ class ModelsViewModel @Inject constructor(
 
     private val local = MutableStateFlow(Local())
     private var searchJob: Job? = null
+    private val events = Channel<ModelsEvent>(Channel.BUFFERED)
+    val navigation: Flow<ModelsEvent> = events.receiveAsFlow()
 
     val uiState: StateFlow<ModelsUiState> = combine(library.models, downloader.progress, accounts.state, local) { installed, progress, acc, l ->
         ModelsUiState(l.device, installed, progress, l.tab, l.hf, l.civitai, acc, l.message)
@@ -142,6 +167,36 @@ class ModelsViewModel @Inject constructor(
     fun resume(id: String) = downloader.resume(id)
     fun remove(id: String) = downloader.remove(id)
     fun consumeMessage() = local.update { it.copy(message = null) }
+
+    /**
+     * Puts an installed model to work: a new session on "This phone" for chat and code models,
+     * the image studio set up for image models, the gallery for upscalers.
+     */
+    fun use(model: InstalledModel) {
+        viewModelScope.launch {
+            val files = withContext(Dispatchers.IO) { model.paths.values.all { File(it).exists() } }
+            val target = launchOf(model.kind, model.engine, model.isReady, local.value.device?.fit(model.kind, model.totalBytes, model.engine), files)
+            target.problem?.let { problem ->
+                local.update { it.copy(message = problem) }
+                return@launch
+            }
+            when (target.task) {
+                ModelTask.CHAT -> {
+                    if (providers.getProvider(LocalProviderSync.LOCAL_PROVIDER_ID) == null) {
+                        local.update { it.copy(message = "\"This phone\" isn't ready as a provider yet — try again in a moment") }
+                        return@launch
+                    }
+                    val incognito = settings.settings.first().incognitoByDefault
+                    val conversation = conversations.createConversation(incognito, LocalProviderSync.LOCAL_PROVIDER_ID, model.id)
+                    host.setToolsEnabled(conversation.id, target.tools)
+                    events.send(ModelsEvent.OpenSession(conversation.id))
+                }
+                ModelTask.IMAGINE -> events.send(ModelsEvent.OpenImagine(model.id))
+                ModelTask.GALLERY -> events.send(ModelsEvent.OpenGallery)
+                ModelTask.NONE -> Unit
+            }
+        }
+    }
 
     // ---- Hugging Face
 

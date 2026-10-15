@@ -42,6 +42,9 @@ protocol AgentRuntime: AnyObject {
     func setPermission(_ conversationId: String, _ preset: PermissionPreset)
     /// Switches the session's provider / model.
     func setRoute(_ conversationId: String, providerId: String, model: String)
+    /// The provider list changed: conversations whose provider is gone (or that had none) move to
+    /// the first provider, open sessions included.
+    func providersChanged(_ providers: [Provider])
     /// Manual `/compact`.
     func compact(_ conversationId: String)
     /// Stops and forgets the agent (before deleting its conversation).

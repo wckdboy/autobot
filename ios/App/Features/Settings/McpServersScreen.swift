@@ -24,7 +24,7 @@ struct McpServerDraft: Equatable, CustomStringConvertible {
         return true
     }
 
-    var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && urlValid }
+    var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && urlValid && ProviderDraft.cleartextProblem(url) == nil }
 
     var description: String {
         "McpServerDraft(id=\(id ?? "nil"), name=\(name), url=\(url), routing=\(routing), enabled=\(enabled), trusted=\(trusted), " +
@@ -38,6 +38,8 @@ struct McpServersScreen: View {
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
     @State private var editor: McpServerDraft?
+    @State private var deleting: McpServer?
+    @State private var error: String?
 
     var body: some View {
         let servers = app.mcpServers.servers
@@ -60,6 +62,7 @@ struct McpServersScreen: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         SectionLabel("remote tools · \(servers.count)").padding(.vertical, 8)
+                        if let error { MicroLabel(error, color: c.error, lines: 3) }
                         ForEach(servers) { s in row(s) }
                     }
                     .padding(.horizontal, Tokens.Spacing.gutter)
@@ -70,6 +73,16 @@ struct McpServersScreen: View {
         .background(c.background)
         .sheet(item: Binding(get: { editor.map(EditorItem.init) }, set: { if $0 == nil { editor = nil } })) { item in
             McpServerEditorSheet(initial: item.draft) { editor = nil }
+        }
+        .alert(
+            "Delete \(deleting?.name ?? "MCP server")?",
+            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            presenting: deleting,
+        ) { s in
+            Button("Delete", role: .destructive) { app.mcpServers.delete(s.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { s in
+            Text("Its tools leave agent sessions" + (s.tokenRef != nil ? " and its token is removed from the Keychain." : "."))
         }
     }
 
@@ -95,12 +108,17 @@ struct McpServersScreen: View {
                 Toggle("", isOn: Binding(get: { s.enabled }, set: { v in
                     var next = s
                     next.enabled = v
-                    _ = try? app.mcpServers.save(next)
+                    do {
+                        try app.mcpServers.save(next)
+                        error = nil
+                    } catch {
+                        self.error = saveFailure(error)
+                    }
                 }))
                 .labelsHidden()
                 .tint(c.primary)
                 .accessibilityLabel("Enable \(s.name)")
-                IconAction(symbol: "trash", label: "Delete \(s.name)", tint: c.onSurfaceVariant, size: 16) { app.mcpServers.delete(s.id) }
+                IconAction(symbol: "trash", label: "Delete \(s.name)", tint: c.onSurfaceVariant, size: 16) { deleting = s }
             }
             .padding(.vertical, 12)
             Hairline()
@@ -165,11 +183,15 @@ private struct McpServerEditorSheet: View {
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     ConsoleTextField(text: field(\.url), label: "URL", kind: .url)
-                    MicroLabel(
-                        !draft.url.isEmpty && !draft.urlValid ? "invalid url" : "the server's mcp endpoint, e.g. https://example.com/mcp · cleartext http only for 127.0.0.1 / localhost",
-                        color: !draft.url.isEmpty && !draft.urlValid ? c.error : nil,
-                        lines: 2,
-                    )
+                    if !draft.url.isEmpty && !draft.urlValid {
+                        MicroLabel("invalid url", color: c.error, lines: 2)
+                    } else if let problem = ProviderDraft.cleartextProblem(draft.url) {
+                        MicroLabel(problem, color: c.error, lines: 3)
+                    } else if let note = ProviderDraft.loopbackNote(draft.url) {
+                        MicroLabel(note, lines: 3)
+                    } else {
+                        MicroLabel("the server's mcp endpoint, e.g. https://example.com/mcp · cleartext http only for 127.0.0.1 / localhost", lines: 2)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -262,7 +284,7 @@ private struct McpServerEditorSheet: View {
             try app.mcpServers.save(server(), token: token)
             onDismiss()
         } catch {
-            self.error = "Could not save: \(error.localizedDescription)"
+            self.error = saveFailure(error)
         }
     }
 

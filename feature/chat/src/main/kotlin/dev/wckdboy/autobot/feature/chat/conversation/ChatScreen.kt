@@ -356,6 +356,17 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatViewModel,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // Why a step failed shouldn't take a tap to find out.
+                val reason = item.output?.lineSequence()?.firstOrNull { it.isNotBlank() }?.removePrefix("Error: ")
+                if (!expanded && reason != null && (item.state == ToolState.ERROR || item.state == ToolState.DENIED)) {
+                    Text(
+                        reason,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (item.state == ToolState.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             if (item.state == ToolState.RUNNING) StatusDot(MaterialTheme.colorScheme.primary, live = true)
             Text(
@@ -418,6 +429,7 @@ private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: Approval
     }
 }
 
+/** `// STOPPED`; errors keep their case (ids, hosts and keys must stay readable) and expand on tap. */
 @Composable
 private fun NoticeRow(item: SessionItem.Notice) {
     val color = when (item.kind) {
@@ -425,13 +437,25 @@ private fun NoticeRow(item: SessionItem.Notice) {
         NoticeKind.WARN -> AutobotColors.Amber
         NoticeKind.ERROR -> MaterialTheme.colorScheme.error
     }
-    Text(
-        "// ${item.text.uppercase(Locale.ROOT)}",
-        style = AutobotTheme.styles.micro,
-        color = color,
-        maxLines = 3,
-        overflow = TextOverflow.Ellipsis,
-    )
+    if (item.kind == NoticeKind.ERROR) {
+        var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
+        Text(
+            "// ${item.text}",
+            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { expanded = !expanded },
+            style = MaterialTheme.typography.bodySmall,
+            color = color,
+            maxLines = if (expanded) Int.MAX_VALUE else 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    } else {
+        Text(
+            "// ${item.text.uppercase(Locale.ROOT)}",
+            style = AutobotTheme.styles.micro,
+            color = color,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable

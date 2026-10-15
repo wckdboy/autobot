@@ -152,8 +152,8 @@ fun projectSession(
                 TurnEndReason.ABORTED -> items += SessionItem.Notice(key, "stopped", NoticeKind.WARN)
                 TurnEndReason.MAX_TOKENS -> items += SessionItem.Notice(key, "output limit reached — say \"continue\"", NoticeKind.WARN)
                 TurnEndReason.MAX_STEPS -> items += SessionItem.Notice(key, "step limit reached for this turn", NoticeKind.WARN)
-                TurnEndReason.BLOCKED -> items += SessionItem.Notice(key, "blocked: ${e.detail.orEmpty()}", NoticeKind.ERROR)
-                TurnEndReason.ERROR, TurnEndReason.INTERRUPTED -> items += SessionItem.Notice(key, e.detail ?: "turn failed", NoticeKind.ERROR)
+                TurnEndReason.BLOCKED, TurnEndReason.ERROR, TurnEndReason.INTERRUPTED ->
+                    items += SessionItem.Notice(key, explainFailure(e.detail), NoticeKind.ERROR)
             }
             is SessionEvent.LlmRetry ->
                 items += SessionItem.Notice(key, "retry ${e.attempt} · ${e.code.lowercase()} · ${e.delayMs} ms", NoticeKind.INFO)
@@ -165,4 +165,27 @@ fun projectSession(
         }
     }
     return SessionProjection(items, todos, usage, window)
+}
+
+/**
+ * A failed turn's `CODE: message` detail in words the user can act on: what went wrong, then
+ * the provider's own message.
+ */
+fun explainFailure(detail: String?): String {
+    if (detail.isNullOrBlank()) return "The turn failed"
+    val code = detail.substringBefore(": ", "")
+    val message = if (code.isNotEmpty() && code.all { it.isUpperCase() || it == '_' }) detail.substringAfter(": ") else return detail
+    val lead = when (code) {
+        "AUTH" -> "The provider rejected the API key. Check it under Settings › Model providers"
+        "QUOTA" -> "The provider says the account is out of credit or quota"
+        "RATE_LIMIT" -> "The provider is rate limiting requests. Wait a moment and send again"
+        "TRANSPORT" -> "Couldn't reach the provider"
+        "TIMEOUT" -> "The provider didn't answer in time"
+        "SERVER" -> "The provider had a server error"
+        "BLOCKED" -> "Blocked by the network mode. Change it in the Privacy Center, or pick an on-device model"
+        "CONTEXT_WINDOW_EXCEEDED" -> "The conversation is too long for this model. Run /compact or start a new chat"
+        "EMPTY_RESPONSE" -> "The model returned an empty answer. Send again"
+        else -> return message.replaceFirstChar { it.uppercase() }
+    }
+    return if (message.isBlank()) lead else "$lead ($message)"
 }

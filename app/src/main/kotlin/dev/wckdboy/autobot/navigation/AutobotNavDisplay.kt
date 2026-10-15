@@ -89,7 +89,15 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenModels = { switchTo(Models) },
                         )
                     }
-                    entry<Models> { ModelsRoute(onOpenAccounts = { navigate(Accounts) }, onOpenCompute = { navigate(Compute) }) }
+                    entry<Models> {
+                        ModelsRoute(
+                            onOpenAccounts = { navigate(Accounts) },
+                            onOpenCompute = { navigate(Compute) },
+                            onOpenSession = { navigate(Chat(it)) },
+                            onOpenImagine = { navigate(Imagine(modelId = it)) },
+                            onOpenGallery = { navigate(Gallery()) },
+                        )
+                    }
                     entry<Remote> {
                         RemoteRoute(
                             onOpenProviders = { navigate(Providers) },
@@ -133,6 +141,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                                 onOpenBackends = { navigate(ImageBackends) },
                                 onOpenModels = { switchTo(Models) },
                                 handoff = key.handoffId?.let { GalleryHandoff(it, key.asInit) },
+                                modelId = key.modelId,
                             )
                         }
                     }

@@ -57,11 +57,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -179,6 +183,8 @@ class AgentBridge(
     }
 
     private val mutex = Mutex()
+    /** Agents as they are created, for calls that arrive while [open] is still creating one. */
+    private val created = MutableStateFlow<Map<String, Agent>>(emptyMap())
     private val agents = HashMap<String, Agent>()
     private val watchers = HashMap<String, Job>()
     private val running = MutableStateFlow<Set<String>>(emptySet())
@@ -306,6 +312,7 @@ class AgentBridge(
             }
         }
         agents[sessionId] = agent
+        created.update { it + (sessionId to agent) }
         agent
     }
 
@@ -398,6 +405,7 @@ class AgentBridge(
         scope.launch {
             val agent = mutex.withLock {
                 watchers.remove(sessionId)?.cancel()
+                created.update { it - sessionId }
                 agents.remove(sessionId)
             } ?: return@launch
             running.update { it - sessionId }
@@ -449,9 +457,15 @@ class AgentBridge(
     /** Skills found in the workspace, as `name: description` lines. */
     fun skills(): List<String> = contexts.skills().map { "${it.name}: ${it.description}" }
 
+    /**
+     * Runs [block] on the session's agent. A call made right after [open] (e.g. "chat" turning
+     * tools off) waits for the agent [open] is still creating instead of being dropped.
+     */
     private fun withAgent(sessionId: String, block: suspend (Agent) -> Unit) {
         scope.launch {
-            val agent = mutex.withLock { agents[sessionId] } ?: return@launch
+            val agent = mutex.withLock { agents[sessionId] }
+                ?: withTimeoutOrNull(OPEN_WAIT_MS) { created.map { it[sessionId] }.filterNotNull().first() }
+                ?: return@launch
             block(agent)
         }
     }
@@ -474,6 +488,7 @@ class AgentBridge(
     }
 
     private companion object {
+        const val OPEN_WAIT_MS = 10_000L
         /** UI frames are coalesced to at most ~30 per second while streaming. */
         const val FRAME_MS = 33L
         val BridgeJson = Json { encodeDefaults = true }

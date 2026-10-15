@@ -58,6 +58,18 @@ class SessionProjectionTest {
     }
 
     @Test
+    fun failuresAreExplainedInWords() {
+        assertEquals(
+            "The provider rejected the API key. Check it under Settings › Model providers (HTTP 401: invalid key)",
+            explainFailure("AUTH: HTTP 401: invalid key"),
+        )
+        assertTrue(explainFailure("BLOCKED: offline mode").startsWith("Blocked by the network mode"))
+        assertEquals("No model provider selected", explainFailure("BAD_REQUEST: no model provider selected"))
+        assertEquals("something odd", explainFailure("something odd"))
+        assertEquals("The turn failed", explainFailure(null))
+    }
+
+    @Test
     fun taskResultsCarryTheSubagentSteps() {
         val trace = buildJsonObject {
             put("subagent", buildJsonObject {

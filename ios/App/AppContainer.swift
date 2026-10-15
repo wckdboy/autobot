@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /**
  The app's object graph (Android uses Hilt). One instance lives for the process; screens read it
@@ -50,6 +51,7 @@ final class AppContainer {
     #endif
 
     private(set) var dataLoaded = false
+    @ObservationIgnored private var activeObserver: (any NSObjectProtocol)?
 
     init() {
         AppPaths.prepare()
@@ -100,6 +102,16 @@ final class AppContainer {
         settings.onChange = { [weak self] s in self?.agentFeaturesChanged(s) }
         agentFeaturesChanged(settings.settings)
         library.onChange = { [weak self] in self?.modelsChanged() }
+        // Apple Intelligence can be switched on (or finish preparing) while the app is in the background.
+        activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.becameActive() }
+        }
+    }
+
+    /// Back in the foreground: re-check what "This phone" can run.
+    private func becameActive() {
+        guard dataLoaded else { return }
+        syncLocalProvider()
     }
 
     /// Opt-in agent features follow settings: memory while on, web search while a provider is set.
@@ -123,6 +135,8 @@ final class AppContainer {
         snapshots.setProviders(list)
         snapshots.setModelLists(providers.modelLists.mapValues(\.json))
         #endif
+        // A chat whose provider was deleted (or that had none yet) moves to the first provider.
+        agent.providersChanged(list)
     }
 
     private func mcpServersChanged(_ list: [McpServer]) {

@@ -25,9 +25,12 @@ data object ChatList : NavKey
 @Serializable
 data class Chat(val conversationId: String) : NavKey
 
-/** @param handoffId gallery item to load ([asInit] = as img2img input, else reuse its params). */
+/**
+ * @param handoffId gallery item to load ([asInit] = as img2img input, else reuse its params).
+ * @param modelId installed on-device model to select (tapped on the Models screen).
+ */
 @Serializable
-data class Imagine(val handoffId: String? = null, val asInit: Boolean = false) : NavKey
+data class Imagine(val handoffId: String? = null, val asInit: Boolean = false, val modelId: String? = null) : NavKey
 
 @Serializable
 data class Gallery(val openId: String? = null) : NavKey

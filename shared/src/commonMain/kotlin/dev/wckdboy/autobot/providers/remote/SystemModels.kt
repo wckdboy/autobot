@@ -107,6 +107,8 @@ object LocalModelResolver {
         if (state == LocalModelState.TOO_BIG && loadError == null) return LocalPlan.Gguf(requested)
         val guidance = when {
             loadError != null -> "Try a smaller model or a shorter context."
+            requested.isNotBlank() && state == LocalModelState.NOT_INSTALLED ->
+                "Pick another model in the chat's model menu, or download one in the Models tab."
             else -> "Download a chat model in the Models tab."
         }
         val systemNote = system?.let { " ${it.title} is not available either: ${it.summary}." }.orEmpty()

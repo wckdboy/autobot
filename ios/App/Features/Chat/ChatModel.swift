@@ -61,7 +61,10 @@ final class ChatModel {
 
     /// Attaches a picked image: downscaled and re-encoded (which also drops EXIF/GPS metadata).
     func attach(_ data: Data, app: AppContainer) async {
-        guard pendingImages.count < Self.maxAttachments else { return }
+        guard pendingImages.count < Self.maxAttachments else {
+            notice = "Up to \(Self.maxAttachments) images per message"
+            return
+        }
         let encoded = await Task.detached { ImageInput.encode(data) }.value
         guard let encoded, let id = try? app.attachments.put(encoded) else {
             notice = "Could not read that image"
@@ -102,6 +105,7 @@ final class ChatModel {
             let samples = app.speech.stop()
             guard let path = speechModelPath(app) else {
                 dictation = .idle
+                notice = "The speech model is missing. Get one in Models › speech"
                 return
             }
             dictation = .transcribing

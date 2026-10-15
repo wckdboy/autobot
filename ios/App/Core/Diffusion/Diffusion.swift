@@ -108,6 +108,8 @@ struct DiffusionInputs: Sendable, CustomStringConvertible {
 }
 
 enum DiffusionEvent: Sendable {
+    /// What the backend is doing before sampling starts (e.g. loading the model), for the UI.
+    case phase(String)
     /// Sampling progress. [preview] is an encoded image when the backend sends one.
     case progress(image: Int, step: Int, totalSteps: Int, preview: Data?)
     /// One finished image (PNG or JPEG bytes).

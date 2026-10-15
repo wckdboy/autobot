@@ -62,6 +62,8 @@ final class ImageGenerator {
     /// Results of the latest user-started job (kept so the screen can be left and reopened).
     private(set) var lastResults: [GeneratedImage] = []
     private(set) var lastError: String?
+    /// What the running job is doing before its first step (model loading), or nil.
+    private(set) var phase: String?
 
     @ObservationIgnored private let engines: DiffusionEngineFactory
     @ObservationIgnored private let gallery: GalleryRepository
@@ -85,12 +87,15 @@ final class ImageGenerator {
         guard userJob == nil, !isBusy else { return }
         lastError = nil
         lastResults = []
+        let epoch = AppActivity.shared.epoch
         userJob = Task {
             do {
                 _ = try await generate(backend, request, inputs, source: .user) { [weak self] image in self?.lastResults.append(image) }
             } catch is CancellationError {
             } catch {
-                lastError = error.localizedDescription
+                lastError = backend.kind == .onDevice && AppActivity.shared.interrupted(since: epoch)
+                    ? "Stopped: iOS doesn't allow Neural Engine or GPU work while Autobot is in the background. Keep it open and try again."
+                    : error.localizedDescription
             }
             userJob = nil
         }
@@ -114,10 +119,16 @@ final class ImageGenerator {
         let started = Date()
         var saved: [GeneratedImage] = []
         state = .running(source: source, backend: backend.name, request: request, image: 0, step: 0, totalSteps: request.steps, preview: nil, startedAt: started)
-        defer { state = .idle }
+        defer {
+            state = .idle
+            phase = nil
+        }
         for try await event in engine.generate(request, inputs: inputs) {
             switch event {
+            case .phase(let text):
+                phase = text
             case .progress(let image, let step, let total, let preview):
+                phase = nil
                 if case .running(let s, let b, let r, _, _, _, let old, let t) = state {
                     state = .running(source: s, backend: b, request: r, image: image, step: step, totalSteps: total, preview: preview ?? old, startedAt: t)
                 }

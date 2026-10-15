@@ -92,6 +92,10 @@ final class InterimAgentRuntime: AgentRuntime {
         sessions[id].map(project)
     }
 
+    func providersChanged(_ list: [Provider]) {
+        for c in conversations.repoint(providers: list) { sessions[c.id].map(project) }
+    }
+
     func compact(_ id: String) {
         append(session(id), [.commandRun(name: "compact", input: nil),
                              .compactionEnd(replacedEntries: 0, summaryChars: 0, error: "needs the shared agent runtime")])

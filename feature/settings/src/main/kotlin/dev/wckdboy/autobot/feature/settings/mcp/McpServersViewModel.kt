@@ -12,10 +12,12 @@ import dev.wckdboy.autobot.core.data.toSpec
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.core.security.Secret
+import dev.wckdboy.autobot.feature.settings.providers.ProviderDraft
 import dev.wckdboy.autobot.feature.settings.providers.TestState
 import dev.wckdboy.autobot.shared.mcp.McpEndpoint
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -53,7 +55,7 @@ data class McpServerDraft(
 ) {
     val isNew: Boolean get() = id == null
     val urlValid: Boolean get() = McpEndpoint.parse(url) != null
-    val canSave: Boolean get() = name.isNotBlank() && urlValid
+    val canSave: Boolean get() = name.isNotBlank() && urlValid && ProviderDraft.cleartextProblem(url) == null
 
     override fun toString(): String =
         "McpServerDraft(id=$id, name=$name, url=$url, routing=$routing, enabled=$enabled, trusted=$trusted, " +
@@ -66,6 +68,8 @@ data class McpServersUiState(
     val editor: McpServerDraft? = null,
     val test: TestState = TestState.Idle,
     val saving: Boolean = false,
+    /** Why the last save failed (the editor stays open). */
+    val error: String? = null,
 )
 
 @HiltViewModel
@@ -77,6 +81,7 @@ class McpServersViewModel @Inject constructor(
     private val editor = MutableStateFlow<McpServerDraft?>(null)
     private val test = MutableStateFlow<TestState>(TestState.Idle)
     private val saving = MutableStateFlow(false)
+    private val error = MutableStateFlow<String?>(null)
     private var testJob: Job? = null
 
     private val rows = repository.observeServers().map { list ->
@@ -94,8 +99,8 @@ class McpServersViewModel @Inject constructor(
         }
     }
 
-    val uiState: StateFlow<McpServersUiState> = combine(rows, editor, test, saving) { r, e, t, s ->
-        McpServersUiState(servers = r, editor = e, test = t, saving = s)
+    val uiState: StateFlow<McpServersUiState> = combine(rows, editor, test, saving, error) { r, e, t, s, err ->
+        McpServersUiState(servers = r, editor = e, test = t, saving = s, error = err)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), McpServersUiState())
 
     fun startAdd() {
@@ -126,6 +131,7 @@ class McpServersViewModel @Inject constructor(
 
     fun dismissEditor() {
         resetTest()
+        error.value = null
         editor.value = null
     }
 
@@ -133,7 +139,13 @@ class McpServersViewModel @Inject constructor(
     fun setEnabled(id: String, enabled: Boolean) {
         viewModelScope.launch {
             val server = repository.get(id) ?: return@launch
-            repository.save(server.copy(enabled = enabled))
+            try {
+                repository.save(server.copy(enabled = enabled))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error.value = "Could not save: ${e.message ?: e::class.simpleName}"
+            }
         }
     }
 
@@ -141,6 +153,7 @@ class McpServersViewModel @Inject constructor(
         val draft = editor.value ?: return
         if (!draft.canSave || saving.value) return
         saving.value = true
+        error.value = null
         viewModelScope.launch {
             try {
                 val existing = draft.id?.let { repository.get(it) }
@@ -151,6 +164,10 @@ class McpServersViewModel @Inject constructor(
                 }
                 repository.save(draft.toServer(existing), tokenUpdate)
                 editor.value = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error.value = "Could not save: ${e.message ?: e::class.simpleName}"
             } finally {
                 saving.value = false
             }

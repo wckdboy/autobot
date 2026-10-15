@@ -34,6 +34,10 @@ struct SettingsScreen: View {
                         title: "Web search",
                         subtitle: settings.webSearchOn ? "\(WebSearchDraft.label(settings.searchProvider)) · queries only, through your route" : "Off · SearXNG or Brave Search",
                     ) { showSearch = true }
+                    note("Used in sessions with agent tools on (not plain chat or Apple Intelligence)")
+                    if settings.webSearchOn && settings.mode == .offline {
+                        note("Offline mode blocks searches", color: c.error)
+                    }
                     Hairline().padding(.vertical, 8)
 
                     header("Appearance")
@@ -93,6 +97,15 @@ struct SettingsScreen: View {
         .background(c.background)
         .sheet(isPresented: $showBackup) { BackupSheet() }
         .sheet(isPresented: $showSearch) { WebSearchSheet { showSearch = false } }
+    }
+
+    private func note(_ text: String, color: Color? = nil) -> some View {
+        Text(text)
+            .textStyle(.bodySmall)
+            .foregroundStyle(color ?? c.onSurfaceVariant)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Tokens.Spacing.gutter)
+            .padding(.vertical, 4)
     }
 
     private func header(_ text: String) -> some View {

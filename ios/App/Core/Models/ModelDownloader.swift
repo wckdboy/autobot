@@ -18,7 +18,9 @@ struct DownloadProgress: Equatable, Sendable {
  Per file: resolve the URL hop by hop (each hop passes the kill switch and is audited;
  credentials are only sent to their own hub), append to `*.part` with `Range` resume, verify
  SHA-256 (from the catalog/API, or the Hub's `X-Linked-ETag`), then atomically rename. Bodies run
- in a background URLSession so a download keeps going while the app is in the background.
+ in a background URLSession so a download keeps going while the app is in the background; a
+ pause keeps what that session received (resume data), and after a relaunch a transfer the
+ earlier process left running is adopted rather than started again.
  */
 @MainActor
 @Observable
@@ -66,13 +68,30 @@ final class ModelDownloader {
     func remove(_ id: String) {
         if currentId == id { worker?.cancel() }
         library.remove(id)
+        TransferResume.discard(under: ModelLibrary.dir(of: id))
         kick()
     }
 
-    /// After a relaunch nothing is running: interrupted downloads become paused.
+    /**
+     After a relaunch no worker is running: interrupted downloads become paused. A background
+     transfer the earlier process left running for one of them is adopted (the model is queued
+     again and its fetch picks the transfer up); any other is stopped, keeping its resume data,
+     so the same file never downloads twice in parallel.
+     */
     func recoverAfterRestart() {
-        for model in library.models where model.status == .downloading {
-            library.progress(model.id, downloaded: ModelLibrary.bytesOnDisk(model.id), status: .paused)
+        let interrupted = library.models.filter { $0.status == .downloading }.map(\.id)
+        for id in interrupted {
+            library.progress(id, downloaded: Self.keptBytes(id), status: .paused)
+        }
+        guard useBackgroundSession else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let running = await background.reconnect()
+            for id in interrupted where library.get(id)?.status == .paused {
+                let dir = TransferResume.tag(ModelLibrary.dir(of: id)) + "/"
+                if running.contains(where: { $0.hasPrefix(dir) }) { library.progress(id, downloaded: Self.keptBytes(id), status: .queued) }
+            }
+            if library.models.contains(where: { $0.status == .queued }) { kick() } else { background.dropOrphans() }
         }
     }
 
@@ -80,6 +99,11 @@ final class ModelDownloader {
     func cancelAll() {
         worker?.cancel()
         background.cancelAll()
+    }
+
+    /// Bytes of [id] kept for a resume: part and finished files, and what paused transfers received.
+    nonisolated static func keptBytes(_ id: String) -> Int64 {
+        ModelLibrary.bytesOnDisk(id) + TransferResume.bytes(under: ModelLibrary.dir(of: id))
     }
 
     private func kick() {
@@ -105,6 +129,9 @@ final class ModelDownloader {
         // A pause cancels the worker; anything still queued starts a fresh one.
         if library.models.contains(where: { $0.status == .queued }) {
             Task { [weak self] in self?.kick() }
+        } else {
+            // Transfers from an earlier process that no queued model adopted.
+            background.dropOrphans()
         }
     }
 
@@ -150,7 +177,7 @@ final class ModelDownloader {
         guard let current = library.get(id) else { return }
         // A user pause wins over a failure surfacing from the cancelled transfer.
         let final = current.status == .paused ? ModelStatus.paused : status
-        library.progress(id, downloaded: ModelLibrary.bytesOnDisk(id), status: final, error: final == .paused && current.status == .paused ? nil : error)
+        library.progress(id, downloaded: Self.keptBytes(id), status: final, error: final == .paused && current.status == .paused ? nil : error)
     }
 
     private func report(_ model: InstalledModel, _ downloaded: Int64, _ total: Int64) {
@@ -170,7 +197,7 @@ final class ModelDownloader {
 
     private func requireSpace(_ model: InstalledModel) throws {
         let free = DeviceProfile.current().freeStorageBytes
-        let needed = max(model.totalBytes - ModelLibrary.bytesOnDisk(model.id), 0) + Self.reserveBytes
+        let needed = max(model.totalBytes - Self.keptBytes(model.id), 0) + Self.reserveBytes
         if free > 0 && free < needed {
             throw DownloadError(message: "Not enough storage: needs \(formatBytes(needed)), \(formatBytes(free)) free")
         }
@@ -193,5 +220,13 @@ final class ModelDownloader {
         }
         let fetcher = FileFetcher(clients: clients, bulk: useBackgroundSession ? background : nil)
         return try await fetcher.fetch(file, to: target, credential: credential, onProgress: onProgress)
+    }
+}
+
+extension InstalledModel {
+    /// "Paused at 1.2 GB of 4 GB" while a paused download keeps bytes; nil otherwise.
+    var pausedLabel: String? {
+        guard status == .paused, downloadedBytes > 0 else { return nil }
+        return "Paused at \(formatBytes(downloadedBytes))" + (totalBytes > 0 ? " of \(formatBytes(totalBytes))" : "")
     }
 }

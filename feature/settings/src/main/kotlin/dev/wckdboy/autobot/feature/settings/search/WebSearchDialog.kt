@@ -35,6 +35,7 @@ import dev.wckdboy.autobot.shared.search.SearchProvider
 import dev.wckdboy.autobot.shared.search.WebSearchCodec
 import dev.wckdboy.autobot.shared.search.WebSearchConfig
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -66,15 +67,24 @@ class WebSearchViewModel @Inject constructor(
         return WebSearchDraft(s.searchProvider, s.searchBaseUrl, s.searchRoute, hasStoredKey = search.hasApiKey())
     }
 
-    fun save(draft: WebSearchDraft) = viewModelScope.launch {
-        search.save(
-            provider = draft.provider,
-            baseUrl = draft.baseUrl,
-            route = draft.route,
-            apiKey = draft.apiKey.takeIf { it.isNotBlank() }?.let(::Secret),
-            // Turning search off also forgets the Brave key.
-            clearKey = draft.provider == SearchProvider.NONE,
-        )
+    /** Saves [draft]; [onResult] gets null, or why the key could not be stored (the dialog stays open). */
+    fun save(draft: WebSearchDraft, onResult: (String?) -> Unit) = viewModelScope.launch {
+        val failure = try {
+            search.save(
+                provider = draft.provider,
+                baseUrl = draft.baseUrl,
+                route = draft.route,
+                apiKey = draft.apiKey.takeIf { it.isNotBlank() }?.let(::Secret),
+                // Turning search off also forgets the Brave key.
+                clearKey = draft.provider == SearchProvider.NONE,
+            )
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "Couldn't store the key: ${e.message ?: e::class.simpleName}"
+        }
+        onResult(failure)
     }
 }
 
@@ -86,6 +96,7 @@ class WebSearchViewModel @Inject constructor(
 @Composable
 fun WebSearchDialog(onDismiss: () -> Unit, viewModel: WebSearchViewModel = hiltViewModel()) {
     var draft by remember { mutableStateOf<WebSearchDraft?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { draft = viewModel.load() }
     val d = draft ?: return
     AlertDialog(
@@ -137,13 +148,16 @@ fun WebSearchDialog(onDismiss: () -> Unit, viewModel: WebSearchViewModel = hiltV
                         }
                     }
                     d.problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         },
         confirmButton = {
             TextButton(enabled = d.problem == null, onClick = {
-                viewModel.save(d)
-                onDismiss()
+                viewModel.save(d) { failure ->
+                    error = failure
+                    if (failure == null) onDismiss()
+                }
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

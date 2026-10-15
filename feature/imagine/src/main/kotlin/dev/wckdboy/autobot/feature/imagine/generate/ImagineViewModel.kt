@@ -218,6 +218,21 @@ class ImagineViewModel @Inject constructor(
         }
     }
 
+    /** Selects an installed on-device model (tapped on the Models screen) with its recommended settings. */
+    fun useModel(id: String) {
+        viewModelScope.launch {
+            // After the stored request is loaded, so it doesn't overwrite the model's settings.
+            local.first { it.request != null }
+            val chip = uiState.first { it.loaded }.chips.firstOrNull { it.onDevice && it.model == id }
+            if (chip != null) {
+                selectChip(chip)
+            } else {
+                val title = library.get(id)?.title ?: "That model"
+                local.update { it.copy(error = "$title can't run in the studio on this phone") }
+            }
+        }
+    }
+
     /** Same settings again (a random seed stays random). */
     fun runAgain() = generate()
 

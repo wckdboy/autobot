@@ -1,3 +1,4 @@
+import AutobotShared
 import Observation
 import SwiftUI
 import UIKit
@@ -82,6 +83,41 @@ final class ModelsModel {
     func install(_ plan: ModelPlan) {
         app?.downloader.install(plan)
         message = "Queued \(plan.title)"
+    }
+
+    /// What tapping [m] opens, by the shared rules (nothing while it downloads, or for speech).
+    static func launch(_ m: InstalledModel, device: DeviceProfile? = nil, filesPresent: Bool = true) -> ModelLaunch {
+        ModelLaunchKt.launchOf(
+            kind: m.kind.kotlin, engine: m.engine.kotlin, ready: m.isReady,
+            fit: device?.capabilities.fit(kind: m.kind.kotlin, bytes: m.totalBytes, engine: m.engine.kotlin), filesPresent: filesPresent, platform: .ios,
+        )
+    }
+
+    /**
+     Puts an installed model to work: a new session on "This phone" for chat and code models, the
+     image studio set up for image models, the gallery for upscalers.
+     */
+    func use(_ m: InstalledModel, nav: Navigator) {
+        guard let app else { return }
+        let files = app.library.paths(m).values.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+        let launch = Self.launch(m, device: device, filesPresent: files)
+        if let problem = launch.problem {
+            message = problem
+            return
+        }
+        switch launch.task {
+        case .chat:
+            guard app.providers.get(ProviderPresets.localProviderId) != nil else {
+                message = "\"This phone\" isn't ready as a provider yet — try again in a moment"
+                return
+            }
+            let conversation = app.conversations.create(incognito: app.settings.settings.incognitoByDefault, providerId: ProviderPresets.localProviderId, model: m.id)
+            app.agent.setToolsEnabled(conversation.id, launch.tools)
+            nav.push(.chat(conversationId: conversation.id))
+        case .imagine: nav.push(.imagine(modelId: m.id))
+        case .gallery: nav.push(.gallery())
+        default: break
+        }
     }
 
     // MARK: Hugging Face
@@ -187,7 +223,7 @@ struct ModelsScreen: View {
                     if let p = app.downloader.progress { progressPanel(p) }
                     if !app.library.models.isEmpty {
                         SectionLabel("installed · \(app.library.models.count)")
-                        ForEach(app.library.models) { m in InstalledRow(model: m) }
+                        ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) } }
                         Spacer().frame(height: 18)
                     }
                     Segmented(options: ModelsTab.allCases, selected: model.tab, label: \.label) { model.tab = $0 }
@@ -364,6 +400,7 @@ struct Snackbar: View {
 
 private struct InstalledRow: View {
     let model: InstalledModel
+    let onUse: () -> Void
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
     @State private var confirm = false
@@ -375,7 +412,9 @@ private struct InstalledRow: View {
             model.totalBytes > 0 ? formatBytes(model.totalBytes) : nil,
             model.engine.runsOnIOS ? model.engine.label : "not runnable here",
         ].compactMap { $0 }.joined(separator: " · ")
-        RunRow(title: model.title, subtitle: subtitle) {
+        // Tapping a ready model opens the task it runs (the × tag still removes it).
+        let opens = ModelsModel.launch(model).task != ModelTask.none
+        RunRow(title: model.title, subtitle: subtitle, action: opens ? onUse : nil) {
             switch model.status {
             case .ready: Tag("ready", accent: c.primary, filled: true)
             case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary)
@@ -383,10 +422,20 @@ private struct InstalledRow: View {
             case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }
             case .failed: Tag("retry", accent: c.error) { app.downloader.resume(model.id) }
             }
-            Tag(confirm ? "sure?" : "×", accent: c.onSurfaceVariant) {
-                if confirm { app.downloader.remove(model.id) } else { confirm = true }
+            Tag(confirm ? "sure?" : "×", accent: confirm ? c.error : c.onSurfaceVariant) {
+                if confirm {
+                    app.downloader.remove(model.id)
+                    app.compute.deleteFor(modelId: model.id)
+                } else {
+                    confirm = true
+                }
             }
         }
+        if confirm {
+            MicroLabel("Deletes \(formatBytes(model.totalBytes)) from this phone. Chats that use it need another model picked.", color: c.error, lines: 2)
+                .padding(.bottom, 8)
+        }
+        if let paused = model.pausedLabel { MicroLabel(paused).padding(.bottom, 8) }
         if let error = model.error {
             MicroLabel(error, color: c.error, lines: 4).padding(.bottom, 8)
         }
@@ -457,7 +506,12 @@ private struct RepoSheet: View {
                     let fit = model.device?.fit(kind, bytes: f.sizeBytes, engine: engineFor(kind, formatOf(f.path, owner: owner)))
                     RunRow(title: String(f.path.split(separator: "/").last ?? ""), subtitle: "\(formatBytes(f.sizeBytes))\(f.sha256 != nil ? " · sha-256 known" : "")") {
                         if let fit { Tag(fit.label, accent: fit == .good ? c.onSurfaceVariant : AutobotColors.amber) }
-                        Tag("get", accent: c.primary, filled: true) { model.installFile(repo, f.path) }
+                        let format = formatOf(f.path, owner: owner)
+                        if format == .safetensors || format == .ckpt {
+                            PcOnlyGetTag { model.installFile(repo, f.path) }
+                        } else {
+                            Tag("get", accent: c.primary, filled: true) { model.installFile(repo, f.path) }
+                        }
                     }
                 }
                 if files.contains(where: { formatOf($0.path, owner: owner) == .safetensors }) {
@@ -468,6 +522,25 @@ private struct RepoSheet: View {
             .padding(.vertical, 20)
         }
         .background(c.surfaceContainerLow.ignoresSafeArea())
+    }
+}
+
+/// "get" for a file this phone can't run (checkpoints for a PC backend): a second tap confirms.
+private struct PcOnlyGetTag: View {
+    let action: () -> Void
+    @State private var confirm = false
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        if confirm {
+            Tag("pc only · get anyway", accent: AutobotColors.amber, filled: true) {
+                confirm = false
+                action()
+            }
+        } else {
+            Tag("pc", accent: c.onSurfaceVariant)
+            Tag("get", accent: c.primary, filled: true) { confirm = true }
+        }
     }
 }
 
@@ -501,8 +574,7 @@ private struct CivitaiRow: View {
                 } else if let version, installed.contains("civitai:\(version.id)") {
                     Tag("added")
                 } else {
-                    Tag("pc", accent: c.onSurfaceVariant)
-                    Tag("get", accent: c.primary, filled: true, action: onGet)
+                    PcOnlyGetTag(action: onGet)
                 }
             },
         )

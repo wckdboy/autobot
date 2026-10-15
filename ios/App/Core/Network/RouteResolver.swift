@@ -87,3 +87,40 @@ enum RouteResolver {
         }
     }
 }
+
+/**
+ Checks that something accepts TCP connections at a SOCKS endpoint before the app routes through
+ it (a plain connect, nothing is sent), so the Privacy Center can say "start Orbot" instead of
+ every request failing with "Could not connect".
+ */
+enum ProxyProbe {
+    static func reachable(host: String, port: Int, timeout: TimeInterval = 2) async -> Bool {
+        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)), !host.isEmpty else { return false }
+        let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+        let queue = DispatchQueue(label: "ai.wckd.autobot.proxy-probe")
+        return await withCheckedContinuation { continuation in
+            let state = ProbeState()
+            let finish: @Sendable (Bool) -> Void = { ok in
+                guard !state.done else { return }
+                state.done = true
+                connection.cancel()
+                continuation.resume(returning: ok)
+            }
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(true)
+                // Refused or unreachable: NWConnection waits for the network to change; we do not.
+                case .waiting, .failed: finish(false)
+                default: break
+                }
+            }
+            connection.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + timeout) { finish(false) }
+        }
+    }
+}
+
+/// Every probe callback runs on its serial queue, so this needs no lock.
+private final class ProbeState: @unchecked Sendable {
+    var done = false
+}

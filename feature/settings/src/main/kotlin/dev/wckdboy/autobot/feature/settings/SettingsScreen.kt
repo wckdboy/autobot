@@ -46,6 +46,7 @@ import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.feature.settings.backup.BackupDialog
 import dev.wckdboy.autobot.feature.settings.search.WebSearchDialog
@@ -68,6 +69,7 @@ data class SettingsUiState(
     val incognitoByDefault: Boolean = false,
     val memoryEnabled: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.NONE,
+    val offline: Boolean = false,
 )
 
 @HiltViewModel
@@ -88,6 +90,7 @@ class SettingsViewModel @Inject constructor(
             incognitoByDefault = it.incognitoByDefault,
             memoryEnabled = it.memoryEnabled,
             searchProvider = it.searchProvider,
+            offline = it.networkMode == NetworkMode.Offline,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState(appLockAvailable = lockAvailable))
 
@@ -200,6 +203,20 @@ fun SettingsScreen(
                 if (state.searchProvider == SearchProvider.NONE) "Off · SearXNG or Brave Search" else "${state.searchProvider.label} · queries only, through your route",
                 onOpenWebSearch,
             )
+            Text(
+                "Used in sessions with agent tools on (not plain chat)",
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (state.searchProvider != SearchProvider.NONE && state.offline) {
+                Text(
+                    "Offline mode blocks searches",
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             SectionHeader("Appearance")

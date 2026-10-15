@@ -102,6 +102,10 @@ final class LocalDiffusion: Sendable {
                     previewEvery: 4,
                 ) { event in
                     switch event {
+                    case .loading(let firstRun):
+                        onEvent(.phase(firstRun
+                            ? "Preparing the model for this phone (first run only, can take a few minutes)"
+                            : "Loading the model"))
                     case .progress(let image, let step, let total, let preview):
                         onEvent(.progress(image: image, step: step, totalSteps: total, preview: preview))
                     case .result(let img):

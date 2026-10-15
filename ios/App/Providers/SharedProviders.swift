@@ -56,10 +56,10 @@ struct RemoteModelItem: Sendable, Identifiable, Hashable {
         contextWindow = m.contextWindow.map { Int(truncating: $0) }
     }
 
-    init(id: String) {
+    init(id: String, caption: String = "") {
         self.id = id
         name = nil
-        caption = ""
+        self.caption = caption
         contextWindow = nil
     }
 }

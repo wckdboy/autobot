@@ -25,6 +25,8 @@ final class EncryptedStore: Sendable {
     private let url: URL
     private let keys: KeyManager
     private let db = Mutex<OpaquePointer?>(nil)
+    /// Set by [close] (panic wipe): nothing may recreate the database afterwards.
+    private let closed = Atomic<Bool>(false)
 
     init(url: URL = AppPaths.database, keys: KeyManager) {
         self.url = url
@@ -59,12 +61,13 @@ final class EncryptedStore: Sendable {
 
     // MARK: Session logs
 
-    /// Appends JSON log entries; `seq` must be new for the session.
+    /// Appends JSON log entries; an entry whose `seq` is already stored is skipped (a retried
+    /// append after the device was locked repeats nothing).
     func appendEvents(sessionId: String, _ entries: [(seq: Int64, json: Data)]) throws {
         try transaction {
             for entry in entries {
                 let payload = try seal(entry.json, aad: "event:\(sessionId):\(entry.seq)")
-                try execute("INSERT INTO session_events (session_id, seq, payload) VALUES (?, ?, ?)", [.text(sessionId), .int(entry.seq), .blob(payload)])
+                try execute("INSERT OR IGNORE INTO session_events (session_id, seq, payload) VALUES (?, ?, ?)", [.text(sessionId), .int(entry.seq), .blob(payload)])
             }
         }
     }
@@ -84,6 +87,7 @@ final class EncryptedStore: Sendable {
 
     /// Closes the connection (before a panic wipe deletes the file).
     func close() {
+        closed.store(true, ordering: .sequentiallyConsistent)
         db.withLock { handle in
             if let h = handle { sqlite3_close_v2(h) }
             handle = nil
@@ -110,6 +114,7 @@ final class EncryptedStore: Sendable {
 
     private func connection(_ handle: inout OpaquePointer?) throws -> OpaquePointer {
         if let h = handle { return h }
+        guard !closed.load(ordering: .sequentiallyConsistent) else { throw StoreError(message: "The database was closed") }
         var h: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_FILEPROTECTION_COMPLETE
         guard sqlite3_open_v2(url.path, &h, flags, nil) == SQLITE_OK, let opened = h else {

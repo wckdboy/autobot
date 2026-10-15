@@ -66,6 +66,9 @@ public struct DiffusionInputs: Sendable {
 }
 
 public enum DiffusionEvent: Sendable {
+    /// The pipeline is being loaded. [firstRun]: Core ML is compiling this model for these compute
+    /// units for the first time on this phone, which can take minutes (later loads are seconds).
+    case loading(firstRun: Bool)
     /// Sampling progress of image [image]; [preview] is a JPEG when previews are on.
     case progress(image: Int, step: Int, totalSteps: Int, preview: Data?)
     /// One finished image.
@@ -166,7 +169,8 @@ public actor DiffusionEngine {
     /**
      * Generates `request.batchCount` images (seeds seed, seed+1, …). [backend] picks the Core ML
      * compute units (`.npu` = CPU + Neural Engine, `.gpu` = CPU + GPU, `.auto` = the model's
-     * preferred one). With [previewEvery] > 0 a JPEG preview is decoded every N steps (slower).
+     * preferred one). With [previewEvery] > 0 a low-resolution JPEG preview is approximated from
+     * the latents every N steps (no VAE pass, so it costs next to nothing).
      * Cancelling the calling task (or [cancel]) stops after the current step.
      */
     public func generate(
@@ -224,13 +228,21 @@ private final class PipelineState: @unchecked Sendable {
         key = nil
     }
 
-    private func load(_ model: CoreMLDiffusionModel, units: MLComputeUnits) throws -> any StableDiffusionPipelineProtocol {
+    private func load(
+        _ model: CoreMLDiffusionModel, units: MLComputeUnits, onEvent: @Sendable (DiffusionEvent) -> Void,
+    ) throws -> any StableDiffusionPipelineProtocol {
         if let pipeline, let key, key.0 == model.folder, key.1 == units { return pipeline }
         unload()
+        // Core ML caches the device-specific compilation; a marker per compute-unit set tells
+        // the UI whether this load is the slow first one.
+        let marker = model.folder.appending(path: ".autobot-loaded-\(units.rawValue)")
+        onEvent(.loading(firstRun: !FileManager.default.fileExists(atPath: marker.path)))
         let config = MLModelConfiguration()
         config.computeUnits = units
-        // Load lazily and drop each stage after use on phones; SDXL always needs it.
-        let reduceMemory = model.arch == .sdxl || ProcessInfo.processInfo.physicalMemory < 12 << 30
+        // SDXL, and SD on 6 GB phones, load each stage lazily and drop it after use. Otherwise the
+        // whole pipeline (~1.2 GB palettized) stays resident: reloading the UNet onto the Neural
+        // Engine for every image costs seconds each time.
+        let reduceMemory = model.arch == .sdxl || ProcessInfo.processInfo.physicalMemory < 7 << 30
         let loaded: any StableDiffusionPipelineProtocol
         switch model.arch {
         case .sd:
@@ -240,6 +252,7 @@ private final class PipelineState: @unchecked Sendable {
             loaded = try StableDiffusionXLPipeline(resourcesAt: model.folder, configuration: config, reduceMemory: reduceMemory)
         }
         try loaded.loadResources()
+        FileManager.default.createFile(atPath: marker.path, contents: nil)
         pipeline = loaded
         key = (model.folder, units)
         return loaded
@@ -254,7 +267,7 @@ private final class PipelineState: @unchecked Sendable {
         onEvent: @Sendable (DiffusionEvent) -> Void,
     ) throws -> [DiffusionImage] {
         cancelled.store(false, ordering: .relaxed)
-        let pipeline = try load(model, units: units)
+        let pipeline = try load(model, units: units, onEvent: onEvent)
         let w = model.width, h = model.height
 
         var initImage: CGImage?
@@ -292,6 +305,7 @@ private final class PipelineState: @unchecked Sendable {
             config.rngType = .torchRNG
             config.encoderScaleFactor = scale
             config.decoderScaleFactor = scale
+            // Previews show the denoised estimate, which reads as an image long before the end.
             config.useDenoisedIntermediates = previewEvery > 0
             if model.arch == .sdxl {
                 config.originalSize = Float32(max(w, h))
@@ -304,8 +318,8 @@ private final class PipelineState: @unchecked Sendable {
 
             let images = try pipeline.generateImages(configuration: config) { progress in
                 var preview: Data?
-                if previewEvery > 0, progress.step % previewEvery == 0,
-                   let image = (try? pipeline.decodeToImages(progress.currentLatentSamples, configuration: progress.configuration))?.first ?? nil {
+                if previewEvery > 0, progress.step % previewEvery == 0, let latent = progress.currentLatentSamples.first,
+                   let image = LatentPreview.image(latent, sdxl: model.arch == .sdxl) {
                     preview = Images.encode(image, type: .jpeg)
                 }
                 onEvent(.progress(image: index, step: progress.step + 1, totalSteps: progress.stepCount, preview: preview))
@@ -330,6 +344,42 @@ private final class PipelineState: @unchecked Sendable {
             out.append(result)
         }
         return out
+    }
+}
+
+/**
+ * A preview straight from the latents: a fixed linear map from the 4 latent channels to RGB
+ * (the "latent2rgb" approximation), at latent resolution (1/8 of the output). Decoding with the
+ * VAE instead would load a second model onto the Neural Engine on every preview.
+ */
+enum LatentPreview {
+    private static let sd: [[Float]] = [[0.3512, 0.2297, 0.3227], [0.3250, 0.4974, 0.2350], [-0.2829, 0.1762, 0.2721], [-0.2120, -0.2616, -0.7177]]
+    private static let sdxl: [[Float]] = [[0.3651, 0.4232, 0.4341], [-0.2533, -0.0042, 0.1068], [0.1076, 0.1111, -0.0362], [-0.3165, -0.2492, -0.2188]]
+    private static let sdxlBias: [Float] = [0.1084, -0.0175, -0.0011]
+
+    /// [latent] has shape `[1, 4, h, w]` (or `[4, h, w]`).
+    static func image(_ latent: MLShapedArray<Float32>, sdxl isXL: Bool) -> CGImage? {
+        let shape = latent.shape
+        guard shape.count >= 3, shape[shape.count - 3] == 4 else { return nil }
+        let h = shape[shape.count - 2], w = shape[shape.count - 1], plane = w * h
+        let scalars = latent.scalars
+        guard scalars.count >= 4 * plane else { return nil }
+        let factors = isXL ? sdxl : sd
+        let bias = isXL ? sdxlBias : [0, 0, 0]
+        var rgba = [UInt8](repeating: 255, count: plane * 4)
+        for i in 0..<plane {
+            for c in 0..<3 {
+                var v = bias[c]
+                for k in 0..<4 { v += scalars[k * plane + i] * factors[k][c] }
+                rgba[i * 4 + c] = UInt8(max(0, min(255, (v + 1) * 127.5)))
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(rgba) as CFData) else { return nil }
+        return CGImage(
+            width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue), provider: provider, decode: nil,
+            shouldInterpolate: true, intent: .defaultIntent,
+        )
     }
 }
 

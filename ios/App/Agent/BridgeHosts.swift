@@ -2,6 +2,7 @@
 import AutobotShared
 import Foundation
 import Synchronization
+import UIKit
 
 // Host sides of the KMP bridge interfaces (`shared/.../{AgentBridge,Transport,LocalEngine}.kt`).
 // Kotlin calls these on its own background threads, so everything here is thread-safe and never
@@ -165,6 +166,7 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
         guard let model = snapshots.model(modelId) else { return nil }
         let llm = llm
         nonisolated(unsafe) let sink = sink
+        let epoch = AppActivity.shared.epoch
         let task = Task.detached {
             do {
                 let result = try await withTaskCancellationHandler {
@@ -184,17 +186,40 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
                 } onCancel: {
                     llm.cancel()
                 }
-                sink.onResult(json: result)
+                // A reply the GPU stopped because the app went to the background ends with a notice,
+                // not as if the model had finished.
+                let stopped = AppActivity.shared.interrupted(since: epoch) && Self.finishReason(result) == "error"
+                sink.onResult(json: stopped ? Self.errorJSON(Self.backgrounded, Self.backgroundedMessage) : result)
             } catch let e as LocalEngineError {
                 // The shared codec turns `{error:{code,message}}` into events (CANCELLED → none).
-                let body = ["error": ["code": e.code, "message": e.message]]
-                let json = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) }
-                sink.onResult(json: json ?? #"{"error":{"code":"ERROR","message":"engine error"}}"#)
+                let stopped = e.code != "CANCELLED" && AppActivity.shared.interrupted(since: epoch)
+                sink.onResult(json: stopped ? Self.errorJSON(Self.backgrounded, Self.backgroundedMessage) : Self.errorJSON(e.code, e.message))
             } catch {
-                sink.onFailure(message: error.localizedDescription)
+                if AppActivity.shared.interrupted(since: epoch) {
+                    sink.onResult(json: Self.errorJSON(Self.backgrounded, Self.backgroundedMessage))
+                } else {
+                    sink.onFailure(message: error.localizedDescription)
+                }
             }
         }
         return TaskHandle(task)
+    }
+
+    /// Error code of an on-device reply cut short because the app left the foreground.
+    static let backgrounded = "BACKGROUNDED"
+    static let backgroundedMessage = "Stopped: iOS does not let the on-device model use the GPU while Autobot is in the background, "
+        + "so this reply is incomplete. Keep Autobot open while it answers, then send again."
+
+    /// `{error:{code,message}}` as the shared codec reads it.
+    static func errorJSON(_ code: String, _ message: String) -> String {
+        let body = ["error": ["code": code, "message": message]]
+        let json = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) }
+        return json ?? #"{"error":{"code":"ERROR","message":"engine error"}}"#
+    }
+
+    /// `finish_reason` of an engine result.
+    static func finishReason(_ json: String) -> String? {
+        (try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])?["finish_reason"] as? String
     }
 
     func mmproj(modelId: String) -> String? { snapshots.model(modelId)?.mmproj }
@@ -238,24 +263,58 @@ extension AppleIntelligence {
     }
 }
 
-/// Session logs as opaque JSON lines, sealed in the encrypted store (incognito: memory only).
+/**
+ Session logs as opaque JSON lines, sealed in the encrypted store (incognito: memory only).
+ While the device is locked the store cannot be written (`NSFileProtectionComplete`): appends
+ wait in memory, in order, and are written before any newer one, at the latest when protected
+ data becomes available again; until then [load] still returns them.
+ */
 final class SessionStoreHost: NSObject, SessionStoreBridge, @unchecked Sendable {
-    private let store: SessionStore
+    struct Batch: Sendable {
+        let sessionId: String
+        let lines: [(seq: Int64, json: Data)]
+    }
 
-    init(store: SessionStore) { self.store = store }
+    private let store: SessionStore
+    let unsaved: PendingWrites<Batch>
+    private var observer: NSObjectProtocol?
+
+    init(store: SessionStore) {
+        self.store = store
+        unsaved = PendingWrites { [store] batch in try store.appendJSON(batch.sessionId, batch.lines) }
+        super.init()
+        observer = NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { [weak self] _ in
+            guard let host = self else { return }
+            DispatchQueue.global(qos: .utility).async { host.retry() }
+        }
+    }
+
+    deinit { observer.map(NotificationCenter.default.removeObserver) }
 
     func load(sessionId: String) -> [String] {
-        store.loadJSON(sessionId).map { String(decoding: $0, as: UTF8.self) }
+        let waiting = unsaved.pending.filter { $0.sessionId == sessionId }.flatMap { $0.lines.map(\.json) }
+        return (store.loadJSON(sessionId) + waiting).map { String(decoding: $0, as: UTF8.self) }
     }
 
     func append(sessionId: String, entries: [String]) {
-        let lines = entries.compactMap { line -> (Int64, Data)? in
+        let lines = entries.compactMap { line -> (seq: Int64, json: Data)? in
             let data = Data(line.utf8)
             guard let seq = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["seq"] as? NSNumber else { return nil }
             return (seq.int64Value, data)
         }
-        try? store.appendJSON(sessionId, lines.map { (seq: $0.0, json: $0.1) })
+        guard !lines.isEmpty else { return }
+        unsaved.submit(Batch(sessionId: sessionId, lines: lines))
     }
+
+    /// Writes what waited for the device to unlock; a failure now (disk full) is reported.
+    func retry() {
+        guard let error = unsaved.flush() else { return }
+        let count = unsaved.pending.reduce(0) { $0 + $1.lines.count }
+        EngineErrors.record("Session log not saved (\(error.localizedDescription)); \(count) entries kept in memory")
+    }
+
+    /// Drops what waits for a deleted session.
+    func forget(sessionId: String) { unsaved.discard { $0.sessionId == sessionId } }
 }
 
 /// Decrypted attachments for one model call; the plain copies are deleted afterwards.

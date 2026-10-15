@@ -66,6 +66,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -172,7 +173,13 @@ class ChatViewModel @AssistedInject constructor(
 
     private val policy = combine(networkPolicy.mode, networkPolicy.allowLoopbackWhenOffline, networkPolicy.socksFallback) { m, l, s -> Triple(m, l, s) }
 
-    private val providerModels = combine(providers.observeProviders(), providers.observeModelCaches()) { list, caches -> list to caches }
+    /** Downloaded chat models, newest first, by title: what "This phone" can switch between. */
+    private val installedChat = library.models.map { list ->
+        list.filter { it.isReady && it.engine == EngineKind.LLAMA }.sortedByDescending { it.addedAt }.map { RemoteModel(it.id, name = it.title) }
+    }
+    private val providerModels = combine(providers.observeProviders(), providers.observeModelCaches(), installedChat) { list, caches, installed ->
+        Triple(list, caches, installed)
+    }
     private val refreshing = MutableStateFlow(false)
 
     private val routing = combine(conversations.observeConversation(conversationId), providerModels, policy) { c, list, p -> Triple(c, list, p) }
@@ -206,7 +213,7 @@ class ChatViewModel @AssistedInject constructor(
     private val voice = combine(dictation, dictated, speakingKey) { d, t, s -> Triple(d, t, s) }
 
     val uiState: StateFlow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, withModels, p), n, images, (dict, dictText, speaking) ->
-        val (providerList, caches) = withModels
+        val (providerList, caches, installed) = withModels
         val (mode, allowLoopback, socks) = p
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
         val effective = provider?.let { RouteResolver.effectiveMode(mode, it.routing.toOverride(), socks) } ?: mode
@@ -221,7 +228,7 @@ class ChatViewModel @AssistedInject constructor(
             todos = snap.projection.todos,
             approvals = snap.approvals,
             question = snap.question,
-            providers = providerList.map { it.toOption(caches[it.id]) },
+            providers = providerList.map { it.toOption(caches[it.id], installed) },
             selectedProviderId = provider?.id,
             selectedProviderName = provider?.displayName,
             selectedModel = conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel,
@@ -457,15 +464,19 @@ class ChatViewModel @AssistedInject constructor(
         }
     }
 
-    private fun Provider.toOption(cache: ModelCache?): ProviderOption {
+    private fun Provider.toOption(cache: ModelCache?, installed: List<RemoteModel>): ProviderOption {
         val preset = preset()
         val local = kind == ProviderKind.LOCAL
         return ProviderOption(
             id = id,
             name = displayName,
             defaultModel = defaultModel,
-            models = (cache?.models ?: preset.suggestedModels.map { RemoteModel(it) }) + localSystemModel().map { RemoteModel(it) },
-            modelsLabel = cache?.let { "${it.models.size} models · ${it.ageLabel(System.currentTimeMillis())}" } ?: "offline list",
+            models = (if (local) installed else cache?.models ?: preset.suggestedModels.map { RemoteModel(it) }) + localSystemModel().map { RemoteModel(it) },
+            modelsLabel = when {
+                local -> "${installed.size} downloaded"
+                cache != null -> "${cache.models.size} models · ${cache.ageLabel(System.currentTimeMillis())}"
+                else -> "offline list"
+            },
             canRefresh = !local && preset.modelsApi != ModelsApi.NONE,
         )
     }

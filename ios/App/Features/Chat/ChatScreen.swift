@@ -326,6 +326,15 @@ private struct StepRow: View {
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
                             .lineLimit(1)
+                        // Why a step failed shouldn't take a tap to find out.
+                        if !expanded, tool.state == .error || tool.state == .denied,
+                           let reason = tool.output?.split(whereSeparator: \.isNewline).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
+                            Text(reason.hasPrefix("Error: ") ? String(reason.dropFirst(7)) : String(reason))
+                                .textStyle(.bodySmall)
+                                .foregroundStyle(tool.state == .error ? c.error : c.onSurfaceVariant)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if tool.state == .running { StatusDot(color: c.primary, live: true).padding(.top, 6) }
@@ -420,9 +429,11 @@ private struct ApprovalCard: View {
     }
 }
 
+/// `// STOPPED`; errors keep their case (ids, hosts and keys must stay readable) and expand on tap.
 private struct NoticeRow: View {
     let text: String
     let kind: NoticeKind
+    @State private var expanded = false
     @Environment(\.scheme) private var c
 
     var body: some View {
@@ -431,7 +442,18 @@ private struct NoticeRow: View {
         case .warn: AutobotColors.amber
         case .error: c.error
         }
-        Text("// \(text.uppercased())").textStyle(.micro).foregroundStyle(color).lineLimit(3)
+        if kind == .error {
+            Text("// \(text)")
+                .textStyle(.bodySmall)
+                .foregroundStyle(color)
+                .lineLimit(expanded ? nil : 3)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { expanded.toggle() }
+        } else {
+            Text("// \(text.uppercased())").textStyle(.micro).foregroundStyle(color).lineLimit(3)
+        }
     }
 }
 
@@ -669,8 +691,13 @@ private struct InputBar: View {
             guard !items.isEmpty else { return }
             picks = []
             Task {
+                if items.count > ChatModel.maxAttachments { model.notice = "Up to \(ChatModel.maxAttachments) images per message" }
                 for item in items.prefix(ChatModel.maxAttachments) {
-                    if let data = try? await item.loadTransferable(type: Data.self) { await model.attach(data, app: app) }
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        await model.attach(data, app: app)
+                    } else {
+                        model.notice = "Couldn't load that photo (it may still be downloading from iCloud)"
+                    }
                 }
             }
         }
@@ -809,7 +836,10 @@ private struct ModelSheet: View {
 
     /// The provider's fetched list, else its preset's offline suggestions; the default model leads.
     private func models(_ p: Provider) -> [RemoteModelItem] {
-        var list = ModelLists.models(app.providers.modelLists[p.id]?.json) ?? ProviderPresets.resolve(p).suggestedModels.map { RemoteModelItem(id: $0) }
+        // "This phone" lists every downloaded chat model, newest first, by title.
+        var list = p.kind == .local
+            ? app.library.models.filter { $0.isReady && $0.engine == .llama }.sorted { $0.addedAt > $1.addedAt }.map { RemoteModelItem(id: $0.id, caption: $0.title) }
+            : ModelLists.models(app.providers.modelLists[p.id]?.json) ?? ProviderPresets.resolve(p).suggestedModels.map { RemoteModelItem(id: $0) }
         // "This phone" also offers Apple Intelligence when it can answer.
         if p.kind == .local && AppleIntelligence.unavailability == nil { list.append(RemoteModelItem(id: AppleIntelligence.id)) }
         if p.defaultModel.isEmpty || list.contains(where: { $0.id == p.defaultModel }) { return list }

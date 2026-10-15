@@ -40,12 +40,12 @@ class SystemModelsTest {
     fun missingModelWithoutSystemModelExplainsBoth() {
         val plan = LocalModelResolver.resolve("qwen", LocalModelState.NOT_INSTALLED, appleOff) as LocalPlan.Fail
         assertEquals(
-            "'qwen' is not installed. Download a chat model in the Models tab. Apple Intelligence (on-device) is not available either: " +
+            "'qwen' is not installed. Pick another model in the chat's model menu, or download one in the Models tab. Apple Intelligence (on-device) is not available either: " +
                 "unavailable · Apple Intelligence is turned off in Settings.",
             plan.message,
         )
         val bare = LocalModelResolver.resolve("qwen", LocalModelState.NOT_INSTALLED, null) as LocalPlan.Fail
-        assertEquals("'qwen' is not installed. Download a chat model in the Models tab.", bare.message)
+        assertEquals("'qwen' is not installed. Pick another model in the chat's model menu, or download one in the Models tab.", bare.message)
     }
 
     @Test
@@ -185,7 +185,7 @@ class SystemModelsTest {
         assertEquals(ChatEvent.ServedBy(SystemModels.APPLE, "'gone' is not installed"), run(withSystem, "gone").first())
         val without = LocalChatRouter(modelState = { LocalModelState.NOT_INSTALLED }, system = null, gguf = { error("no gguf") })
         val error = run(without, "gone").single() as ChatEvent.Error
-        assertEquals("'gone' is not installed. Download a chat model in the Models tab.", error.message)
+        assertEquals("'gone' is not installed. Pick another model in the chat's model menu, or download one in the Models tab.", error.message)
     }
 
     // ---- prompt mapping ----

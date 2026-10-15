@@ -313,14 +313,36 @@ class AgentLoopTest {
 
     @Test
     fun nonRetryableFailureEndsTurnWithError() = runTest {
-        val adapter = ScriptedAdapter(mutableListOf({ throw LlmException(LlmFailure(LlmErrorCode.BLOCKED, "offline")) }))
+        val adapter = ScriptedAdapter(mutableListOf({ throw LlmException(LlmFailure(LlmErrorCode.AUTH, "bad key")) }))
         val agent = agent(adapter)
         agent.followup("hi")
         advanceUntilIdle()
         val end = agent.all<SessionEvent.TurnEnd>().single()
         assertEquals(TurnEndReason.ERROR, end.reason)
-        assertTrue(end.detail!!.contains("offline"))
+        assertEquals("AUTH: bad key", end.detail)
         assertTrue(agent.all<SessionEvent.LlmRetry>().isEmpty())
+    }
+
+    @Test
+    fun killSwitchEndsTurnAsBlocked() = runTest {
+        val adapter = ScriptedAdapter(mutableListOf({ throw LlmException(LlmFailure(LlmErrorCode.BLOCKED, "offline")) }))
+        val agent = agent(adapter)
+        agent.followup("hi")
+        advanceUntilIdle()
+        assertEquals(TurnEndReason.BLOCKED, agent.all<SessionEvent.TurnEnd>().single().reason)
+        assertTrue(agent.all<SessionEvent.LlmRetry>().isEmpty())
+    }
+
+    @Test
+    fun engineStopMidAnswerIsAnErrorNotACompletedTurn() = runTest {
+        val adapter = ScriptedAdapter(mutableListOf({ listOf(StreamChunk.TextDelta("half an"), StreamChunk.Finish("error")) }))
+        val agent = agent(adapter)
+        agent.followup("hi")
+        advanceUntilIdle()
+        assertEquals("half an", agent.all<SessionEvent.AssistantMessage>().single().text)
+        val end = agent.all<SessionEvent.TurnEnd>().single()
+        assertEquals(TurnEndReason.ERROR, end.reason)
+        assertTrue(end.detail!!.contains("stopped mid-answer"))
     }
 
     @Test

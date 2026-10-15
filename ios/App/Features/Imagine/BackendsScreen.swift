@@ -134,7 +134,11 @@ private struct BackendEditor: View {
                 Segmented(options: [BackendKind.sdApi, .localSse], selected: kind, label: { $0 == .sdApi ? "A1111 API" : "Local SSE" }) { kind = $0 }
                 ConsoleTextField(text: $name, label: "Name")
                 ConsoleTextField(text: $url, label: "Base URL", kind: .url)
-                if cleartextRemote { MicroLabel("cleartext http is only allowed to loopback — use https", color: c.error, lines: 2) }
+                if let problem = ProviderDraft.cleartextProblem(trimmed) {
+                    MicroLabel(problem, color: c.error, lines: 3)
+                } else if let note = ProviderDraft.loopbackNote(trimmed) {
+                    MicroLabel(note, lines: 3)
+                }
                 SelectField(label: "Route", value: routing.rawValue.lowercased(), options: RouteOverride.allCases, optionLabel: { $0.rawValue.lowercased() }) { routing = $0 }
                 HStack {
                     if !isNew { TextAction("Delete", color: c.error, action: onDelete) }

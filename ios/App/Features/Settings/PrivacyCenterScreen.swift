@@ -159,6 +159,8 @@ private struct NetworkModeSelector: View {
     @State private var torPort = "\(NetworkMode.defaultTorPort)"
     @State private var socksHost = NetworkPolicy.defaultSocksHost
     @State private var socksPort = "\(NetworkPolicy.defaultSocksPort)"
+    /// Set when nothing answers at the selected proxy (the mode still applies).
+    @State private var proxyWarning: String?
 
     var body: some View {
         let current = ModeKind(mode)
@@ -193,11 +195,31 @@ private struct NetworkModeSelector: View {
                     .padding(.leading, 52)
                     .padding(.trailing, Tokens.Spacing.gutter)
                     .padding(.bottom, 8)
+                    if let proxyWarning {
+                        MicroLabel(proxyWarning, color: c.error, lines: 2)
+                            .padding(.leading, 52)
+                            .padding(.trailing, Tokens.Spacing.gutter)
+                            .padding(.bottom, 8)
+                    }
                 }
             }
         }
         .onAppear(perform: syncFields)
         .onChange(of: mode) { _, _ in syncFields() }
+        .task(id: mode) { await probe(mode) }
+    }
+
+    /// Tor / SOCKS5: checks something listens at the proxy so a stopped Orbot is named, not a generic connect error.
+    private func probe(_ mode: NetworkMode) async {
+        proxyWarning = nil
+        let endpoint: (String, Int)? = switch mode {
+        case .tor(let h, let p), .socks5(let h, let p): (h, p)
+        default: nil
+        }
+        guard case let (host, port)? = endpoint else { return }
+        let reachable = await ProxyProbe.reachable(host: host, port: port)
+        guard !reachable, !Task.isCancelled else { return }
+        proxyWarning = "No SOCKS proxy at \(host):\(port) — start Orbot or check the port"
     }
 
     private func syncFields() {
