@@ -1,8 +1,10 @@
 package dev.wckdboy.autobot.providers.remote
 
+import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
-import dev.wckdboy.autobot.core.models.ComputeProfile
+import dev.wckdboy.autobot.core.models.Fit
+import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.engine.llama.EngineDiedException
 import dev.wckdboy.autobot.engine.llama.LocalLlm
@@ -16,15 +18,28 @@ import kotlinx.serialization.json.JsonObject
  * Chat on this phone through the llama.cpp engine (isolated `:llm` process, Binder IPC).
  * Nothing touches the network. [ChatRequest.model] is an installed model id; tool calling uses
  * the model's own chat template, so agent sessions work offline.
+ *
+ * When the requested model is missing, too big or fails to load, the OS's own model ([system],
+ * only in builds that include one) answers instead; [LocalChatRouter] decides.
  */
 class LocalChatProvider(
     private val library: ModelLibrary,
     private val engine: LocalLlm,
     private val compute: ComputeProfile,
+    private val system: SystemLlm? = null,
+    private val fit: (InstalledModel) -> Fit = { Fit.GOOD },
     private val contextLength: Int = DEFAULT_CONTEXT,
 ) : ChatProvider {
 
-    override fun streamChat(request: ChatRequest): Flow<ChatEvent> = flow {
+    private val router = LocalChatRouter(
+        modelState = { id -> modelState(library.get(id), fit) },
+        system = system,
+        gguf = ::streamGguf,
+    )
+
+    override fun streamChat(request: ChatRequest): Flow<ChatEvent> = router.stream(request)
+
+    private fun streamGguf(request: ChatRequest): Flow<ChatEvent> = flow {
         val model = library.get(request.model)
         val path = model?.takeIf { it.isReady && it.engine == EngineKind.LLAMA }?.paths?.get(FileRole.MODEL)
         if (path == null) {
@@ -42,19 +57,27 @@ class LocalChatProvider(
             }
         }
     }.catch { e ->
-        val message = if (e is EngineDiedException) {
-            "The on-device engine stopped (likely out of memory). Try a smaller model or shorter context."
+        if (e is EngineDiedException) {
+            emit(
+                ChatEvent.Error(
+                    ErrorKind.BAD_REQUEST,
+                    "The on-device engine stopped (likely out of memory). Try a smaller model or shorter context.",
+                    code = "ENGINE_DIED",
+                ),
+            )
         } else {
-            e.message ?: e.javaClass.simpleName
+            emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, e.message ?: e.javaClass.simpleName))
         }
-        emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, message))
     }
 
-    override suspend fun testConnection(): ConnectionTestResult = try {
-        engine.systemInfo()
-        ConnectionTestResult.Success(library.all().count { it.isReady && it.engine == EngineKind.LLAMA })
-    } catch (e: Exception) {
-        ConnectionTestResult.Failure(ErrorKind.SERVER, e.message ?: "Engine unavailable")
+    override suspend fun testConnection(): ConnectionTestResult {
+        val systemReady = system?.let { runCatching { it.status() }.getOrNull()?.usable } == true
+        return try {
+            engine.systemInfo()
+            ConnectionTestResult.Success(library.all().count { it.isReady && it.engine == EngineKind.LLAMA } + if (systemReady) 1 else 0)
+        } catch (e: Exception) {
+            if (systemReady) ConnectionTestResult.Success(1) else ConnectionTestResult.Failure(ErrorKind.SERVER, e.message ?: "Engine unavailable")
+        }
     }
 
     companion object {
@@ -64,5 +87,12 @@ class LocalChatProvider(
         internal fun encode(request: ChatRequest, mmproj: String? = null): JsonObject = LocalLlmCodec.encode(request, mmproj)
 
         internal fun decodeResult(json: String): List<ChatEvent> = LocalLlmCodec.decodeResult(json)
+
+        /** Whether an installed model can run here, by the shared fit rules. */
+        internal fun modelState(model: InstalledModel?, fit: (InstalledModel) -> Fit): LocalModelState = when {
+            model == null || !model.isReady || model.engine != EngineKind.LLAMA || model.paths[FileRole.MODEL] == null -> LocalModelState.NOT_INSTALLED
+            fit(model) == Fit.TOO_BIG -> LocalModelState.TOO_BIG
+            else -> LocalModelState.READY
+        }
     }
 }

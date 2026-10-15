@@ -157,6 +157,29 @@ class SystemModelsTest {
     }
 
     @Test
+    fun pickingADownloadableSystemModelAsksTheOsToFetchItButAFallbackNeverDoes() {
+        var downloads = 0
+        val nano = SystemModelStatus(SystemModels.GEMINI_NANO, "Gemini Nano (on-device)", SystemAvailability.DOWNLOADABLE)
+        val system = object : SystemLlm {
+            var status = nano
+            override val id = SystemModels.GEMINI_NANO
+            override suspend fun status() = status
+            override fun chat(prompt: SystemPrompt): Flow<ChatEvent> = flowOf(ChatEvent.Done)
+            override suspend fun requestDownload() {
+                downloads++
+                status = nano.copy(availability = SystemAvailability.DOWNLOADING, detail = "0%")
+            }
+        }
+        val router = LocalChatRouter(modelState = { LocalModelState.NOT_INSTALLED }, system = system, gguf = { error("no gguf") })
+        val missing = run(router, "gone").single() as ChatEvent.Error
+        assertEquals(0, downloads)
+        assertTrue(missing.message, "not downloaded yet" in missing.message)
+        val picked = run(router, SystemModels.GEMINI_NANO).single() as ChatEvent.Error
+        assertEquals(1, downloads)
+        assertTrue(picked.message, "downloading · 0%" in picked.message)
+    }
+
+    @Test
     fun routerFallsBackForMissingModelsAndFailsWithoutSystemModel() {
         val withSystem = LocalChatRouter(modelState = { LocalModelState.NOT_INSTALLED }, system = FakeSystem(apple), gguf = { error("no gguf") })
         assertEquals(ChatEvent.ServedBy(SystemModels.APPLE, "'gone' is not installed"), run(withSystem, "gone").first())

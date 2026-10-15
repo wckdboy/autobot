@@ -5,7 +5,9 @@ import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
 import dev.wckdboy.autobot.core.models.ComputeProfile
+import dev.wckdboy.autobot.core.models.DeviceProfiler
 import dev.wckdboy.autobot.core.models.ModelLibrary
+import dev.wckdboy.autobot.core.models.SystemModel
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.core.security.Secret
@@ -27,14 +29,26 @@ class ProviderFactory @Inject constructor(
     private val modelLibrary: ModelLibrary,
     private val localLlm: LocalLlm,
     private val computeProfile: ComputeProfile,
+    private val systemModel: SystemModel,
+    private val profiler: DeviceProfiler,
 ) {
+    private val device by lazy { profiler.profile() }
+
     /** Creates a provider, decrypting its API key from the SecretStore. */
     suspend fun create(provider: Provider): ChatProvider = create(provider, providerRepository.apiKey(provider))
 
     /** Creates a provider with an explicit [apiKey] (e.g. an unsaved key being tested). */
     fun create(provider: Provider, apiKey: Secret?): ChatProvider {
         // On-device: Binder IPC to the engine process, no HTTP client at all.
-        if (provider.kind == ProviderKind.LOCAL) return LocalChatProvider(modelLibrary, localLlm, computeProfile)
+        if (provider.kind == ProviderKind.LOCAL) {
+            return LocalChatProvider(
+                modelLibrary,
+                localLlm,
+                computeProfile,
+                system = systemModel.llm,
+                fit = { device.fit(it.kind, it.totalBytes, it.engine) },
+            )
+        }
         val client = httpClientFactory.create(tag = provider.displayName, override = provider.routing.toOverride())
         val baseUrl = provider.baseUrl
         return when (provider.kind) {

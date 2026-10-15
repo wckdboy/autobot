@@ -15,6 +15,8 @@ cmake = "4.1.2"
 qnn = "2.51.0"
 # Headers come from the public QAIRT SDK zip (fetched at build time, never committed).
 qairt = "2.47.0.260601"
+# Gemini Nano through ML Kit: only the opt-in `playServices` flavor (pulls in GMS and telemetry).
+mlkitGenaiPrompt = "1.0.0-beta4"
 
 # AndroidX
 androidxCore = "1.19.1"
@@ -41,6 +43,7 @@ junit = "4.13.2"
 
 [libraries]
 qnn-runtime = { module = "com.qualcomm.qti:qnn-runtime", version.ref = "qnn" }
+mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlkitGenaiPrompt" }
 # AndroidX
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "androidxActivity" }

@@ -124,6 +124,12 @@ interface SystemLlm {
 
     /** One answer to [prompt]. Failures are emitted as [ChatEvent.Error]; ends with [ChatEvent.Done]. */
     fun chat(prompt: SystemPrompt): Flow<ChatEvent>
+
+    /**
+     * Asks the OS to fetch a [SystemAvailability.DOWNLOADABLE] model. Only called when the user
+     * picked the system model itself, never for a fallback.
+     */
+    suspend fun requestDownload() = Unit
 }
 
 /**
@@ -139,7 +145,11 @@ class LocalChatRouter(
     fun stream(request: ChatRequest): Flow<ChatEvent> = flow {
         val requested = request.model
         val state = if (SystemModels.isSystem(requested)) LocalModelState.NOT_INSTALLED else modelState(requested)
-        val status = if (state == LocalModelState.READY) null else systemStatus()
+        var status = if (state == LocalModelState.READY) null else systemStatus()
+        if (SystemModels.isSystem(requested) && status?.id == requested && status.availability == SystemAvailability.DOWNLOADABLE) {
+            runCatching { system?.requestDownload() }
+            status = systemStatus()
+        }
         when (val plan = LocalModelResolver.resolve(requested, state, status)) {
             is LocalPlan.Fail -> emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, plan.message))
             is LocalPlan.System -> emitAll(runSystem(request, plan))
@@ -194,9 +204,12 @@ data class SystemPrompt(
     @Serializable
     data class Turn(val role: String, val text: String)
 
-    /** Everything as one text, for APIs without a transcript (Gemini Nano's Prompt API). */
-    fun flatten(): String = buildString {
-        instructions?.let { append(it).append("\n\n") }
+    /**
+     * Everything as one text, for APIs without a transcript (Gemini Nano's Prompt API); without
+     * [instructions] when the API takes them separately.
+     */
+    fun flatten(withInstructions: Boolean = true): String = buildString {
+        if (withInstructions) instructions?.let { append(it).append("\n\n") }
         history.forEach { t -> append(if (t.role == USER) "User: " else "Assistant: ").append(t.text).append("\n\n") }
         append("User: ").append(prompt).append("\n\nAssistant:")
     }

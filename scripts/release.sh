@@ -34,9 +34,9 @@ scripts/bump-version.sh "$VERSION"
 BUILD=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
 
 step "Android + shared: tests, debug and signed release"
-./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest assembleDebug :app:assembleRelease --console=plain > "$WORK/gradle.log" 2>&1 ||
+./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest assembleDebug :app:assembleFossRelease --console=plain > "$WORK/gradle.log" 2>&1 ||
     { tail -40 "$WORK/gradle.log"; fail "Gradle failed (log: $WORK/gradle.log)"; }
-APK=app/build/outputs/apk/release/app-release.apk
+APK=app/build/outputs/apk/foss/release/app-foss-release.apk
 [ -f "$APK" ] || fail "no signed release APK (is keystore.properties valid?)"
 SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 BT=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
@@ -82,7 +82,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git tag -a "$TAG" -m "Autobot $VERSION"
 git push origin HEAD "$TAG"
 cp "$APK" "$WORK/autobot-$VERSION-release.apk"
-cp app/build/outputs/apk/debug/app-debug.apk "$WORK/autobot-$VERSION-debug.apk"
+cp app/build/outputs/apk/foss/debug/app-foss-debug.apk "$WORK/autobot-$VERSION-debug.apk"
 (cd "$WORK" && shasum -a 256 autobot-*.apk | sed 's/  / */' > SHA256SUMS.txt)
 if [ -n "$NOTES" ]; then set -- --notes-file "$NOTES"; else set -- --generate-notes; fi
 gh release create "$TAG" --title "Autobot $VERSION" --latest "$@" \

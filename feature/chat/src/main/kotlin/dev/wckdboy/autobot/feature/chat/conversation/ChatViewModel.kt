@@ -37,6 +37,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.ModelLibrary
+import dev.wckdboy.autobot.core.models.SystemModel
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
@@ -44,6 +45,7 @@ import dev.wckdboy.autobot.core.network.RouteResolver
 import dev.wckdboy.autobot.engine.speech.LocalSpeech
 import dev.wckdboy.autobot.feature.chat.toPrivacyStatus
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
+import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.providers.remote.toOverride
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.SessionProjection
@@ -133,6 +135,7 @@ class ChatViewModel @AssistedInject constructor(
     private val attachments: AttachmentRepository,
     private val speech: LocalSpeech,
     private val library: ModelLibrary,
+    private val systemModel: SystemModel,
     @ApplicationContext private val appContext: Context,
     networkPolicy: NetworkPolicy,
 ) : ViewModel() {
@@ -214,7 +217,13 @@ class ChatViewModel @AssistedInject constructor(
                 isLocal || loopback -> Route.LOCAL_CPU
                 else -> Route.CLOUD_API
             },
-            modelLabel = conversation?.model?.let { m -> if (isLocal) m.substringAfter("catalog:").substringAfterLast('/').substringBefore(".gguf") else m },
+            modelLabel = conversation?.model?.let { m ->
+                when {
+                    !isLocal -> m
+                    SystemModels.isSystem(m) -> SystemModels.title(m)
+                    else -> m.substringAfter("catalog:").substringAfterLast('/').substringBefore(".gguf")
+                }
+            },
             isIncognito = conversations.isIncognito(conversationId),
             notice = n,
             pendingImages = images,
@@ -408,10 +417,14 @@ class ChatViewModel @AssistedInject constructor(
             ?.also { thumbs[galleryId] = it }
     }
 
+    /** "This phone" also offers the OS's model (Gemini Nano in the `playServices` build) when it can run. */
+    private fun Provider.localSystemModel(): List<String> =
+        listOfNotNull(systemModel.status.value?.takeIf { kind == ProviderKind.LOCAL && it.usable }?.id)
+
     private fun Provider.toOption() = ProviderOption(
         id = id,
         name = displayName,
         defaultModel = defaultModel,
-        suggestedModels = (listOf(defaultModel) + ProviderPresets.forKind(kind).suggestedModels).filter { it.isNotBlank() }.distinct(),
+        suggestedModels = (listOf(defaultModel) + ProviderPresets.forKind(kind).suggestedModels + localSystemModel()).filter { it.isNotBlank() }.distinct(),
     )
 }

@@ -61,7 +61,10 @@ import dev.wckdboy.autobot.core.models.DeviceProfiler
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelLibrary
+import dev.wckdboy.autobot.core.models.SystemModel
 import dev.wckdboy.autobot.core.network.NetworkPolicy
+import dev.wckdboy.autobot.providers.remote.SystemAvailability
+import dev.wckdboy.autobot.providers.remote.SystemModelStatus
 import dev.wckdboy.autobot.shared.diagnostics.AcceleratorStatus
 import dev.wckdboy.autobot.shared.diagnostics.BenchmarkLine
 import dev.wckdboy.autobot.shared.diagnostics.DeviceInfo
@@ -100,8 +103,12 @@ class ComputeViewModel @Inject constructor(
     private val profile: ComputeProfile,
     private val bench: ComputeBench,
     private val network: NetworkPolicy,
+    private val systemModel: SystemModel,
     profiler: DeviceProfiler,
 ) : ViewModel() {
+    /** The OS's model; null in builds without one (the default, GMS-free build). */
+    val system: StateFlow<SystemModelStatus?> = systemModel.status
+
     private val devices = MutableStateFlow<ComputeDevices?>(null)
     private val running = MutableStateFlow<String?>(null)
     private val device = MutableStateFlow<DeviceProfile?>(null)
@@ -131,6 +138,16 @@ class ComputeViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch { devices.value = runCatching { bench.devices() }.getOrNull() ?: ComputeDevices() }
+        viewModelScope.launch { systemModel.refresh() }
+    }
+
+    /** Asks the OS to fetch its model (Gemini Nano is downloaded by AICore, not by Autobot). */
+    fun downloadSystemModel() {
+        val llm = systemModel.llm ?: return
+        viewModelScope.launch {
+            runCatching { llm.requestDownload() }
+            systemModel.refresh()
+        }
     }
 
     fun setBackend(model: InstalledModel, backend: Backend) {
@@ -164,6 +181,14 @@ class ComputeViewModel @Inject constructor(
             },
             errors = listOfNotNull(d?.npuError),
             networkMode = network.mode.value::class.simpleName,
+            systemModel = system.value?.let { s ->
+                val detail = when (s.availability) {
+                    SystemAvailability.AVAILABLE -> null
+                    SystemAvailability.UNAVAILABLE -> s.detail
+                    else -> s.summary
+                }
+                AcceleratorStatus(s.title, s.usable, detail)
+            },
         ).render()
     }
 
@@ -184,6 +209,7 @@ class ComputeViewModel @Inject constructor(
 @Composable
 fun ComputeRoute(onBack: () -> Unit, viewModel: ComputeViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val system by viewModel.system.collectAsStateWithLifecycle()
     var report by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { viewModel.refresh() }
     report?.let { text -> ReportDialog(text, onDismiss = { report = null }) }
@@ -214,6 +240,7 @@ fun ComputeRoute(onBack: () -> Unit, viewModel: ComputeViewModel = hiltViewModel
                     MicroLabel("chat on the npu: the hexagon backend did not start on this phone · images still run on the npu", Modifier.padding(top = 6.dp))
                 }
             }
+            system?.let { s -> item { SystemModelRow(s, onDownload = viewModel::downloadSystemModel) } }
             item {
                 state.running?.let { MicroLabel("benchmarking · $it", color = MaterialTheme.colorScheme.primary) }
                 SectionLabel("models · auto picks the fastest measured backend", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -252,6 +279,28 @@ private fun ReportDialog(text: String, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
+}
+
+/** The OS's own chat model: used for "This phone" when no downloaded model can run. */
+@Composable
+private fun SystemModelRow(status: SystemModelStatus, onDownload: () -> Unit) {
+    Panel(
+        title = "system model · ${status.title}",
+        accent = if (status.usable) MaterialTheme.colorScheme.primary else null,
+        trailing = {
+            if (status.availability == SystemAvailability.DOWNLOADABLE) {
+                Tag("download", accent = MaterialTheme.colorScheme.primary, onClick = onDownload)
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(status.summary, style = MaterialTheme.typography.bodySmall)
+            MicroLabel("fallback when no downloaded model can run · ~4k tokens, no tools")
+            if (status.availability == SystemAvailability.DOWNLOADABLE) {
+                MicroLabel("the download is done by the system (AICore), outside autobot's network controls")
+            }
+        }
+    }
 }
 
 @Composable
