@@ -1,0 +1,116 @@
+import SwiftUI
+
+extension Receipt: Identifiable {
+    var id: Int { turn }
+
+    /// Short policy wording of a model that trains on prompts (Kotlin `Receipts.policyLabel`).
+    static let trains = "trains on prompts"
+}
+
+/**
+ The receipt under a turn's last answer: `ON DEVICE` or `2 HOSTS · 14 KB OUT · NO RETENTION`.
+ It stamps in when the turn ends; a tap opens [ReceiptSheet].
+ */
+struct ReceiptLine: View {
+    let receipt: Receipt?
+    let onOpen: (Receipt) -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if let receipt {
+                let accent: Color = receipt.onDevice ? c.primary
+                    : receipt.models.contains { $0.policy == Receipt.trains } ? AutobotColors.amber : c.onSurfaceVariant
+                Tag("▤ " + receipt.line, accent: accent, filled: receipt.onDevice) { onOpen(receipt) }
+                    .accessibilityLabel("Privacy receipt: \(receipt.line)")
+            }
+        }
+        .stamp(receipt?.line, when: { $0 != nil })
+    }
+}
+
+/// Everything one turn shared, and with whom. Built on this phone; never sent anywhere.
+struct ReceiptSheet: View {
+    let receipt: Receipt
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionLabel("receipt · turn \(receipt.turn)")
+                Text(headline).textStyle(.headlineSmall).foregroundStyle(c.onBackground).fixedSize(horizontal: false, vertical: true)
+
+                if !receipt.hosts.isEmpty {
+                    Hairline().padding(.vertical, 2)
+                    MicroLabel("hosts")
+                    ForEach(Array(receipt.hosts.enumerated()), id: \.offset) { _, host in hostRow(host) }
+                }
+
+                if !receipt.models.isEmpty {
+                    Hairline().padding(.vertical, 2)
+                    MicroLabel("model")
+                    ForEach(Array(receipt.models.enumerated()), id: \.offset) { _, m in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Text(m.model).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).truncationMode(.middle)
+                                if let policy = m.policy {
+                                    Tag(policy, accent: policy == Receipt.trains ? AutobotColors.amber : m.onDevice ? c.primary : c.onSurfaceVariant)
+                                }
+                            }
+                            Text([m.name, m.policyNote ?? (m.policy == nil ? "data policy not documented" : nil)].compactMap { $0 }.joined(separator: " · "))
+                                .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                if !receipt.tools.isEmpty {
+                    Hairline().padding(.vertical, 2)
+                    MicroLabel("tools")
+                    ChatFlow(spacing: 6) {
+                        ForEach(Array(receipt.tools.enumerated()), id: \.offset) { _, t in
+                            Tag(t.network ? "\(t.name) · net" : t.name, accent: t.network ? c.primary : c.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                if !receipt.fallbacks.isEmpty {
+                    Hairline().padding(.vertical, 2)
+                    MicroLabel("fallbacks")
+                    ForEach(receipt.fallbacks, id: \.self) { Text($0).textStyle(.bodySmall).foregroundStyle(AutobotColors.amber) }
+                }
+
+                Hairline().padding(.vertical, 2)
+                Text("Built on this phone from the network audit log. Receipts stay in this chat and are never sent anywhere.")
+                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationBackground(c.surfaceContainerLow)
+        .presentationDragIndicator(.visible)
+    }
+
+    private var headline: String {
+        if receipt.onDevice { return "Nothing left this phone" }
+        if !receipt.tracked { return "Traffic not tracked for this turn" }
+        return "\(Receipt.formatBytes(receipt.bytesSent)) sent · \(Receipt.formatBytes(receipt.bytesReceived)) received"
+    }
+
+    /// `api.deepseek.com` / `TOR · 2 REQ · 14 KB OUT · 30 KB IN`
+    private func hostRow(_ host: Receipt.Host) -> some View {
+        let detail = [
+            host.route,
+            "\(host.requests) req",
+            "\(Receipt.formatBytes(host.bytesSent)) out",
+            "\(Receipt.formatBytes(host.bytesReceived)) in",
+            host.blocked > 0 ? "\(host.blocked) blocked" : nil,
+            host.tags.isEmpty ? nil : host.tags.joined(separator: ", "),
+        ].compactMap { $0 }.joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(host.host).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).truncationMode(.middle)
+            MicroLabel(detail, color: host.blocked == host.requests ? AutobotColors.amber : nil, lines: 2)
+        }
+    }
+}

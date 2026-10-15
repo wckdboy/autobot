@@ -27,6 +27,10 @@ struct AuditEntry: Identifiable, Equatable, Sendable {
     /// `true` if the kill switch refused the request before any I/O.
     let blocked: Bool
     var error: String? = nil
+    /// The agent session whose turn made the request (privacy receipts), if any.
+    var session: String? = nil
+    /// That session's turn number.
+    var turn: Int? = nil
 }
 
 /**
@@ -37,13 +41,15 @@ struct AuditEntry: Identifiable, Equatable, Sendable {
 final class AuditLog: Sendable {
     static let defaultCapacity = 500
 
-    /// Thread-safe on the Kotlin side (atomic ids, `MutableStateFlow.update`).
-    nonisolated(unsafe) private let log: AutobotShared.AuditLog
+    /// Thread-safe on the Kotlin side (atomic ids, `MutableStateFlow.update`). The shared agent
+    /// runtime reads it to build each turn's privacy receipt.
+    nonisolated(unsafe) let shared: AutobotShared.AuditLog
+    private var log: AutobotShared.AuditLog { shared }
     private let observers = Mutex<[UUID: AsyncStream<[AuditEntry]>.Continuation]>([:])
 
     init(capacity: Int = AuditLog.defaultCapacity, clock: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
         precondition(capacity > 0, "capacity must be positive")
-        log = AutobotShared.AuditLog(capacity: Int32(capacity), clock: { KotlinLong(value: clock()) })
+        shared = AutobotShared.AuditLog(capacity: Int32(capacity), clock: { KotlinLong(value: clock()) })
     }
 
     /// Snapshot of the buffer, oldest first.
@@ -75,6 +81,8 @@ final class AuditLog: Sendable {
         route: String,
         blocked: Bool,
         error: String? = nil,
+        session: String? = nil,
+        turn: Int? = nil,
     ) -> AuditEntry {
         let entry = AuditEntry(log.record(
             method: method,
@@ -87,9 +95,18 @@ final class AuditLog: Sendable {
             route: route,
             blocked: blocked,
             error: error,
+            session: session,
+            turn: turn.map { KotlinInt(value: Int32(clamping: $0)) },
         ))
         notify()
         return entry
+    }
+
+    /// Sets the body bytes actually received for entry [id] once its body was read (streams have
+    /// no Content-Length when they start).
+    func received(id: Int64, bytes: Int64) {
+        log.received(id: id, bytes: bytes)
+        notify()
     }
 
     func clear() {
@@ -118,6 +135,8 @@ extension AuditEntry {
             route: e.route,
             blocked: e.blocked,
             error: e.error,
+            session: e.session,
+            turn: e.turn.map { Int($0.int32Value) },
         )
     }
 }

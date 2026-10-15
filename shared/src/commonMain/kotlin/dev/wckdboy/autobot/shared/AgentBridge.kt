@@ -45,7 +45,10 @@ import dev.wckdboy.autobot.shared.memory.MemoryStoreBridge
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
 import dev.wckdboy.autobot.shared.search.WebSearchSource
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
+import dev.wckdboy.autobot.core.network.AuditLog
+import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.session.SessionProjection
+import dev.wckdboy.autobot.shared.session.receiptsPlugin
 import dev.wckdboy.autobot.shared.session.projectSession
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -162,6 +165,9 @@ class SessionState(
  * The agent runtime for hosts that are not Kotlin (iOS): the same [Harness], plugins and tools
  * that Android's `AgentHost` wires up, behind plain callbacks and JSON strings. All methods
  * return immediately; work runs on the bridge's own coroutine scope.
+ *
+ * [audit] is the host's audit log (the one its [transport] records into): each turn's privacy
+ * receipt lists the traffic it tied to that turn. Null leaves the receipts' network part unknown.
  */
 class AgentBridge(
     workspaceDir: String,
@@ -171,6 +177,7 @@ class AgentBridge(
     store: SessionStoreBridge,
     images: ImageStoreBridge?,
     mcpTokens: McpTokenSource,
+    audit: AuditLog? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val workspace = Workspace(workspaceDir.toPath())
@@ -229,6 +236,13 @@ class AgentBridge(
                 onDevice = { quotaFallback.onDevice },
                 eligible = { cfg -> providers.provider(cfg.provider)?.let { ModelDataPolicies.autoPickable(it.preset.id, cfg.model) } ?: true },
             ),
+        )
+        root.plugin(
+            receiptsPlugin(audit) { id ->
+                withContext(IoDispatcher) { providers.provider(id) }?.let {
+                    ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset.id, it.preset.privacyNote)
+                }
+            },
         )
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))

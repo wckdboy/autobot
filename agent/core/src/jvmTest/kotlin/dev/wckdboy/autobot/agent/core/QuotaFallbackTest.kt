@@ -115,6 +115,11 @@ class QuotaFallbackTest {
         assertEquals(listOf("small", "small"), answers.map { it.model })
         assertEquals("big hit its usage limit — answered by the helper model", answers.first().fallback)
         assertNull(answers.last().fallback)
+        // The receipt names both models the prompt went to, and the fallback.
+        val receipt = agent.all<SessionEvent.TurnReceipt>().single()
+        assertEquals(listOf("big", "small"), receipt.models.map { it.model })
+        assertEquals(listOf("big hit its usage limit — answered by the helper model"), receipt.fallbacks)
+        assertEquals(listOf("echo"), receipt.tools)
 
         // The next turn starts on the chat's own model again.
         agent.followup("again")

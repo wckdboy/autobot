@@ -32,7 +32,7 @@ struct SessionProjectionTests {
         #expect(tools[2].summary == "args of read")
         guard case .user(_, let text, _) = p.items.first else { Issue.record("first item is not a user message"); return }
         #expect(text == "draw a cat")
-        let reasoning = p.items.compactMap { item -> String?? in if case .assistant(_, _, let r, _, _, _) = item { r } else { nil } }
+        let reasoning = p.items.compactMap { item -> String?? in if case .assistant(_, _, let r, _, _, _, _) = item { r } else { nil } }
         #expect(reasoning == ["plan"])
         guard case .notice = p.items.last else { Issue.record("last item is not a notice"); return }
         #expect(p.todos.count == 1)

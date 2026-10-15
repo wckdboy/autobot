@@ -80,6 +80,8 @@ struct ChatScreen: View {
     @State private var model = ChatModel()
     @State private var showModels = false
     @State private var showSession = false
+    /// The privacy receipt being looked at.
+    @State private var openReceipt: Receipt?
     /// Which transcript items are new since the screen loaded (they ink in).
     @State private var ledger = InkLedger()
 
@@ -154,6 +156,7 @@ struct ChatScreen: View {
         .sheet(isPresented: $showSession) {
             SessionSheet(conversationId: conversationId, state: state) { showSession = false }
         }
+        .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
         .onChange(of: state) { _, new in model.sessionChanged(new) }
         .onDisappear {
             model.setVoiceMode(false, app: app, conversationId: conversationId)
@@ -174,8 +177,11 @@ struct ChatScreen: View {
                 }
                 if !images.isEmpty { AttachmentStrip(ids: images, model: model) }
             }
-        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _):
-            AssistantMessage(text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: model.speakingKey == key) {
+        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt):
+            AssistantMessage(
+                text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: model.speakingKey == key,
+                receipt: receipt, onReceipt: { openReceipt = $0 },
+            ) {
                 model.speak(key: key, text: text)
             }
         case .tool(let tool):
@@ -269,6 +275,8 @@ private struct AssistantMessage: View {
     let interrupted: Bool
     let outputTokens: Int?
     let speaking: Bool
+    var receipt: Receipt? = nil
+    var onReceipt: (Receipt) -> Void = { _ in }
     let onSpeak: () -> Void
     @Environment(\.scheme) private var c
 
@@ -286,6 +294,7 @@ private struct AssistantMessage: View {
                     }
                 }
             }
+            ReceiptLine(receipt: receipt, onOpen: onReceipt)
         }
     }
 }

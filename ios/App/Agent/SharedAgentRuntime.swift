@@ -53,6 +53,7 @@ final class SharedAgentRuntime: AgentRuntime {
             store: sessionStore,
             images: ImageStoreHost(attachments: attachments),
             mcpTokens: McpTokenSourceHost(snapshots: snapshots, secrets: secrets),
+            audit: clients.auditLog.shared,
         )
         let listener = RunningListenerBox { [weak self] ids in self?.running = Set(ids) }
         listeners.add(listener)

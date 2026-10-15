@@ -133,6 +133,12 @@ struct HttpResponse: Sendable {
     }
 }
 
+/// The agent turn a request is made for, recorded with it in the audit log (privacy receipts).
+struct AuditTrace: Equatable, Sendable {
+    let session: String
+    let turn: Int
+}
+
 /// A policy-bound client created by [HttpClientFactory.create].
 final class HttpClient: Sendable {
     let tag: String
@@ -154,6 +160,7 @@ final class HttpClient: Sendable {
         let proxy: Proxy
         let route: String
         let tag: String
+        let trace: AuditTrace?
     }
 
     /**
@@ -162,7 +169,7 @@ final class HttpClient: Sendable {
      - it uses cleartext HTTP to a non-loopback host;
      - the effective route changed since the client was built (e.g. Direct → Tor).
      */
-    private func admit(_ request: URLRequest, tag requestTag: String?) throws -> Admitted {
+    private func admit(_ request: URLRequest, tag requestTag: String?, trace: AuditTrace? = nil) throws -> Admitted {
         let policy = factory.policy
         let url = request.url
         let host = url?.host() ?? ""
@@ -178,14 +185,15 @@ final class HttpClient: Sendable {
 
         let route = loopback ? "loopback" : RouteResolver.routeLabel(effective)
         if let blockReason {
-            audit(request, tag: label, route: route, blocked: true, error: blockReason)
+            audit(request, tag: label, route: route, trace: trace, blocked: true, error: blockReason)
             throw NetworkBlockedError(message: blockReason)
         }
         let proxy = RouteResolver.proxy(for: expectedRoute, host: host) ?? .none
-        return Admitted(request: HeaderScrub.scrub(request), session: factory.session(for: proxy, route: route), proxy: proxy, route: route, tag: label)
+        return Admitted(request: HeaderScrub.scrub(request), session: factory.session(for: proxy, route: route), proxy: proxy, route: route, tag: label, trace: trace)
     }
 
-    private func audit(_ request: URLRequest, tag: String?, route: String, blocked: Bool, status: Int? = nil, received: Int64? = nil, error: String? = nil) {
+    @discardableResult
+    private func audit(_ request: URLRequest, tag: String?, route: String, trace: AuditTrace? = nil, blocked: Bool, status: Int? = nil, received: Int64? = nil, error: String? = nil) -> AuditEntry {
         factory.auditLog.record(
             method: request.httpMethod ?? "GET",
             host: request.url?.host() ?? "",
@@ -197,13 +205,15 @@ final class HttpClient: Sendable {
             route: route,
             blocked: blocked,
             error: error,
+            session: trace?.session,
+            turn: trace?.turn,
         )
     }
 
     private func failure(_ error: Error, _ a: Admitted) -> Error {
         let name = (error as? URLError).map { "URLError(\($0.code.rawValue))" } ?? String(describing: type(of: error))
         if !(error is CancellationError) && (error as? URLError)?.code != .cancelled {
-            audit(a.request, tag: a.tag, route: a.route, blocked: false, error: name)
+            audit(a.request, tag: a.tag, route: a.route, trace: a.trace, blocked: false, error: name)
         }
         return Self.proxyFailure(error, proxy: a.proxy)
     }
@@ -234,12 +244,21 @@ final class HttpClient: Sendable {
 
     /// Starts [request] and returns the streaming body (SSE, large files).
     func stream(_ request: URLRequest, tag: String? = nil) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {
-        let a = try admit(request, tag: tag)
+        let (bytes, http, _) = try await streamAudited(request, tag: tag)
+        return (bytes, http)
+    }
+
+    /**
+     [stream] for an agent turn ([trace]), also returning the audit entry's id: the caller reports
+     the body bytes it actually read with `AuditLog.received` (a stream has no Content-Length).
+     */
+    func streamAudited(_ request: URLRequest, tag: String? = nil, trace: AuditTrace? = nil) async throws -> (URLSession.AsyncBytes, HTTPURLResponse, Int64) {
+        let a = try admit(request, tag: tag, trace: trace)
         do {
             let (bytes, response) = try await a.session.bytes(for: a.request)
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-            audit(a.request, tag: a.tag, route: a.route, blocked: false, status: http.statusCode, received: http.expectedContentLength)
-            return (bytes, http)
+            let entry = audit(a.request, tag: a.tag, route: a.route, trace: a.trace, blocked: false, status: http.statusCode, received: http.expectedContentLength)
+            return (bytes, http, entry.id)
         } catch {
             throw failure(error, a)
         }

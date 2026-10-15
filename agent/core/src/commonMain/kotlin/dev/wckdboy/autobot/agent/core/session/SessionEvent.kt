@@ -22,6 +22,24 @@ sealed interface SessionEvent {
     @SerialName("turn/end")
     data class TurnEnd(val turn: Int, val reason: TurnEndReason, val detail: String? = null) : SessionEvent
 
+    /**
+     * The turn's privacy receipt: the models that answered (with their data policy), the hosts
+     * contacted with bytes and route, the tools that ran and any fallbacks. Appended just before
+     * [TurnEnd]; built on the device, never sent anywhere and not model-visible.
+     *
+     * @property network the turn's requests by host; null when the host app does not track
+     *   traffic (the receipt then cannot say whether anything left the phone).
+     */
+    @Serializable
+    @SerialName("turn/receipt")
+    data class TurnReceipt(
+        val turn: Int,
+        val models: List<ReceiptModel> = emptyList(),
+        val tools: List<String> = emptyList(),
+        val fallbacks: List<String> = emptyList(),
+        val network: List<ReceiptHost>? = null,
+    ) : SessionEvent
+
     @Serializable
     @SerialName("step/start")
     data class StepStart(val turn: Int, val step: Int) : SessionEvent
@@ -156,6 +174,37 @@ data class TokenUsage(
     val totalTokens: Int? = null,
     val cacheReadTokens: Int? = null,
     val reasoningTokens: Int? = null,
+)
+
+/**
+ * A model that answered in a turn. [name] is the provider's display name, [policy] a short data
+ * policy (`no retention`, `kept 30 days`, `trains on prompts`; null when not documented) and
+ * [policyNote] the provider's own words, when the host knows them.
+ */
+@Serializable
+data class ReceiptModel(
+    val provider: String,
+    val model: String,
+    val name: String? = null,
+    val onDevice: Boolean = false,
+    val policy: String? = null,
+    val policyNote: String? = null,
+)
+
+/**
+ * The requests of one turn to one [host] over one [route] (`direct`, `tor`, `socks5`,
+ * `loopback`, `offline`). Bytes are bodies only; [blocked] requests were refused by the kill
+ * switch before any I/O. [tags] are the audit labels (provider name, `agent:web_fetch`, …).
+ */
+@Serializable
+data class ReceiptHost(
+    val host: String,
+    val route: String,
+    val requests: Int,
+    val bytesSent: Long = 0,
+    val bytesReceived: Long = 0,
+    val blocked: Int = 0,
+    val tags: List<String> = emptyList(),
 )
 
 @Serializable

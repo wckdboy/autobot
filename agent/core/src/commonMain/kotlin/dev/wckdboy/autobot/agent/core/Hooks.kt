@@ -6,6 +6,7 @@ import dev.wckdboy.autobot.agent.core.llm.LlmFailure
 import dev.wckdboy.autobot.agent.core.llm.StreamChunk
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
+import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.tools.ToolDefinition
 import dev.wckdboy.autobot.agent.core.tools.ToolOutput
 import dev.wckdboy.autobot.agent.core.tools.UserQuestion
@@ -76,6 +77,12 @@ object Hooks {
     val TurnStopping = Hook<TurnStoppingInput, TurnStoppingDecision>("agent/turn-stopping")
     val LlmStream = Hook<LlmCall, Flow<StreamChunk>>("llm/stream")
     val SystemPromptAssemble = Hook<PromptAssembly, PromptAssembly>("system-prompt/assemble")
+
+    /**
+     * Builds the privacy receipt of a turn that just ended. The terminal is [TurnReceipts.base]
+     * (models, tools, fallbacks from the log); hosts add the network part and data policies.
+     */
+    val TurnReceipt = Hook<TurnReceiptInput, SessionEvent.TurnReceipt>("agent/turn-receipt")
 
     val ToolPreExecute = Hook<ToolCallInput, PreToolDecision>("tools/pre-execute")
     val ToolExecute = Hook<ToolCallInput, ToolOutput>("tools/execute")

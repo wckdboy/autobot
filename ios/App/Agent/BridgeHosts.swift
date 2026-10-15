@@ -105,7 +105,9 @@ final class URLSessionTransport: NSObject, HttpTransport, @unchecked Sendable {
     func send(request: HttpRequestSpec, sink: HttpSink) -> any AutobotShared.Cancellable {
         let override = RouteOverride(rawValue: request.route) ?? .inherit
         let client = clients.create(tag: request.tag, override: override)
-        let spec = (method: request.method, url: request.url, headers: request.headers, body: request.body, tag: request.tag, maxBytes: request.maxBytes)
+        let trace = request.trace.map { AuditTrace(session: $0.sessionId, turn: Int($0.turn)) }
+        let spec = (method: request.method, url: request.url, headers: request.headers, body: request.body, tag: request.tag, maxBytes: request.maxBytes, trace: trace)
+        let audit = clients.auditLog
         nonisolated(unsafe) let sink = sink
         let task = Task.detached {
             guard let url = URL(string: spec.url) else {
@@ -117,18 +119,23 @@ final class URLSessionTransport: NSObject, HttpTransport, @unchecked Sendable {
             spec.headers.forEach { http.setValue($0.value, forHTTPHeaderField: $0.key) }
             http.httpBody = spec.body.map { Data($0.utf8) }
             do {
-                let (bytes, response) = try await client.stream(http, tag: spec.tag)
+                let (bytes, response, entry) = try await client.streamAudited(http, tag: spec.tag, trace: spec.trace)
+                // The body bytes read go into the audit entry (privacy receipts) before the
+                // caller hears the end of the stream, and on every early exit.
+                var read: Int64 = 0
+                defer { audit.received(id: entry, bytes: read) }
                 var headers: [String: String] = [:]
                 response.allHeaderFields.forEach { headers["\($0.key)".lowercased()] = "\($0.value)" }
                 let status = response.statusCode
                 guard (200 ..< 300).contains(status) else {
                     let body = await bytes.prefixData(Self.errorBodyLimit)
+                    read = Int64(body.count)
+                    audit.received(id: entry, bytes: read)
                     sink.onResponse(status: Int32(status), headers: headers, errorBody: String(decoding: body, as: UTF8.self))
                     return
                 }
                 sink.onResponse(status: Int32(status), headers: headers, errorBody: nil)
                 var line = Data()
-                var read: Int64 = 0
                 for try await byte in bytes {
                     read += 1
                     if read > spec.maxBytes { break }
@@ -142,6 +149,7 @@ final class URLSessionTransport: NSObject, HttpTransport, @unchecked Sendable {
                 }
                 if Task.isCancelled { return }
                 if !line.isEmpty { sink.onLine(line: String(decoding: line, as: UTF8.self)) }
+                audit.received(id: entry, bytes: read)
                 sink.onComplete()
             } catch let blocked as NetworkBlockedError {
                 sink.onFailure(blocked: true, message: blocked.message)
