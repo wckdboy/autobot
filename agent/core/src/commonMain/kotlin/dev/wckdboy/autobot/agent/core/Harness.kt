@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.agent.core.approval.ApprovalPolicy
 import dev.wckdboy.autobot.agent.core.approval.ApprovalService
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.approval.PermissionPresetsPlugin
+import dev.wckdboy.autobot.agent.core.approval.TaintTrackingPlugin
 import dev.wckdboy.autobot.agent.core.llm.LlmService
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentConfig
@@ -66,6 +67,7 @@ class Harness(persona: String? = null) {
         val BASE_PLUGINS: List<Plugin> = listOf(
             llmRetryPlugin(),
             PermissionPresetsPlugin,
+            TaintTrackingPlugin,
             toolResultPrunerPlugin(),
             compactionPlugin(),
             toolsPlugin("core-tools", TodoWriteTool, AskUserTool),

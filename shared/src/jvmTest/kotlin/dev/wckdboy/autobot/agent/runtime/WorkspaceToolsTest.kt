@@ -159,4 +159,16 @@ class WorkspaceToolsTest {
             ChatEvent.Error(ErrorKind.BAD_REQUEST, "HTTP 400: This model's maximum context length is 65536 tokens").toFailure().code,
         )
     }
+
+    @Test
+    fun fileContentsAreAPrivateSourceWithoutLineNumbersOrPaths() = runTest {
+        File(dir, "q3.md").writeText("Albatross deal: 48900 EUR\nclient ref AB12CD34")
+        val read = tools.all.single { it.name == "read" }
+        val grep = tools.all.single { it.name == "grep" }
+        val source = read.privateSource!!
+        assertEquals(FileTools.PRIVATE_LABEL, source.label)
+        assertEquals("Albatross deal: 48900 EUR\nclient ref AB12CD34", source.clean(call("read", "file_path" to "q3.md").content))
+        assertEquals("client ref AB12CD34", grep.privateSource!!.clean(call("grep", "pattern" to "ref").content))
+        assertEquals(null, tools.all.single { it.name == "glob" }.privateSource)
+    }
 }

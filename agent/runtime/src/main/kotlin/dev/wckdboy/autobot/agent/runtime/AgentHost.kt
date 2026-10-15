@@ -84,6 +84,8 @@ sealed interface Interaction {
         val summary: String,
         val reason: String?,
         internal val answer: CompletableDeferred<ApprovalOutcome>,
+        /** Private fragments the call would send (taint tracking). */
+        val privateData: List<String> = emptyList(),
     ) : Interaction
 
     class Question(
@@ -191,6 +193,7 @@ class AgentHost @Inject constructor(
             await(
                 Interaction.Approval(
                     request.agent.id, request.callId, request.toolName, request.summary, request.reason, CompletableDeferred(),
+                    request.privateData,
                 ),
             )
         }

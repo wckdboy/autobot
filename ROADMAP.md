@@ -117,7 +117,14 @@ models, shared core). Ordered by value.
 4. **Taint tracking for tools.** Data that came from memory, attachments or private files is
    tagged; when the agent tries to put tainted data into a network tool (web_fetch, web_search,
    MCP), the approval card highlights exactly which private fragment would leave. Defends against
-   prompt-injection exfiltration without blocking normal browsing.
+   prompt-injection exfiltration without blocking normal browsing. *(done, both apps: memory notes,
+   recalled memory and workspace file contents are indexed per session as emails, numbers, id-like
+   tokens, names and verbatim phrases; network tool arguments are checked case-folded, URL- and
+   base64-decoded; a hit always asks, even under full access or for a trusted MCP server, and is
+   denied when approvals are off. What the user typed never counts; subagents share the parent's
+   taint; it rebuilds from the log after a restart. Images: an email, number or id the model was
+   never shown as text in a session with an attached image is treated as read off the image.
+   Not yet: private MCP servers as a source.)*
 5. **Private vault (on-device RAG).** Encrypted embeddings of the user's notes, files, PDFs and OCR'd
    photos, built on the NPU/Neural Engine, searchable by the agent (`vault_search`) and by the user.
    Nothing indexed leaves the phone.

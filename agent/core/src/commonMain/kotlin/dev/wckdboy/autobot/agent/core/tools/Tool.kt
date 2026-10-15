@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.agent.core.tools
 
 import dev.wckdboy.autobot.agent.core.Disposable
 import dev.wckdboy.autobot.agent.core.ServiceKey
+import dev.wckdboy.autobot.agent.core.approval.PrivateSource
 import dev.wckdboy.autobot.agent.core.llm.ToolSchema
 import dev.wckdboy.autobot.agent.core.CopyOnWriteList
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,6 +74,12 @@ interface ToolDefinition {
 
     /** `true` lets the call run in parallel with neighbours; otherwise it is an ordering barrier. */
     fun isConcurrencySafe(args: JsonObject): Boolean = false
+
+    /**
+     * Non-null when this tool's results are the user's private data (memory notes, workspace
+     * files): taint tracking then asks before a network tool carries any of it.
+     */
+    val privateSource: PrivateSource? get() = null
 
     /** One-line summary for UI cards and approval prompts, e.g. `path=notes.md`. */
     fun describeCall(args: JsonObject): String = args.entries.joinToString("  ") { (k, v) ->

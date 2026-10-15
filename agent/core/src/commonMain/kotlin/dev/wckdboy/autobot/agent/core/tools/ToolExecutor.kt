@@ -130,7 +130,7 @@ class ToolExecutor(private val agent: Agent) {
             is PreToolDecision.Ask -> {
                 val approval = agent.ctx[ApprovalService.Key]
                     ?: return ToolOutput.error("approval required but no approver is available", "APPROVAL_UNAVAILABLE")
-                val outcome = approval.request(ApprovalRequest(agent, call.id, tool.name, tool.describeCall(args), decision.reason))
+                val outcome = approval.request(ApprovalRequest(agent, call.id, tool.name, tool.describeCall(args), decision.reason, decision.privateData))
                 when (outcome) {
                     ApprovalOutcome.ALLOWED_ONCE, ApprovalOutcome.ALLOWED_FOR_SESSION -> Unit
                     ApprovalOutcome.REJECTED -> return ToolOutput.error("the user rejected this tool call", "USER_REJECTED")

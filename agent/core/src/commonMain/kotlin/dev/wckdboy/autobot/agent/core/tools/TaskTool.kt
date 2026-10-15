@@ -30,7 +30,9 @@ import kotlinx.serialization.json.put
  * `task` calls in one step run in parallel, each worker reporting back into this session.
  *
  * A subagent is a full [Agent] with the parent's permission preset, approval policy and session
- * grants, and a fresh history that holds only [prompt][TaskTool]. It runs on the provider's
+ * grants, and a fresh history that holds only [prompt][TaskTool]. It shares the parent's taint
+ * ([dev.wckdboy.autobot.agent.core.approval.TaintTracker]): private data the parent has seen
+ * stays private in the subagent's network calls, and what the subagent reads taints the parent. It runs on the provider's
  * helper model when one is set (`model: "helper"`, the default; cheaper, and it spares a
  * subscription's quota) or on the parent's own model (`model: "main"`, or when there is no
  * helper). Its log is kept in
@@ -168,6 +170,9 @@ object TaskTool : ToolDefinition {
     fun childId(parentId: String, callId: String) = "$parentId$MARKER$callId"
 
     fun isSubagent(sessionId: String) = MARKER in sessionId
+
+    /** The parent session of a subagent (itself for a top-level session); they share taint tracking. */
+    fun rootId(sessionId: String) = sessionId.substringBefore(MARKER)
 
     /** Steps recorded in a `task` result's meta: `(name, summary, state)`. */
     fun steps(meta: JsonObject?): List<Triple<String, String, String>> =

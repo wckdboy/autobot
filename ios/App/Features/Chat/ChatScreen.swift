@@ -479,6 +479,8 @@ private struct AgentProof: View {
 }
 
 /// The red approval block: `04 · APPROVAL NEEDED · NETWORK ACCESS`, title, args, DENY / APPROVE.
+/// When the call would send private data (taint tracking), the header says so and every private
+/// fragment is printed in reverse, in the arguments and in the reason.
 private struct ApprovalCard: View {
     let number: Int
     let tool: SessionItem.Tool
@@ -490,10 +492,13 @@ private struct ApprovalCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(String(format: "%02d · APPROVAL NEEDED", number)).textStyle(.micro).frame(maxWidth: .infinity, alignment: .leading)
-                Text((approval.reason ?? "").uppercased()).textStyle(.micro)
+                Text((privateData.isEmpty ? approval.reason ?? "" : "private data").uppercased()).textStyle(.micro)
             }
             Text(stepTitle(tool.name)).textStyle(.headlineMedium)
-            Text("\(tool.name)(\(approval.summary))").textStyle(.codeBlock).fixedSize(horizontal: false, vertical: true)
+            Text(marked("\(tool.name)(\(approval.summary))")).textStyle(.codeBlock).fixedSize(horizontal: false, vertical: true)
+            if !privateData.isEmpty {
+                Text(marked(approval.reason ?? "")).textStyle(.bodyMedium).fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 8) {
                 GhostButton("Deny", accent: c.onPrimary) { onDecide(.rejected) }
                 PaperButton("Approve") { onDecide(.allowedOnce) }
@@ -507,6 +512,22 @@ private struct ApprovalCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.primary))
+    }
+
+    private var privateData: [String] { (approval.privateData ?? []).filter { !$0.isEmpty } }
+
+    /// `text` with every case-insensitive occurrence of a private fragment in reverse.
+    private func marked(_ text: String) -> AttributedString {
+        var out = AttributedString(text)
+        for fragment in privateData {
+            var rest = out.startIndex..<out.endIndex
+            while let range = out[rest].range(of: fragment, options: .caseInsensitive) {
+                out[range].backgroundColor = c.onPrimary
+                out[range].foregroundColor = c.primary
+                rest = range.upperBound..<out.endIndex
+            }
+        }
+        return out
     }
 }
 

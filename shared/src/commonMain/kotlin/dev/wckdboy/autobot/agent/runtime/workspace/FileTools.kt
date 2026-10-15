@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.agent.runtime.workspace
 
+import dev.wckdboy.autobot.agent.core.approval.PrivateSource
 import dev.wckdboy.autobot.agent.core.tools.ToolDefinition
 import dev.wckdboy.autobot.agent.core.tools.ToolKind
 import dev.wckdboy.autobot.agent.core.tools.ToolOutput
@@ -80,6 +81,9 @@ class FileTools(private val workspace: Workspace) {
 
         override fun isConcurrencySafe(args: JsonObject) = true
         override fun describeCall(args: JsonObject) = args.string("file_path").orEmpty()
+
+        /** File contents are private; line numbers are not. */
+        override val privateSource = PrivateSource(PRIVATE_LABEL) { text -> text.lineSequence().filter { '→' in it }.joinToString("\n") { it.substringAfter('→') } }
 
         override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = io {
             val file = pathArg(args)
@@ -209,6 +213,9 @@ class FileTools(private val workspace: Workspace) {
         override fun isConcurrencySafe(args: JsonObject) = true
         override fun describeCall(args: JsonObject) = listOfNotNull(args.string("pattern"), args.string("include")).joinToString("  ")
 
+        /** Matched lines are private; their `path:line:` prefixes are not. */
+        override val privateSource = PrivateSource(PRIVATE_LABEL) { text -> GREP_PREFIX.replace(text, "") }
+
         override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = withContext(IoDispatcher) {
             val regex = runCatching { Regex(args.string("pattern").orEmpty()) }.getOrElse {
                 return@withContext ToolOutput.error("invalid regex: ${it.message}", "INVALID_ARGS")
@@ -260,6 +267,10 @@ class FileTools(private val workspace: Workspace) {
         const val DEFAULT_LIMIT = 2000
         const val MAX_GLOB = 100
         const val MAX_GREP = 250
+
+        /** Taint label of workspace file contents (`read`, `grep`). */
+        const val PRIVATE_LABEL = "workspace file"
+        private val GREP_PREFIX = Regex("(?m)^[^\n]*?:\\d+: ")
 
         /** Strict UTF-8 decode; `null` for binary content. */
         fun decodeUtf8(bytes: ByteArray): String? = try {

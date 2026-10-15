@@ -53,7 +53,11 @@ data class ToolPostInput(val call: ToolCallInput, val output: ToolOutput)
 sealed interface PreToolDecision {
     data object Allow : PreToolDecision
     data class Deny(val reason: String) : PreToolDecision
-    data class Ask(val reason: String? = null) : PreToolDecision
+    data class Ask(
+        val reason: String? = null,
+        /** Private fragments the call would send (taint tracking), highlighted on the approval card. */
+        val privateData: List<String> = emptyList(),
+    ) : PreToolDecision
 }
 
 data class ApprovalRequest(
@@ -62,6 +66,8 @@ data class ApprovalRequest(
     val toolName: String,
     val summary: String,
     val reason: String?,
+    /** Private fragments the call would send ([PreToolDecision.Ask.privateData]). */
+    val privateData: List<String> = emptyList(),
 )
 
 data class QuestionRequest(val agent: Agent, val callId: String, val question: UserQuestion)
