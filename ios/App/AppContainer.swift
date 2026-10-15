@@ -103,11 +103,15 @@ final class AppContainer {
         syncLocalProvider()
         #if canImport(AutobotShared)
         var map: [String: HostSnapshots.LocalModel] = [:]
+        let device = DeviceProfile.current()
         for model in library.models where model.isReady && model.engine == .llama {
             let paths = library.paths(model)
             guard let path = paths[.model] else { continue }
             let context = min(model.manifest.recommended?.contextLength ?? LocalChatProvider.defaultContext, LocalChatProvider.maxContext)
-            map[model.id] = .init(path: path.path, mmproj: paths[.mmproj]?.path, contextLength: context, backend: compute.resolve(model))
+            map[model.id] = .init(
+                path: path.path, mmproj: paths[.mmproj]?.path, contextLength: context, backend: compute.resolve(model),
+                tooBig: device.fit(model.kind, bytes: model.totalBytes, engine: model.engine) == .tooBig,
+            )
         }
         snapshots.setModels(map)
         #endif
@@ -131,11 +135,13 @@ final class AppContainer {
 
     /**
      Keeps the built-in "This phone" provider and image backend in step with installed models:
-     they appear when the first on-device model finishes downloading and disappear when the last
-     one is deleted (Android's `LocalProviderSync` / `OnDeviceBackendSync`).
+     they appear when the first on-device model finishes downloading (or when Apple Intelligence
+     can answer) and disappear when nothing is left (Android's `LocalProviderSync` /
+     `OnDeviceBackendSync`).
      */
     func syncLocalProvider() {
-        let ready = library.models.filter { $0.isReady && $0.engine == .llama }.sorted { $0.addedAt < $1.addedAt }.map(\.id)
+        let installed = library.models.filter { $0.isReady && $0.engine == .llama }.sorted { $0.addedAt < $1.addedAt }.map(\.id)
+        let ready = installed + (AppleIntelligence.unavailability == nil ? [AppleIntelligence.id] : [])
         let existing = providers.get(ProviderPresets.localProviderId)
         if ready.isEmpty {
             if existing != nil { providers.delete(ProviderPresets.localProviderId) }
