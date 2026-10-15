@@ -158,6 +158,7 @@ struct ChatScreen: View {
         }
         .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
         .onChange(of: state) { _, new in model.sessionChanged(new) }
+        .task { await start() }
         .onDisappear {
             model.setVoiceMode(false, app: app, conversationId: conversationId)
             model.stopSpeaking()
@@ -201,6 +202,19 @@ struct ChatScreen: View {
     }
 
     // MARK: Intents
+
+    /// A chat started from an entry point (App Intent, share sheet, widget, control): images, then
+    /// voice mode, then the prompt (sent only for an App Intent) or the draft.
+    private func start() async {
+        guard let start = EntryRouter.shared.take(conversationId) else { return }
+        for image in start.images { await model.attach(image, app: app) }
+        if start.voice { model.setVoiceMode(true, app: app, conversationId: conversationId) }
+        if let prompt = start.send {
+            send(prompt)
+        } else if let draft = start.draft {
+            model.dictated = draft
+        }
+    }
 
     /// Sends a prompt (with the attached images) or runs a slash command.
     private func send(_ text: String) {

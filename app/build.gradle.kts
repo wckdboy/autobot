@@ -1,4 +1,10 @@
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.autobot.android.application)
@@ -78,6 +84,55 @@ android {
             applicationIdSuffix = ".gms"
             versionNameSuffix = "-gms"
         }
+    }
+}
+
+/**
+ * Launcher shortcuts (`res/xml/shortcuts.xml`). A static shortcut's intent needs a literal target
+ * package, which differs per variant (`.debug`, `.gms`), so the file is generated per variant.
+ */
+abstract class GenerateShortcuts : DefaultTask() {
+    @get:Input
+    abstract val applicationId: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val shortcuts = listOf(
+            Triple("new_chat", "NEW_CHAT", "chat"),
+            Triple("voice", "VOICE", "voice"),
+            Triple("imagine", "IMAGINE", "imagine"),
+        ).joinToString("\n") { (id, action, name) ->
+            """
+            |    <shortcut
+            |        android:enabled="true"
+            |        android:icon="@drawable/ic_shortcut_$name"
+            |        android:shortcutId="$id"
+            |        android:shortcutShortLabel="@string/shortcut_$name">
+            |        <intent
+            |            android:action="ai.wckd.autobot.action.$action"
+            |            android:targetClass="dev.wckdboy.autobot.MainActivity"
+            |            android:targetPackage="${applicationId.get()}" />
+            |    </shortcut>
+            """.trimMargin()
+        }
+        val file = outputDirectory.get().file("xml/shortcuts.xml").asFile
+        file.parentFile.mkdirs()
+        file.writeText(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
+                "<shortcuts xmlns:android=\"http://schemas.android.com/apk/res/android\">\n$shortcuts\n</shortcuts>\n",
+        )
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val task = tasks.register<GenerateShortcuts>("generate${variant.name.replaceFirstChar(Char::uppercase)}Shortcuts") {
+            applicationId.set(variant.applicationId)
+        }
+        variant.sources.res?.addGeneratedSourceDirectory(task, GenerateShortcuts::outputDirectory)
     }
 }
 

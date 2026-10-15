@@ -48,6 +48,11 @@ required-reason APIs: user defaults, disk space, boot time, file attributes) and
 **Signing.** Bundle id `ai.wckd.autobot`, team `XKA8CGC2AB`, automatic signing. Open
 `Autobot.xcodeproj`, pick your device, Run. The app uses the Data Protection entitlement
 (`NSFileProtectionComplete`); Xcode adds the capability to the App ID automatically.
+Two extensions are embedded: `ai.wckd.autobot.share` (share sheet) and `ai.wckd.autobot.widgets`
+(widgets and the Control Center control). The app and the share extension share the App Group
+`group.ai.wckd.autobot`; automatic signing registers it on the first device build (with
+`-allowProvisioningUpdates` from the command line), or add it once under Certificates, IDs &
+Profiles → Identifiers → App Groups and enable it for both App IDs.
 
 **Versions** follow Android (`app/build.gradle.kts`): `MARKETING_VERSION` 1.2.0,
 `CURRENT_PROJECT_VERSION` 3, set in `project.yml`.

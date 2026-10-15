@@ -191,6 +191,7 @@ class ChatViewModel @AssistedInject constructor(
     private val speakers: Speakers,
     private val library: ModelLibrary,
     private val systemModel: SystemModel,
+    handoff: ChatHandoff,
     @ApplicationContext private val appContext: Context,
     networkPolicy: NetworkPolicy,
 ) : ViewModel() {
@@ -306,6 +307,15 @@ class ChatViewModel @AssistedInject constructor(
             loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isIncognito = conversations.isIncognito(conversationId)))
+
+    init {
+        // Started from the share sheet, the text selection menu, a tile, shortcut or widget.
+        handoff.take(conversationId)?.let { start ->
+            start.draft?.let { dictated.value = it }
+            start.images.forEach { attach(Uri.parse(it)) }
+            if (start.voice) setVoiceMode(true)
+        }
+    }
 
     private fun describe(agent: Agent, name: String, arguments: String): String {
         val tool = agent.ctx[dev.wckdboy.autobot.agent.core.tools.ToolRegistry.Key]?.get(name) ?: return arguments.take(80)

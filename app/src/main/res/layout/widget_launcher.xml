@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher widget: three buttons, never any conversation content. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:gravity="center"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <TextView
+        android:id="@+id/widget_ask"
+        style="@style/Widget.Autobot.LauncherButton"
+        android:drawableTop="@drawable/ic_entry_chat"
+        android:text="@string/entry_ask" />
+
+    <TextView
+        android:id="@+id/widget_voice"
+        style="@style/Widget.Autobot.LauncherButton"
+        android:drawableTop="@drawable/ic_entry_voice"
+        android:text="@string/entry_voice" />
+
+    <TextView
+        android:id="@+id/widget_imagine"
+        style="@style/Widget.Autobot.LauncherButton"
+        android:drawableTop="@drawable/ic_entry_imagine"
+        android:text="@string/entry_imagine" />
+</LinearLayout>

@@ -104,9 +104,16 @@ fun ImagineRoute(
     onOpenModels: () -> Unit,
     handoff: GalleryHandoff? = null,
     modelId: String? = null,
+    prompt: String? = null,
     viewModel: ImagineViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // Once per screen: coming back from the gallery must not overwrite the user's edits.
+    var promptApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(prompt) {
+        if (prompt != null && !promptApplied) viewModel.setPrompt(prompt)
+        promptApplied = true
+    }
     LaunchedEffect(handoff) {
         handoff ?: return@LaunchedEffect
         viewModel.reuseParams(handoff.galleryId)
