@@ -232,8 +232,8 @@ final class VoiceTurn {
         let after = Array(fresh[(prompt + 1)...])
         if !sawRunning && after.isEmpty { return nil }
         // The last answer, unless it was stopped (the user stopped it) or an error followed it.
-        guard let reply = after.lastIndex(where: { if case .assistant(_, let text, _, _, _, _, _) = $0 { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } else { false } }),
-              case .assistant(_, let text, _, let interrupted, _, _, _) = after[reply], !interrupted,
+        guard let reply = after.lastIndex(where: { if case .assistant(_, let text, _, _, _, _, _, _) = $0 { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } else { false } }),
+              case .assistant(_, let text, _, let interrupted, _, _, _, _) = after[reply], !interrupted,
               !after[(reply + 1)...].contains(where: { if case .notice(_, _, .error) = $0 { true } else { false } })
         else { return Finished(reply: nil) }
         return Finished(reply: text)

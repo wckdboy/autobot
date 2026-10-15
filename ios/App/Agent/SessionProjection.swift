@@ -13,8 +13,9 @@ enum NoticeKind: String, Codable, Sendable { case info = "INFO", warn = "WARN", 
 /// One row of the session transcript.
 enum SessionItem: Codable, Equatable, Identifiable, Sendable {
     case user(key: String, text: String, images: [String])
-    /// [receipt]: the turn's privacy receipt, on the turn's last answer once the turn ended.
-    case assistant(key: String, text: String, reasoning: String?, interrupted: Bool, outputTokens: Int?, model: String?, receipt: Receipt? = nil)
+    /// [receipt]: the turn's privacy receipt, on the turn's last answer once the turn ended;
+    /// [turnChanges]: the files the turn changed ("Undo turn"), likewise.
+    case assistant(key: String, text: String, reasoning: String?, interrupted: Bool, outputTokens: Int?, model: String?, receipt: Receipt? = nil, turnChanges: TurnChanges? = nil)
     case tool(Tool)
     case notice(key: String, text: String, kind: NoticeKind)
 
@@ -31,18 +32,28 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
         var durationMs: Int64?
         /// A subagent's own tool steps (`task`), one line each: `✓ read · notes.md`.
         var steps: [String]? = nil
+        /// What a file tool did to its file (line diff), from the result's `meta.change`.
+        var change: FileChange? = nil
+        /// The turn the call belongs to.
+        var turn: Int? = nil
+        /// The user undid this step's change (directly, by undoing its turn, or an earlier step).
+        var undone: Bool? = nil
+        /// The revert that undid it, for "Redo".
+        var revertId: String? = nil
+
+        var isUndone: Bool { undone ?? false }
     }
 
     var id: String { key }
 
     var key: String {
         switch self {
-        case .user(let k, _, _), .assistant(let k, _, _, _, _, _, _), .notice(let k, _, _): k
+        case .user(let k, _, _), .assistant(let k, _, _, _, _, _, _, _), .notice(let k, _, _): k
         case .tool(let t): t.key
         }
     }
 
-    private enum K: String, CodingKey { case type, key, text, images, reasoning, interrupted, outputTokens, model, receipt, kind }
+    private enum K: String, CodingKey { case type, key, text, images, reasoning, interrupted, outputTokens, model, receipt, turnChanges, kind }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -59,6 +70,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
                 outputTokens: try c.decodeIfPresent(Int.self, forKey: .outputTokens),
                 model: try c.decodeIfPresent(String.self, forKey: .model),
                 receipt: try c.decodeIfPresent(Receipt.self, forKey: .receipt),
+                turnChanges: try c.decodeIfPresent(TurnChanges.self, forKey: .turnChanges),
             )
         case "tool":
             self = .tool(try Tool(from: decoder))
@@ -75,7 +87,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
             try c.encode(key, forKey: .key)
             try c.encode(text, forKey: .text)
             try c.encode(images, forKey: .images)
-        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, let model, let receipt):
+        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, let model, let receipt, let turnChanges):
             try c.encode("assistant", forKey: .type)
             try c.encode(key, forKey: .key)
             try c.encode(text, forKey: .text)
@@ -84,6 +96,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
             try c.encodeIfPresent(outputTokens, forKey: .outputTokens)
             try c.encodeIfPresent(model, forKey: .model)
             try c.encodeIfPresent(receipt, forKey: .receipt)
+            try c.encodeIfPresent(turnChanges, forKey: .turnChanges)
         case .tool(let t):
             try c.encode("tool", forKey: .type)
             try t.encode(to: encoder)
@@ -213,11 +226,99 @@ struct Receipt: Codable, Equatable, Sendable {
     }
 }
 
+enum ChangeOp: String, Codable, Sendable { case created, modified, deleted }
+
+/**
+ What one file tool call did to one workspace file (Kotlin `FileChange`): unified-diff [diff]
+ lines (`@@ …`, ` ctx`, `-old`, `+new`), counts, and whether the undo journal kept a copy.
+ Decodes leniently so results from older or newer builds still load.
+ */
+struct FileChange: Codable, Equatable, Sendable {
+    var path: String
+    var op: ChangeOp
+    var added = 0
+    var removed = 0
+    var diff: [String] = []
+    var truncated = false
+    var undoable = true
+    var note: String? = nil
+
+    init(path: String, op: ChangeOp, added: Int = 0, removed: Int = 0, diff: [String] = [], truncated: Bool = false, undoable: Bool = true, note: String? = nil) {
+        (self.path, self.op, self.added, self.removed, self.diff, self.truncated, self.undoable, self.note) = (path, op, added, removed, diff, truncated, undoable, note)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decode(String.self, forKey: .path)
+        op = (try? c.decode(ChangeOp.self, forKey: .op)) ?? .modified
+        added = try c.decodeIfPresent(Int.self, forKey: .added) ?? 0
+        removed = try c.decodeIfPresent(Int.self, forKey: .removed) ?? 0
+        diff = try c.decodeIfPresent([String].self, forKey: .diff) ?? []
+        truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        undoable = try c.decodeIfPresent(Bool.self, forKey: .undoable) ?? true
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+    }
+}
+
+/// Undo state of a turn, on its last answer: "Undo turn (2 files)" or "Redo turn".
+struct TurnChanges: Codable, Equatable, Sendable {
+    var turn: Int
+    var files: Int
+    var undone = false
+    var revertId: String? = nil
+    var undoable = true
+
+    init(turn: Int, files: Int, undone: Bool = false, revertId: String? = nil, undoable: Bool = true) {
+        (self.turn, self.files, self.undone, self.revertId, self.undoable) = (turn, files, undone, revertId, undoable)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        turn = try c.decodeIfPresent(Int.self, forKey: .turn) ?? 0
+        files = try c.decodeIfPresent(Int.self, forKey: .files) ?? 0
+        undone = try c.decodeIfPresent(Bool.self, forKey: .undone) ?? false
+        revertId = try c.decodeIfPresent(String.self, forKey: .revertId)
+        undoable = try c.decodeIfPresent(Bool.self, forKey: .undoable) ?? true
+    }
+}
+
+/// One file in the "changes" sheet, and the files one turn changed.
+struct ChangedFile: Codable, Equatable, Sendable, Identifiable {
+    var path: String
+    var op: ChangeOp
+    var added: Int
+    var removed: Int
+    var undone: Bool
+    var callId: String
+    var id: String { callId + path }
+}
+
+struct ChangeGroup: Codable, Equatable, Sendable, Identifiable {
+    var turn: Int
+    var files: [ChangedFile]
+    var id: Int { turn }
+}
+
 struct SessionProjection: Codable, Equatable, Sendable {
     var items: [SessionItem] = []
     var todos: [TodoItem] = []
     var lastUsage: TokenUsage? = nil
     var contextWindow: Int? = nil
+    /// Files the agent changed in this session, per turn (absent from older states).
+    var changes: [ChangeGroup] = []
+
+    init(items: [SessionItem] = [], todos: [TodoItem] = [], lastUsage: TokenUsage? = nil, contextWindow: Int? = nil, changes: [ChangeGroup] = []) {
+        (self.items, self.todos, self.lastUsage, self.contextWindow, self.changes) = (items, todos, lastUsage, contextWindow, changes)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        items = try c.decodeIfPresent([SessionItem].self, forKey: .items) ?? []
+        todos = try c.decodeIfPresent([TodoItem].self, forKey: .todos) ?? []
+        lastUsage = try c.decodeIfPresent(TokenUsage.self, forKey: .lastUsage)
+        contextWindow = try c.decodeIfPresent(Int.self, forKey: .contextWindow)
+        changes = try c.decodeIfPresent([ChangeGroup].self, forKey: .changes) ?? []
+    }
 }
 
 /// The in-flight model output of the current step.
