@@ -86,6 +86,19 @@ class FileFetcherTest {
         assertEquals("bytes=100000-", server.takeRequest().headers["Range"])
         assertEquals(sha, result.sha256)
         assertTrue(target.readBytes().contentEquals(content))
+        // Only the resumed prefix is read back for the hash; the new bytes are hashed as they arrive.
+        assertEquals(100_000L, fetcher.bytesHashedFromDisk)
+    }
+
+    @Test
+    fun freshDownloadIsHashedWhileStreamingNotReadBack() = runBlocking {
+        server.enqueue(MockResponse.Builder().code(200).body(Buffer().write(content)).build())
+        val target = File(dir, "out.gguf")
+
+        val result = fetcher.fetch(file(sha256 = sha), target, null) { _, _ -> }
+
+        assertEquals(sha, result.sha256)
+        assertEquals(0L, fetcher.bytesHashedFromDisk)
     }
 
     @Test
@@ -113,6 +126,7 @@ class FileFetcherTest {
         assertEquals(sha, result.sha256)
         assertTrue(target.readBytes().contentEquals(content))
         assertFalse(File(target.path + ".part").exists())
+        assertEquals(kept, again.bytesHashedFromDisk)
     }
 
     @Test

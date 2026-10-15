@@ -174,15 +174,27 @@ class SdService : Service() {
         }
     }
 
+    /** [path] decoded subsampled to about [width]×[height] (never a full-size photo), then scaled exactly. */
     private fun scaled(path: String, width: Int, height: Int): Bitmap {
-        val src = BitmapFactory.decodeFile(path) ?: error("Cannot read $path")
-        return if (src.width == width && src.height == height) src else Bitmap.createScaledBitmap(src, width, height, true)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val opts = BitmapFactory.Options().apply {
+            var n = 1
+            if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+                while (bounds.outWidth / (n * 2) >= width && bounds.outHeight / (n * 2) >= height) n *= 2
+            }
+            inSampleSize = n
+        }
+        val src = BitmapFactory.decodeFile(path, opts) ?: error("Cannot read $path")
+        if (src.width == width && src.height == height) return src
+        return Bitmap.createScaledBitmap(src, width, height, true).also { if (it !== src) src.recycle() }
     }
 
     private fun decodeRgb(path: String, width: Int, height: Int): ByteArray {
         val bmp = scaled(path, width, height)
         val px = IntArray(width * height)
         bmp.getPixels(px, 0, width, 0, 0, width, height)
+        bmp.recycle()
         val out = ByteArray(width * height * 3)
         for (i in px.indices) {
             out[i * 3] = Color.red(px[i]).toByte()
@@ -197,6 +209,7 @@ class SdService : Service() {
         val bmp = scaled(path, width, height)
         val px = IntArray(width * height)
         bmp.getPixels(px, 0, width, 0, 0, width, height)
+        bmp.recycle()
         return ByteArray(px.size) { i ->
             val c = px[i]
             val on = Color.alpha(c) >= 128 && (Color.red(c) + Color.green(c) + Color.blue(c)) >= 384

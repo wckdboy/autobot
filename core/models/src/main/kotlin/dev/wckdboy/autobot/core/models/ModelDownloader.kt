@@ -1,11 +1,8 @@
 package dev.wckdboy.autobot.core.models
 
-import android.app.Activity
-import android.app.Application
 import android.app.job.JobParameters
 import android.app.job.JobService
 import android.content.Context
-import android.os.Bundle
 import android.os.StatFs
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -33,7 +30,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -67,6 +68,7 @@ class ModelDownloader @Inject constructor(
     private val notifications: DownloadNotifications,
     private val settings: SettingsRepository,
     private val policy: NetworkPolicy,
+    private val visibility: AppVisibility,
 ) {
     private val fetcher = FileFetcher(clients)
     private val _progress = MutableStateFlow<DownloadProgress?>(null)
@@ -75,10 +77,8 @@ class ModelDownloader @Inject constructor(
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
-    /** The downloads panel: queue, current transfer, pauses and what blocks the queue. */
-    val downloads: Flow<DownloadsState> = combine(library.models, progress, environment.environment) { models, p, env ->
-        DownloadQueue.state(models, p, env)
-    }
+    /** The downloads panel: queue, current transfer, pauses and what blocks the queue (computed once, shared). */
+    val downloads: Flow<DownloadsState> = downloadsState(library.models, progress, environment.environment, scope, Dispatchers.Default)
 
     private val lock = Mutex()
 
@@ -88,6 +88,9 @@ class ModelDownloader @Inject constructor(
     /** The queue loop of the running job, and the job it reports to. */
     private var worker: Job? = null
     private var running: Pair<JobService, JobParameters>? = null
+
+    /** A job started and its loop is not running yet: a kick must not schedule (restart) it. */
+    @Volatile private var starting = false
 
     /** The loop found nothing more to do and is finishing its job; a kick waits for it. */
     private var closing = false
@@ -104,10 +107,12 @@ class ModelDownloader @Inject constructor(
     private val recovery = Mutex()
     private var recovered = false
 
-    @Volatile private var startedActivities = 0
     private val attempts = ConcurrentHashMap<String, Int>()
 
     init {
+        // The app came on screen: the moment a user-initiated job may be scheduled, so a queue
+        // whose job is gone (e.g. after a force stop) starts again.
+        visibility.whenVisible { scope.launch(guard) { if (!ModelDownloadJob.isScheduled(context)) kick() } }
         // A kill switch pause continues as soon as a network mode is allowed again.
         scope.launch(guard) {
             policy.mode.collect { mode ->
@@ -183,15 +188,12 @@ class ModelDownloader @Inject constructor(
 
     /**
      * Once per process, before the queue runs: a download that was in flight when the process
-     * died queues again (it resumes from its part file). Also watches for the app becoming
-     * visible, the moment a user-initiated job may be scheduled, to restart a queue whose job
-     * is gone (e.g. after a force stop).
+     * died queues again (it resumes from its part file).
      */
     suspend fun recoverAfterRestart() {
         recovery.withLock {
             if (recovered) return
             recovered = true
-            (context as? Application)?.registerActivityLifecycleCallbacks(visibility)
             runCatching {
                 DownloadQueue.recover(library.all()).forEach { library.progress(it.id, library.bytesOnDisk(it.id), ModelStatus.QUEUED) }
             }.onFailure { Log.w(TAG, "queue recovery failed", it) }
@@ -204,13 +206,19 @@ class ModelDownloader @Inject constructor(
 
     /** [ModelDownloadJob] started: show its notification right away, then run the queue. */
     fun onJobStarted(service: JobService, params: JobParameters) {
+        starting = true
         showJobNotification(service, params, notifications.running(null, null, 0, null))
         scope.launch(guard) {
-            lock.withLock { worker }?.cancelAndJoin()
-            lock.withLock {
-                running = service to params
-                closing = false
-                worker = scope.launch(Dispatchers.IO + guard) { drain(service, params) }
+            try {
+                lock.withLock { worker }?.cancelAndJoin()
+                lock.withLock {
+                    running = service to params
+                    closing = false
+                    worker = scope.launch(Dispatchers.IO + guard) { drain(service, params) }
+                    starting = false
+                }
+            } finally {
+                starting = false
             }
         }
     }
@@ -334,7 +342,7 @@ class ModelDownloader @Inject constructor(
             library.update(model, manifest, total)
             library.progress(model.id, total, ModelStatus.READY)
             attempts.remove(model.id)
-            if (startedActivities == 0) notifications.finished(model.id, model.title, ok = true)
+            if (!visibility.visible) notifications.finished(model.id, model.title, ok = true)
             Outcome.NEXT
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
@@ -344,7 +352,7 @@ class ModelDownloader @Inject constructor(
         } catch (e: DownloadException) {
             val status = if (e.retryable) ModelStatus.PAUSED else ModelStatus.FAILED
             library.progress(model.id, library.bytesOnDisk(model.id), status, e.message)
-            if (status == ModelStatus.FAILED && startedActivities == 0) notifications.finished(model.id, model.title, ok = false)
+            if (status == ModelStatus.FAILED && !visibility.visible) notifications.finished(model.id, model.title, ok = false)
             Outcome.NEXT
         } catch (e: NetworkBlockedException) {
             if (policy.mode.value == NetworkMode.Offline) {
@@ -376,9 +384,13 @@ class ModelDownloader @Inject constructor(
     /** Requeues the queue's models when there is something to run and no job runs it. */
     private suspend fun kick() {
         lock.withLock {
-            if (worker?.isActive == true) {
-                if (closing) kickAfterClose = true
-                return
+            when (DownloadQueue.kick(starting, worker?.isActive == true, closing)) {
+                DownloadQueue.Kick.SCHEDULE -> Unit
+                DownloadQueue.Kick.SKIP -> return
+                DownloadQueue.Kick.AFTER_CLOSE -> {
+                    kickAfterClose = true
+                    return
+                }
             }
             val queued = DownloadQueue.queued(library.all())
             if (queued.isEmpty()) return
@@ -395,24 +407,6 @@ class ModelDownloader @Inject constructor(
     private suspend fun awaitNetworkPolicy() {
         val wanted = withTimeoutOrNull(5_000) { settings.settings.first().networkMode } ?: return
         withTimeoutOrNull(3_000) { policy.mode.first { it == wanted } }
-    }
-
-    private val visibility = object : Application.ActivityLifecycleCallbacks {
-        override fun onActivityStarted(activity: Activity) {
-            if (startedActivities++ == 0) {
-                scope.launch(guard) { if (!ModelDownloadJob.isScheduled(context)) kick() }
-            }
-        }
-
-        override fun onActivityStopped(activity: Activity) {
-            startedActivities = (startedActivities - 1).coerceAtLeast(0)
-        }
-
-        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
-        override fun onActivityResumed(activity: Activity) = Unit
-        override fun onActivityPaused(activity: Activity) = Unit
-        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-        override fun onActivityDestroyed(activity: Activity) = Unit
     }
 
     private var lastReport = 0L
@@ -476,3 +470,18 @@ class ModelDownloader @Inject constructor(
         const val RETRY_DELAY_MS = 2_000L
     }
 }
+
+/**
+ * The downloads panel state from the registry, the live transfer and the environment, computed on
+ * [dispatcher] once per change and shared by every collector (latest value replayed).
+ */
+internal fun downloadsState(
+    models: Flow<List<InstalledModel>>,
+    progress: Flow<DownloadProgress?>,
+    environment: Flow<DownloadEnvironment>,
+    scope: CoroutineScope,
+    dispatcher: kotlinx.coroutines.CoroutineDispatcher,
+): Flow<DownloadsState> = combine(models, progress, environment) { m, p, env -> DownloadQueue.state(m, p, env) }
+    .distinctUntilChanged()
+    .flowOn(dispatcher)
+    .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)

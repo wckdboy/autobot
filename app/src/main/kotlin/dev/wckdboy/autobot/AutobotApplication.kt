@@ -6,6 +6,7 @@ import dagger.hilt.android.HiltAndroidApp
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.settings.SettingsSync
 import dev.wckdboy.autobot.core.diffusion.OnDeviceBackendSync
+import dev.wckdboy.autobot.core.models.AppVisibility
 import dev.wckdboy.autobot.core.models.ModelDownloader
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.providers.remote.LocalProviderSync
@@ -34,6 +35,9 @@ class AutobotApplication : Application() {
     lateinit var downloader: Lazy<ModelDownloader>
 
     @Inject
+    lateinit var visibility: Lazy<AppVisibility>
+
+    @Inject
     @ApplicationScope
     lateinit var scope: Lazy<CoroutineScope>
 
@@ -43,6 +47,8 @@ class AutobotApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         if (getProcessName() != packageName) return
+        // Before any activity starts: download notifications are only posted while the app is not on screen.
+        visibility.get().install(this)
         appLockManager.get().install()
         engineMemory.get().install()
         settingsSync.get().start()

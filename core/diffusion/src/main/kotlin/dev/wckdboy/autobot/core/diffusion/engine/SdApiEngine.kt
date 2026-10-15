@@ -98,14 +98,20 @@ class SdApiEngine(
         var finished = false
 
         val poller = launch(Dispatchers.IO) {
+            val previews = PreviewPolling()
             while (isActive) {
                 delay(progressIntervalMs)
-                val progress = runCatching { get(client, "sdapi/v1/progress?skip_current_image=false").jsonObject }.getOrNull() ?: continue
+                val withImage = previews.wantImage()
+                val progress = runCatching { get(client, "sdapi/v1/progress?skip_current_image=${!withImage}").jsonObject }.getOrNull() ?: continue
                 val state = progress["state"] as? JsonObject
                 val step = state?.get("sampling_step")?.jsonPrimitive?.intOrNull ?: continue
                 val total = state["sampling_steps"]?.jsonPrimitive?.intOrNull ?: request.steps
                 val job = state["job_no"]?.jsonPrimitive?.intOrNull ?: 0
-                val preview = progress["current_image"]?.jsonPrimitive?.contentOrNull?.let(::decodeBase64)
+                val key = job to step
+                if (!previews.isNew(key, withImage)) continue
+                // The (large) preview is decoded only for a step it has not shown yet.
+                val preview = if (previews.decode(key, withImage)) progress["current_image"]?.jsonPrimitive?.contentOrNull?.let(::decodeBase64) else null
+                previews.record(key, previewed = preview != null)
                 if (step > 0) send(DiffusionEvent.Progress(job, step, total, preview))
             }
         }
@@ -236,6 +242,33 @@ class SdApiEngine(
 
         fun decodeBase64(text: String): ByteArray? =
             runCatching { Base64.getDecoder().decode(text.substringAfter("base64,")) }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+}
+
+/**
+ * When the progress poll asks for the live preview: the backend encodes it (and we decode it) on
+ * every call that wants it, so it is only requested once the sampler has moved past the step the
+ * last preview showed. A poll that brings no new step and no new preview sends nothing.
+ */
+internal class PreviewPolling {
+    /** (job, step) of the last poll. */
+    private var last: Pair<Int, Int>? = null
+
+    /** (job, step) the last decoded preview showed. */
+    private var shown: Pair<Int, Int>? = null
+
+    /** Whether the next poll asks for the image. */
+    fun wantImage(): Boolean = last == null || last != shown
+
+    /** Whether a poll at [key] has anything to report. */
+    fun isNew(key: Pair<Int, Int>, withImage: Boolean): Boolean = key != last || decode(key, withImage)
+
+    /** Whether to decode the poll's preview. */
+    fun decode(key: Pair<Int, Int>, withImage: Boolean): Boolean = withImage && key != shown
+
+    fun record(key: Pair<Int, Int>, previewed: Boolean) {
+        last = key
+        if (previewed) shown = key
     }
 }
 
