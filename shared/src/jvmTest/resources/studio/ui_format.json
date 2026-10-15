@@ -1,0 +1,19 @@
+{
+  "id": "5a5e1c2e-6a1f-4b8f-9d5e-3e1d2c6b7a90",
+  "revision": 0,
+  "last_node_id": 9,
+  "last_link_id": 9,
+  "nodes": [
+    {"id": 4, "type": "CheckpointLoaderSimple", "pos": [26, 474], "size": [315, 98], "flags": {}, "order": 0, "mode": 0,
+     "inputs": [], "outputs": [{"name": "MODEL", "type": "MODEL", "links": [1]}, {"name": "CLIP", "type": "CLIP", "links": [3, 5]}, {"name": "VAE", "type": "VAE", "links": [8]}],
+     "properties": {"Node name for S&R": "CheckpointLoaderSimple"}, "widgets_values": ["v1-5-pruned-emaonly-fp16.safetensors"]},
+    {"id": 3, "type": "KSampler", "pos": [863, 186], "size": [315, 262], "flags": {}, "order": 4, "mode": 0,
+     "inputs": [{"name": "model", "type": "MODEL", "link": 1}], "outputs": [{"name": "LATENT", "type": "LATENT", "links": [7]}],
+     "properties": {"Node name for S&R": "KSampler"}, "widgets_values": [156680208700286, "randomize", 20, 8, "euler", "normal", 1]}
+  ],
+  "links": [[1, 4, 0, 3, 0, "MODEL"]],
+  "groups": [],
+  "config": {},
+  "extra": {"ds": {"scale": 1, "offset": [0, 0]}},
+  "version": 0.4
+}

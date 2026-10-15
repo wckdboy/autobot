@@ -1,0 +1,41 @@
+{
+  "PROMPT": {
+    "prompt": [
+      7,
+      "PROMPT",
+      {"9": {"inputs": {"filename_prefix": "ComfyUI", "images": ["8", 0]}, "class_type": "SaveImage"}},
+      {"client_id": "autobot-0123456789ab"},
+      ["9"]
+    ],
+    "outputs": {
+      "9": {
+        "images": [
+          {"filename": "ComfyUI_00042_.png", "subfolder": "", "type": "output"},
+          {"filename": "ComfyUI_00043_.png", "subfolder": "", "type": "output"}
+        ]
+      },
+      "20": {
+        "images": [{"filename": "ComfyUI_temp_abcde_00001_.png", "subfolder": "", "type": "temp"}]
+      },
+      "41": {
+        "images": [{"filename": "ComfyUI_00001_.webp", "subfolder": "", "type": "output"}],
+        "animated": [true]
+      },
+      "19": {
+        "audio": [{"filename": "ComfyUI_00001_.flac", "subfolder": "audio", "type": "output"}]
+      }
+    },
+    "status": {
+      "status_str": "success",
+      "completed": true,
+      "messages": [
+        ["execution_start", {"prompt_id": "PROMPT", "timestamp": 1760000000123}],
+        ["execution_cached", {"nodes": ["4"], "prompt_id": "PROMPT", "timestamp": 1760000000125}],
+        ["execution_success", {"prompt_id": "PROMPT", "timestamp": 1760000004567}]
+      ]
+    },
+    "meta": {
+      "9": {"node_id": "9", "display_node": "9", "parent_node": null, "real_node_id": "9"}
+    }
+  }
+}

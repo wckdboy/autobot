@@ -1,0 +1,15 @@
+{"type": "status", "data": {"status": {"exec_info": {"queue_remaining": 0}}, "sid": "c0ffee00c0ffee00c0ffee00c0ffee00"}}
+{"type": "status", "data": {"status": {"exec_info": {"queue_remaining": 1}}}}
+{"type": "execution_start", "data": {"prompt_id": "PROMPT", "timestamp": 1760000000123}}
+{"type": "execution_cached", "data": {"nodes": ["4", "6", "7"], "prompt_id": "PROMPT", "timestamp": 1760000000125}}
+{"type": "executing", "data": {"node": "5", "display_node": "5", "prompt_id": "PROMPT"}}
+{"type": "executing", "data": {"node": "3", "display_node": "3", "prompt_id": "PROMPT"}}
+{"type": "progress", "data": {"value": 1, "max": 20, "prompt_id": "PROMPT", "node": "3"}}
+{"type": "progress", "data": {"value": 10, "max": 20, "prompt_id": "PROMPT", "node": "3"}}
+{"type": "progress", "data": {"value": 20, "max": 20, "prompt_id": "PROMPT", "node": "3"}}
+{"type": "executing", "data": {"node": "8", "display_node": "8", "prompt_id": "PROMPT"}}
+{"type": "executing", "data": {"node": "9", "display_node": "9", "prompt_id": "PROMPT"}}
+{"type": "executed", "data": {"node": "9", "display_node": "9", "output": {"images": [{"filename": "ComfyUI_00042_.png", "subfolder": "", "type": "output"}]}, "prompt_id": "PROMPT"}}
+{"type": "execution_success", "data": {"prompt_id": "PROMPT", "timestamp": 1760000004567}}
+{"type": "executing", "data": {"node": null, "prompt_id": "PROMPT"}}
+{"type": "status", "data": {"status": {"exec_info": {"queue_remaining": 0}}}}
