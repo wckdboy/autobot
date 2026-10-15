@@ -67,22 +67,22 @@ Move the remaining duplicated logic into `:shared`, so a fix lands on both platf
 **Exit:** `:shared` holds network, settings and model logic; both apps pass the same test suite. A
 session exported on Android opens on iOS.
 
-## Phase 2 · 1.4: a stronger agent
+## Phase 2 · 1.4: a stronger agent *(1.4.0: MCP, memory, search, providers, OS fallback; subagents and voice next)*
 
-- **MCP client** (streamable HTTP) in `:shared`. Each server gets its own approval scope and
+- ✅ **MCP client** (streamable HTTP) in `:shared`. Each server gets its own approval scope and
   network route, and every call appears in the audit log. *(implemented on both platforms against
   MCP 2026-07-28 servers with fallback to 2025-11-25 / 2025-06-18 / 2025-03-26; still to do:
   verification against real servers, OAuth sign-in, MCP servers in the `.autobot` export)*
 - **Subagents**: the DSH task tool, so parallel workers report back to one session.
-- **Local memory**: an encrypted, user-visible, editable notes store the agent can recall from.
+- ✅ **Local memory**: an encrypted, user-visible, editable notes store the agent can recall from.
   Off by default.
-- **Web search tool**: opt-in, through a provider the user configures (SearXNG, Brave and others),
+- ✅ **Web search tool**: opt-in, through a provider the user configures (SearXNG, Brave and others),
   routed and audited like `web_fetch`.
 - **Voice mode**: push-to-talk dictation → agent → read-aloud loop, all on the device.
-- **Every provider, live model lists**: all major clouds plus open-model hosts and niche
+- ✅ **Every provider, live model lists**: all major clouds plus open-model hosts and niche
   providers (e.g. abliteration.ai), each verified against its docs; model ids fetched from the
   provider when a key is added (through the kill switch and audit log), never stale hard-coded slugs.
-- **OS models as fallback**: "This phone" falls back to the system's on-device model (Apple
+- ✅ **OS models as fallback**: "This phone" falls back to the system's on-device model (Apple
   Foundation Models on iOS 26+; Gemini Nano via AICore on Android only where it does not pull Google
   Play Services into the default build) when no downloaded model fits or loads, always labelled.
 
