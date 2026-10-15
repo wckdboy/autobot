@@ -35,7 +35,7 @@ class ProviderStorageTest {
     )
 
     @Test
-    fun migrationFourToFiveKeepsProvidersAndAddsPresetIdAndModelLists() {
+    fun migrationsFromFourKeepProvidersAndAddPresetIdAndModelLists() {
         helper.createDatabase(DB, 4).use { db ->
             db.execSQL(
                 "INSERT INTO providers (id, kind, displayName, baseUrl, defaultModel, routing, apiKeyRef) " +
