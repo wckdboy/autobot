@@ -56,12 +56,15 @@ fun Modifier.stamp(key: Any?, enabled: Boolean = true): Modifier {
  * composition (use [InkEnterTracker] to decide). Reduced motion: a short fade only.
  */
 @Composable
-fun Modifier.inkEnter(animate: Boolean): Modifier {
+fun Modifier.inkEnter(animate: Boolean, delayMillis: Int = 0): Modifier {
     val reduced = LocalInkMotion.current.reduced
     val progress = remember { Animatable(if (animate) 0f else 1f) }
     LaunchedEffect(Unit) {
         if (progress.value < 1f) {
-            progress.animateTo(1f, tween(if (reduced) Motion.reducedMotionMillis else Motion.enterMillis, easing = LinearEasing))
+            progress.animateTo(
+                1f,
+                tween(if (reduced) Motion.reducedMotionMillis else Motion.enterMillis, delayMillis = if (reduced) 0 else delayMillis, easing = LinearEasing),
+            )
         }
     }
     return graphicsLayer {
@@ -72,6 +75,13 @@ fun Modifier.inkEnter(animate: Boolean): Modifier {
         }
     }
 }
+
+/**
+ * Sheet / modal section [index] (0-based): enters like new content, `staggerMillis` after the
+ * section before it (sections past the sixth enter with the sixth). Only on first composition.
+ */
+@Composable
+fun Modifier.inkStagger(index: Int): Modifier = inkEnter(animate = true, delayMillis = InkMath.staggerDelayMillis(index))
 
 /**
  * Out-of-register entrance: when [animate], a [color] block offset by `registerOffset` sits

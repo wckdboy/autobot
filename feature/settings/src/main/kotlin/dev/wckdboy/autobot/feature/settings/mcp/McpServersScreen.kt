@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -59,8 +58,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
+import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.settings.providers.ProviderDraft
@@ -106,6 +108,7 @@ fun McpServersScreen(
     onDismissEditor: () -> Unit,
 ) {
     var deleting by remember { mutableStateOf<McpServerRow?>(null) }
+    val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -137,7 +140,7 @@ fun McpServersScreen(
                 }
                 items(state.servers, key = { it.id }, contentType = { "mcp" }) { row ->
                     ListItem(
-                        modifier = Modifier.clickable { onEdit(row.id) },
+                        modifier = Modifier.inkDissolve(dissolve, row.id).clickable { onEdit(row.id) },
                         headlineContent = { Text(row.name) },
                         supportingContent = {
                             Text(
@@ -185,7 +188,7 @@ fun McpServersScreen(
             text = { Text("Its tools leave agent sessions" + if (row.hasToken) " and its token is deleted from this phone." else ".") },
             confirmButton = {
                 TextButton(onClick = {
-                    onDelete(row.id)
+                    dissolve.dissolve(row.id) { onDelete(row.id) }
                     deleting = null
                 }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
@@ -289,8 +292,8 @@ private fun McpServerEditorSheet(
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = onTest, enabled = draft.urlValid && test != TestState.Running) {
-                        Text("Test connection")
+                    OutlinedButton(onClick = { if (test != TestState.Running) onTest() }, enabled = draft.urlValid) {
+                        InkBusyLabel(test == TestState.Running) { Text("Test connection") }
                     }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { Text("Cancel") }
@@ -316,10 +319,8 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChang
 private fun TestResult(test: TestState) {
     when (test) {
         TestState.Idle -> Unit
-        TestState.Running -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text("Testing…", style = MaterialTheme.typography.bodySmall)
-        }
+        // The test button carries the ink loader while it runs.
+        TestState.Running -> Unit
         is TestState.Success -> Text(test.message, color = AutobotColors.Green, style = MaterialTheme.typography.bodySmall)
         is TestState.Failure -> Text(test.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
