@@ -278,6 +278,15 @@ enum Tokens {
         static let ambientFrameIntervalMillis: CGFloat = 100.0
         static let ambientIdleStopSeconds: CGFloat = 60.0
         static let ambientOpacity: CGFloat = 0.1
+        static let barDotPitch: CGFloat = 1.6
+        static let barEmptyDotScale: CGFloat = 0.15
+        static let barFillStartScale: CGFloat = 0.45
+        static let barRunningWaveAmplitude: CGFloat = 0.1
+        static let barWaveSlots: CGFloat = 7.0
+        static let cardDotOpacity: CGFloat = 0.12
+        static let cardDotPitch: CGFloat = 11.0
+        static let cardMaxDots: CGFloat = 600.0
+        static let cardWavePeriodSeconds: CGFloat = 12.0
         static let developMillis: CGFloat = 900.0
         static let developStagger: CGFloat = 0.5
         static let dissolveMillis: CGFloat = 200.0
