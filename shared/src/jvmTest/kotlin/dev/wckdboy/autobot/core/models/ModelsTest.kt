@@ -15,8 +15,8 @@ class ModelsTest {
     fun catalogIsConsistent() {
         val ids = (Catalog.all + CoreMLCatalog.all + CoreMLCatalog.upscalers + CoreMLCatalog.voices).map { it.id }
         assertEquals(ids.size, ids.toSet().size)
-        // Pinned multi-source bundles (voices) are checked in kokoroBundles.
-        (Catalog.all - Catalog.voiceModels.toSet()).forEach { plan ->
+        // Pinned multi-source bundles (voices) are checked in kokoroBundles, pinned embeddings in embeddingModelIsPinned.
+        (Catalog.all - Catalog.voiceModels.toSet() - Catalog.embeddingModels.toSet()).forEach { plan ->
             assertTrue(plan.id, plan.manifest.files.isNotEmpty())
             plan.manifest.files.forEach { f ->
                 assertTrue(f.url, f.url.startsWith("https://huggingface.co/") && "/resolve/main/" in f.url)
@@ -30,8 +30,21 @@ class ModelsTest {
         assertEquals(setOf(FileRole.DIFFUSION_MODEL, FileRole.LLM, FileRole.VAE), zImage.manifest.files.map { it.role }.toSet())
         // iOS runs the chat, code and speech entries, Android all of them.
         val ios = Catalog.all.filter { AppPlatform.IOS.runs(it.engine) }
-        assertEquals(Catalog.chatModels + Catalog.speechModels, ios)
+        assertEquals(Catalog.chatModels + Catalog.speechModels + Catalog.embeddingModels, ios)
         assertTrue(Catalog.all.all { AppPlatform.ANDROID.runs(it.engine) })
+    }
+
+    @Test
+    fun embeddingModelIsPinned() {
+        val plan = Catalog.embeddingModels.single()
+        assertEquals(ModelKind.EMBEDDING, plan.kind)
+        assertEquals(EngineKind.LLAMA, engineFor(ModelKind.EMBEDDING, ModelFormat.GGUF, AppPlatform.IOS))
+        assertEquals("apache-2.0", plan.license)
+        val file = plan.manifest.files.single()
+        assertTrue(file.url.startsWith("https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/370f27d7550e0def9b39c1f16d3fbaa13aa67728/"))
+        assertEquals(639_150_592L, file.sizeBytes)
+        assertEquals(64, file.sha256?.length)
+        assertEquals(ModelTask.NONE, launchOf(plan.kind, plan.engine, ready = true).task)
     }
 
     @Test

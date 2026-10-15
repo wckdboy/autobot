@@ -24,6 +24,11 @@ internal object NativeLlama {
     external fun chat(handle: Long, request: ByteArray, sink: DeltaSink): ByteArray
     external fun cancel(handle: Long)
     external fun free(handle: Long)
+    external fun embedLoad(path: String, nCtx: Int, nThreads: Int, backend: String): Long
+
+    /** [texts] as UTF-8; n × dims floats, or null on failure. */
+    external fun embed(handle: Long, texts: Array<ByteArray>): FloatArray?
+    external fun embedFree(handle: Long)
 
     /** Called from native code for each streamed delta (UTF-8 bytes). */
     interface DeltaSink {
@@ -32,8 +37,9 @@ internal object NativeLlama {
 }
 
 /**
- * Hosts llama.cpp in its own process. One model is resident at a time; requests run serially
- * on a single worker thread so the KV cache can be reused between agent steps.
+ * Hosts llama.cpp in its own process. One chat model is resident at a time (plus the vault's
+ * embedding model once used); requests run serially on a single worker thread so the KV cache
+ * can be reused between agent steps.
  */
 class LlamaService : Service() {
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "llama-worker") }
@@ -43,6 +49,8 @@ class LlamaService : Service() {
     private var loadedPath: String? = null
     private var loadedCtx = 0
     private var loadedBackend: String? = null
+    private var embedder = 0L
+    private var embedderPath: String? = null
     private var devices = 0
 
     override fun onCreate() {
@@ -79,6 +87,31 @@ class LlamaService : Service() {
 
         override fun unload() {
             worker.execute { release() }
+        }
+
+        override fun embed(modelPath: String, texts: Array<String>): FloatArray? =
+            runCatching { worker.submit<FloatArray?> { runEmbed(modelPath, texts) }.get() }
+                .onFailure { Log.e(TAG, "embed failed", it) }
+                .getOrNull()
+    }
+
+    private fun runEmbed(path: String, texts: Array<String>): FloatArray? {
+        if (devices == 0) return null
+        if (embedder == 0L || embedderPath != path) {
+            releaseEmbedder()
+            val threads = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(2, 6)
+            embedder = NativeLlama.embedLoad(path, EMBED_CTX, threads, "cpu")
+            if (embedder == 0L) return null
+            embedderPath = path
+        }
+        return NativeLlama.embed(embedder, Array(texts.size) { texts[it].toByteArray(Charsets.UTF_8) })
+    }
+
+    private fun releaseEmbedder() {
+        if (embedder != 0L) {
+            NativeLlama.embedFree(embedder)
+            embedder = 0L
+            embedderPath = null
         }
     }
 
@@ -123,6 +156,7 @@ class LlamaService : Service() {
     }
 
     private fun release() {
+        releaseEmbedder()
         if (handle != 0L) {
             NativeLlama.free(handle)
             handle = 0L
@@ -135,5 +169,8 @@ class LlamaService : Service() {
 
     private companion object {
         const val TAG = "LlamaService"
+
+        /** Passages are about 512 tokens plus the file name; queries carry an instruction. */
+        const val EMBED_CTX = 1024
     }
 }

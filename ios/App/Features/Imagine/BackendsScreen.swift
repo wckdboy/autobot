@@ -38,7 +38,7 @@ struct BackendsScreen: View {
                             .contentShape(Rectangle())
                             .onTapGesture { if backend.kind != .onDevice { editing = EditTarget(backend: backend, isNew: false) } }
                             HStack(spacing: 8) {
-                                GhostButton(testing == backend.id ? "Testing…" : "Test", enabled: testing == nil) { test(backend) }
+                                GhostButton("Test", enabled: testing == nil, busy: testing == backend.id) { test(backend) }
                                     .frame(width: 120)
                                 if let result {
                                     MicroLabel(result, color: result.hasPrefix("ok") ? AutobotColors.acid : c.error, lines: 2)
@@ -46,6 +46,7 @@ struct BackendsScreen: View {
                                 Spacer(minLength: 0)
                             }
                         }
+                        .transition(.inkDissolve)
                     }
                     Panel(title: "Add backend", accent: AutobotColors.acid) {
                         Text("Loopback backends keep working in Offline mode. Anything else must be HTTPS and follows your network mode and kill switch.")
@@ -73,6 +74,7 @@ struct BackendsScreen: View {
                     }
                 }
                 .padding(12)
+                .animation(.inkDissolve, value: repo.backends.map(\.id))
             }
         }
         .background(c.background)
@@ -129,7 +131,7 @@ private struct BackendEditor: View {
         let trimmed = url.trimmingCharacters(in: .whitespaces)
         let cleartextRemote = trimmed.lowercased().hasPrefix("http://") && !Loopback.isLoopbackURL(trimmed)
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            InkStack(alignment: .leading, spacing: 12) {
                 MicroLabel(isNew ? "// new backend" : "// edit backend", color: c.primary)
                 Segmented(options: [BackendKind.sdApi, .localSse], selected: kind, label: { $0 == .sdApi ? "A1111 API" : "Local SSE" }) { kind = $0 }
                 ConsoleTextField(text: $name, label: "Name")

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Shown instead of all app content while locked. Prompts automatically on first display.
+/// Shown instead of all app content while locked. Prompts automatically on first display. The
+/// paper drifts while it waits for biometrics, and prints away on unlock ([AnyTransition.inkPrintAway]).
 struct LockScreen: View {
     let message: String?
     let onUnlock: () -> Void
@@ -25,6 +26,7 @@ struct LockScreen: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .inkGround()
         .background(c.background.ignoresSafeArea())
         .task { onUnlock() }
     }

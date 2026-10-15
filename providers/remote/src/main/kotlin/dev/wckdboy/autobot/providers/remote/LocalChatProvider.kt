@@ -1,7 +1,6 @@
 package dev.wckdboy.autobot.providers.remote
 
 import dev.wckdboy.autobot.core.models.ComputeProfile
-import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.Fit
 import dev.wckdboy.autobot.core.models.InstalledModel
@@ -41,7 +40,7 @@ class LocalChatProvider(
 
     private fun streamGguf(request: ChatRequest): Flow<ChatEvent> = flow {
         val model = library.get(request.model)
-        val path = model?.takeIf { it.isReady && it.engine == EngineKind.LLAMA }?.paths?.get(FileRole.MODEL)
+        val path = model?.takeIf { it.isLocalChat }?.paths?.get(FileRole.MODEL)
         if (path == null) {
             emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Model '${request.model}' is not installed on this phone (Models tab)"))
             return@flow
@@ -74,7 +73,7 @@ class LocalChatProvider(
         val systemReady = system?.let { runCatching { it.status() }.getOrNull()?.usable } == true
         return try {
             engine.systemInfo()
-            ConnectionTestResult.Success(library.all().count { it.isReady && it.engine == EngineKind.LLAMA } + if (systemReady) 1 else 0)
+            ConnectionTestResult.Success(library.all().count { it.isLocalChat } + if (systemReady) 1 else 0)
         } catch (e: Exception) {
             if (systemReady) ConnectionTestResult.Success(1) else ConnectionTestResult.Failure(ErrorKind.SERVER, e.message ?: "Engine unavailable")
         }
@@ -90,7 +89,7 @@ class LocalChatProvider(
 
         /** Whether an installed model can run here, by the shared fit rules. */
         internal fun modelState(model: InstalledModel?, fit: (InstalledModel) -> Fit): LocalModelState = when {
-            model == null || !model.isReady || model.engine != EngineKind.LLAMA || model.paths[FileRole.MODEL] == null -> LocalModelState.NOT_INSTALLED
+            model == null || !model.isLocalChat || model.paths[FileRole.MODEL] == null -> LocalModelState.NOT_INSTALLED
             fit(model) == Fit.TOO_BIG -> LocalModelState.TOO_BIG
             else -> LocalModelState.READY
         }

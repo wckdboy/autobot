@@ -220,10 +220,10 @@ struct ModelsScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     profile
-                    if let p = app.downloader.progress { progressPanel(p) }
+                    DownloadsPanel()
                     if !app.library.models.isEmpty {
                         SectionLabel("installed · \(app.library.models.count)")
-                        ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) } }
+                        ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) }.transition(.inkDissolve) }
                         Spacer().frame(height: 18)
                     }
                     Segmented(options: ModelsTab.allCases, selected: model.tab, label: \.label) { model.tab = $0 }
@@ -237,6 +237,7 @@ struct ModelsScreen: View {
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.vertical, 8)
+                .animation(.inkDissolve, value: app.library.models.map(\.id))
             }
             .scrollDismissesKeyboard(.interactively)
         }
@@ -265,24 +266,6 @@ struct ModelsScreen: View {
         Spacer().frame(height: 14)
     }
 
-    private func progressPanel(_ p: DownloadProgress) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    MicroLabel("downloading", color: c.primary)
-                    Text(p.title).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Pause", color: c.primary) { app.downloader.pause(p.id) }
-            }
-            ProgressLine(fraction: p.fraction, running: true)
-            MicroLabel("\(formatBytes(p.downloaded)) / \(formatBytes(p.total)) · \(formatBytes(p.bytesPerSecond))/s")
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh))
-        .padding(.bottom, 14)
-    }
-
     @ViewBuilder private func recommended(_ installed: Set<String>) -> some View {
         let sections: [(String, [ModelPlan])] = [
             ("image · neural engine", CoreMLCatalog.all),
@@ -291,6 +274,7 @@ struct ModelsScreen: View {
             ("code", Catalog.code),
             ("speech · dictation", Catalog.speech),
             ("voice · read aloud", CoreMLCatalog.voices),
+            ("embedding · vault", Catalog.embedding),
         ]
         ForEach(sections, id: \.0) { label, plans in
             SectionLabel(label, color: c.onSurfaceVariant)
@@ -319,9 +303,10 @@ struct ModelsScreen: View {
                 kind: .mono,
                 onSubmit: model.searchHf,
             )
-            if model.hfLoading || model.openLoading { MicroLabel("loading…") }
+            if model.hfLoading || model.openLoading { InkLoader() }
             Hairline()
         }
+        if model.hfResults.isEmpty && !model.hfLoading { EmptyResults() }
         ForEach(model.hfResults) { m in
             RunRow(
                 title: String(m.id.split(separator: "/").last ?? Substring(m.id)),
@@ -345,15 +330,27 @@ struct ModelsScreen: View {
             Segmented(options: CivitaiScope.allCases, selected: model.civitaiScope, label: \.label) { model.setCivitaiScope($0) }
             ConsoleTextField(text: $model.civitaiQuery, placeholder: "search sd 1.5 / sdxl / pony / illustrious", kind: .mono) { model.searchCivitai() }
             MicroLabel("checkpoints and loras run on pc backends (a1111 / forge) — core ml on this phone needs converted models", color: AutobotColors.amber, lines: 3)
-            if model.civitaiLoading { MicroLabel("loading…") }
+            if model.civitaiLoading { InkLoader() }
             Hairline()
         }
+        if model.civitaiResults.isEmpty && !model.civitaiLoading { EmptyResults() }
         ForEach(model.civitaiResults) { m in
             CivitaiRow(model: m, installed: installed, previews: model.previews) { model.installCivitai(m) }
         }
         if model.civitaiCursor != nil {
             TextAction("More", color: c.primary) { model.searchCivitai(reset: false) }
         }
+    }
+}
+
+/// No search results yet: a patch of living paper.
+private struct EmptyResults: View {
+    var body: some View {
+        Color.clear
+            .frame(height: 180)
+            .inkGround()
+            .mask(LinearGradient(colors: [.black, .clear], startPoint: .center, endPoint: .bottom))
+            .accessibilityHidden(true)
     }
 }
 
@@ -411,8 +408,8 @@ private struct InstalledRow: View {
             ZStack {
                 switch model.status {
                 case .ready: Tag("ready", accent: c.primary, filled: true)
-                case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary)
-                case .queued: Tag("queued")
+                case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary) { app.downloader.pause(model.id) }
+                case .queued: Tag("queued") { app.downloader.pause(model.id) }
                 case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }
                 case .failed: Tag("retry", accent: c.error) { app.downloader.resume(model.id) }
                 }
@@ -431,6 +428,8 @@ private struct InstalledRow: View {
             MicroLabel("Deletes \(formatBytes(model.totalBytes)) from this phone. Chats that use it need another model picked.", color: c.error, lines: 2)
                 .padding(.bottom, 8)
         }
+        if model.status == .paused { InkProgressBar(.paused(model.fraction), height: 2).padding(.bottom, 6) }
+        if model.status == .failed { InkProgressBar(.error(model.fraction), height: 2).padding(.bottom, 6) }
         if let paused = model.pausedLabel { MicroLabel(paused).padding(.bottom, 8) }
         if let error = model.error {
             MicroLabel(error, color: c.error, lines: 4).padding(.bottom, 8)
@@ -480,7 +479,7 @@ private struct RepoSheet: View {
         }
         let bundles = repo.coreMLBundles
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+            InkStack(alignment: .leading, spacing: 8) {
                 SectionLabel(repo.id)
                 Text([repo.license, repo.gated ? "gated — accept on huggingface.co" : nil, repo.commit.map { String($0.prefix(10)) }].compactMap { $0 }.joined(separator: " · "))
                     .textStyle(.micro)

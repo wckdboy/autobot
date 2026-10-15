@@ -20,6 +20,8 @@ enum AppPaths {
     static var gallery: URL { directory("gallery") }
     static var attachments: URL { directory("attachments") }
     static var workspace: URL { directory("workspace") }
+    /// The agent's undo journal: copies of files it replaced, protected like the workspace.
+    static var workspaceUndo: URL { directory("workspace-undo") }
     static var models: URL { directory("models", protection: .completeUntilFirstUserAuthentication) }
 
     /// Short-lived plaintext copies handed to engines; cleared at start-up and after use.

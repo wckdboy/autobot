@@ -44,20 +44,22 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
+import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.inkGround
+import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -102,6 +104,13 @@ fun ModelsRoute(
 @Composable
 fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts: () -> Unit, onOpenCompute: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
+    val dissolve = rememberInkDissolve()
+    // An empty search tab is a large empty area: living paper behind it (downloads may run).
+    val emptyTab = when (state.tab) {
+        ModelsTab.HUGGING_FACE -> state.hf.results.isEmpty()
+        ModelsTab.CIVITAI -> state.civitai.results.isEmpty()
+        else -> false
+    }
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
@@ -109,7 +118,9 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
         }
     }
     // The download progress notification needs this on Android 13+; downloads work without it.
-    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) actions.notificationsDenied()
+    }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
     fun askNotifications() {
         if (!askedNotifications && Build.VERSION.SDK_INT >= 33) {
@@ -129,7 +140,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         LazyColumn(
-            Modifier.padding(padding).fillMaxSize(),
+            Modifier.padding(padding).fillMaxSize().then(if (emptyTab) Modifier.inkGround() else Modifier),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
             item {
@@ -141,29 +152,18 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                 Spacer(Modifier.height(14.dp))
             }
 
-            state.progress?.let { p ->
-                item(key = "progress") {
-                    Column(
-                        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall).padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                MicroLabel("downloading", color = MaterialTheme.colorScheme.primary)
-                                Text(p.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            TextButton(onClick = { actions.pause(p.id) }) { Text("PAUSE") }
-                        }
-                        InkProgressBar(p.fraction, Modifier.fillMaxWidth().height(3.dp))
-                        MicroLabel("${formatBytes(p.downloaded)} / ${formatBytes(p.total)} · ${formatBytes(p.bytesPerSecond)}/s")
-                    }
-                    Spacer(Modifier.height(14.dp))
-                }
+            if (!state.downloads.isEmpty) {
+                item(key = "downloads") { DownloadsPanel(state.downloads, actions) }
             }
 
             if (state.installed.isNotEmpty()) {
                 item { SectionLabel("installed · ${state.installed.size}") }
-                items(state.installed, key = { "i-${it.id}" }) { model -> InstalledRow(model, actions) }
+                items(state.installed, key = { "i-${it.id}" }) { model ->
+                    // Removing a model dissolves its row into halftone before it goes.
+                    Column(Modifier.inkDissolve(dissolve, model.id)) {
+                        InstalledRow(model, actions, onRemove = { dissolve.dissolve(model.id) { actions.remove(model.id) } })
+                    }
+                }
                 item { Spacer(Modifier.height(18.dp)) }
             }
 
@@ -194,6 +194,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                         "image · cpu" to actions.recommended.filter { it.kind == ModelKind.IMAGE },
                         "speech · dictation" to actions.recommended.filter { it.kind == ModelKind.SPEECH },
                         "voice · read aloud" to actions.recommended.filter { it.kind == ModelKind.VOICE },
+                        "embedding · vault" to actions.recommended.filter { it.kind == ModelKind.EMBEDDING },
                     ).forEach { (label, plans) ->
                         item(key = "h-$label") {
                             SectionLabel(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -238,7 +239,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
 }
 
 @Composable
-private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel) {
+private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel, onRemove: () -> Unit = { actions.remove(model.id) }) {
     var confirm by remember { mutableStateOf(false) }
     // Tapping a ready model opens the task it runs (the × tag still removes it).
     val task = remember(model.kind, model.engine, model.isReady) { launchOf(model.kind, model.engine, model.isReady).task }
@@ -256,14 +257,14 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel) {
         Box(Modifier.stamp(model.status, enabled = model.status == ModelStatus.READY)) {
             when (model.status) {
                 ModelStatus.READY -> Tag("ready", accent = MaterialTheme.colorScheme.primary, filled = true)
-                ModelStatus.DOWNLOADING -> Tag("${(model.fraction * 100).toInt()}%", accent = MaterialTheme.colorScheme.primary)
-                ModelStatus.QUEUED -> Tag("queued")
+                ModelStatus.DOWNLOADING -> Tag("${(model.fraction * 100).toInt()}%", accent = MaterialTheme.colorScheme.primary, onClick = { actions.pause(model.id) })
+                ModelStatus.QUEUED -> Tag("queued", onClick = { actions.pause(model.id) })
                 ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
                 ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
             }
         }
         Tag(if (confirm) "sure?" else "×", accent = MaterialTheme.colorScheme.onSurfaceVariant, onClick = {
-            if (confirm) actions.remove(model.id) else confirm = true
+            if (confirm) onRemove() else confirm = true
         })
     }
     model.error?.let { MicroLabel(it, Modifier.padding(bottom = 8.dp), color = MaterialTheme.colorScheme.error) }
@@ -311,7 +312,7 @@ private fun HfSearch(state: ModelsUiState, actions: ModelsViewModel, onOpenAccou
             keyboardOptions = PromptKeyboardOptions.copy(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { actions.searchHf() }),
         )
-        if (state.hf.loading || state.hf.openLoading) MicroLabel("loading…")
+        if (state.hf.loading || state.hf.openLoading) InkLoader(contentDescription = "Searching")
         Hairline()
     }
 }
@@ -371,7 +372,7 @@ private fun CivitaiSearch(state: ModelsUiState, actions: ModelsViewModel, onOpen
             keyboardOptions = PromptKeyboardOptions.copy(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { actions.searchCivitai() }),
         )
-        if (state.civitai.loading) MicroLabel("loading…")
+        if (state.civitai.loading) InkLoader(contentDescription = "Searching")
         Hairline()
     }
 }

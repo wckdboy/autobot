@@ -1,6 +1,11 @@
 import Foundation
 
-/// A chat thread. [providerId]/[model] record the last selection for this conversation.
+/**
+ A chat thread. [providerId]/[model] record the last selection for this conversation. [pinned]
+ chats float to the top of the list, [archived] ones only show in the archive; [folderId] is a
+ [ChatFolder] (nil: no folder). Rows stored before 1.5 have none of the three and decode with
+ the defaults.
+ */
 struct Conversation: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var title: String
@@ -8,6 +13,31 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
     var model: String?
     var createdAt: Int64
     var updatedAt: Int64
+    var pinned = false
+    var archived = false
+    var folderId: String? = nil
+}
+
+extension Conversation {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        providerId = try c.decodeIfPresent(String.self, forKey: .providerId)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        createdAt = try c.decode(Int64.self, forKey: .createdAt)
+        updatedAt = try c.decode(Int64.self, forKey: .updatedAt)
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        folderId = try c.decodeIfPresent(String.self, forKey: .folderId)
+    }
+}
+
+/// A folder chats can be moved into. Deleting it moves its chats out (they are kept).
+struct ChatFolder: Codable, Identifiable, Equatable, Sendable {
+    var id: String
+    var name: String
+    var createdAt: Int64
 }
 
 /**

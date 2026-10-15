@@ -28,6 +28,7 @@ import dev.wckdboy.autobot.agent.runtime.WebFetchTool
 import dev.wckdboy.autobot.agent.runtime.workspace.FileTools
 import dev.wckdboy.autobot.agent.runtime.workspace.Workspace
 import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceContexts
+import dev.wckdboy.autobot.agent.runtime.workspace.WorkspaceJournal
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
@@ -44,6 +45,8 @@ import dev.wckdboy.autobot.shared.memory.BridgedMemoryStore
 import dev.wckdboy.autobot.shared.memory.Memory
 import dev.wckdboy.autobot.shared.memory.MemoryStoreBridge
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
+import dev.wckdboy.autobot.shared.vault.VaultHost
+import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import dev.wckdboy.autobot.shared.search.WebSearchSource
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.core.network.AuditLog
@@ -196,6 +199,9 @@ class SessionState(
  *
  * [audit] is the host's audit log (the one its [transport] records into): each turn's privacy
  * receipt lists the traffic it tied to that turn. Null leaves the receipts' network part unknown.
+ *
+ * [journalDir] holds the undo journal (copies of files the agent replaced); keep it next to the
+ * workspace with the same file protection. Null turns undo off.
  */
 class AgentBridge(
     workspaceDir: String,
@@ -206,6 +212,7 @@ class AgentBridge(
     images: ImageStoreBridge?,
     mcpTokens: McpTokenSource,
     audit: AuditLog? = null,
+    journalDir: String? = null,
 ) {
     // An exception escaping a launch must not reach Kotlin/Native's default handler, which
     // terminates the process: it is logged and only that job ends.
@@ -213,6 +220,7 @@ class AgentBridge(
         SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, t -> println("AgentBridge: ${t::class.simpleName}: ${t.message}") },
     )
     val workspace = Workspace(workspaceDir.toPath())
+    private val journal = journalDir?.let { WorkspaceJournal(workspace, it.toPath()) }
     val harness = Harness()
     private val contexts = WorkspaceContexts(workspace)
     private val sessions = BridgedSessionStore(store)
@@ -276,7 +284,7 @@ class AgentBridge(
                 }
             },
         )
-        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace).all.toTypedArray()))
+        root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))
         root.plugin(contexts.plugin)
         root.plugin(mcp.plugin)
@@ -504,8 +512,18 @@ class AgentBridge(
         a.ctx[Compactor.Key]?.compact(a, "manual")
     }
 
+    /** Undoes one file step (and later changes to the same files); only while the session is idle. */
+    fun undoStep(sessionId: String, callId: String) = withAgent(sessionId) { a -> journal?.undoStep(a, callId) }
+
+    /** Undoes every file change of [turn]. */
+    fun undoTurn(sessionId: String, turn: Int) = withAgent(sessionId) { a -> journal?.undoTurn(a, turn) }
+
+    /** Re-applies what an undo ([revertId]) put back. */
+    fun redo(sessionId: String, revertId: String) = withAgent(sessionId) { a -> journal?.redo(a, revertId) }
+
     /** Stops and forgets the agent (before deleting its conversation). */
     fun discard(sessionId: String) {
+        journal?.drop(sessionId)
         scope.launch {
             val agent = mutex.withLock {
                 watchers.remove(sessionId)?.cancel()
@@ -548,6 +566,7 @@ class AgentBridge(
     }
 
     private var memoryHandle: Disposable? = null
+    private var vaultHandle: Disposable? = null
     private var searchHandle: Disposable? = null
 
     private class QuotaFallback(val enabled: Boolean, val onDevice: LlmCallConfig?)
@@ -572,6 +591,15 @@ class AgentBridge(
     fun setMemory(store: MemoryStoreBridge?) {
         memoryHandle?.dispose()
         memoryHandle = store?.let { harness.root.plugin(memoryPlugin(Memory(BridgedMemoryStore(it)))) }
+    }
+
+    /**
+     * Private vault on ([host] = the host's encrypted vault and embedding engine) or off (null):
+     * `vault_search` and the vault context come and go with it, in every session.
+     */
+    fun setVault(host: VaultHost?) {
+        vaultHandle?.dispose()
+        vaultHandle = host?.let { harness.root.plugin(vaultPlugin(it.vault)) }
     }
 
     /** `web_search` on (the host's current search settings, read per call) or off (null). */

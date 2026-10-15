@@ -217,6 +217,9 @@ data class InstalledModel(
     val isReady: Boolean get() = status == ModelStatus.READY
     val fraction: Float get() = if (totalBytes <= 0) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
     val runnable: Boolean get() = isReady && engine != EngineKind.NONE && HostPlatform.runs(engine)
+
+    /** A ready llama.cpp model that chats (embedding models run on llama.cpp too, but only for the vault). */
+    val isLocalChat: Boolean get() = isReady && engine == EngineKind.LLAMA && kind != ModelKind.EMBEDDING
 }
 
 /** Formats bytes as `2.4 GB` / `512 MB`. */
@@ -264,7 +267,7 @@ fun engineFor(kind: ModelKind, format: ModelFormat, platform: AppPlatform = Host
         format == ModelFormat.LOCAL_DREAM || format == ModelFormat.OTHER -> EngineKind.NONE
         format == ModelFormat.QNN || format == ModelFormat.MNN -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.NPU else EngineKind.NONE
         format == ModelFormat.COREML -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.COREML else EngineKind.NONE
-        kind == ModelKind.CHAT || kind == ModelKind.CODE -> if (format == ModelFormat.GGUF) EngineKind.LLAMA else EngineKind.NONE
+        kind == ModelKind.CHAT || kind == ModelKind.CODE || kind == ModelKind.EMBEDDING -> if (format == ModelFormat.GGUF) EngineKind.LLAMA else EngineKind.NONE
         kind == ModelKind.IMAGE || kind == ModelKind.LORA || kind == ModelKind.VAE -> EngineKind.DIFFUSION
         else -> EngineKind.NONE
     }

@@ -242,6 +242,7 @@ struct McpTransportTests {
             images: nil,
             mcpTokens: McpTokenSourceHost(snapshots: snapshots, secrets: SecretStore()),
             audit: factory.auditLog.shared,
+            journalDir: nil,
         )
         let server = McpServer(id: "s", name: "Stub", url: "https://mcp.example.com/mcp")
         let (ok, message) = await withCheckedContinuation { continuation in

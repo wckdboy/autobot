@@ -125,9 +125,13 @@ models, shared core). Ordered by value.
    taint; it rebuilds from the log after a restart. Images: an email, number or id the model was
    never shown as text in a session with an attached image is treated as read off the image.
    Not yet: private MCP servers as a source.)*
-5. **Private vault (on-device RAG).** Encrypted embeddings of the user's notes, files, PDFs and OCR'd
+5. ✅ **Private vault (on-device RAG).** Encrypted embeddings of the user's notes, files, PDFs and OCR'd
    photos, built on the NPU/Neural Engine, searchable by the agent (`vault_search`) and by the user.
-   Nothing indexed leaves the phone.
+   Nothing indexed leaves the phone. *(done, both apps, off by default: Qwen3-Embedding 0.6B (Q8_0,
+   Apache-2.0) in llama.cpp's embedding mode, cut to 512 dimensions; ~512-token passages with
+   overlap, int8 vectors in SQLCipher / the encrypted store, exact cosine search with MMR up to
+   50k passages; text, Markdown and PDF on both, photos with Vision OCR on iOS; results are taint
+   sources. Not yet: Android OCR, the NPU/Neural Engine path for embeddings (CPU/Metal today).)*
 6. **Pair your own devices.** End-to-end encrypted (Noise) pairing between the user's phones and
    computers over LAN or Tailscale: an iPhone can borrow the OnePlus NPU or a desktop GPU as "my
    own cloud"; sessions and the vault sync without a server.
@@ -149,8 +153,14 @@ models, shared core). Ordered by value.
    default, with a visible indicator.
 10. **Your own arena.** Blind side-by-side answers from two models; your votes build a local
     preference profile that tunes the cascade and model suggestions. Never uploaded.
-11. **Undo for agents.** Workspace snapshots per turn, a timeline of what the agent changed, and
-    one-tap revert.
+11. ✅ **Undo for agents.** Workspace snapshots per turn, a timeline of what the agent changed, and
+    one-tap revert. *(done, both apps: `write`, `edit` and `delete` keep the file's previous
+    content in a copy-on-write journal next to the workspace (session · turn · call; 50 MB per
+    chat, oldest turns dropped with a notice, files over 10 MB not copied); step rows show a line
+    diff with "Undo", a turn's last answer "Undo turn (N files)", and a "Files changed" sheet
+    groups the session's changes by turn. Undoing a step also undoes later edits to the same file;
+    a revert is journaled so it can be redone, and a `workspace/revert` event tells the model
+    which files moved back. Subagent changes count for the parent's turn.)*
 12. **Spend and quota board.** Tokens, money and subscription windows (OpenCode Go 5 h / week /
     month) per provider, computed locally from responses.
 

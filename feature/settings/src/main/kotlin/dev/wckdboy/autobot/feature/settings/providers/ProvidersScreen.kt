@@ -26,7 +26,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -59,12 +58,15 @@ import dev.wckdboy.autobot.core.data.model.ProviderRouting
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.providers.remote.ModelCache
@@ -124,6 +126,7 @@ private val ProviderRouting.label: String
 @Composable
 fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
     var deleting by remember { mutableStateOf<ProviderRow?>(null) }
+    val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -151,7 +154,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
             LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 items(state.providers, key = { it.id }, contentType = { "provider" }) { row ->
                     ListItem(
-                        modifier = Modifier.clickable { actions.edit(row.id) },
+                        modifier = Modifier.inkDissolve(dissolve, row.id).clickable { actions.edit(row.id) },
                         headlineContent = { Text(row.name) },
                         supportingContent = {
                             Column {
@@ -188,7 +191,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
             text = { Text(deleteMessage(row, state.providers)) },
             confirmButton = {
                 TextButton(onClick = {
-                    actions.delete(row.id)
+                    dissolve.dissolve(row.id) { actions.delete(row.id) }
                     deleting = null
                 }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
@@ -344,8 +347,8 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
 
                 var confirmNoKey by remember { mutableStateOf(false) }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GhostButton("Test connection", actions::test, Modifier.weight(1f), enabled = draft.baseUrlValid && test != TestState.Running)
-                    PrimaryButton("Save", { if (draft.missingKey) confirmNoKey = true else actions.save() }, Modifier.weight(1f), enabled = draft.canSave && !state.saving)
+                    GhostButton("Test connection", actions::test, Modifier.weight(1f), enabled = draft.baseUrlValid, busy = test == TestState.Running)
+                    PrimaryButton("Save", { if (draft.missingKey) confirmNoKey = true else actions.save() }, Modifier.weight(1f), enabled = draft.canSave || state.saving, busy = state.saving)
                 }
                 if (confirmNoKey) {
                     AlertDialog(
@@ -379,7 +382,7 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             val status = when {
-                models.loading -> "fetching models…"
+                models.loading -> "fetching models"
                 models.error != null -> models.error
                 models.fetchedAt != null -> "${models.models.size} models · " + ModelCache(models.fetchedAt, emptyList()).ageLabel(now)
                 canFetch -> "offline list · refresh to fetch"
@@ -387,7 +390,7 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
             }
             MicroLabel(status, Modifier.weight(1f), if (models.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if (canFetch) {
-                TextButton(onClick = actions::refreshModels, enabled = draft.baseUrlValid && !models.loading) { Text("REFRESH") }
+                TextButton(onClick = actions::refreshModels, enabled = draft.baseUrlValid && !models.loading) { InkBusyLabel(models.loading) { Text("REFRESH") } }
             }
         }
         val query = if (models.models.any { it.id == draft.defaultModel }) "" else draft.defaultModel
@@ -474,10 +477,8 @@ private const val HELPER_HINT = "Used for subagents and context summaries, to sa
 private fun TestResult(test: TestState) {
     when (test) {
         TestState.Idle -> Unit
-        TestState.Running -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text("Testing…", style = MaterialTheme.typography.bodySmall)
-        }
+        // The test button carries the ink loader while it runs.
+        TestState.Running -> Unit
         is TestState.Success -> Text(test.message, color = AutobotColors.Green, style = MaterialTheme.typography.bodySmall)
         is TestState.Failure -> Text(test.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }

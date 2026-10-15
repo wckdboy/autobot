@@ -11,7 +11,8 @@ struct WelcomeScreen: View {
         ZStack(alignment: .topLeading) {
             c.background.ignoresSafeArea()
             ZStack {
-                HalftoneField(cell: 10)
+                // The hero field drifts, very slowly (living paper).
+                InkGround(plate: false, hero: true, cell: 10)
                 LinearGradient(stops: [.init(color: .clear, location: 0.5), .init(color: c.background, location: 1)], startPoint: .top, endPoint: .bottom)
             }
             .frame(height: 380 + 60)

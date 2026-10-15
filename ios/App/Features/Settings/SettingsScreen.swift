@@ -7,6 +7,7 @@ struct SettingsScreen: View {
     @Environment(\.scheme) private var c
     @State private var showBackup = false
     @State private var showSearch = false
+    @State private var confirmDeleteChats = false
 
     var body: some View {
         let settings = app.settings.settings
@@ -30,6 +31,10 @@ struct SettingsScreen: View {
                         isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
                     )
                     NavigationRow(title: "Memory notes", subtitle: "View, search, edit and delete what the agent remembers") { nav.push(.memory) }
+                    NavigationRow(
+                        title: "Vault",
+                        subtitle: settings.vaultEnabled ? "On · your files, searched by meaning on this phone" : "Off · private search over your own files",
+                    ) { nav.push(.vault) }
                     SwitchRow(
                         title: "On limit, fall back",
                         subtitle: "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",
@@ -90,6 +95,18 @@ struct SettingsScreen: View {
                         subtitle: "New chats are kept in memory only",
                         isOn: Binding(get: { settings.incognitoByDefault }, set: { app.settings.setIncognitoByDefault($0) }),
                     )
+                    Button { confirmDeleteChats = true } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Delete all chats").textStyle(.bodyLarge).foregroundStyle(c.error)
+                            Text("Remove every session from this phone; folders and memory stay")
+                                .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Tokens.Spacing.gutter)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressStyle())
                     Hairline().padding(.vertical, 8)
 
                     header("About")
@@ -102,6 +119,12 @@ struct SettingsScreen: View {
         .background(c.background)
         .sheet(isPresented: $showBackup) { BackupSheet() }
         .sheet(isPresented: $showSearch) { WebSearchSheet { showSearch = false } }
+        .risoAlert(
+            $confirmDeleteChats,
+            title: "Delete all chats?",
+            message: "Every session, its encrypted history, tool calls, approvals and attached images is removed from this phone. Folders, memory notes and workspace files stay. This cannot be undone.",
+            confirm: "Delete all",
+        ) { app.chats.deleteAll() }
     }
 
     private func note(_ text: String, color: Color? = nil) -> some View {

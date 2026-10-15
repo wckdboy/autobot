@@ -558,4 +558,134 @@ void autobot_llama_string_free(char * str) {
     std::free(str);
 }
 
+// ---- embeddings (private vault)
+
+struct autobot_llama_embedder {
+    llama_model * model = nullptr;
+    llama_context * ctx = nullptr;
+    int n_ctx = 0;
+    int dims = 0;
+    std::string backend;
+    std::mutex lock;
+};
+
+autobot_llama_embedder * autobot_llama_embed_load(const char * path_c, int n_ctx, int n_threads, const char * backend) {
+    const std::string path = path_c ? path_c : "";
+    const std::string wanted = backend ? backend : "";
+    std::vector<std::string> order;
+    if (wanted == "auto") order = {"gpu", "cpu"};  // small encoders gain little from the NPU path
+    else if (wanted == "gpu" || wanted == "npu") order = {wanted, "cpu"};
+    else order = {"cpu"};
+
+    for (const auto & kind : order) {
+        std::vector<ggml_backend_dev_t> devs = devices_of(kind);
+        if (kind != "cpu" && devs.empty()) continue;
+        devs.push_back(nullptr);
+        auto mparams = llama_model_default_params();
+        mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
+        mparams.devices = devs.data();
+        mparams.n_gpu_layers = kind == "cpu" ? 0 : 999;
+        llama_model * model = llama_model_load_from_file(path.c_str(), mparams);
+        if (!model) {
+            LOGE("failed to load embedding model %s on %s", path.c_str(), kind.c_str());
+            continue;
+        }
+        if (llama_model_has_encoder(model) && llama_model_has_decoder(model)) {
+            LOGE("encoder-decoder models cannot embed");
+            llama_model_free(model);
+            return nullptr;
+        }
+        const int trained = llama_model_n_ctx_train(model);
+        // A whole passage must fit in one micro-batch for pooling.
+        const uint32_t ctx_len = (uint32_t) std::max(64, std::min(n_ctx, trained > 0 ? trained : n_ctx));
+        llama_context * ctx = nullptr;
+        for (auto pooling : {LLAMA_POOLING_TYPE_UNSPECIFIED, LLAMA_POOLING_TYPE_MEAN}) {
+            auto cparams = llama_context_default_params();
+            cparams.n_ctx = ctx_len;
+            cparams.n_batch = ctx_len;
+            cparams.n_ubatch = ctx_len;
+            cparams.n_seq_max = 1;
+            cparams.n_threads = n_threads;
+            cparams.n_threads_batch = n_threads;
+            cparams.embeddings = true;
+            cparams.pooling_type = pooling;
+            ctx = llama_init_from_model(model, cparams);
+            // A model without a pooling type in its metadata gets mean pooling.
+            if (ctx && llama_pooling_type(ctx) == LLAMA_POOLING_TYPE_NONE) {
+                llama_free(ctx);
+                ctx = nullptr;
+                continue;
+            }
+            break;
+        }
+        if (!ctx) {
+            LOGE("failed to create an embedding context on %s", kind.c_str());
+            llama_model_free(model);
+            continue;
+        }
+        auto * e = new autobot_llama_embedder();
+        e->model = model;
+        e->ctx = ctx;
+        e->n_ctx = (int) llama_n_ctx(ctx);
+        e->dims = llama_model_n_embd_out(model);
+        e->backend = kind;
+        LOGI("loaded embedding model %s on %s (%d dims, pooling %d)", path.c_str(), kind.c_str(), e->dims, (int) llama_pooling_type(ctx));
+        return e;
+    }
+    return nullptr;
+}
+
+int autobot_llama_embed_dims(autobot_llama_embedder * e) {
+    return e ? e->dims : 0;
+}
+
+const char * autobot_llama_embed_backend(autobot_llama_embedder * e) {
+    if (!e) return "cpu";
+    if (e->backend == "gpu") return "gpu";
+    if (e->backend == "npu") return "npu";
+    return "cpu";
+}
+
+int autobot_llama_embed(autobot_llama_embedder * e, const char * const * texts, const size_t * lens, int n, float * out) {
+    if (!e || n < 0 || (n > 0 && (!texts || !lens || !out))) return -1;
+    std::lock_guard<std::mutex> guard(e->lock);
+    const llama_vocab * vocab = llama_model_get_vocab(e->model);
+    const enum llama_pooling_type pooling = llama_pooling_type(e->ctx);
+    llama_memory_t mem = llama_get_memory(e->ctx);
+    common_batch batch(e->ctx);
+    std::vector<float> raw((size_t) e->dims);
+    for (int i = 0; i < n; ++i) {
+        std::vector<llama_token> tokens = common_tokenize(vocab, std::string(texts[i], lens[i]), true, true);
+        if (tokens.empty()) tokens.push_back(llama_vocab_bos(vocab) >= 0 ? llama_vocab_bos(vocab) : 0);
+        if ((int) tokens.size() > e->n_ctx) {
+            // Keep the end token: last-token pooling reads the model's summary from it.
+            const llama_token last = tokens.back();
+            tokens.resize((size_t) e->n_ctx);
+            if (pooling == LLAMA_POOLING_TYPE_LAST) tokens.back() = last;
+        }
+        if (mem) llama_memory_clear(mem, true);
+        batch.clear();
+        for (size_t j = 0; j < tokens.size(); ++j) batch.add(tokens[j], (llama_pos) j, 0, true);
+        if (llama_process(e->ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) < 0) {
+            LOGE("embedding decode failed");
+            return -2;
+        }
+        const float * embd = llama_get_embeddings_seq(e->ctx, 0);
+        if (!embd) return -3;
+        std::memcpy(raw.data(), embd, sizeof(float) * (size_t) e->dims);
+        common_embd_normalize(raw.data(), out + (size_t) i * (size_t) e->dims, e->dims, 2);
+    }
+    return 0;
+}
+
+void autobot_llama_embed_free(autobot_llama_embedder * e) {
+    if (!e) return;
+    {
+        std::lock_guard<std::mutex> guard(e->lock);
+        llama_free(e->ctx);
+        llama_model_free(e->model);
+    }
+    delete e;
+}
+
 }  // extern "C"

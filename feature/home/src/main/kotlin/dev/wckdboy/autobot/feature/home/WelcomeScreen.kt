@@ -27,12 +27,16 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
+import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 
 /** First-run welcome (mockup 01): halftone hero, the promise, three routes, set up. */
 @Composable
 fun WelcomeScreen(onSetUp: () -> Unit, onPairPc: () -> Unit, onAddApiKey: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        HalftoneField(Modifier.fillMaxWidth().height(380.dp), cell = 10.dp)
+    // The hero is living paper: it drifts at the ambient pace until left alone for a minute.
+    val ambient = rememberInkAmbient()
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).ambientTouch(ambient)) {
+        HalftoneField(Modifier.fillMaxWidth().height(380.dp), cell = 10.dp, ambient = ambient)
         Box(
             Modifier.fillMaxWidth().height(380.dp).background(
                 Brush.verticalGradient(0.5f to Color.Transparent, 1f to MaterialTheme.colorScheme.background),

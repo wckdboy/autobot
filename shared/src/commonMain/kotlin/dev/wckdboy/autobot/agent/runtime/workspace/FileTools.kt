@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.agent.runtime.workspace
 
+import dev.wckdboy.autobot.agent.core.TurnTrace
 import dev.wckdboy.autobot.agent.core.approval.PrivateSource
+import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.tools.ToolDefinition
 import dev.wckdboy.autobot.agent.core.tools.ToolKind
 import dev.wckdboy.autobot.agent.core.tools.ToolOutput
@@ -13,6 +15,8 @@ import dev.wckdboy.autobot.agent.core.Lock
 import dev.wckdboy.autobot.agent.runtime.InterruptibleChars
 import dev.wckdboy.autobot.agent.runtime.RegexTimeoutException
 import dev.wckdboy.autobot.shared.IoDispatcher
+import dev.wckdboy.autobot.shared.session.ChangeOp
+import dev.wckdboy.autobot.shared.session.FileChange
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -24,8 +28,12 @@ import okio.Path
  *
  * Implements DSH's fs-observation policy: an existing file must have been read in this session
  * before it can be overwritten or edited, and must not have changed on disk since.
+ *
+ * With a [journal], `write`, `edit` and `delete` keep the file's previous state first, so the
+ * user can undo the step or the turn, and report what they changed (`meta.change`, a
+ * [FileChange] with a line diff) for the transcript.
  */
-class FileTools(private val workspace: Workspace) {
+class FileTools(private val workspace: Workspace, private val journal: WorkspaceJournal? = null) {
 
     private val fs = workspace.fs
     private val lock = Lock()
@@ -69,6 +77,43 @@ class FileTools(private val workspace: Workspace) {
     private suspend fun <T> io(block: () -> T): T = withContext(IoDispatcher) { block() }
 
     private fun pathArg(args: JsonObject, key: String = "file_path"): Path = workspace.resolve(args.string(key).orEmpty())
+
+    /**
+     * Runs a mutating tool body on the I/O dispatcher with a journal hook. The change is keyed by
+     * the turn the call works for: a subagent's call counts for the parent session's turn.
+     */
+    private suspend fun journaled(run: ToolRunContext, body: (keep: (Path) -> WorkspaceJournal.Recorded?) -> ToolOutput): ToolOutput {
+        val trace = TurnTrace.current()
+        val session = trace?.sessionId ?: run.sessionId
+        val turn = trace?.turn ?: run.agent?.log?.latest<SessionEvent.TurnStart>()?.turn ?: 0
+        val group = if (session == run.sessionId) run.callId else "${run.sessionId}:${run.callId}"
+        var pruned = emptyList<Int>()
+        val output = io { body { file -> journal?.record(session, turn, group, file)?.also { pruned = it.pruned } } }
+        if (pruned.isNotEmpty() && session == run.sessionId) {
+            run.log(SessionEvent.WorkspacePruned(pruned, "undo keeps at most ${WorkspaceJournal.MAX_SESSION_BYTES / 1_048_576} MB per chat"))
+        }
+        return output
+    }
+
+    /** Text of [file] for a diff; null when absent, too large or binary. */
+    private fun textOf(file: Path): String? =
+        if (file.isFile && file.length() <= MAX_READ_BYTES) decodeUtf8(file.readBytes()) else null
+
+    /** `meta.change` for a call that changed [file]. [textual] is false for binary content (no diff). */
+    private fun changeMeta(file: Path, op: ChangeOp, before: String?, after: String?, textual: Boolean, kept: WorkspaceJournal.Recorded?): JsonObject {
+        val hunks = if (textual) LineDiff.hunks(before, after) else null
+        val change = FileChange(
+            path = workspace.relative(file),
+            op = op,
+            added = hunks?.added ?: 0,
+            removed = hunks?.removed ?: 0,
+            diff = hunks?.lines.orEmpty(),
+            truncated = hunks?.truncated ?: false,
+            undoable = kept?.kept == true,
+            note = kept?.note ?: "binary content, no diff".takeIf { !textual && op != ChangeOp.DELETED },
+        )
+        return JsonObject(mapOf(FileChange.META_KEY to FileChange.toJson(change)))
+    }
 
     inner class Read : ToolDefinition {
         override val name = "read"
@@ -123,15 +168,21 @@ class FileTools(private val workspace: Workspace) {
 
         override fun describeCall(args: JsonObject) = "${args.string("file_path")}  (${args.string("content")?.length ?: 0} chars)"
 
-        override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = io {
+        override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = journaled(run) { keep ->
             val file = pathArg(args)
-            if (file.isDirectory) return@io ToolOutput.error("${workspace.display(file)} is a directory", "IS_DIRECTORY")
-            checkObserved(run.sessionId, file)?.let { return@io ToolOutput.error(it, "NOT_OBSERVED") }
+            if (file.isDirectory) return@journaled ToolOutput.error("${workspace.display(file)} is a directory", "IS_DIRECTORY")
+            checkObserved(run.sessionId, file)?.let { return@journaled ToolOutput.error(it, "NOT_OBSERVED") }
             val existed = file.exists()
+            val before = if (existed) textOf(file) else null
+            val kept = keep(file)
+            val content = args.string("content").orEmpty()
             file.parent?.let(fs::createDirectories)
-            file.writeText(args.string("content").orEmpty())
+            file.writeText(content)
             observe(run.sessionId, file)
-            ToolOutput("${if (existed) "Overwrote" else "Created"} ${workspace.display(file)} (${file.length()} bytes).")
+            ToolOutput(
+                "${if (existed) "Overwrote" else "Created"} ${workspace.display(file)} (${file.length()} bytes).",
+                meta = changeMeta(file, if (existed) ChangeOp.MODIFIED else ChangeOp.CREATED, before, content, textual = !existed || before != null, kept),
+            )
         }
     }
 
@@ -150,14 +201,14 @@ class FileTools(private val workspace: Workspace) {
 
         override fun describeCall(args: JsonObject) = args.string("file_path").orEmpty()
 
-        override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = io {
+        override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = journaled(run) { keep ->
             val file = pathArg(args)
-            if (!file.isFile) return@io ToolOutput.error("${workspace.display(file)} does not exist", "NOT_FOUND")
-            checkObserved(run.sessionId, file)?.let { return@io ToolOutput.error(it, "NOT_OBSERVED") }
+            if (!file.isFile) return@journaled ToolOutput.error("${workspace.display(file)} does not exist", "NOT_FOUND")
+            checkObserved(run.sessionId, file)?.let { return@journaled ToolOutput.error(it, "NOT_OBSERVED") }
             val old = args.string("old_string").orEmpty()
             val new = args.string("new_string").orEmpty()
-            if (old.isEmpty()) return@io ToolOutput.error("old_string is empty", "INVALID_ARGS")
-            if (old == new) return@io ToolOutput.error("new_string is identical to old_string", "INVALID_ARGS")
+            if (old.isEmpty()) return@journaled ToolOutput.error("old_string is empty", "INVALID_ARGS")
+            if (old == new) return@journaled ToolOutput.error("new_string is identical to old_string", "INVALID_ARGS")
             val text = file.readText()
             val count = text.windowedCount(old)
             when {
@@ -165,9 +216,14 @@ class FileTools(private val workspace: Workspace) {
                 count > 1 && args.bool("replace_all") != true ->
                     ToolOutput.error("old_string matches $count times; add context or set replace_all", "AMBIGUOUS")
                 else -> {
-                    file.writeText(if (args.bool("replace_all") == true) text.replace(old, new) else text.replaceFirst(old, new))
+                    val kept = keep(file)
+                    val edited = if (args.bool("replace_all") == true) text.replace(old, new) else text.replaceFirst(old, new)
+                    file.writeText(edited)
                     observe(run.sessionId, file)
-                    ToolOutput("Edited ${workspace.display(file)} ($count replacement${if (count == 1) "" else "s"}).")
+                    ToolOutput(
+                        "Edited ${workspace.display(file)} ($count replacement${if (count == 1) "" else "s"}).",
+                        meta = changeMeta(file, ChangeOp.MODIFIED, text, edited, textual = true, kept),
+                    )
                 }
             }
         }
@@ -263,14 +319,25 @@ class FileTools(private val workspace: Workspace) {
 
         override fun describeCall(args: JsonObject) = args.string("file_path").orEmpty()
 
-        override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = io {
+        override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = journaled(run) { keep ->
             val file = pathArg(args)
             when {
                 file == workspace.root -> ToolOutput.error("refusing to delete the workspace root", "INVALID_ARGS")
                 !file.exists() -> ToolOutput.error("${workspace.display(file)} does not exist", "NOT_FOUND")
                 file.isDirectory && !fs.listOrNull(file).isNullOrEmpty() -> ToolOutput.error("directory is not empty", "NOT_EMPTY")
-                runCatching { fs.delete(file, mustExist = true) }.isSuccess -> ToolOutput("Deleted ${workspace.display(file)}.")
-                else -> ToolOutput.error("could not delete ${workspace.display(file)}", "IO_ERROR")
+                else -> {
+                    val directory = file.isDirectory
+                    val before = if (directory) null else textOf(file)
+                    val kept = keep(file)
+                    if (runCatching { fs.delete(file, mustExist = true) }.isSuccess) {
+                        ToolOutput(
+                            "Deleted ${workspace.display(file)}.",
+                            meta = changeMeta(file, ChangeOp.DELETED, before, null, textual = !directory && before != null, kept),
+                        )
+                    } else {
+                        ToolOutput.error("could not delete ${workspace.display(file)}", "IO_ERROR")
+                    }
+                }
             }
         }
     }
