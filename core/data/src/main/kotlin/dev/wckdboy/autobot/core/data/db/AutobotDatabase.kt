@@ -7,7 +7,9 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.model.BenchmarkRow
+import dev.wckdboy.autobot.core.data.model.ChatFolderRow
 import dev.wckdboy.autobot.core.data.model.Conversation
+import dev.wckdboy.autobot.core.data.model.ConversationTextRow
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.data.model.McpServer
 import dev.wckdboy.autobot.core.data.model.MemoryNoteRow
@@ -24,15 +26,18 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 @Database(
     entities = [
         Conversation::class, Message::class, Provider::class, SessionEventRow::class, GalleryItem::class, ModelRow::class,
-        BenchmarkRow::class, McpServer::class, MemoryNoteRow::class, ProviderModelsRow::class,
+        BenchmarkRow::class, McpServer::class, MemoryNoteRow::class, ProviderModelsRow::class, ChatFolderRow::class,
+        ConversationTextRow::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
     // 4 → 5 adds `mcp_servers`, 5 → 6 `memory_notes` (local memory), 6 → 7 `providers.presetId` and
-    // `provider_models` (fetched model lists), 7 → 8 `providers.helperModel`; existing data is untouched.
+    // `provider_models` (fetched model lists), 7 → 8 `providers.helperModel`, 8 → 9 chat organization
+    // (`conversations.pinned`/`archived`/`folderId`, `chat_folders`, `conversation_text` for search);
+    // existing data is untouched.
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
-        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
+        AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
     ],
 )
 abstract class AutobotDatabase : RoomDatabase() {
@@ -46,6 +51,7 @@ abstract class AutobotDatabase : RoomDatabase() {
     abstract fun benchmarkDao(): BenchmarkDao
     abstract fun mcpServerDao(): McpServerDao
     abstract fun memoryDao(): MemoryDao
+    abstract fun chatFolderDao(): ChatFolderDao
 
     companion object {
         const val NAME = "autobot.db"

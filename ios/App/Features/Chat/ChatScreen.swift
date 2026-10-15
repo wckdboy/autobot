@@ -154,7 +154,7 @@ struct ChatScreen: View {
             ModelSheet(conversationId: conversationId, routing: routing) { showModels = false }
         }
         .sheet(isPresented: $showSession) {
-            SessionSheet(conversationId: conversationId, state: state) { showSession = false }
+            SessionSheet(conversationId: conversationId, state: state, onDelete: deleteChat) { showSession = false }
         }
         .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
         .onChange(of: state) { _, new in model.sessionChanged(new) }
@@ -164,6 +164,15 @@ struct ChatScreen: View {
             model.stopSpeaking()
             model.stopRecording(app: app)
         }
+    }
+
+    /// Deletes this chat (undoable from the list for a few seconds); a running turn is cancelled first.
+    private func deleteChat() {
+        showSession = false
+        model.setVoiceMode(false, app: app, conversationId: conversationId)
+        let title = app.conversations.get(conversationId)?.title ?? ""
+        app.chats.trash([conversationId], label: title.isEmpty ? "Chat deleted" : "Deleted “\(title)”")
+        nav.back()
     }
 
     @ViewBuilder
@@ -1140,13 +1149,38 @@ private struct ModelSheet: View {
 private struct SessionSheet: View {
     let conversationId: String
     let state: ChatSessionState
+    let onDelete: () -> Void
     let onDismiss: () -> Void
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
+    @State private var renaming = false
+    @State private var name = ""
 
     var body: some View {
         let session = app.agent.session(conversationId)
+        let conversation = app.conversations.get(conversationId)
         VStack(alignment: .leading, spacing: 14) {
+            SectionLabel("chat")
+            HStack(spacing: 12) {
+                Text(conversation?.title ?? "").textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                TextAction("Rename", color: c.primary) {
+                    name = conversation?.title ?? ""
+                    renaming = true
+                }
+            }
+            HStack(spacing: 12) {
+                Text("Pin to top").textStyle(.titleMedium).foregroundStyle(c.onSurface)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                RisoToggle(isOn: Binding(get: { conversation?.pinned ?? false }, set: { app.conversations.setPinned([conversationId], $0) }))
+            }
+            HStack(spacing: 16) {
+                TextAction(conversation?.archived == true ? "Unarchive" : "Archive", color: c.primary) {
+                    app.conversations.setArchived([conversationId], !(conversation?.archived ?? false))
+                    onDismiss()
+                }
+                TextAction("Delete chat", color: c.error, action: onDelete)
+            }
             SectionLabel("session")
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1184,9 +1218,15 @@ private struct SessionSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 20)
         .padding(.bottom, 24)
-        .presentationDetents([.height(340), .medium])
+        .presentationDetents([.height(500), .large])
         .presentationBackground(c.surfaceContainerLow)
         .presentationDragIndicator(.visible)
+        .alert("Rename chat", isPresented: $renaming) {
+            TextField("Name", text: $name)
+            Button("Rename") { app.conversations.rename(conversationId, name) }
+                .disabled(ChatNames.shared.title(title: name) == nil)
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 

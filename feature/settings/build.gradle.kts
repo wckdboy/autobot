@@ -14,6 +14,7 @@ dependencies {
     implementation(projects.core.network)
     implementation(projects.core.security)
     implementation(projects.providers.remote)
+    implementation(projects.agent.runtime)
 
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

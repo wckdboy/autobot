@@ -39,6 +39,7 @@ import dev.wckdboy.autobot.providers.remote.ChatRoutes
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
+import dev.wckdboy.autobot.shared.chats.ChatNames
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
@@ -297,8 +298,8 @@ class AgentHost @Inject constructor(
         if (prompt.isEmpty() && images.isEmpty()) return
         val agent = agent(conversationId)
         conversations.getConversation(conversationId)?.let { c ->
-            val first = prompt.lineSequence().first().ifBlank { "Image" }
-            val title = if (c.title == ConversationRepository.DEFAULT_TITLE) first.take(TITLE_LENGTH) else c.title
+            // Only an untitled chat is named after its prompt; a renamed one keeps its name.
+            val title = if (c.title == ConversationRepository.DEFAULT_TITLE) ChatNames.fromPrompt(prompt) else c.title
             conversations.updateConversation(c.copy(title = title, updatedAt = System.currentTimeMillis()))
         }
         agent.followup(prompt, images)
@@ -354,6 +355,5 @@ class AgentHost @Inject constructor(
 
     companion object {
         const val WORKSPACE_DIR = "workspace"
-        private const val TITLE_LENGTH = 48
     }
 }

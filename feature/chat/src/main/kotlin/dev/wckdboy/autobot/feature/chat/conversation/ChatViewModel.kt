@@ -24,6 +24,7 @@ import dev.wckdboy.autobot.agent.core.session.TodoItem
 import dev.wckdboy.autobot.agent.core.tools.ToolExecutor
 import dev.wckdboy.autobot.agent.core.tools.UserQuestion
 import dev.wckdboy.autobot.agent.runtime.AgentHost
+import dev.wckdboy.autobot.agent.runtime.ChatLibrary
 import dev.wckdboy.autobot.agent.runtime.Interaction
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
@@ -141,6 +142,8 @@ data class VoiceUi(val phase: VoicePhase = VoicePhase.READY, val handsFree: Bool
 @Immutable
 data class ChatUiState(
     val title: String = "",
+    val pinned: Boolean = false,
+    val archived: Boolean = false,
     val items: List<SessionItem> = emptyList(),
     val live: LiveUi? = null,
     val running: Boolean = false,
@@ -190,6 +193,7 @@ class ChatViewModel @AssistedInject constructor(
     private val speech: LocalSpeech,
     private val speakers: Speakers,
     private val library: ModelLibrary,
+    private val chats: ChatLibrary,
     private val systemModel: SystemModel,
     handoff: ChatHandoff,
     @ApplicationContext private val appContext: Context,
@@ -270,6 +274,8 @@ class ChatViewModel @AssistedInject constructor(
         val usage = snap.projection.lastUsage
         ChatUiState(
             title = conversation?.title.orEmpty(),
+            pinned = conversation?.pinned == true,
+            archived = conversation?.archived == true,
             items = snap.projection.items,
             live = snap.live,
             running = snap.running,
@@ -619,6 +625,24 @@ class ChatViewModel @AssistedInject constructor(
     }
 
     fun compact() = host.compact(conversationId)
+
+    fun rename(title: String) {
+        viewModelScope.launch { conversations.rename(conversationId, title) }
+    }
+
+    fun setPinned(pinned: Boolean) {
+        viewModelScope.launch { conversations.setPinned(listOf(conversationId), pinned) }
+    }
+
+    fun setArchived(archived: Boolean) {
+        viewModelScope.launch { conversations.setArchived(listOf(conversationId), archived) }
+    }
+
+    /** Deletes this chat (undoable from the list for a few seconds); a running turn is cancelled first. */
+    fun delete() {
+        stopVoiceWork()
+        chats.trash(listOf(conversationId), uiState.value.title)
+    }
 
     fun dismissNotice() = notice.update { null }
 

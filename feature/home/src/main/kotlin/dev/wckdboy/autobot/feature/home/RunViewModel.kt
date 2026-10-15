@@ -149,7 +149,7 @@ class RunViewModel @Inject constructor(
 
         val providerById = input.providers.associateBy { it.id }
         val recent = (
-            convs.take(12).map { c ->
+            convs.filterNot { it.archived }.take(12).map { c ->
                 RecentRun(
                     key = "c-${c.id}",
                     title = c.title,

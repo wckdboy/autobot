@@ -13,11 +13,13 @@ import UIKit
 final class ConversationRepository {
     nonisolated static let defaultTitle = "New chat"
     nonisolated static let incognitoPrefix = "incognito-"
-    private nonisolated static let titleLength = 48
     private nonisolated static let collection = "conversations"
+    private nonisolated static let folderCollection = "chat_folders"
 
     /// Persistent conversations and in-memory incognito ones, newest first.
     private(set) var conversations: [Conversation] = []
+    /// Chat folders by name.
+    private(set) var folders: [ChatFolder] = []
     @ObservationIgnored private var stored: [String: Conversation] = [:]
     @ObservationIgnored private var incognito: [String: Conversation] = [:]
     @ObservationIgnored private let store: EncryptedStore
@@ -35,6 +37,7 @@ final class ConversationRepository {
     /// Loads persisted conversations (needs the device to be unlocked).
     func load() {
         stored = Dictionary(((try? store.all(Self.collection, as: Conversation.self)) ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        folders = sortedFolders((try? store.all(Self.folderCollection, as: ChatFolder.self)) ?? [])
         publish()
     }
 
@@ -64,13 +67,71 @@ final class ConversationRepository {
     /// Titles a new conversation from its first prompt and bumps it to the top.
     func titleFromPrompt(_ id: String, _ prompt: String) {
         guard var c = get(id) else { return }
-        if c.title == Self.defaultTitle {
-            let first = prompt.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
-            let trimmed = first.trimmingCharacters(in: .whitespaces)
-            c.title = String((trimmed.isEmpty ? "Image" : trimmed).prefix(Self.titleLength))
-        }
+        // Only an untitled chat is named after its prompt; a renamed one keeps its name.
+        if c.title == Self.defaultTitle { c.title = ChatNames.shared.fromPrompt(prompt: prompt) }
         c.updatedAt = nowMillis()
         update(c)
+    }
+
+    // MARK: Organization (shared `ChatNames` rules)
+
+    /// Renames [id] (blank names are ignored). Renaming is not activity: [updatedAt] stays.
+    func rename(_ id: String, _ title: String) {
+        guard var c = get(id), let name = ChatNames.shared.title(title: title) else { return }
+        c.title = name
+        update(c)
+    }
+
+    func setPinned(_ ids: some Collection<String>, _ pinned: Bool) { edit(ids) { $0.pinned = pinned } }
+
+    func setArchived(_ ids: some Collection<String>, _ archived: Bool) { edit(ids) { $0.archived = archived } }
+
+    /// Moves chats into [folderId] (nil: out of any folder).
+    func move(_ ids: some Collection<String>, to folderId: String?) { edit(ids) { $0.folderId = folderId } }
+
+    private func edit(_ ids: some Collection<String>, _ change: (inout Conversation) -> Void) {
+        for id in Set(ids) {
+            guard var c = get(id) else { continue }
+            change(&c)
+            update(c)
+        }
+    }
+
+    /// Why [name] cannot name a folder (nil: it can); [except] is the folder being renamed.
+    func folderProblem(_ name: String, except: String? = nil) -> String? {
+        ChatNames.shared.folderProblem(name: name, existing: folders.filter { $0.id != except }.map(\.name))
+    }
+
+    /// Creates a folder; nil when the name is empty or taken.
+    @discardableResult
+    func createFolder(_ name: String) -> ChatFolder? {
+        guard folderProblem(name) == nil else { return nil }
+        let folder = ChatFolder(id: UUID().uuidString.lowercased(), name: ChatNames.shared.folderName(name: name), createdAt: nowMillis())
+        saveFolder(folder)
+        return folder
+    }
+
+    func renameFolder(_ id: String, _ name: String) {
+        guard var folder = folders.first(where: { $0.id == id }), folderProblem(name, except: id) == nil else { return }
+        folder.name = ChatNames.shared.folderName(name: name)
+        saveFolder(folder)
+    }
+
+    /// Deletes a folder; its chats stay, outside any folder.
+    func deleteFolder(_ id: String) {
+        edit(conversations.filter { $0.folderId == id }.map(\.id)) { $0.folderId = nil }
+        try? store.delete(Self.folderCollection, id: id)
+        folders.removeAll { $0.id == id }
+    }
+
+    /// Adds or replaces a folder (import).
+    func saveFolder(_ folder: ChatFolder) {
+        try? store.put(Self.folderCollection, id: folder.id, folder)
+        folders = sortedFolders(folders.filter { $0.id != folder.id } + [folder])
+    }
+
+    private func sortedFolders(_ list: [ChatFolder]) -> [ChatFolder] {
+        list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func touch(_ id: String) {

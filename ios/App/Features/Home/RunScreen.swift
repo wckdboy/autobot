@@ -59,7 +59,8 @@ struct RunState {
         imageRoute = backend.map { $0.kind == .onDevice ? .localNpu : $0.isLoopback ? .localCpu : .pcLan }
 
         let byId = Dictionary(providers.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let convs = app.conversations.conversations.prefix(12).map { c in
+        let hidden = app.chats.hidden
+        let convs = app.conversations.conversations.filter { !$0.archived && !hidden.contains($0.id) }.prefix(12).map { c in
             RecentRun(
                 id: "c-\(c.id)",
                 title: c.title,

@@ -110,6 +110,7 @@ import dev.wckdboy.autobot.core.designsystem.motion.rememberInkEnterTracker
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.feature.chat.NameDialog
 import dev.wckdboy.autobot.providers.remote.ModelLists
 import dev.wckdboy.autobot.shared.session.NoticeKind
 import dev.wckdboy.autobot.shared.session.Receipt
@@ -180,6 +181,7 @@ fun ChatScreen(
 ) {
     var showModels by rememberSaveable { mutableStateOf(false) }
     var showSession by rememberSaveable { mutableStateOf(false) }
+    var renaming by rememberSaveable { mutableStateOf(false) }
     var openReceipt by remember { mutableStateOf<Receipt?>(null) }
     val listState = rememberLazyListState()
     val newest = state.items.lastOrNull()?.key to (state.live != null)
@@ -287,6 +289,18 @@ fun ChatScreen(
         )
     }
     openReceipt?.let { ReceiptSheet(it) { openReceipt = null } }
+    if (renaming) {
+        NameDialog(
+            title = "Rename chat",
+            initial = state.title,
+            confirm = "RENAME",
+            onDismiss = { renaming = false },
+            onConfirm = {
+                actions.rename(it)
+                renaming = false
+            },
+        )
+    }
     if (showSession) {
         SessionSheet(
             state = state,
@@ -296,6 +310,20 @@ fun ChatScreen(
             onCompact = {
                 actions.compact()
                 showSession = false
+            },
+            onRename = {
+                showSession = false
+                renaming = true
+            },
+            onPin = actions::setPinned,
+            onArchive = {
+                actions.setArchived(it)
+                showSession = false
+            },
+            onDelete = {
+                showSession = false
+                actions.delete()
+                onBack()
             },
         )
     }
@@ -968,9 +996,26 @@ private fun SessionSheet(
     onTools: (Boolean) -> Unit,
     onPermission: (PermissionPreset) -> Unit,
     onCompact: () -> Unit,
+    onRename: () -> Unit,
+    onPin: (Boolean) -> Unit,
+    onArchive: (Boolean) -> Unit,
+    onDelete: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SectionLabel("chat")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(state.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                TextButton(onClick = onRename) { Text("RENAME") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Pin to top", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Switch(checked = state.pinned, onCheckedChange = onPin)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { onArchive(!state.archived) }) { Text(if (state.archived) "UNARCHIVE" else "ARCHIVE") }
+                TextButton(onClick = onDelete) { Text("DELETE CHAT", color = MaterialTheme.colorScheme.error) }
+            }
             SectionLabel("session")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

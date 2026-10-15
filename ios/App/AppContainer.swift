@@ -43,6 +43,8 @@ final class AppContainer {
     let agent: any AgentRuntime
     let panicWipe: PanicWipe
     let sessions: SessionStore
+    /// Chat deletion (with undo) and search.
+    let chats: ChatLibrary
     #if canImport(AutobotShared)
     let snapshots = HostSnapshots()
     @ObservationIgnored private let searchSource: WebSearchSourceHost
@@ -87,6 +89,8 @@ final class AppContainer {
         #else
         agent = InterimAgentRuntime(store: sessions, conversations: conversations, providers: providers, factory: providerFactory, attachments: attachments)
         #endif
+
+        chats = ChatLibrary(conversations: conversations, agent: agent, sessions: sessions, attachments: attachments)
 
         let agent = agent, conversations = conversations, downloader = downloader, generator = generator, clients = clients, store = store, llm = llm
         panicWipe = PanicWipe(keys: keys, secrets: secrets, participants: [

@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.feature.settings
 
+import dev.wckdboy.autobot.agent.runtime.ChatLibrary
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -76,6 +80,7 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
+    private val chats: ChatLibrary,
     appLockManager: AppLockManager,
 ) : ViewModel() {
     private val lockAvailable = appLockManager.canAuthenticate()
@@ -105,6 +110,9 @@ class SettingsViewModel @Inject constructor(
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
 
+    /** Deletes every chat, stored and incognito, for good (running turns are stopped first). */
+    fun deleteAllChats() = launch { chats.deleteAll() }
+
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
     }
@@ -126,6 +134,21 @@ fun SettingsRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showBackup by rememberSaveable { mutableStateOf(false) }
     var showSearch by rememberSaveable { mutableStateOf(false) }
+    var confirmDeleteChats by rememberSaveable { mutableStateOf(false) }
+    if (confirmDeleteChats) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteChats = false },
+            title = { Text("Delete all chats?") },
+            text = { Text("Every session, its encrypted history, tool calls, approvals and attached images is removed from this phone. Folders, memory notes and workspace files stay. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteAllChats()
+                    confirmDeleteChats = false
+                }) { Text("DELETE ALL", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { Text("CANCEL") } },
+        )
+    }
     if (showBackup) BackupDialog(onDismiss = { showBackup = false })
     if (showSearch) WebSearchDialog(onDismiss = { showSearch = false })
     SettingsScreen(
@@ -146,6 +169,7 @@ fun SettingsRoute(
         onOpenMemory = onOpenMemory,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
+        onDeleteAllChats = { confirmDeleteChats = true },
     )
 }
 
@@ -169,6 +193,7 @@ fun SettingsScreen(
     onOpenMemory: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
+    onDeleteAllChats: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -283,6 +308,18 @@ fun SettingsScreen(
                 state.incognitoByDefault,
                 onIncognitoByDefault,
             )
+            Row(
+                Modifier.fillMaxWidth().clickable(onClick = onDeleteAllChats).padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Column {
+                    Text("Delete all chats", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                    Text(
+                        "Remove every session from this phone; folders and memory stay",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
