@@ -3,54 +3,16 @@ import Testing
 @testable import Autobot
 
 struct CatalogTests {
-    private static let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-
-    /// kotlinx.serialization defaults: enums by name, default values omitted.
-    private let fixture = """
-    [
-      {"id":"catalog:qwen","kind":"CHAT","source":"CATALOG","title":"Qwen","subtitle":"Q4_0","format":"GGUF","engine":"LLAMA","license":"apache-2.0",
-       "manifest":{"files":[{"role":"MODEL","name":"q.gguf","url":"https://huggingface.co/u/q/resolve/main/q.gguf","sizeBytes":1000,"auth":"HUGGING_FACE"},
-                            {"role":"MMPROJ","name":"mmproj-F16.gguf","url":"https://huggingface.co/u/q/resolve/main/mmproj-F16.gguf","sizeBytes":10,"auth":"HUGGING_FACE"}],
-                   "recommended":{"contextLength":16384}}},
-      {"id":"catalog:sd","kind":"IMAGE","source":"CATALOG","title":"SD","subtitle":"","format":"GGUF","engine":"DIFFUSION",
-       "manifest":{"files":[{"role":"MODEL","name":"sd.gguf","url":"https://x/sd.gguf"}],"recommended":{"steps":20,"cfg":7.0,"sampler":"euler_a"}}},
-      {"id":"catalog:npu","kind":"IMAGE","source":"CATALOG","title":"NPU","subtitle":"","format":"QNN","engine":"NPU",
-       "manifest":{"files":[{"role":"UNET","name":"unet.bin","url":"https://x/p.zip","zipEntry":{"entry":"unet.bin"},"keepName":true}],"npu":{"arch":"sd15","runtime":"qnn"}}},
-      {"id":"catalog:whisper","kind":"SPEECH","source":"CATALOG","title":"Whisper","subtitle":"","format":"GGML","engine":"WHISPER","license":"mit",
-       "manifest":{"files":[{"role":"MODEL","name":"ggml-base-q5_1.bin","url":"https://x/w.bin","sizeBytes":57}]}}
-    ]
-    """
-
-    @Test func decodesKotlinShapedCatalog() throws {
-        let plans = try Catalog.decode(Data(fixture.utf8))
-        #expect(plans.count == 4)
-        let qwen = plans[0]
-        #expect(qwen.kind == .chat && qwen.engine == .llama && qwen.format == .gguf && qwen.source == .catalog)
-        #expect(qwen.manifest.files[1].role == .mmproj)
-        #expect(qwen.manifest.files[0].auth == .huggingFace)
-        #expect(qwen.manifest.files[0].sha256 == nil)
-        #expect(qwen.manifest.files[0].keepName == false)
-        #expect(qwen.manifest.recommended?.contextLength == 16384)
-        #expect(qwen.manifest.trainedWords.isEmpty && !qwen.manifest.gated && !qwen.nsfw)
-        #expect(qwen.totalBytes == 1010)
-        #expect(plans[2].manifest.files[0].zipEntry?.dataOffset == -1)
-        #expect(plans[2].manifest.npu?.runtime == "qnn")
-    }
-
-    @Test func decodesGroupedCatalog() throws {
-        let grouped = "{\"chatModels\": \(fixture), \"broken\": [{\"id\": 1}]}"
-        #expect(try Catalog.decode(Data(grouped.utf8)).count == 4)
-    }
-
-    @Test func sharedCatalogFileDecodesAndKeepsRunnableEntries() throws {
-        let url = Self.repoRoot.appendingPathComponent("shared/catalog/catalog.json")
-        try #require(FileManager.default.fileExists(atPath: url.path), "shared/catalog/catalog.json not exported yet")
-        let plans = try Catalog.decode(Data(contentsOf: url))
-        #expect(plans.contains { $0.engine == .llama })
-        #expect(plans.contains { $0.engine == .whisper })
-        let runnable = plans.filter { $0.engine == .llama || $0.engine == .whisper }
-        #expect(runnable.allSatisfy { !$0.manifest.files.isEmpty && $0.manifest.files.allSatisfy { $0.url.hasPrefix("https://") } })
-        #expect(runnable.count < plans.count, "the export also carries Android-only image entries")
+    @Test func sharedCatalogBridgesEveryField() {
+        // Read through the framework (no JSON): the Android catalog's chat, code and speech entries.
+        let qwen = Catalog.shared.first { $0.id == "catalog:qwen3-vl-2b-q4_0" }
+        #expect(qwen?.kind == .chat && qwen?.engine == .llama && qwen?.format == .gguf && qwen?.source == .catalog)
+        #expect(qwen?.manifest.files.map(\.role) == [.model, .mmproj])
+        #expect(qwen?.manifest.files.first?.auth == .huggingFace)
+        #expect(qwen?.manifest.files.first?.url == "https://huggingface.co/unsloth/Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen3-VL-2B-Instruct-Q4_0.gguf")
+        #expect(qwen?.manifest.recommended?.contextLength == 8192)
+        #expect(qwen?.totalBytes == Int64(1008 + 781) * 1_048_576)
+        #expect(Catalog.shared.first { $0.id == "catalog:qwen3-4b-2507-q4_0" }?.manifest.notes == "Recommended for agent sessions.")
     }
 
     @Test func bundledCatalogOnlyHasIOSEngines() {
@@ -71,6 +33,7 @@ struct CatalogTests {
             #expect(plan.manifest.files.allSatisfy { $0.keepName && $0.sizeBytes > 0 && $0.url.contains("/resolve/") })
             // Weights are LFS objects with a known SHA-256.
             #expect(plan.manifest.files.filter { $0.name.hasSuffix("weight.bin") }.allSatisfy { $0.sha256?.count == 64 })
+            #expect(plan.manifest.recommended?.sampler == "DPM++ 2M" && plan.manifest.recommended?.cfg != nil)
         }
         let sd15 = CoreMLCatalog.all[0]
         #expect(sd15.manifest.files.contains { $0.name.hasPrefix("VAEEncoder.mlmodelc") })

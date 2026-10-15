@@ -1,7 +1,6 @@
 package dev.wckdboy.autobot.core.models
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 /** What a model is for. Drives which engine and screen use it. */
 @Serializable
@@ -34,12 +33,34 @@ enum class ModelFormat(val label: String) {
 
     /** Local Dream package Autobot cannot run (e.g. an architecture it does not support yet). */
     LOCAL_DREAM("Local Dream"),
+
+    /** Compiled Core ML resources (`.mlmodelc` / `.mlpackage`), e.g. Apple's `split_einsum` builds. */
+    COREML("Core ML"),
     OTHER("file"),
 }
 
 /** Which built-in engine runs the model, if any. */
 @Serializable
-enum class EngineKind(val label: String) { LLAMA("llama.cpp"), DIFFUSION("sd.cpp"), NPU("qnn · mnn"), WHISPER("whisper.cpp"), NONE("none") }
+enum class EngineKind(val label: String) {
+    LLAMA("llama.cpp"),
+    DIFFUSION("sd.cpp"),
+    NPU("qnn · mnn"),
+    WHISPER("whisper.cpp"),
+    COREML("core ml"),
+    NONE("none"),
+}
+
+/** An app and the built-in engines it ships. */
+enum class AppPlatform(val engines: Set<EngineKind>) {
+    ANDROID(setOf(EngineKind.LLAMA, EngineKind.DIFFUSION, EngineKind.NPU, EngineKind.WHISPER)),
+    IOS(setOf(EngineKind.LLAMA, EngineKind.WHISPER, EngineKind.COREML)),
+    ;
+
+    fun runs(engine: EngineKind): Boolean = engine in engines
+}
+
+/** The app this code runs in (the JVM target is Android's). */
+expect val HostPlatform: AppPlatform
 
 @Serializable
 enum class ModelSource(val label: String) { CATALOG("catalog"), HUGGING_FACE("hugging face"), CIVITAI("civitai") }
@@ -78,6 +99,7 @@ enum class AuthHost { HUGGING_FACE, CIVITAI }
 @Serializable
 data class ModelFile(
     val role: FileRole,
+    /** File name. With [keepName] it may be a relative path inside the model directory (Core ML bundles). */
     val name: String,
     val url: String,
     /** Expected size, or 0 when unknown until the server reports it. */
@@ -142,7 +164,7 @@ data class ModelManifest(
     val npu: NpuPackage? = null,
 )
 
-/** Everything needed to install a model. Serialized into `shared/catalog/catalog.json` for the iOS app. */
+/** Everything needed to install a model. */
 @Serializable
 data class ModelPlan(
     val id: String,
@@ -185,44 +207,50 @@ data class InstalledModel(
 ) {
     val isReady: Boolean get() = status == ModelStatus.READY
     val fraction: Float get() = if (totalBytes <= 0) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
-    val runnable: Boolean get() = isReady && engine != EngineKind.NONE
-}
-
-internal val ManifestJson = Json {
-    ignoreUnknownKeys = true
-    encodeDefaults = false
-    explicitNulls = false
+    val runnable: Boolean get() = isReady && engine != EngineKind.NONE && HostPlatform.runs(engine)
 }
 
 /** Formats bytes as `2.4 GB` / `512 MB`. */
 fun formatBytes(bytes: Long): String = when {
-    bytes >= 1_000_000_000L -> String.format(java.util.Locale.ROOT, "%.1f GB", bytes / 1e9)
-    bytes >= 1_000_000L -> String.format(java.util.Locale.ROOT, "%d MB", bytes / 1_000_000)
-    bytes >= 1_000L -> String.format(java.util.Locale.ROOT, "%d KB", bytes / 1_000)
+    bytes >= 1_000_000_000L -> {
+        val tenths = (bytes + 50_000_000L) / 100_000_000L
+        "${tenths / 10}.${tenths % 10} GB"
+    }
+    bytes >= 1_000_000L -> "${bytes / 1_000_000} MB"
+    bytes >= 1_000L -> "${bytes / 1_000} KB"
     else -> "$bytes B"
 }
 
 /** Guesses the file format from its name (and the repo owner, for Local Dream packages). */
 fun formatOf(name: String, owner: String? = null): ModelFormat {
     val n = name.lowercase()
+    val xororz = owner.equals("xororz", ignoreCase = true)
     return when {
-        "_qnn" in n || n.endsWith(".bin") && owner.equals("xororz", ignoreCase = true) -> ModelFormat.QNN
-        n.endsWith(".mnn") || owner.equals("xororz", ignoreCase = true) && n.endsWith(".zip") -> ModelFormat.MNN
-        owner.equals("xororz", ignoreCase = true) -> ModelFormat.LOCAL_DREAM
+        "_qnn" in n || n.endsWith(".bin") && xororz -> ModelFormat.QNN
+        n.endsWith(".mnn") || xororz && n.endsWith(".zip") -> ModelFormat.MNN
+        xororz -> ModelFormat.LOCAL_DREAM
         n.endsWith(".gguf") -> ModelFormat.GGUF
         n.startsWith("ggml-") && n.endsWith(".bin") -> ModelFormat.GGML
+        ".mlmodelc" in n || ".mlpackage" in n -> ModelFormat.COREML
         n.endsWith(".safetensors") -> ModelFormat.SAFETENSORS
         n.endsWith(".ckpt") || n.endsWith(".pt") || n.endsWith(".pth") -> ModelFormat.CKPT
         else -> ModelFormat.OTHER
     }
 }
 
-/** The built-in engine that can run [kind] in [format] (GGUF is used by both engines). */
-fun engineFor(kind: ModelKind, format: ModelFormat): EngineKind = when {
-    kind == ModelKind.SPEECH -> if (format == ModelFormat.GGML) EngineKind.WHISPER else EngineKind.NONE
-    format == ModelFormat.LOCAL_DREAM || format == ModelFormat.OTHER -> EngineKind.NONE
-    format == ModelFormat.QNN || format == ModelFormat.MNN -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.NPU else EngineKind.NONE
-    kind == ModelKind.CHAT || kind == ModelKind.CODE -> if (format == ModelFormat.GGUF) EngineKind.LLAMA else EngineKind.NONE
-    kind == ModelKind.IMAGE || kind == ModelKind.LORA || kind == ModelKind.VAE -> EngineKind.DIFFUSION
-    else -> EngineKind.NONE
+/**
+ * The built-in engine of [platform] that can run [kind] in [format] (GGUF is used by both Android
+ * engines; sd.cpp and QNN formats have no engine on iOS, Core ML none on Android).
+ */
+fun engineFor(kind: ModelKind, format: ModelFormat, platform: AppPlatform = HostPlatform): EngineKind {
+    val engine = when {
+        kind == ModelKind.SPEECH -> if (format == ModelFormat.GGML) EngineKind.WHISPER else EngineKind.NONE
+        format == ModelFormat.LOCAL_DREAM || format == ModelFormat.OTHER -> EngineKind.NONE
+        format == ModelFormat.QNN || format == ModelFormat.MNN -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.NPU else EngineKind.NONE
+        format == ModelFormat.COREML -> if (kind == ModelKind.IMAGE || kind == ModelKind.UPSCALER) EngineKind.COREML else EngineKind.NONE
+        kind == ModelKind.CHAT || kind == ModelKind.CODE -> if (format == ModelFormat.GGUF) EngineKind.LLAMA else EngineKind.NONE
+        kind == ModelKind.IMAGE || kind == ModelKind.LORA || kind == ModelKind.VAE -> EngineKind.DIFFUSION
+        else -> EngineKind.NONE
+    }
+    return if (platform.runs(engine)) engine else EngineKind.NONE
 }

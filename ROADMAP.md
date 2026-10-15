@@ -53,15 +53,16 @@ Move the remaining duplicated logic into `:shared`, so a fix lands on both platf
 - ✅ **Network policy in `:shared`.** `RouteResolver`, loopback rules, kill-switch decisions and the
   audit log, with one test suite. Android OkHttp and iOS URLSession become thin adapters.
   *(done in 1.2.2 on both platforms)*
-- **Settings schema in `:shared`.** The same keys, defaults and validation; DataStore and the iOS
-  store just persist it.
-- **Model management in `:shared`.** Fit rules (`FITS`/`TIGHT`/`TOO BIG`), Hugging Face and Civitai
+- ✅ **Settings schema in `:shared`.** The same keys, defaults and validation; DataStore and the iOS
+  store just persist it. *(1.3.0)*
+- ✅ **Model management in `:shared`.** Fit rules (`FITS`/`TIGHT`/`TOO BIG`), Hugging Face and Civitai
   clients, resumable SHA-256 download state machine, catalog. Per-platform image catalogs: QNN/MNN
   on Android, Core ML on iOS.
-- **Encrypted export/import.** A `.autobot` bundle (sessions, gallery, providers without keys),
-  sealed with a passphrase. It moves a user between Android and iOS.
-- **`generate_image` agent tool on iOS.**
-- **NPU upscaler on iOS** (Core ML Real-ESRGAN on the Neural Engine).
+- ✅ **Encrypted export/import.** A `.autobot` bundle (sessions, gallery, providers without keys),
+  sealed with a passphrase. It moves a user between Android and iOS. *(1.3.0; needs a
+  real-device round trip Android ↔ iPhone)*
+- ✅ **`generate_image` agent tool on iOS.** *(1.2.3)*
+- ✅ **NPU upscaler on iOS** (Core ML Real-ESRGAN on the Neural Engine). *(1.2.3)*
 
 **Exit:** `:shared` holds network, settings and model logic; both apps pass the same test suite. A
 session exported on Android opens on iOS.

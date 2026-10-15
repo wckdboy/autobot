@@ -106,18 +106,4 @@ class NpuPackagesTest {
         assertEquals("AnythingV5_qnn2.28_8gen2.zip", NpuCatalog.image.first { it.id == "npu:sd15:AnythingV5" }.fileFor("v79"))
         assertEquals("4x_UltraSharpV2_Lite/upscaler_8gen4.bin", NpuCatalog.upscalers.first().fileFor("v81"))
     }
-
-    @Test
-    fun fastestBackendWins() {
-        val now = 1_000L
-        val results = listOf(
-            Benchmark("m", Backend.CPU, generationTps = 12.0, createdAt = now),
-            Benchmark("m", Backend.GPU, generationTps = 30.0, createdAt = now),
-            Benchmark("m", Backend.GPU, generationTps = 5.0, createdAt = now - 10),
-            Benchmark("m", Backend.NPU, error = "failed", createdAt = now + 5),
-        )
-        assertEquals(Backend.GPU, ComputeProfile.fastest(results))
-        assertEquals(Backend.NPU, ComputeProfile.fastest(listOf(Benchmark("i", Backend.NPU, stepMs = 120.0), Benchmark("i", Backend.GPU, stepMs = 900.0))))
-        assertNull(ComputeProfile.fastest(emptyList()))
-    }
 }

@@ -5,6 +5,7 @@ struct SettingsScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
+    @State private var showBackup = false
 
     var body: some View {
         let settings = app.settings.settings
@@ -16,6 +17,7 @@ struct SettingsScreen: View {
                     NavigationRow(title: "Model providers", subtitle: "Chat endpoints and API keys") { nav.push(.providers) }
                     NavigationRow(title: "Image backends", subtitle: "Diffusion servers: Local Dream host, A1111/Forge, local SSE engines") { nav.push(.imageBackends) }
                     NavigationRow(title: "Privacy Center", subtitle: "Network mode, audit log, panic wipe") { nav.push(.privacyCenter) }
+                    NavigationRow(title: "Export & import", subtitle: "Move sessions and gallery between phones, sealed with a passphrase") { showBackup = true }
                     NavigationRow(title: "Licenses", subtitle: "Autobot and the open-source software inside it") { nav.push(.licenses) }
                     Hairline().padding(.vertical, 8)
 
@@ -74,6 +76,7 @@ struct SettingsScreen: View {
             }
         }
         .background(c.background)
+        .sheet(isPresented: $showBackup) { BackupSheet() }
     }
 
     private func header(_ text: String) -> some View {

@@ -443,8 +443,7 @@ private struct RepoSheet: View {
                 if !bundles.isEmpty {
                     MicroLabel("core ml · whole folder, one model")
                     ForEach(bundles, id: \.self) { folder in
-                        let prefix = folder.isEmpty ? "" : folder + "/"
-                        let size = repo.files.filter { $0.path.hasPrefix(prefix) && !$0.path.dropFirst(prefix.count).hasPrefix("SafetyChecker") }.reduce(0) { $0 + $1.sizeBytes }
+                        let size = repo.coreMLSize(folder)
                         let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
                         RunRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.contains("split_einsum") ? "neural engine" : "gpu")") {
                             if let fit { Tag(fit.label, accent: fitColor(fit, c)) }

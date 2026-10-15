@@ -1,3 +1,4 @@
+import AutobotShared
 import CryptoKit
 import Foundation
 import Synchronization
@@ -27,25 +28,23 @@ protocol BulkTransfer: Sendable {
 /// for — never to a different host, even another hub host.
 func vetTransferHop(_ request: URLRequest, client: HttpClient, proxy: Proxy, original: URL, auth: AuthHost?) throws -> URLRequest {
     var hop = request
-    let host = hop.url?.host()
-    if host == nil || host != original.host() || auth.map({ FileFetcher.isHubHost(host!, $0) }) != true {
+    if !FetchRules.shared.keepsCredential(hopUrl: hop.url?.absoluteString ?? "", originalUrl: original.absoluteString, auth: auth?.kotlin) {
         hop.setValue(nil, forHTTPHeaderField: "Authorization")
     }
     return try client.admitRedirect(hop, sessionProxy: proxy)
 }
 
 /**
- Transfers one file (port of `FileFetcher.kt`): resolves redirects hop by hop (each hop passes
- the kill switch and is audited; credentials are only sent to their own hub), appends to
- `*.part` with `Range` resume, verifies SHA-256 (known up front, or the Hub's `X-Linked-ETag`)
- and atomically renames to the target.
+ Moves the bytes of one file for the shared `FetchSession`, which decides everything else:
+ redirects hop by hop (each hop passes the kill switch and is audited; credentials are only sent
+ to their own hub), `Range` resume of `*.part`, SHA-256 verification (known up front, or the Hub's
+ `X-Linked-ETag`) and what happens to a part file that fails it.
 
  Bodies stream through the policy client by default. With a [BulkTransfer] (the background
  session) the headers of the final hop are read through the policy client, then the body is
  handed to the transfer with the same scrubbed request and route.
  */
 struct FileFetcher: Sendable {
-    static let maxHops = 6
     private static let chunk = 256 * 1024
 
     let clients: HttpClientFactory
@@ -54,115 +53,97 @@ struct FileFetcher: Sendable {
     /// Downloads [file] to [target]; returns it with its verified size and SHA-256.
     func fetch(_ file: ModelFile, to target: URL, credential: Secret?, onProgress: @escaping @Sendable (Int64, Int64) -> Void) async throws -> ModelFile {
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Remote zip entries are Android's NPU packages; Core ML bundles are plain files.
         if file.zipEntry != nil { throw DownloadError(message: "Zip packages are Android-only", retryable: false) }
         let part = target.appendingPathExtension("part")
-        var expectedSha = file.sha256?.lowercased()
-        var expectedSize = file.sizeBytes
-        guard var url = URL(string: file.url) else { throw DownloadError(message: "Invalid URL", retryable: false) }
-        var hops = 0
+        let session = FetchSession(file: file.kotlin, credential: credential.flatMap { $0.isBlank ? nil : $0.reveal() })
+        var step = session.begin(have: Self.size(part))
         while true {
-            try Task.checkCancellation()
-            hops += 1
-            if hops > Self.maxHops { throw DownloadError(message: "Too many redirects") }
-            let have = Self.size(part)
-            let request = Self.request(url, offset: have, credential: credential, auth: file.auth)
-            let client = clients.create(tag: "models:download")
-            let (bytes, response) = try await client.stream(request)
-            let status = response.statusCode
-            if [301, 302, 303, 307, 308].contains(status) {
-                bytes.task.cancel()
-                // The Hub reports the LFS SHA-256 and size on the redirect.
-                if let etag = header(response, "X-Linked-ETag")?.trimmingCharacters(in: CharacterSet(charactersIn: "\" ")).lowercased(),
-                   Self.isSha256(etag), expectedSha == nil {
-                    expectedSha = etag
-                }
-                if let size = header(response, "X-Linked-Size").flatMap({ Int64($0) }) { expectedSize = size }
-                guard let location = header(response, "Location"), let next = URL(string: location, relativeTo: url)?.absoluteURL else {
-                    throw DownloadError(message: "Redirect without location")
-                }
-                url = next
-                continue
-            }
-            switch status {
-            case 200, 206:
-                let append = status == 206 && have > 0
-                let length = response.expectedContentLength
-                let total = append ? have + max(length, 0) : length
-                if expectedSize <= 0 && total > 0 { expectedSize = total }
-                if let bulk {
-                    bytes.task.cancel()
-                    let (admitted, proxy) = try client.admitForTransfer(request)
-                    let base = append ? have : 0
-                    let size = expectedSize
-                    let original = url, auth = file.auth
-                    let (tmp, result) = try await bulk.download(admitted, proxy: proxy, vetHop: { hop in
-                        try vetTransferHop(hop, client: client, proxy: proxy, original: original, auth: auth)
-                    }) { written in
-                        onProgress(base + written, max(size, base + written))
+            if step is FetchStepNext {
+                try Task.checkCancellation()
+                let have = Self.size(part)
+                let next = try DownloadError.rethrowing { try session.request(have: have) }
+                guard let url = URL(string: next.url) else { throw DownloadError(message: "Invalid URL", retryable: false) }
+                let request = Self.request(url, headers: next.headers)
+                let client = clients.create(tag: "models:download")
+                let (bytes, response) = try await client.stream(request)
+                let status = response.statusCode
+                let headers = HttpClient.headers(response)
+                let answer = session.onResponse(status: Int32(status), headers: headers, have: have, contentLength: response.expectedContentLength)
+                if let write = answer as? FetchStepWrite {
+                    let append = write.append
+                    let expected = session.expectedSize
+                    if let bulk {
+                        bytes.task.cancel()
+                        let (admitted, proxy) = try client.admitForTransfer(request)
+                        let base = append ? have : 0
+                        let auth = file.auth
+                        let (tmp, result) = try await bulk.download(admitted, proxy: proxy, vetHop: { hop in
+                            try vetTransferHop(hop, client: client, proxy: proxy, original: url, auth: auth)
+                        }) { written in
+                            onProgress(base + written, max(expected, base + written))
+                        }
+                        guard result.statusCode == status else { throw DownloadError(message: "HTTP \(result.statusCode)") }
+                        try Self.commitChunk(tmp, to: part, append: append)
+                    } else {
+                        try await Self.stream(bytes, to: part, append: append, expectedSize: expected, onProgress: onProgress)
                     }
-                    guard result.statusCode == status else { throw DownloadError(message: "HTTP \(result.statusCode)") }
-                    try Self.commitChunk(tmp, to: part, append: append)
+                    step = FetchStepVerify.shared
+                } else if answer is FetchStepReject {
+                    let body = await bytes.prefixData(2048)
+                    throw DownloadError(session.failure(status: Int32(status), headers: headers, body: String(decoding: body, as: UTF8.self)))
                 } else {
-                    try await Self.stream(bytes, to: part, append: append, expectedSize: expectedSize, onProgress: onProgress)
+                    bytes.task.cancel()
+                    step = answer
                 }
-            case 416:
-                bytes.task.cancel()
-                if expectedSize > 0 && have != expectedSize {
-                    try? FileManager.default.removeItem(at: part)
-                    continue
-                }
-            default:
-                let body = await bytes.prefixData(2048)
-                throw failure(response, body: body, file: file)
+            } else if step is FetchStepRestart {
+                try? FileManager.default.removeItem(at: part)
+                step = FetchStepNext.shared
+            } else if let fail = step as? FetchStepFail {
+                throw DownloadError(fail.error)
+            } else {
+                return try await verifyAndCommit(session, part: part, target: target)
             }
-            return try await Task.detached { try Self.verifyAndCommit(part: part, target: target, file: file, expectedSha: expectedSha, expectedSize: expectedSize) }.value
         }
     }
 
-    /// Reads at most [limit] bytes of [url] (small JSON / text), following redirects hop by hop.
-    func readSmall(_ url: URL, credential: Secret?, auth: AuthHost?, limit: Int = 4 << 20) async throws -> HttpResponse {
-        var current = url
-        for _ in 0 ..< Self.maxHops {
-            let response = try await clients.create(tag: "models:download").send(Self.request(current, offset: 0, credential: credential, auth: auth))
-            if response.isRedirect, let location = response.header("Location"), let next = URL(string: location, relativeTo: current)?.absoluteURL {
-                current = next
-                continue
-            }
-            return response
+    /// Checks the part file against the session (size, then SHA-256) and moves it to [target].
+    private func verifyAndCommit(_ session: FetchSession, part: URL, target: URL) async throws -> ModelFile {
+        let fm = FileManager.default
+        let length = Self.size(part)
+        try DownloadError.rethrowing { try session.checkComplete(partSize: fm.fileExists(atPath: part.path) ? length : -1) }
+        let actual = try await Task.detached { try Self.sha256(part) }.value
+        let verified: AutobotShared.ModelFile
+        do {
+            verified = try DownloadError.rethrowing { try session.verify(sha256: actual, size: length) }
+        } catch {
+            try? fm.removeItem(at: part)
+            throw error
         }
-        throw DownloadError(message: "Too many redirects")
+        try? fm.removeItem(at: target)
+        do { try fm.moveItem(at: part, to: target) } catch { throw DownloadError(message: "Could not store \(session.file.name)") }
+        return ModelFile(verified)
     }
 
-    static func request(_ url: URL, offset: Int64, credential: Secret?, auth: AuthHost?, end: Int64 = -1) -> URLRequest {
+    static func request(_ url: URL, headers: [String: String]) -> URLRequest {
         var r = URLRequest(url: url)
         r.httpMethod = "GET"
-        r.setValue("*/*", forHTTPHeaderField: "Accept")
-        if end >= 0 {
-            r.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
-        } else if offset > 0 {
-            r.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
-        }
-        // Credentials go only to their own hub, never to CDNs or third parties.
-        if let credential, !credential.isBlank, let auth, let host = url.host(), isHubHost(host, auth) {
-            r.setValue("Bearer \(credential.reveal())", forHTTPHeaderField: "Authorization")
-        }
+        headers.forEach { r.setValue($0.value, forHTTPHeaderField: $0.key) }
         return r
     }
 
-    static func isHubHost(_ host: String, _ auth: AuthHost) -> Bool {
-        switch auth {
-        case .huggingFace: host == "huggingface.co"
-        case .civitai: host == "civitai.com" || host == "civitai.red"
-        }
+    /// A GET from [offset] (to [end] inclusive when `>= 0`); the credential only goes to its own hub.
+    static func request(_ url: URL, offset: Int64, credential: Secret?, auth: AuthHost?, end: Int64 = -1) -> URLRequest {
+        let headers = FetchRules.shared.headers(url: url.absoluteString, offset: offset, end: end,
+                                                credential: credential.flatMap { $0.isBlank ? nil : $0.reveal() }, auth: auth?.kotlin)
+        return request(url, headers: headers)
     }
 
-    static func isSha256(_ s: String) -> Bool { s.count == 64 && s.allSatisfy { $0.isHexDigit && !$0.isUppercase } }
+    static func isHubHost(_ host: String, _ auth: AuthHost) -> Bool { FetchRules.shared.isHubHost(host: host, auth: auth.kotlin) }
 
     static func size(_ url: URL) -> Int64 {
         ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? 0
     }
-
-    private func header(_ r: HTTPURLResponse, _ name: String) -> String? { r.value(forHTTPHeaderField: name) }
 
     private static func stream(_ bytes: URLSession.AsyncBytes, to part: URL, append: Bool, expectedSize: Int64, onProgress: @Sendable (Int64, Int64) -> Void) async throws {
         let fm = FileManager.default
@@ -218,51 +199,12 @@ struct FileFetcher: Sendable {
         try out.synchronize()
     }
 
-    static func verifyAndCommit(part: URL, target: URL, file: ModelFile, expectedSha: String?, expectedSize: Int64) throws -> ModelFile {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: part.path) else { throw DownloadError(message: "Download produced no data") }
-        let length = size(part)
-        if expectedSize > 0 && length != expectedSize {
-            throw DownloadError(message: "Incomplete download (\(formatBytes(length)) of \(formatBytes(expectedSize))); resume to continue")
-        }
-        let actual = try sha256(part)
-        if let expectedSha, actual != expectedSha {
-            try? fm.removeItem(at: part)
-            throw DownloadError(message: "Checksum mismatch for \(file.name): the file was corrupted or altered. It was deleted; retry the download.")
-        }
-        try? fm.removeItem(at: target)
-        do { try fm.moveItem(at: part, to: target) } catch { throw DownloadError(message: "Could not store \(file.name)") }
-        var done = file
-        done.sizeBytes = length
-        done.sha256 = actual
-        return done
-    }
-
     static func sha256(_ url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
         while let data = try handle.read(upToCount: 4 << 20), !data.isEmpty { hasher.update(data: data) }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func failure(_ r: HTTPURLResponse, body: Data, file: ModelFile) -> DownloadError {
-        let text = String(decoding: body, as: UTF8.self)
-        if r.value(forHTTPHeaderField: "X-Error-Code") == "GatedRepo" {
-            return DownloadError(message: "Gated model: accept its terms on huggingface.co with your account, then sign in under Remote → Accounts.", retryable: false)
-        }
-        switch r.statusCode {
-        case 401 where file.auth == .civitai:
-            return DownloadError(message: "Civitai requires login for this file: add an API key under Remote → Accounts.", retryable: false)
-        case 401, 403:
-            return DownloadError(message: "Access denied (HTTP \(r.statusCode))\(text.contains("Early Access") ? ": early-access file" : "")", retryable: false)
-        case 404, 410:
-            return DownloadError(message: "File no longer available (HTTP \(r.statusCode))", retryable: false)
-        case 429:
-            return DownloadError(message: "Rate limited by the server — resume later")
-        default:
-            return DownloadError(message: "HTTP \(r.statusCode)")
-        }
     }
 }
 

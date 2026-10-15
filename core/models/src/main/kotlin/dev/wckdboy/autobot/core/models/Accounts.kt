@@ -17,9 +17,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
-/** Civitai web/API host. `.red` is the domain that includes mature content (split 2026-04-15). */
-enum class CivitaiHost(val host: String) { COM("civitai.com"), RED("civitai.red") }
-
 data class AccountState(
     val huggingFaceUser: String? = null,
     val civitaiUser: String? = null,

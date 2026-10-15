@@ -58,12 +58,12 @@ treats every network request as something the user has to opt into, can see, and
 | `:core:designsystem` | Riso theme: one signal red on ink (dark) or paper (light), Antonio display + JetBrains Mono labels, halftone rendering (`HalftoneImage`, `HalftoneField`), `ModeCard`, `RouteTag`, `RunRow`, `BigReadout`, `Panel`, `Tag`, sliders, segmented controls, `AutobotNavBar`, stroke icons |
 | `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
 | `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
-| `:core:models` | Catalog, `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face and Civitai clients, resumable SHA-256-verified `FileFetcher`, `ModelDownloader` + foreground service, `ModelLibrary` |
+| `:core:models` | Android side of model management: `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face / Civitai clients and NPU package plans over the shared hubs, `FileFetcher` (OkHttp bytes for the shared download state machine), `ModelDownloader` + foreground service, `ModelLibrary`, accounts |
 | `:engine:llama` | llama.cpp (MIT) via JNI in the `:llm` process: chat templates, tool-call parsing, KV prefix reuse, runtime CPU variant selection |
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
 | `:engine:speech` | whisper.cpp (MIT) in the `:asr` process: on-device dictation |
-| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
+| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
 | `:agent:core` | Kotlin Multiplatform (JVM + iOS) port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
@@ -251,8 +251,8 @@ When it exists, `:app:assembleRelease` produces a signed `app-release.apk`; othe
 See [ios/README.md](ios/README.md). In short: `./gradlew :shared:assembleAutobotSharedReleaseXCFramework`
 builds the shared Kotlin runtime, `ios/Packages/AutobotEngines/scripts/build-xcframeworks.sh` builds
 llama.cpp and whisper.cpp for iOS, and `cd ios && xcodegen generate` creates the Xcode project.
-Design tokens (`shared/design/tokens.json`) and the curated catalog (`shared/catalog/catalog.json`,
-kept in sync with `Catalog.kt` by `SharedCatalogTest`) are shared by both apps.
+Design tokens (`shared/design/tokens.json`) are shared by both apps; the model catalog, fit rules,
+hub clients and download state machine live in `:shared` (`dev.wckdboy.autobot.core.models`).
 
 ### Qualcomm QNN
 

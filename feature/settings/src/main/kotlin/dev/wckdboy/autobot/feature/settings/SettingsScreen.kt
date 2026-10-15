@@ -30,6 +30,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -40,9 +43,11 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
+import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.security.AppLockManager
+import dev.wckdboy.autobot.feature.settings.backup.BackupDialog
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -92,13 +97,8 @@ class SettingsViewModel @Inject constructor(
     }
 }
 
-val LockTimeoutOptions: List<Pair<Long, String>> = listOf(
-    0L to "Immediately",
-    30_000L to "30 s",
-    60_000L to "1 min",
-    5 * 60_000L to "5 min",
-    15 * 60_000L to "15 min",
-)
+val LockTimeoutOptions: List<Pair<Long, String>> =
+    SettingsSchema.LOCK_TIMEOUTS_MILLIS.zip(listOf("Immediately", "30 s", "1 min", "5 min", "15 min"))
 
 @Composable
 fun SettingsRoute(
@@ -109,6 +109,8 @@ fun SettingsRoute(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var showBackup by rememberSaveable { mutableStateOf(false) }
+    if (showBackup) BackupDialog(onDismiss = { showBackup = false })
     SettingsScreen(
         state = state,
         onBack = onBack,
@@ -121,6 +123,7 @@ fun SettingsRoute(
         onAppLock = viewModel::setAppLock,
         onLockTimeout = viewModel::setLockTimeout,
         onIncognitoByDefault = viewModel::setIncognitoByDefault,
+        onOpenBackup = { showBackup = true },
     )
 }
 
@@ -138,6 +141,7 @@ fun SettingsScreen(
     onAppLock: (Boolean) -> Unit,
     onLockTimeout: (Long) -> Unit,
     onIncognitoByDefault: (Boolean) -> Unit,
+    onOpenBackup: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -160,6 +164,7 @@ fun SettingsScreen(
             NavigationRow("Model providers", "Chat endpoints and API keys", onOpenProviders)
             NavigationRow("Image backends", "Diffusion servers: on-device sidecar, Local Dream host, A1111/Forge", onOpenImageBackends)
             NavigationRow("Privacy Center", "Network mode, audit log, panic wipe", onOpenPrivacyCenter)
+            NavigationRow("Export & import", "Move sessions and gallery between phones, sealed with a passphrase", onOpenBackup)
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             SectionHeader("Appearance")

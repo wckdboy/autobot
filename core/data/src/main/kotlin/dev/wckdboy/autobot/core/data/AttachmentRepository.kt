@@ -29,8 +29,10 @@ class AttachmentRepository @Inject constructor(
     private val plainDir: File get() = File(context.cacheDir, PLAIN_DIR).apply { mkdirs() }
 
     /** Seals [bytes] (an encoded image) and returns its id. */
-    suspend fun put(bytes: ByteArray): String = withContext(io) {
-        val id = UUID.randomUUID().toString()
+    suspend fun put(bytes: ByteArray): String = restore(UUID.randomUUID().toString(), bytes)
+
+    /** Seals [bytes] under a known [id] (import of an export bundle). */
+    suspend fun restore(id: String, bytes: ByteArray): String = withContext(io) {
         val sealed = AesGcmEnvelope.seal(keyManager.mediaKey(), bytes, aad(id))
         val tmp = File(dir, "$id.tmp")
         tmp.writeBytes(sealed)

@@ -232,6 +232,15 @@ final class LocalSpeech: Sendable {
 // MARK: - Device
 
 enum LocalDeviceInfo {
+    /// Whether the chip has an Apple Neural Engine (false when the engines package is missing).
+    static var hasNeuralEngine: Bool {
+        #if canImport(AutobotEngines)
+        DeviceCompute.current().hasNeuralEngine
+        #else
+        false
+        #endif
+    }
+
     /// Hardware facts from the engines package when linked (marketing name, chip, ANE).
     static func current() -> (machine: String, name: String?, chip: String?, neuralEngine: Bool, gpu: String?, availableRam: Int64?) {
         #if canImport(AutobotEngines)

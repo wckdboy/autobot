@@ -1,8 +1,9 @@
+import AutobotShared
 import Foundation
 
-// Codable mirrors of `core/models/.../Models.kt`. Enum raw values are the Kotlin names, so the
-// shared catalog (`shared/catalog/catalog.json`, kotlinx.serialization defaults: enums by name,
-// default values omitted) decodes as is. Every optional or defaulted field tolerates absence.
+// Codable mirrors of the shared model types (`shared/.../core/models/Models.kt`), converted in
+// SharedModels.swift. Enum raw values are the Kotlin names. They are stored in the encrypted
+// store, so every optional or defaulted field tolerates absence when decoding.
 
 /// What a model is for. Drives which engine and screen use it.
 enum ModelKind: String, Codable, CaseIterable, Sendable {
@@ -58,7 +59,7 @@ enum EngineKind: String, Codable, CaseIterable, Sendable {
     }
 
     /// Engines this iOS build can run.
-    var runsOnIOS: Bool { self == .llama || self == .whisper || self == .coreML }
+    var runsOnIOS: Bool { AppPlatform.ios.runs(engine: kotlin) }
 }
 
 enum ModelSource: String, Codable, CaseIterable, Sendable {
@@ -293,34 +294,14 @@ struct InstalledModel: Codable, Identifiable, Equatable, Sendable {
     var runnable: Bool { isReady && engine != .none && engine.runsOnIOS }
 }
 
-/// Formats bytes as `2.4 GB` / `512 MB` (same rules as Android's `formatBytes`).
-func formatBytes(_ bytes: Int64) -> String {
-    if bytes >= 1_000_000_000 { return String(format: "%.1f GB", Double(bytes) / 1e9) }
-    if bytes >= 1_000_000 { return "\(bytes / 1_000_000) MB" }
-    if bytes >= 1_000 { return "\(bytes / 1_000) KB" }
-    return "\(bytes) B"
-}
+/// Formats bytes as `2.4 GB` / `512 MB` (the shared rules).
+func formatBytes(_ bytes: Int64) -> String { ModelsKt.formatBytes(bytes: bytes) }
 
 /// Guesses the file format from its name (and the repo owner, for Local Dream packages).
-func formatOf(_ name: String, owner: String? = nil) -> ModelFormat {
-    let n = name.lowercased()
-    let xororz = owner?.caseInsensitiveCompare("xororz") == .orderedSame
-    if n.contains("_qnn") || (n.hasSuffix(".bin") && xororz) { return .qnn }
-    if n.hasSuffix(".mnn") || (xororz && n.hasSuffix(".zip")) { return .mnn }
-    if xororz { return .localDream }
-    if n.hasSuffix(".gguf") { return .gguf }
-    if n.hasPrefix("ggml-") && n.hasSuffix(".bin") { return .ggml }
-    if n.contains(".mlmodelc") || n.contains(".mlpackage") { return .coreML }
-    if n.hasSuffix(".safetensors") { return .safetensors }
-    if n.hasSuffix(".ckpt") || n.hasSuffix(".pt") || n.hasSuffix(".pth") { return .ckpt }
-    return .other
-}
+func formatOf(_ name: String, owner: String? = nil) -> ModelFormat { ModelFormat(ModelsKt.formatOf(name: name, owner: owner)) }
 
 /// The built-in engine that can run [kind] in [format] on iOS (Android's sd.cpp/QNN formats
 /// have no engine here; Core ML replaces them for images).
 func engineFor(_ kind: ModelKind, _ format: ModelFormat) -> EngineKind {
-    if kind == .speech { return format == .ggml ? .whisper : .none }
-    if format == .coreML { return kind == .image || kind == .upscaler ? .coreML : .none }
-    if kind == .chat || kind == .code { return format == .gguf ? .llama : .none }
-    return .none
+    EngineKind(ModelsKt.engineFor(kind: kind.kotlin, format: format.kotlin, platform: .ios))
 }

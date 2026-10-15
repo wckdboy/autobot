@@ -1,13 +1,16 @@
+import AutobotShared
 import Foundation
 import Observation
 
 /// Non-secret user preferences. Secrets (API keys) never go here; they live in the Keychain.
+/// Defaults, keys and parsing are the shared `SettingsSchema`, so both apps agree.
 struct AppSettings: Codable, Equatable, Sendable {
     static let defaultLockTimeoutMillis: Int64 = 60_000
 
-    /// iOS follows the system appearance by default (Android ships dark-by-default).
-    var themeMode: ThemeMode = .system
+    var themeMode: ThemeMode = .dark
     var amoled = false
+    /// Android only (Material You); kept so an export round-trips it.
+    var dynamicColor = false
     /// [NetworkMode.encode] form; malformed values fail closed to Offline.
     var networkMode = NetworkMode.encode(.offline)
     var allowLoopbackWhenOffline = true
@@ -21,6 +24,7 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     init() {}
 
+    /// Pre-1.2.4 storage: one Codable blob under `settings` (read once, then migrated).
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         themeMode = (try? c.decode(ThemeMode.self, forKey: .themeMode)) ?? .system
@@ -32,16 +36,49 @@ struct AppSettings: Codable, Equatable, Sendable {
         incognitoByDefault = (try? c.decode(Bool.self, forKey: .incognitoByDefault)) ?? false
         onboarded = (try? c.decode(Bool.self, forKey: .onboarded)) ?? false
     }
+
+    /// The shared string form (`SettingsSchema.encode`): what is stored and exported.
+    var values: [String: String] {
+        let shared = AutobotShared.AppSettings(
+            themeMode: AutobotShared.ThemeMode.entries.first { $0.name == themeMode.rawValue } ?? .dark,
+            amoled: amoled,
+            dynamicColor: dynamicColor,
+            networkMode: mode.shared,
+            allowLoopbackWhenOffline: allowLoopbackWhenOffline,
+            appLockEnabled: appLockEnabled,
+            lockTimeoutMillis: lockTimeoutMillis,
+            incognitoByDefault: incognitoByDefault,
+            onboarded: onboarded,
+        )
+        return SettingsSchema.shared.encode(settings: shared)
+    }
+
+    /// Parses the shared string form; unknown, missing or malformed values fall back to defaults.
+    init(values: [String: String]) {
+        let s = SettingsSchema.shared.decode(values: values)
+        themeMode = ThemeMode(rawValue: s.themeMode.name) ?? .dark
+        amoled = s.amoled
+        dynamicColor = s.dynamicColor
+        networkMode = NetworkMode.encode(NetworkMode(shared: s.networkMode))
+        allowLoopbackWhenOffline = s.allowLoopbackWhenOffline
+        appLockEnabled = s.appLockEnabled
+        lockTimeoutMillis = s.lockTimeoutMillis
+        incognitoByDefault = s.incognitoByDefault
+        onboarded = s.onboarded
+    }
 }
 
 /**
- Observable settings, persisted in [Preferences], and mirrored into the in-memory enforcement
- points ([NetworkPolicy], [AppLockManager]) — the iOS counterpart of `SettingsRepository` +
- `SettingsSync`. Both enforcement points fail closed (Offline / Locked) until settings load.
+ Observable settings, persisted in [Preferences] as the shared `SettingsSchema` string map, and
+ mirrored into the in-memory enforcement points ([NetworkPolicy], [AppLockManager]) — the iOS
+ counterpart of `SettingsRepository` + `SettingsSync`. Both fail closed (Offline / Locked).
  */
 @MainActor
 @Observable
 final class SettingsStore {
+    static let key = "app_settings"
+    private static let legacyKey = "settings"
+
     private(set) var settings: AppSettings
     @ObservationIgnored private let preferences: Preferences
     @ObservationIgnored private let policy: NetworkPolicy
@@ -51,7 +88,16 @@ final class SettingsStore {
         self.preferences = preferences
         self.policy = policy
         self.lock = lock
-        settings = preferences.get("settings", as: AppSettings.self) ?? AppSettings()
+        if let values = preferences.get(Self.key, as: [String: String].self) {
+            settings = AppSettings(values: values)
+        } else if let legacy = preferences.get(Self.legacyKey, as: AppSettings.self) {
+            // One-time migration from the Codable blob; round-trips through the shared codec.
+            settings = AppSettings(values: legacy.values)
+            preferences.set(Self.key, settings.values)
+            preferences.remove(Self.legacyKey)
+        } else {
+            settings = AppSettings(values: [:])
+        }
         sync()
     }
 
@@ -60,7 +106,7 @@ final class SettingsStore {
         change(&next)
         guard next != settings else { return }
         settings = next
-        preferences.set("settings", next)
+        preferences.set(Self.key, next.values)
         sync()
     }
 
@@ -72,19 +118,22 @@ final class SettingsStore {
 
     func setThemeMode(_ mode: ThemeMode) { update { $0.themeMode = mode } }
     func setAmoled(_ enabled: Bool) { update { $0.amoled = enabled } }
+    func setDynamicColor(_ enabled: Bool) { update { $0.dynamicColor = enabled } }
     func setNetworkMode(_ mode: NetworkMode) { update { $0.networkMode = NetworkMode.encode(mode) } }
     func setAllowLoopbackWhenOffline(_ allow: Bool) { update { $0.allowLoopbackWhenOffline = allow } }
     func setAppLockEnabled(_ enabled: Bool) { update { $0.appLockEnabled = enabled } }
-    func setLockTimeoutMillis(_ millis: Int64) { update { $0.lockTimeoutMillis = max(0, millis) } }
+    func setLockTimeoutMillis(_ millis: Int64) { update { $0.lockTimeoutMillis = SettingsSchema.shared.lockTimeout(value: KotlinLong(value: millis)) } }
     func setIncognitoByDefault(_ enabled: Bool) { update { $0.incognitoByDefault = enabled } }
     func setOnboarded() { update { $0.onboarded = true } }
 }
 
-/// Lock timeout choices (same as Android).
-let lockTimeoutOptions: [(millis: Int64, label: String)] = [
-    (0, "Immediately"),
-    (30_000, "30 s"),
-    (60_000, "1 min"),
-    (5 * 60_000, "5 min"),
-    (15 * 60_000, "15 min"),
-]
+/// Lock timeout choices: the shared `SettingsSchema.LOCK_TIMEOUTS_MILLIS` (same as Android).
+let lockTimeoutOptions: [(millis: Int64, label: String)] = SettingsSchema.shared.LOCK_TIMEOUTS_MILLIS.map { value in
+    let millis = value.int64Value
+    let label = switch millis {
+    case 0: "Immediately"
+    case ..<60_000: "\(millis / 1000) s"
+    default: "\(millis / 60_000) min"
+    }
+    return (millis, label)
+}

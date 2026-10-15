@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 
 /**
  * Registry of installed and in-progress models. Files live in app-private storage:
@@ -114,6 +115,12 @@ class ModelLibrary @Inject constructor(
 
     companion object {
         private const val DIR = "models"
+
+        private val ManifestJson = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = false
+            explicitNulls = false
+        }
 
         /** File-system-safe, collision-resistant name for an id. */
         fun safeName(id: String): String {

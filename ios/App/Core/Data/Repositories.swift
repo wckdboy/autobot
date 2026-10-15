@@ -281,6 +281,11 @@ final class AttachmentRepository: Sendable {
         return id
     }
 
+    /// Stores [bytes] under an existing [id] (import of an export bundle).
+    func restore(_ id: String, _ bytes: Data) throws {
+        try AppPaths.write(try AesGcmEnvelope.seal(keys.mediaKey(), bytes, aad: aad(id)), to: file(id))
+    }
+
     func bytes(_ id: String) -> Data? {
         guard let sealed = try? Data(contentsOf: file(id)), let key = try? keys.mediaKey() else { return nil }
         return try? AesGcmEnvelope.open(key, sealed, aad: aad(id))

@@ -39,6 +39,7 @@ final class AppContainer {
     let generator: ImageGenerator
     let agent: any AgentRuntime
     let panicWipe: PanicWipe
+    let sessions: SessionStore
     #if canImport(AutobotShared)
     let snapshots = HostSnapshots()
     #endif
@@ -63,7 +64,7 @@ final class AppContainer {
         providerFactory = ProviderFactory(clients: clients, providers: providers, library: library, compute: compute, llm: llm)
         engines = DiffusionEngineFactory(clients: clients, llm: llm)
         generator = ImageGenerator(engines: engines, gallery: gallery, backends: backends, library: library)
-        let sessions = SessionStore(store: store)
+        sessions = SessionStore(store: store)
         #if canImport(AutobotShared)
         let shared = SharedAgentRuntime(
             conversations: conversations, providers: providers, store: sessions, clients: clients, llm: llm,

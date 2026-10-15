@@ -34,9 +34,11 @@ Kotlin framework. Xcode resolves Swift packages before pre-actions run, so on a 
 whisper.cpp run on the CPU, and the Neural Engine is unavailable.
 
 `AutobotShared` is required: besides the agent runtime it holds the network rules both apps run
-(`NetworkMode` codec, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`). `Core/Network`
-only adapts them to URLSession; the Swift network tests double as cross-platform conformance
-tests. (`InterimAgentRuntime`, plain streaming chat without tools, remains as an agent-runtime
+(`NetworkMode` codec, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`) and the model
+management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, the
+download state machine). `Core/Network` only adapts the network rules to URLSession, `Core/Models`
+moves bytes (background URLSession), hashes, persists and mirrors the shared model types as
+Codable values (`SharedModels.swift`); the Swift tests double as cross-platform conformance tests. (`InterimAgentRuntime`, plain streaming chat without tools, remains as an agent-runtime
 fallback in the source.)
 
 The app ships `App/Resources/PrivacyInfo.xcprivacy` (no tracking, nothing collected,
@@ -86,7 +88,7 @@ App/
   Core/Network          NetworkPolicy, RouteResolver, Loopback, AuditLog, HttpClient (kill switch)
   Core/Security         AesGcmEnvelope, KeyManager, SecretStore, AppLockManager, PanicWipe
   Core/Data             EncryptedStore (SQLite + AES-GCM), repositories, preferences
-  Core/Models           catalog, downloader, FileFetcher, hubs, device profile, compute profile
+  Core/Models           shared-model bridge, downloader, FileFetcher (bytes), hubs (I/O), device profile, compute profile
   Core/Diffusion        image backends (A1111, SSE, Core ML), generator
   Providers/            OpenAI-compatible SSE + on-device chat (fallback path, see below)
   Agent/                AgentRuntime: SharedAgentRuntime (KMP) / InterimAgentRuntime

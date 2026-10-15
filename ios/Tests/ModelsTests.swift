@@ -59,6 +59,7 @@ struct ModelsTests {
         #expect(phone(ram: 8 << 30).fit(.image, bytes: 3_052_951_670, engine: .coreML) == .tight)
         #expect(phone(ram: 6 << 30).fit(.image, bytes: 3_052_951_670, engine: .coreML) == .tooBig)
         #expect(DeviceProfile.chipName("iPhone17,1") == "A18 Pro")
+        #expect(p.capabilities.totalRamBytes == 12 << 30)
     }
 
     @Test func fastestBackendUsesNewestSuccessfulRun() {
@@ -76,29 +77,17 @@ struct ModelsTests {
         #expect(ComputeProfile.fastest([]) == nil)
     }
 
-    @Test func civitaiParsingFiltersAndNormalizes() throws {
-        let base = """
-        {"id":1,"name":"M","type":"LORA","nsfw":false,"stats":{"downloadCount":5},
-        "modelVersions":[{"id":9,"name":"v1","baseModel":"SD 1.5","files":[{"name":"m.safetensors","sizeKB":1.5,"primary":true,
-        "hashes":{"SHA256":"ABCDEF"},"downloadUrl":"https://civitai.com/api/download/models/9"}],
-        "images":[{"url":"https://image.civitai.com/x/original=true/1.jpeg","nsfwLevel":4}]}]}
-        """
-        func parse(_ s: String, mature: Bool) -> CivitaiModel? {
-            parseCivitaiModel(try! JSONSerialization.jsonObject(with: Data(s.utf8)) as! [String: Any], showMature: mature)
-        }
-        let parsed = try #require(parse(base, mature: false))
-        let file = try #require(parsed.versions.first?.files.first)
-        #expect(file.sha256 == "abcdef")
-        #expect(file.sizeBytes == 1536)
-        #expect(parsed.versions[0].previewMature)
-        let plan = try #require(civitaiPlan(parsed, parsed.versions[0]))
+    @Test func civitaiPlansHaveNoEngineOnIOS() throws {
+        let file = CivitaiFile(name: "m.safetensors", sizeBytes: 1536, sha256: "abcdef", format: nil, primary: true, downloadUrl: "https://civitai.com/api/download/models/9")
+        let version = CivitaiVersion(id: 9, name: "v1", baseModel: "SD 1.5", trainedWords: ["w"], files: [file], previewUrl: nil, previewMature: false, earlyAccess: false)
+        let model = CivitaiModel(id: 1, name: "M", type: "LORA", nsfw: false, creator: nil, downloads: 5, allowCommercialUse: nil, versions: [version])
+        let plan = try #require(civitaiPlan(model, version))
         #expect(plan.kind == .lora)
         #expect(plan.engine == .none)
         #expect(plan.id == "civitai:9")
-        #expect(parse(base.replacingOccurrences(of: "\"nsfw\":false", with: "\"nsfw\":true"), mature: false) == nil)
-        #expect(parse(base.replacingOccurrences(of: "\"nsfw\":false", with: "\"nsfw\":true"), mature: true) != nil)
-        #expect(parse(base.replacingOccurrences(of: "\"nsfw\":false", with: "\"nsfw\":false,\"minor\":true"), mature: true) == nil)
-        #expect(parse(base.replacingOccurrences(of: "\"nsfw\":false", with: "\"nsfw\":false,\"poi\":true"), mature: true) == nil)
+        #expect(plan.subtitle == "v1 · SD 1.5")
+        #expect(plan.manifest.files.first?.auth == .civitai)
+        #expect(plan.manifest.trainedWords == ["w"])
     }
 
     @Test func coreMLBundlesAreFoundInRepoListings() {
@@ -106,5 +95,6 @@ struct ModelsTests {
             + [HfFile(path: "README.md", sizeBytes: 1, sha256: nil), HfFile(path: "packages/x.mlpackage/Data/m", sizeBytes: 1, sha256: nil)]
         let repo = HfRepo(id: "apple/x", commit: "abc", gated: false, license: nil, files: files)
         #expect(repo.coreMLBundles == ["split_einsum_v2/compiled"])
+        #expect(repo.coreMLSize("split_einsum_v2/compiled") == 957_337_899)
     }
 }

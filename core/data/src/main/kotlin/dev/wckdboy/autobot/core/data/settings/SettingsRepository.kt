@@ -16,29 +16,10 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-enum class ThemeMode { SYSTEM, DARK, LIGHT }
-
 /**
- * Non-secret user preferences. Secrets (API keys) never go here; they live in the SecretStore.
+ * DataStore-backed [AppSettings] under the shared [SettingsSchema] keys. Corrupt or unreadable files
+ * fall back to safe defaults.
  */
-data class AppSettings(
-    val themeMode: ThemeMode = ThemeMode.DARK,
-    val amoled: Boolean = false,
-    val dynamicColor: Boolean = false,
-    val networkMode: NetworkMode = NetworkMode.Offline,
-    val allowLoopbackWhenOffline: Boolean = true,
-    val appLockEnabled: Boolean = true,
-    val lockTimeoutMillis: Long = DEFAULT_LOCK_TIMEOUT_MILLIS,
-    val incognitoByDefault: Boolean = false,
-    /** The first-run welcome has been dismissed. */
-    val onboarded: Boolean = false,
-) {
-    companion object {
-        const val DEFAULT_LOCK_TIMEOUT_MILLIS = 60_000L
-    }
-}
-
-/** DataStore-backed [AppSettings]. Corrupt or unreadable files fall back to safe defaults. */
 @Singleton
 class SettingsRepository @Inject constructor(
     private val dataStore: DataStore<Preferences>,
@@ -47,13 +28,13 @@ class SettingsRepository @Inject constructor(
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
         .map { prefs ->
             AppSettings(
-                themeMode = prefs[Keys.THEME]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.DARK,
+                themeMode = SettingsSchema.themeMode(prefs[Keys.THEME]),
                 amoled = prefs[Keys.AMOLED] ?: false,
                 dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: false,
                 networkMode = NetworkMode.decode(prefs[Keys.NETWORK_MODE]),
                 allowLoopbackWhenOffline = prefs[Keys.ALLOW_LOOPBACK] ?: true,
                 appLockEnabled = prefs[Keys.APP_LOCK] ?: true,
-                lockTimeoutMillis = prefs[Keys.LOCK_TIMEOUT] ?: AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS,
+                lockTimeoutMillis = SettingsSchema.lockTimeout(prefs[Keys.LOCK_TIMEOUT]),
                 incognitoByDefault = prefs[Keys.INCOGNITO_DEFAULT] ?: false,
                 onboarded = prefs[Keys.ONBOARDED] ?: false,
             )
@@ -66,7 +47,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setNetworkMode(mode: NetworkMode) = edit { it[Keys.NETWORK_MODE] = NetworkMode.encode(mode) }
     suspend fun setAllowLoopbackWhenOffline(allow: Boolean) = edit { it[Keys.ALLOW_LOOPBACK] = allow }
     suspend fun setAppLockEnabled(enabled: Boolean) = edit { it[Keys.APP_LOCK] = enabled }
-    suspend fun setLockTimeoutMillis(millis: Long) = edit { it[Keys.LOCK_TIMEOUT] = millis.coerceAtLeast(0) }
+    suspend fun setLockTimeoutMillis(millis: Long) = edit { it[Keys.LOCK_TIMEOUT] = SettingsSchema.lockTimeout(millis) }
     suspend fun setIncognitoByDefault(enabled: Boolean) = edit { it[Keys.INCOGNITO_DEFAULT] = enabled }
     suspend fun setOnboarded() = edit { it[Keys.ONBOARDED] = true }
 
@@ -75,14 +56,14 @@ class SettingsRepository @Inject constructor(
     }
 
     private object Keys {
-        val THEME = stringPreferencesKey("theme_mode")
-        val AMOLED = booleanPreferencesKey("amoled")
-        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
-        val NETWORK_MODE = stringPreferencesKey("network_mode")
-        val ALLOW_LOOPBACK = booleanPreferencesKey("allow_loopback_offline")
-        val APP_LOCK = booleanPreferencesKey("app_lock_enabled")
-        val LOCK_TIMEOUT = longPreferencesKey("lock_timeout_ms")
-        val INCOGNITO_DEFAULT = booleanPreferencesKey("incognito_default")
-        val ONBOARDED = booleanPreferencesKey("onboarded")
+        val THEME = stringPreferencesKey(SettingsSchema.THEME)
+        val AMOLED = booleanPreferencesKey(SettingsSchema.AMOLED)
+        val DYNAMIC_COLOR = booleanPreferencesKey(SettingsSchema.DYNAMIC_COLOR)
+        val NETWORK_MODE = stringPreferencesKey(SettingsSchema.NETWORK_MODE)
+        val ALLOW_LOOPBACK = booleanPreferencesKey(SettingsSchema.ALLOW_LOOPBACK)
+        val APP_LOCK = booleanPreferencesKey(SettingsSchema.APP_LOCK)
+        val LOCK_TIMEOUT = longPreferencesKey(SettingsSchema.LOCK_TIMEOUT)
+        val INCOGNITO_DEFAULT = booleanPreferencesKey(SettingsSchema.INCOGNITO_DEFAULT)
+        val ONBOARDED = booleanPreferencesKey(SettingsSchema.ONBOARDED)
     }
 }

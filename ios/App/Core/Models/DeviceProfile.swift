@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Metal
 import UIKit
@@ -27,6 +28,10 @@ struct DeviceProfile: Equatable, Sendable {
     let cores: Int
     let gpu: String?
     let thermal: ProcessInfo.ThermalState
+    /// Apple Neural Engine present (Core ML falls back to the GPU without it).
+    var neuralEngine = false
+    /// Metal's recommended working set, 0 when unknown.
+    var gpuWorkingSetBytes: Int64 = 0
 
     /// e.g. `iPhone18,1 · A19 Pro`.
     var label: String { [machine, chip].compactMap { $0 }.joined(separator: " · ") }
@@ -41,19 +46,16 @@ struct DeviceProfile: Equatable, Sendable {
         }
     }
 
-    /// Weights + KV cache / buffers should stay under about half of physical RAM (same budget
-    /// as Android). iOS also caps a single app's memory, which this budget keeps clear of.
+    /// What the shared fit rules see.
+    var capabilities: DeviceCapabilities {
+        DeviceCapabilities(platform: .ios, totalRamBytes: totalRamBytes, freeStorageBytes: freeStorageBytes, cpuFeatures: [], socModel: nil,
+                           neuralEngine: neuralEngine, gpuWorkingSetBytes: gpuWorkingSetBytes)
+    }
+
+    /// `fits` / `tight` / `too big` by the same rules as Android (weights + KV cache / buffers
+    /// within about half of physical RAM; engines this build lacks are unsupported).
     func fit(_ kind: ModelKind, bytes: Int64, engine: EngineKind) -> Fit {
-        if engine == .none || !engine.runsOnIOS { return .unsupported }
-        let working: Int64 = switch kind {
-        case .chat, .code: bytes * 13 / 10
-        case .image: bytes * 14 / 10
-        default: bytes
-        }
-        let budget = totalRamBytes / 2
-        if working <= budget * 7 / 10 { return .good }
-        if working <= budget { return .tight }
-        return .tooBig
+        Fit(capabilities.fit(kind: kind.kotlin, bytes: bytes, engine: engine.kotlin))
     }
 
     static func current() -> DeviceProfile {
@@ -65,14 +67,17 @@ struct DeviceProfile: Equatable, Sendable {
         let identifier = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? machine
         let free = (try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
             .volumeAvailableCapacityForImportantUsage ?? 0
+        let metal = MTLCreateSystemDefaultDevice()
         return DeviceProfile(
             machine: identifier,
             chip: chipName(identifier),
             totalRamBytes: Int64(ProcessInfo.processInfo.physicalMemory),
             freeStorageBytes: Int64(free),
             cores: ProcessInfo.processInfo.activeProcessorCount,
-            gpu: MTLCreateSystemDefaultDevice()?.name,
+            gpu: metal?.name,
             thermal: ProcessInfo.processInfo.thermalState,
+            neuralEngine: LocalDeviceInfo.hasNeuralEngine,
+            gpuWorkingSetBytes: Int64(metal?.recommendedMaxWorkingSetSize ?? 0),
         )
     }
 
