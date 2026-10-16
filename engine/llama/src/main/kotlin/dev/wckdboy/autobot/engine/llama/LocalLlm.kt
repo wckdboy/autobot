@@ -65,6 +65,10 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
     @Volatile
     var beforeJob: () -> Unit = {}
 
+    /** Whether a [prepare] may load now (false while another large engine works). */
+    @Volatile
+    var mayPrepare: () -> Boolean = { true }
+
     /** Whether a completion or call is running. */
     val isBusy: Boolean get() = synchronized(this) { active > 0 }
 
@@ -158,22 +162,22 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
         }
         val binder = e.asBinder()
         val death = IBinder.DeathRecipient { close(EngineDiedException()) }
+        val callback = object : ILlamaCallback.Stub() {
+            override fun onStatus(status: String) {
+                trySend(LocalLlmEvent.Status(status))
+            }
+
+            override fun onDelta(kind: Int, text: String) {
+                trySend(if (kind == 1) LocalLlmEvent.Reasoning(text) else LocalLlmEvent.Content(text))
+            }
+
+            override fun onResult(json: String) {
+                trySend(LocalLlmEvent.Result(json))
+                close()
+            }
+        }
         try {
             binder.linkToDeath(death, 0)
-            val callback = object : ILlamaCallback.Stub() {
-                override fun onStatus(status: String) {
-                    trySend(LocalLlmEvent.Status(status))
-                }
-
-                override fun onDelta(kind: Int, text: String) {
-                    trySend(if (kind == 1) LocalLlmEvent.Reasoning(text) else LocalLlmEvent.Content(text))
-                }
-
-                override fun onResult(json: String) {
-                    trySend(LocalLlmEvent.Result(json))
-                    close()
-                }
-            }
             e.chat(modelPath, nCtx, backend, request, callback)
         } catch (t: RemoteException) {
             runCatching { binder.unlinkToDeath(death, 0) }
@@ -185,7 +189,9 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
         }
         awaitClose {
             runCatching { binder.unlinkToDeath(death, 0) }
-            runCatching { if (binder.isBinderAlive) e.cancel() }
+            // Stops this completion only (queued, loading or running); a no-op once it finished,
+            // so it never reaches the next request.
+            runCatching { if (binder.isBinderAlive) e.cancelChat(callback) }
             done()
         }
     }.buffer(Channel.UNLIMITED) // never drop an event, least of all the final Result
@@ -216,6 +222,18 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
             ?: throw IllegalStateException("The embedding model could not be loaded or run")
         val dims = flat.size / texts.size
         return List(texts.size) { i -> flat.copyOfRange(i * dims, (i + 1) * dims) }
+    }
+
+    /**
+     * Loads [modelPath] in the background (a chat with it was opened) so the first message does
+     * not wait for it. Frees the other engines' memory first, like a completion would; the engine
+     * skips it when a completion is already queued, and a chat for another model stops it.
+     */
+    suspend fun prepare(modelPath: String, nCtx: Int, backend: String) {
+        // Never next to a running image or audio job: two large models at once can get the app killed.
+        if (!mayPrepare()) return
+        beforeJob()
+        call { it.prepare(modelPath, nCtx, backend) }
     }
 
     /** Frees the resident model now (e.g. before image generation needs the memory). */

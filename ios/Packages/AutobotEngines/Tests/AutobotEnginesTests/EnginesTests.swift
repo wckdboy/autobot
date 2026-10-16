@@ -146,6 +146,16 @@ import Testing
         }
     }
 
+    @Test func llamaPrepareOfAMissingModelLeavesNothingLoaded() async {
+        let engine = LlamaEngine()
+        await engine.prepare(modelPath: "/nonexistent.gguf", contextLength: 2048)
+        #expect(try await engine.modelInfo() == nil)
+        // The engine still answers requests (with the load failure, not a hang).
+        await #expect(throws: EngineError.self) {
+            try await engine.chat(modelPath: "/nonexistent.gguf", contextLength: 2048, requestJSON: Data(#"{"messages":[]}"#.utf8)) { _, _ in }
+        }
+    }
+
     @Test func whisperMissingModelFails() async {
         await #expect(throws: EngineError("TRANSCRIBE_FAILED", "cannot load speech model")) {
             try await SpeechEngine().transcribe(modelPath: "/nonexistent.bin", pcm16kMono: [Float](repeating: 0, count: 16_000))
@@ -190,6 +200,38 @@ import Testing
         print("second:", second.json)
         #expect(second.usage.cachedTokens > 0)
         await engine.unload()
+    }
+
+    /// A prepared model answers without loading again, and every later turn of the chat (a hybrid
+    /// model such as Qwen3.5 included) reuses the cache instead of failing or re-reading it all.
+    @Test(.enabled(if: llm != nil)) func preparedModelAnswersAndLaterTurnsReuseTheCache() async throws {
+        let engine = LlamaEngine()
+        await engine.prepare(modelPath: Self.llm!, contextLength: 4096, backend: .cpu)
+        #expect(try await engine.modelInfo() != nil)
+        var messages: [[String: String]] = [
+            ["role": "system", "content": String(repeating: "You are a careful assistant on this phone. ", count: 40)],
+            ["role": "user", "content": "Name a fruit."],
+        ]
+        for turn in 0 ..< 3 {
+            let body = try JSONSerialization.data(withJSONObject: ["messages": messages, "temperature": 0, "max_tokens": 12, "enable_thinking": false] as [String: Any])
+            let result = try await engine.chat(modelPath: Self.llm!, contextLength: 4096, backend: .cpu, requestJSON: body) { _, _ in }
+            print("turn \(turn):", result.json)
+            #expect(result.finishReason != "error")
+            if turn > 0 { #expect(result.usage.cachedTokens > result.usage.promptTokens / 2) }
+            messages.append(["role": "assistant", "content": result.content])
+            messages.append(["role": "user", "content": "And another one."])
+        }
+        await engine.unload()
+    }
+
+    @Test(.enabled(if: llm != nil)) func cancellingAPrepareStopsTheLoad() async throws {
+        let engine = LlamaEngine()
+        let task = Task { await engine.prepare(modelPath: Self.llm!, contextLength: 4096, backend: .cpu) }
+        task.cancel()
+        await task.value
+        // Cancelled before or during the load: nothing stays loaded, and the engine is not wedged.
+        #expect(try await engine.modelInfo() == nil)
+        #expect(try await !engine.systemInfo().isEmpty)
     }
 
     @Test(.enabled(if: llm != nil)) func cancellingStopsGeneration() async throws {

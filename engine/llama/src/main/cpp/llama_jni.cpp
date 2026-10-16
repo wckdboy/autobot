@@ -7,6 +7,7 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,10 @@ jbyteArray owned_bytes(JNIEnv * env, char * s) {
     autobot_llama_string_free(s);
     return arr;
 }
+
+// The load abortLoad() asked to stop (from a binder thread). Ids are unique per load, so a late
+// abort for a finished load never reaches the next one.
+std::atomic<int64_t> g_abort_load{0};
 
 autobot_llama_session * session(jlong handle) {
     return reinterpret_cast<autobot_llama_session *>(handle);
@@ -93,12 +98,23 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_devices(JNIEnv * env, jobject)
     return owned_bytes(env, autobot_llama_devices_json());
 }
 
+/** Loads a model; [load_id] (unique per load) lets abortLoad stop exactly this load. */
 extern "C" JNIEXPORT jlong JNICALL
 Java_dev_wckdboy_autobot_engine_llama_NativeLlama_load(
-        JNIEnv * env, jobject, jstring jpath, jint n_ctx, jint n_threads, jstring jbackend) {
+        JNIEnv * env, jobject, jstring jpath, jint n_ctx, jint n_threads, jstring jbackend, jlong load_id) {
     const std::string path = jstr(env, jpath);
     const std::string backend = jstr(env, jbackend);
-    return reinterpret_cast<jlong>(autobot_llama_load(path.c_str(), (int) n_ctx, (int) n_threads, backend.c_str()));
+    int64_t id = load_id;
+    autobot_llama_session * s = autobot_llama_load_abortable(path.c_str(), (int) n_ctx, (int) n_threads, backend.c_str(), [](void * user) {
+        return g_abort_load.load(std::memory_order_relaxed) == *static_cast<int64_t *>(user) ? 1 : 0;
+    }, &id);
+    return reinterpret_cast<jlong>(s);
+}
+
+/** Stops load [load_id] if it is in progress (it then returns 0); otherwise a no-op. Any thread. */
+extern "C" JNIEXPORT void JNICALL
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_abortLoad(JNIEnv *, jobject, jlong load_id) {
+    g_abort_load.store(load_id, std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
@@ -111,14 +127,23 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_cancel(JNIEnv *, jobject, jlon
     autobot_llama_cancel(session(handle));
 }
 
+/** Stops the chat started with [token], whether it runs already or has yet to start. Any thread. */
+extern "C" JNIEXPORT void JNICALL
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_cancelRequest(JNIEnv *, jobject, jlong handle, jlong token) {
+    autobot_llama_cancel_request(session(handle), (uint64_t) token);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_dev_wckdboy_autobot_engine_llama_NativeLlama_free(JNIEnv *, jobject, jlong handle) {
     autobot_llama_free(session(handle));
 }
 
-/** Runs one chat completion; see autobot_llama_chat for the request and result shapes. */
+/**
+ * Runs one chat completion identified by [token] (non-zero, for cancelRequest); see
+ * autobot_llama_chat for the request and result shapes.
+ */
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jlong handle, jbyteArray jrequest, jobject jsink) {
+Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jlong handle, jlong token, jbyteArray jrequest, jobject jsink) {
     std::string request;
     {
         const jsize n = env->GetArrayLength(jrequest);
@@ -126,7 +151,7 @@ Java_dev_wckdboy_autobot_engine_llama_NativeLlama_chat(JNIEnv * env, jobject, jl
         env->GetByteArrayRegion(jrequest, 0, n, reinterpret_cast<jbyte *>(&request[0]));
     }
     Sink sink{env, jsink, env->GetMethodID(env->GetObjectClass(jsink), "onDelta", "(I[B)V")};
-    return owned_bytes(env, autobot_llama_chat(session(handle), request.data(), request.size(), on_delta, &sink));
+    return owned_bytes(env, autobot_llama_chat_request(session(handle), (uint64_t) token, request.data(), request.size(), on_delta, &sink));
 }
 
 extern "C" JNIEXPORT jlong JNICALL

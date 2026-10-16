@@ -45,9 +45,8 @@ class LocalChatProvider(
             emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Model '${request.model}' is not installed on this phone (Models tab)"))
             return@flow
         }
-        val nCtx = model.manifest.recommended?.contextLength?.coerceAtMost(MAX_CONTEXT) ?: contextLength
         val backend = compute.resolve(model).id
-        engine.chat(path, nCtx, backend, encode(request, model.paths[FileRole.MMPROJ]).toString()).collect { event ->
+        engine.chat(path, contextOf(model), backend, encode(request, model.paths[FileRole.MMPROJ]).toString()).collect { event ->
             when (event) {
                 is LocalLlmEvent.Content -> emit(ChatEvent.ContentDelta(event.text))
                 is LocalLlmEvent.Reasoning -> emit(ChatEvent.ReasoningDelta(event.text))
@@ -66,6 +65,22 @@ class LocalChatProvider(
             )
         } else {
             emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, e.message ?: e.javaClass.simpleName))
+        }
+    }
+
+    /** Same context length as [streamGguf] uses: a different one would load the model again. */
+    private fun contextOf(model: InstalledModel): Int =
+        model.manifest.recommended?.contextLength?.coerceAtMost(MAX_CONTEXT) ?: contextLength
+
+    /** Loads [model] in the engine ahead of the first message, when it is installed and fits. */
+    override suspend fun prepare(model: String) {
+        val installed = library.get(model) ?: return
+        if (modelState(installed, fit) != LocalModelState.READY) return
+        val path = installed.paths[FileRole.MODEL] ?: return
+        try {
+            engine.prepare(path, contextOf(installed), compute.resolve(installed).id)
+        } catch (_: android.os.RemoteException) {
+            // The engine is not up: the first message starts it and loads the model as before.
         }
     }
 

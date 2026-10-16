@@ -21,6 +21,9 @@
 
 #include "json.h"
 
+// Weak, so the bench also links against an older core (-DAUTOBOT_CORE_DIR) for comparisons.
+extern "C" __attribute__((weak)) autobot_llama_session * autobot_llama_load_abortable(const char *, int, int, const char *, int (*)(void *), void *);
+
 using json = common_json;
 using Clock = std::chrono::steady_clock;
 
@@ -362,6 +365,23 @@ int main(int argc, char ** argv) {
             auto [lat_decode, how_decode] = cancel_latency(s, request(fresh_chat, 2000, false), 1500);
             std::printf("cancel during decode:  returned %.1f ms after cancel (%s)\n", lat_decode, how_decode.c_str());
             // The session still works after cancels.
+            // A load cancelled shortly after it starts returns NULL soon.
+            if (autobot_llama_load_abortable) {
+                std::atomic<int> abort{0};
+                const auto t0 = Clock::now();
+                Clock::time_point aborted_at;
+                std::thread t([&] {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+                    aborted_at = Clock::now();
+                    abort = 1;
+                });
+                autobot_llama_session * l = autobot_llama_load_abortable(o.model.c_str(), o.ctx, o.threads, o.backend.c_str(), [](void * a) { return static_cast<std::atomic<int> *>(a)->load(); }, &abort);
+                const auto returned = Clock::now();
+                t.join();
+                std::printf("cancel during load:    %s, returned %.1f ms after cancel (a full load takes %.1f ms)\n",
+                            l ? "loaded anyway" : "stopped", std::chrono::duration<double, std::milli>(returned - aborted_at).count(), load_warm);
+                if (l) autobot_llama_free(l);
+            }
             Run after = chat(s, request(m1, o.gen));
             const bool ok = !after.result.contains("error");
             std::printf("  check %-34s %s\n", "usable after cancel", ok ? "ok" : "FAILED");

@@ -166,6 +166,21 @@ final class LocalLlm: Sendable {
         #endif
     }
 
+    /// Loads the chat model ahead of the first message (a chat with it was opened). Skipped while
+    /// an image, upscale or audio job holds the memory; a message or an unload stops it.
+    func prepare(modelPath: String, contextLength: Int, backend: Backend) async {
+        #if canImport(AutobotEngines)
+        guard await !EngineMemory.shared.isBusy(any: [.diffusion, .upscaler, .audio]) else { return }
+        _ = try? await EngineMemory.using(.llm) {
+            await LlamaEngine.shared.prepare(
+                modelPath: modelPath,
+                contextLength: contextLength,
+                backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto,
+            )
+        }
+        #endif
+    }
+
     /// Embeds [texts] with the GGUF embedding model at [modelPath] (the private vault). It shares
     /// llama.cpp with the chat model, so it counts as the chat engine for [EngineMemory].
     func embed(modelPath: String, texts: [String]) async throws -> [[Float]] {

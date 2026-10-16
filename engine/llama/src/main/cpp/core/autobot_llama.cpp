@@ -192,6 +192,18 @@ bool abort_requested(void * user) {
     return s->prefilling.load(std::memory_order_relaxed) && cancelled(*s);
 }
 
+// The caller's "stop loading" check; once it said yes, it stays yes.
+struct LoadAbort {
+    autobot_llama_abort_fn fn;
+    void * user;
+    bool fired = false;
+
+    bool requested() {
+        if (!fired && fn && fn(user) != 0) fired = true;
+        return fired;
+    }
+};
+
 void forget_cache(Session & s) {
     llama_memory_clear(llama_get_memory(s.ctx), true);
     s.cached.clear();
@@ -501,18 +513,9 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                 break;
             }
 
-            batch.clear();
-            batch.add(tok, pos, 0, true);
-            if (llama_process(s->ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
-                // The memory may hold part of this step: return to a consistent point.
-                if (!s->partial_rm) truncate_cache(*s, s->cached.size(), true);
-                finish = "error";
-                break;
-            }
-            s->cached.push_back(tok);
-            ++pos;
-
-            if (n_gen % PARSE_EVERY == 0) {
+            // Streamed before this token is decoded, so text shows one step sooner; every token at
+            // first (the first words appear as soon as they exist), then every few.
+            if (n_gen <= PARSE_EVERY || n_gen % PARSE_EVERY == 0) {
                 try {
                     const common_chat_msg partial = common_chat_parse(out, true, pp);
                     emit_extension(sink, AUTOBOT_LLAMA_DELTA_REASONING, emitted_reasoning, partial.reasoning_content);
@@ -525,6 +528,17 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                     break;
                 }
             }
+
+            batch.clear();
+            batch.add(tok, pos, 0, true);
+            if (llama_process(s->ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+                // The memory may hold part of this step: return to a consistent point.
+                if (!s->partial_rm) truncate_cache(*s, s->cached.size(), true);
+                finish = "error";
+                break;
+            }
+            s->cached.push_back(tok);
+            ++pos;
         }
         common_sampler_free(smpl);
 
@@ -610,6 +624,12 @@ char * autobot_llama_devices_json(void) {
 }
 
 autobot_llama_session * autobot_llama_load(const char * path_c, int n_ctx, int n_threads, const char * backend) {
+    return autobot_llama_load_abortable(path_c, n_ctx, n_threads, backend, nullptr, nullptr);
+}
+
+autobot_llama_session * autobot_llama_load_abortable(const char * path_c, int n_ctx, int n_threads, const char * backend,
+                                                     autobot_llama_abort_fn should_abort, void * user) {
+    LoadAbort abort{should_abort, user};
     const std::string path = path_c ? path_c : "";
     const std::string wanted = backend ? backend : "";
     std::vector<std::string> order;
@@ -625,7 +645,16 @@ autobot_llama_session * autobot_llama_load(const char * path_c, int n_ctx, int n
         mparams.load_mode = LLAMA_LOAD_MODE_MMAP;  // weights stay in the page cache, not the heap
         mparams.devices = devs.data();
         mparams.n_gpu_layers = kind == "cpu" ? 0 : 999;
+        if (should_abort) {
+            mparams.progress_callback = [](float, void * data) { return !static_cast<LoadAbort *>(data)->requested(); };
+            mparams.progress_callback_user_data = &abort;
+        }
         llama_model * model = llama_model_load_from_file(path.c_str(), mparams);
+        if (abort.requested()) {
+            LOGI("loading %s was cancelled", path.c_str());
+            if (model) llama_model_free(model);
+            return nullptr;
+        }
         if (!model) {
             LOGE("failed to load %s on %s", path.c_str(), kind.c_str());
             continue;
@@ -638,6 +667,12 @@ autobot_llama_session * autobot_llama_load(const char * path_c, int n_ctx, int n
         cparams.n_threads = n_threads;
         cparams.n_threads_batch = n_threads;
         llama_context * ctx = llama_init_from_model(model, cparams);
+        if (abort.requested()) {
+            LOGI("loading %s was cancelled", path.c_str());
+            if (ctx) llama_free(ctx);
+            llama_model_free(model);
+            return nullptr;
+        }
         if (!ctx) {
             LOGE("failed to create a context on %s", kind.c_str());
             llama_model_free(model);

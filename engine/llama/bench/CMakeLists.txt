@@ -9,7 +9,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(REPO ${CMAKE_CURRENT_LIST_DIR}/../../..)
 set(LLAMA_SRC ${REPO}/third_party/llama.cpp)
-set(CORE_DIR ${REPO}/engine/llama/src/main/cpp/core)
+# Another checkout of core/ can be benchmarked against this one: -DAUTOBOT_CORE_DIR=<dir>.
+set(AUTOBOT_CORE_DIR ${REPO}/engine/llama/src/main/cpp/core CACHE PATH "engine core sources")
+set(CORE_DIR ${AUTOBOT_CORE_DIR})
 
 set(BUILD_SHARED_LIBS        OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_COMMON       ON  CACHE BOOL "" FORCE)
@@ -40,3 +42,7 @@ add_subdirectory(${LLAMA_SRC} build-llama)
 add_executable(llama_bench llama_bench.cpp ${CORE_DIR}/autobot_llama.cpp)
 target_include_directories(llama_bench PRIVATE ${CORE_DIR} ${LLAMA_SRC}/common ${LLAMA_SRC}/include ${LLAMA_SRC}/tools/mtmd)
 target_link_libraries(llama_bench PRIVATE llama llama-common mtmd)
+if(APPLE)
+    # Newer core entry points are weak in the bench, so an older core still links.
+    target_link_options(llama_bench PRIVATE "-Wl,-U,_autobot_llama_load_abortable")
+endif()

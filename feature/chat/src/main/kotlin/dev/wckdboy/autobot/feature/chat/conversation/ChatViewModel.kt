@@ -82,7 +82,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -398,6 +400,25 @@ class ChatViewModel @AssistedInject constructor(
             start.draft?.let { dictated.value = it }
             start.images.forEach { attach(Uri.parse(it)) }
             if (start.voice) setVoiceMode(true)
+        }
+        prepareLocalModel()
+    }
+
+    /**
+     * Loads this chat's on-device model while the chat is open (and again after a switch), so the
+     * first message does not wait seconds for it. The engine skips it when a reply already
+     * queued, or while an image or audio job holds the memory.
+     */
+    private fun prepareLocalModel() {
+        viewModelScope.launch {
+            routing.map { (conversation, withModels, _) ->
+                val provider = withModels.first.firstOrNull { it.id == conversation?.providerId } ?: withModels.first.firstOrNull()
+                val model = conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel
+                if (provider?.kind == ProviderKind.LOCAL && model != null && !SystemModels.isSystem(model)) provider to model else null
+            }.distinctUntilChangedBy { target -> target?.let { (provider, model) -> provider.id to model } }
+                .collectLatest { target ->
+                    if (target != null) runCatching { providerFactory.create(target.first).prepare(target.second) }
+                }
         }
     }
 
