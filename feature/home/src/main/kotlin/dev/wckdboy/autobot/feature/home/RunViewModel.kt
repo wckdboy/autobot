@@ -158,8 +158,8 @@ class RunViewModel @Inject constructor(
         combine(conversations.observeRecentConversations(RECENT), gallery.observeRecent(RECENT)) { c, g -> c to g },
         runningProviders,
         generating,
-        combine(device, compute.lastRan) { d, ran -> d to ran },
-    ) { input, (convs, images), (runningCount, busyProviders), genRunning, (profile, ran) ->
+        combine(device, compute.lastRan, compute.fastestByModel) { d, ran, measured -> Triple(d, ran, measured) },
+    ) { input, (convs, images), (runningCount, busyProviders), genRunning, (profile, ran, measured) ->
         val models = input.models
         val titles = models.associate { it.id to it.title }
         val chosen = models.associate { it.id to it.backend }
@@ -167,7 +167,7 @@ class RunViewModel @Inject constructor(
         /** On this phone: the engine [model] runs on, once known (picked, or reported after a reply). */
         fun routeOf(p: Provider, model: String? = null): Route =
             if (p.kind == ProviderKind.LOCAL) {
-                Route.local(model?.let { m -> chosen[m]?.let { ComputeProfile.shownBackend(ran[m], it) } }?.id)
+                Route.local(model?.let { m -> chosen[m]?.let { ComputeProfile.shownBackend(ran[m], it, measured[m]) } }?.id)
             } else {
                 routeOf(p)
             }

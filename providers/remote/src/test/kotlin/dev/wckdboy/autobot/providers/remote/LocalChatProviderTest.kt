@@ -26,6 +26,9 @@ class LocalChatProviderTest {
         assertEquals("an accelerator that failed falls back", Backend.CPU, ComputeProfile.shownBackend(Backend.CPU, Backend.GPU))
         assertEquals(Backend.GPU, ComputeProfile.shownBackend(null, Backend.GPU))
         assertEquals("auto, not run yet: unknown", null, ComputeProfile.shownBackend(null, Backend.AUTO))
+        assertEquals("auto resolves to the fastest measured", Backend.CPU, ComputeProfile.shownBackend(null, Backend.AUTO, Backend.CPU))
+        assertEquals("a pick beats the benchmark", Backend.GPU, ComputeProfile.shownBackend(null, Backend.GPU, Backend.CPU))
+        assertEquals("where it ran beats both", Backend.NPU, ComputeProfile.shownBackend(Backend.NPU, Backend.GPU, Backend.CPU))
     }
 
     @Test

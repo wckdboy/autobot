@@ -267,8 +267,8 @@ class ChatViewModel @AssistedInject constructor(
     private val refreshing = MutableStateFlow(false)
 
     /** Where each downloaded model runs, for the route tag (known once the engine has answered, or picked). */
-    private val localBackends = combine(library.models, compute.lastRan) { models, ran ->
-        models.associate { it.id to ComputeProfile.shownBackend(ran[it.id], it.backend) }
+    private val localBackends = combine(library.models, compute.lastRan, compute.fastestByModel) { models, ran, measured ->
+        models.associate { it.id to ComputeProfile.shownBackend(ran[it.id], it.backend, measured[it.id]) }
     }.distinctUntilChanged()
 
     private val routing = combine(conversations.observeConversation(conversationId), providerModels, policy, localBackends) { c, list, p, b ->

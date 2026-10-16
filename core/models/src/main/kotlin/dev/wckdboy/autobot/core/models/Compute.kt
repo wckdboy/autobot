@@ -35,6 +35,11 @@ class ComputeProfile @Inject constructor(private val rows: ModelRowRepository) {
 
     val benchmarks: Flow<List<Benchmark>> = rows.observeBenchmarks().map { list -> list.map { it.toBenchmark() } }
 
+    /** Each benchmarked model's fastest backend (what [resolve] picks for "auto"). */
+    val fastestByModel: Flow<Map<String, Backend>> = benchmarks.map { list ->
+        list.groupBy { it.modelId }.mapNotNull { (id, runs) -> fastest(runs)?.let { id to it } }.toMap()
+    }
+
     suspend fun setBackend(modelId: String, backend: Backend) = rows.setBackend(modelId, backend.id)
 
     suspend fun record(result: Benchmark) {
@@ -70,10 +75,12 @@ class ComputeProfile @Inject constructor(private val rows: ModelRowRepository) {
 
     companion object {
         /**
-         * The backend a model's route tag names: where it last ran, else the user's pick; null while
-         * "auto" has not run yet (the engine tries NPU → GPU → CPU, so it is not known before).
+         * The backend a model's route tag names: where it last ran, else the user's pick, else the
+         * fastest measured one ("auto" resolves to it); null while none of these is known (the
+         * engine then tries NPU → GPU → CPU).
          */
-        fun shownBackend(lastRan: Backend?, chosen: Backend): Backend? = lastRan ?: chosen.takeIf { it != Backend.AUTO }
+        fun shownBackend(lastRan: Backend?, chosen: Backend, measured: Backend? = null): Backend? =
+            lastRan ?: chosen.takeIf { it != Backend.AUTO } ?: measured
 
         /** Fastest backend among the newest successful run per backend; null if nothing was measured. */
         fun fastest(results: List<Benchmark>): Backend? {
