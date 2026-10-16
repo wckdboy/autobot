@@ -146,7 +146,7 @@ import Testing
         }
     }
 
-    @Test func llamaPrepareOfAMissingModelLeavesNothingLoaded() async {
+    @Test func llamaPrepareOfAMissingModelLeavesNothingLoaded() async throws {
         let engine = LlamaEngine()
         await engine.prepare(modelPath: "/nonexistent.gguf", contextLength: 2048)
         #expect(try await engine.modelInfo() == nil)
@@ -194,8 +194,14 @@ import Testing
             #expect(deltas.text(.content) == result.content)
         }
 
-        // Second turn reuses the KV prefix.
-        let followUp = #"{"messages":[{"role":"user","content":"What is the weather in Paris? Use the tool."},{"role":"assistant","content":"I'll check."},{"role":"user","content":"Say hi in one word."}],"temperature":0,"max_tokens":8}"#
+        // Second turn (same tools, as an agent sends them) reuses the KV prefix; a hybrid model
+        // (Qwen3.5) restores a checkpoint instead of failing.
+        let followUp = #"""
+        {"messages":[{"role":"user","content":"What is the weather in Paris? Use the tool."},{"role":"assistant","content":"I'll check."},{"role":"user","content":"Say hi in one word."}],
+         "tools":[{"type":"function","function":{"name":"get_weather","description":"Current weather for a city",
+           "parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],
+         "temperature":0,"max_tokens":8}
+        """#
         let second = try await engine.chat(modelPath: Self.llm!, contextLength: 2048, requestJSON: Data(followUp.utf8)) { _, _ in }
         print("second:", second.json)
         #expect(second.usage.cachedTokens > 0)

@@ -1,6 +1,8 @@
 # Host benchmark and correctness check for the shared llama engine core (core/autobot_llama.cpp),
 # the code both apps run. Builds llama.cpp for the machine it runs on (Metal + CPU on a Mac,
-# CPU elsewhere) and links the core statically. Not part of the app builds; see run.sh.
+# CPU elsewhere) and links the core statically. Not part of the app builds:
+#   cmake -S engine/llama/bench -B <build> -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build <build>
+#   <build>/llama_bench model.gguf --backend gpu|cpu [--threads N] [--quick]
 cmake_minimum_required(VERSION 3.22)
 project(autobot_llama_bench LANGUAGES C CXX)
 
