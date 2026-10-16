@@ -123,7 +123,7 @@ object DotGeometry {
     }
 
     /**
-     * r = base·(0.55 + 0.45·sin(kx·x + ky·y − ωt)), in doubles: k = 2π/λ along a shallow
+     * r = base·(0.64 + 0.36·sin(kx·x + ky·y − ωt)), in doubles: k = 2π/λ along a shallow
      * down-right direction, ω = 2π / `cardWavePeriodSeconds`. Depends on absolute position and the
      * clock only, so the wave is continuous across frames, pauses and size changes.
      */
@@ -132,7 +132,7 @@ object DotGeometry {
         val period = Motion.cardWavePeriodSeconds.toDouble()
         val t = seconds - floor(seconds / period) * period
         val phase = k * (x * CARD_DIR_X + y * CARD_DIR_Y) - 2.0 * PI * t / period
-        return max(0.0, base * (0.55 + 0.45 * sin(phase)))
+        return max(0.0, base * (InkMath.CARD_DOT_MEAN + InkMath.CARD_DOT_SWING * sin(phase)))
     }
 
     private const val CARD_DIR_X = 0.8660254037844386 // cos 30°
