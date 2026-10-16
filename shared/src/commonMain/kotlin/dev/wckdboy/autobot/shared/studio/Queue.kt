@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.Serializable
@@ -334,8 +335,13 @@ class JobQueue(
                 val assets = outputs.mapIndexed { i, output -> sink.save(current, output, i) }
                 finish(job.id) { it.copy(state = JobState.DONE, progress = 1f, outputs = assets.map(StudioAsset::id), preview = null, status = null) }
             } catch (e: CancellationException) {
-                finish(job.id) { it.copy(state = JobState.CANCELLED, preview = null) }
-                throw e
+                // Still active: the engine's own timeout (or a job it awaited) ended it, not a cancel.
+                if (isActive) {
+                    finish(job.id) { it.copy(state = JobState.FAILED, error = e.message ?: "The engine stopped", preview = null) }
+                } else {
+                    finish(job.id) { it.copy(state = JobState.CANCELLED, preview = null) }
+                    throw e
+                }
             } catch (e: Exception) {
                 finish(job.id) { it.copy(state = JobState.FAILED, error = e.message ?: e::class.simpleName ?: "Failed", preview = null) }
             } finally {
