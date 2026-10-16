@@ -23,6 +23,16 @@ enum Route: String, CaseIterable, Sendable {
     }
 
     var local: Bool { self == .localNpu || self == .localGpu || self == .localCpu }
+
+    /// "npu" / "gpu" / "cpu" for a local route (chip labels), nil otherwise.
+    var accelerator: String? {
+        switch self {
+        case .localNpu: "npu"
+        case .localGpu: "gpu"
+        case .localCpu: "cpu"
+        case .pcLan, .cloudApi: nil
+        }
+    }
 }
 
 /// `● LOCAL · CPU` (filled red) / `◐ PC · LAN` / `○ CLOUD · API` (outlined).
@@ -337,6 +347,21 @@ struct CountBadge: View {
     }
 }
 
+extension View {
+    /**
+     Keeps a halftone or living dot field from showing through this text: a soft-edged patch of
+     [ground] (the surface under the field) right behind it. Static, so the field's animation does
+     not re-render it.
+     */
+    func inkClearance(_ ground: Color, enabled: Bool = true) -> some View {
+        background {
+            if enabled {
+                RoundedRectangle(cornerRadius: 4).fill(ground).padding(-4).blur(radius: 3).accessibilityHidden(true)
+            }
+        }
+    }
+}
+
 /// A mode tile on the Run screen: `03` / big title / model / route tag.
 struct ModeCard<Background: View>: View {
     let index: String
@@ -375,26 +400,27 @@ struct ModeCard<Background: View>: View {
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .center) {
+                        // No dots behind text or numbers: each label clears the field under it.
                         Text(index)
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
-                            .padding(.horizontal, hasArt ? 4 : 0)
-                            .padding(.vertical, hasArt ? 2 : 0)
-                            .background(hasArt ? card : .clear)
+                            .inkClearance(card)
                         Spacer(minLength: 0)
-                        if let route { RouteTag(route: route) }
+                        if let route { RouteTag(route: route).inkClearance(card) }
                     }
                     Spacer(minLength: 0)
                     Text(title)
                         .textStyle(.headlineMedium)
                         .foregroundStyle(c.onSurface)
                         .lineLimit(1)
+                        .inkClearance(card)
                     if subtitle.lowercased() != title.lowercased() {
                         Text(subtitle)
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .inkClearance(card)
                     }
                 }
                 .padding(Tokens.Spacing.cardPadding)

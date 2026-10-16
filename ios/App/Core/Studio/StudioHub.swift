@@ -15,7 +15,7 @@ struct ComfyServer: Codable, Identifiable, Equatable, Hashable, Sendable {
 
     var isLoopback: Bool { Loopback.isLoopbackURL(baseUrl) }
     var routeOverride: RouteOverride { RouteOverride(rawValue: routing) ?? .inherit }
-    var route: Route { isLoopback ? .localCpu : isPrivateHost(baseUrl) ? .pcLan : .cloudApi }
+    var route: Route { isLoopback || isPrivateHost(baseUrl) ? .pcLan : .cloudApi }
 }
 
 /// One X/Y grid run, kept while the Studio is open so its result grid can be shown.

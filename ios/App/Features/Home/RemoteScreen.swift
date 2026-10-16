@@ -20,7 +20,7 @@ struct RemoteScreen: View {
                     SectionLabel("providers")
                     ForEach(providers) { p in
                         RunRow(title: p.displayName, subtitle: p.defaultModel, action: { nav.push(.providers) }) {
-                            RouteTag(route: Loopback.isLoopbackURL(p.baseUrl) || p.kind == .ollama ? .pcLan : .cloudApi)
+                            RouteTag(route: routeOf(p))
                         }
                     }
                     RunRow(title: providers.isEmpty ? "Add a provider" : "Add or edit", subtitle: "", action: { nav.push(.providers) }) { Chevron() }
@@ -28,7 +28,7 @@ struct RemoteScreen: View {
                     SectionLabel("image backends")
                     ForEach(backends) { b in
                         RunRow(title: b.name, subtitle: b.kind.label, action: { nav.push(.imageBackends) }) {
-                            RouteTag(route: b.isLoopback ? .localCpu : .pcLan)
+                            RouteTag(route: Route.imageBackend(b, model: nil))
                         }
                     }
                     RunRow(title: backends.isEmpty ? "Add a PC" : "Add or edit", subtitle: "", action: { nav.push(.imageBackends) }) { Chevron() }

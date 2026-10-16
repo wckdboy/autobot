@@ -105,7 +105,7 @@ private struct ChatRouting {
         selectedModel = conversation?.model.flatMap { $0.isEmpty ? nil : $0 } ?? provider?.defaultModel
         privacy = loopback || isLocal ? .offline : effective.privacyStatus
         showOfflineBanner = provider != nil && !isLocal && mode == .offline && !(loopback && allowLoopback)
-        route = isLocal ? .localGpu : loopback ? .localCpu : .cloudApi
+        route = provider.map { routeOf($0, model: conversation?.model.flatMap { app.library.get($0) }) } ?? .cloudApi
         modelLabel = conversation?.model.map { m in
             guard isLocal else { return m }
             if m == AppleIntelligence.id { return AppleIntelligence.title }
@@ -1059,9 +1059,9 @@ private struct VoicePanel: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 StatusDot(color: voice.phase == .ready ? c.outline : c.primary, live: voice.phase != .ready)
-                SectionLabel("voice · \(label)").frame(maxWidth: .infinity, alignment: .leading)
+                SectionLabel("voice · \(label)").inkClearance(c.background).frame(maxWidth: .infinity, alignment: .leading)
                 Tag("hands-free", accent: voice.handsFree ? c.primary : nil, filled: voice.handsFree) { model.setHandsFree(!voice.handsFree) }
-                Tag("type", action: onType)
+                Tag("type", action: onType).inkClearance(c.background)
             }
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -1073,7 +1073,7 @@ private struct VoicePanel: View {
                         }
                     }
                     .frame(height: 36)
-                    MicroLabel(hint)
+                    MicroLabel(hint).inkClearance(c.background)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Button { model.voiceTap() } label: {

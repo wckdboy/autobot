@@ -351,10 +351,12 @@ struct StudioEmpty: View {
             SectionLabel(title)
             Text(text).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
             if let action, let onAction { PrimaryButton(action, action: onAction).frame(maxWidth: 260) }
+            // The living field gets its own band below the text (never behind it).
+            Color.clear.frame(height: 40).inkCard(seed: 1.7, fade: .top)
+                .padding(.top, 6)
         }
         .padding(Tokens.Spacing.gutter)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .inkCard(seed: 1.7, fade: .topLeading)
         .padding(.horizontal, 8)
         .padding(.top, 8)
     }
