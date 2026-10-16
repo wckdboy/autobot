@@ -26,10 +26,13 @@ final class DiffusionEngineFactory: Sendable {
     private let clients: HttpClientFactory
     private let llm: LocalLlm
     private let diffusion = LocalDiffusion()
+    /// The backend an installed image model runs on: the user's choice, else the benchmark's fastest.
+    private let backendFor: @MainActor @Sendable (InstalledModel) -> Backend
 
-    init(clients: HttpClientFactory, llm: LocalLlm) {
+    init(clients: HttpClientFactory, llm: LocalLlm, backendFor: @escaping @MainActor @Sendable (InstalledModel) -> Backend = { $0.backend }) {
         self.clients = clients
         self.llm = llm
+        self.backendFor = backendFor
     }
 
     @MainActor
@@ -41,7 +44,7 @@ final class DiffusionEngineFactory: Sendable {
         return switch backend.kind {
         case .sdApi: SdApiEngine(baseUrl: backend.baseUrl, clientFactory: factory)
         case .localSse: LocalSseEngine(baseUrl: backend.baseUrl, clientFactory: factory)
-        case .onDevice: OnDeviceEngine(library: library, llm: llm, diffusion: diffusion)
+        case .onDevice: OnDeviceEngine(library: library, llm: llm, diffusion: diffusion, backendFor: backendFor)
         }
     }
 }

@@ -54,7 +54,8 @@ final class KokoroSpeaker: Speaker {
             audio = AsyncThrowingStream { continuation in
                 let task = Task {
                     do {
-                        continuation.yield(try await ready.value)
+                        // Awaiting a task does not pass a cancel on: stopping must stop its synthesis too.
+                        continuation.yield(try await withTaskCancellationHandler { try await ready.value } onCancel: { ready.cancel() })
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: error)

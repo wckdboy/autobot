@@ -97,5 +97,10 @@ data class SdRequest(
         const val K_MASK = "mask"
 
         val BUNDLE_KEYS = listOf(K_MODEL, K_DIFFUSION, K_LLM, K_CLIP_L, K_CLIP_G, K_T5, K_VAE, K_TAESD)
+
+        /** Model, component and LoRA files [request] names that are not on disk. */
+        fun missingFiles(request: Bundle): List<String> =
+            (BUNDLE_KEYS.mapNotNull { request.getString(it) } + request.getStringArray(K_LORA_PATHS).orEmpty())
+                .filter { it.isNotEmpty() && !java.io.File(it).isFile }
     }
 }

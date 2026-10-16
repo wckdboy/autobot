@@ -80,7 +80,7 @@ struct AppleIntelligenceTests {
         guard case .instructions = transcript[0], case .response = transcript[2] else { Issue.record("unexpected entry kinds"); return }
     }
 
-    @Test func respondsWithAClearErrorWhenTheModelIsMissing() async throws {
+    @Test(.timeLimit(.minutes(3))) func respondsWithAClearErrorWhenTheModelIsMissing() async throws {
         guard #available(iOS 26.0, *), let reason = AppleIntelligence.unavailability else { return }
         let json = await AppleIntelligence.respond(plan) { _ in }
         let o = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: [String: String]]

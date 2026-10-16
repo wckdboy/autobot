@@ -8,6 +8,7 @@ import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.engine.llama.EngineDiedException
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import dev.wckdboy.autobot.engine.llama.LocalLlmEvent
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
@@ -43,6 +44,15 @@ class LocalChatProvider(
         val path = model?.takeIf { it.isLocalChat }?.paths?.get(FileRole.MODEL)
         if (path == null) {
             emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Model '${request.model}' is not installed on this phone (Models tab)"))
+            return@flow
+        }
+        if (!File(path).isFile || model.paths[FileRole.MMPROJ]?.let { !File(it).isFile } == true) {
+            emit(
+                ChatEvent.Error(
+                    ErrorKind.BAD_REQUEST,
+                    "The files of ${model.title} are missing (deleted outside the app). Download it again in the Models tab.",
+                ),
+            )
             return@flow
         }
         val nCtx = model.manifest.recommended?.contextLength?.coerceAtMost(MAX_CONTEXT) ?: contextLength

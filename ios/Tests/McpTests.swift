@@ -190,7 +190,7 @@ struct McpTransportTests {
         HttpRequestSpec(method: method, url: "https://mcp.example.com/mcp", headers: headers, body: body, tag: "mcp:Stub", route: "INHERIT", maxBytes: 1 << 20, trace: nil)
     }
 
-    @Test func offlineBlocksBeforeAnyRequest() async {
+    @Test(.timeLimit(.minutes(3))) func offlineBlocksBeforeAnyRequest() async {
         McpStub.reset()
         let factory = HttpClientFactory(policy: NetworkPolicy(), auditLog: AuditLog(), protocolClasses: [McpStub.self])
         let sink = await send(URLSessionTransport(clients: factory), spec(#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#))
@@ -198,7 +198,7 @@ struct McpTransportTests {
         #expect(McpStub.requests.isEmpty)
     }
 
-    @Test func headersPassThroughAndSseArrivesLineByLine() async {
+    @Test(.timeLimit(.minutes(3))) func headersPassThroughAndSseArrivesLineByLine() async {
         McpStub.reset()
         let policy = NetworkPolicy()
         policy.setMode(.direct)
@@ -224,7 +224,7 @@ struct McpTransportTests {
         #expect(audit.entries.allSatisfy { $0.tag == "mcp:Stub" && $0.host == "mcp.example.com" })
     }
 
-    @Test func sharedClientCountsToolsThroughTheSwiftTransport() async throws {
+    @Test(.timeLimit(.minutes(3))) func sharedClientCountsToolsThroughTheSwiftTransport() async throws {
         McpStub.reset()
         let policy = NetworkPolicy()
         policy.setMode(.direct)

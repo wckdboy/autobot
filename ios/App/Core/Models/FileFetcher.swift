@@ -393,6 +393,12 @@ final class BackgroundTransfer: NSObject, BulkTransfer, URLSessionDownloadDelega
                     } else {
                         continuation.resume(with: outcome(e, task, error: nil))
                     }
+                } else if Task.isCancelled {
+                    // Cancelled before the entry existed: the cancellation handler found nothing to
+                    // pause, so no delegate call would ever resume this continuation.
+                    state.withLock { _ = $0.pending.removeValue(forKey: key) }
+                    task.cancel()
+                    continuation.resume(throwing: CancellationError())
                 } else {
                     task.resume()
                     Task { @MainActor in BackgroundEvents.shared.check() }

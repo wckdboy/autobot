@@ -112,6 +112,22 @@ class RunWorkflowTool(private val runner: StudioRunner) : ToolDefinition {
         return listOfNotNull(workflow, prompt?.let { "\"$it\"" }, rest.ifEmpty { null }).joinToString(" · ")
     }
 
+    /**
+     * A workflow on a remote backend sends its values (the prompt included) off the phone, so
+     * taint tracking checks them like a network tool's. Unknown: assume it does.
+     */
+    override suspend fun reachesNetwork(args: JsonObject): Boolean {
+        val all = try {
+            runner.workflows()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return true
+        }
+        val workflow = find(all, args.string("workflow")?.trim().orEmpty()) ?: return false
+        return workflow.backendLabel != null
+    }
+
     override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput {
         val name = args.string("workflow")?.trim().orEmpty()
         val raw = args["params"] as? JsonObject
@@ -214,7 +230,13 @@ class QueueStudioRunner(
         WorkflowApplier.apply(workflow, params, random = random, uploads = params.filterValues { it is ParamValue.AssetValue }.mapValues { "pending" })
         val recipe = Recipe(EngineKinds.COMFYUI, workflow.backendId, null, params, emptyList(), workflow.id, workflow.version, seed, workflow.output)
         val job = queue.submit(projectId(), recipe, workflow.name)
-        val done = queue.await(job.id) ?: return WorkflowRunResult(emptyList(), workflow.output, seed, error = "The job was removed")
+        val done = try {
+            queue.await(job.id)
+        } catch (e: CancellationException) {
+            // The agent stopped (cancelled turn, tool timeout): the job it started stops with it.
+            queue.cancel(job.id)
+            throw e
+        } ?: return WorkflowRunResult(emptyList(), workflow.output, seed, error = "The job was removed")
         return when (done.state) {
             JobState.DONE -> WorkflowRunResult(done.outputs, workflow.output, seed, backendLabel(workflow.backendId))
             JobState.CANCELLED -> WorkflowRunResult(emptyList(), workflow.output, seed, error = "The job was cancelled")

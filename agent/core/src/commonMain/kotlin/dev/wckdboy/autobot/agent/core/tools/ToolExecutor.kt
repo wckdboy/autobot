@@ -19,6 +19,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -42,7 +44,12 @@ class ToolExecutor(private val agent: Agent) {
 
     private sealed interface Slot {
         data object NotStarted : Slot
+
+        /** In the pipeline (lookup, permission, approval): the tool itself has not run yet. */
         data object Dispatched : Slot
+
+        /** The tool's body runs: interrupted now, its outcome is unknown. */
+        data object Running : Slot
         data class Done(val output: ToolOutput) : Slot
     }
 
@@ -80,7 +87,7 @@ class ToolExecutor(private val agent: Agent) {
                         async {
                             semaphore.withPermit {
                                 slots[i] = Slot.Dispatched
-                                slots[i] = Slot.Done(executeOne(calls[i]))
+                                slots[i] = Slot.Done(executeOne(calls[i]) { slots[i] = Slot.Running })
                             }
                         }
                     }.awaitAll()
@@ -96,8 +103,9 @@ class ToolExecutor(private val agent: Agent) {
                     val call = calls[i]
                     val output = when (val slot = slots[i]) {
                         is Slot.Done -> slot.output
-                        Slot.Dispatched -> ToolOutput(TOOL_OUTCOME_UNKNOWN, isError = true, code = "TOOL_OUTCOME_UNKNOWN")
-                        Slot.NotStarted -> ToolOutput(ABORTED_BEFORE_DISPATCH, isError = true, code = "ABORTED_BEFORE_DISPATCH")
+                        Slot.Running -> ToolOutput(TOOL_OUTCOME_UNKNOWN, isError = true, code = "TOOL_OUTCOME_UNKNOWN")
+                        // Stopped before the tool ran (e.g. while its approval was pending): nothing happened.
+                        Slot.Dispatched, Slot.NotStarted -> ToolOutput(ABORTED_BEFORE_DISPATCH, isError = true, code = "ABORTED_BEFORE_DISPATCH")
                     }
                     try {
                         agent.log.append(
@@ -118,7 +126,8 @@ class ToolExecutor(private val agent: Agent) {
         return runCatching { tool.isConcurrencySafe(args) }.getOrDefault(false)
     }
 
-    private suspend fun executeOne(call: ToolCallRecord): ToolOutput {
+    /** Runs one call through the pipeline; [onStart] marks the moment the tool's body is entered. */
+    private suspend fun executeOne(call: ToolCallRecord, onStart: () -> Unit): ToolOutput {
         // The arguments are already in the assistant message that made the call.
         agent.log.append(SessionEvent.ToolCall(call.id, call.name))
         val registry = agent.ctx.require(ToolRegistry.Key)
@@ -145,6 +154,7 @@ class ToolExecutor(private val agent: Agent) {
             PreToolDecision.Allow -> Unit
         }
 
+        onStart()
         agent.markRunning(call.id, true)
         try {
             val output = try {
@@ -154,7 +164,10 @@ class ToolExecutor(private val agent: Agent) {
             } catch (e: TimeoutCancellationException) {
                 ToolOutput.error("timed out after ${tool.timeoutMs ?: DEFAULT_TIMEOUT_MS} ms", "TIMEOUT")
             } catch (e: CancellationException) {
-                throw e
+                // The turn was cancelled: rethrow. A tool can also throw a cancellation of its own
+                // (a job it awaited was cancelled elsewhere) while the turn goes on: that is its error.
+                currentCoroutineContext().ensureActive()
+                ToolOutput.error(e.message ?: "the tool's work was cancelled", "TOOL_ERROR")
             } catch (t: Throwable) {
                 ToolOutput.error(t.message ?: (t::class.simpleName ?: "error"), "TOOL_ERROR")
             }

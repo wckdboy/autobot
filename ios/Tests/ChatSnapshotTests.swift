@@ -12,7 +12,7 @@ import UIKit
 struct ChatSnapshotTests {
     private var dir: String? { ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_DIR"] }
 
-    @Test func renderChatScreens() async throws {
+    @Test(.timeLimit(.minutes(5))) func renderChatScreens() async throws {
         guard let dir else { return }
         let app = AppContainer()
         let nav = Navigator()

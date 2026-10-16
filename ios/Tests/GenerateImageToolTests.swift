@@ -50,7 +50,7 @@ struct GenerateImageToolTests {
         #expect(r.batchCount == 2)
     }
 
-    @Test func withoutABackendTheToolFailsLikeAndroid() async {
+    @Test(.timeLimit(.minutes(3))) func withoutABackendTheToolFailsLikeAndroid() async {
         let (generator, backends) = parts()
         let out = await GenerateImageTool.run(["prompt": "x"], generator: generator, backends: backends)
         #expect(out == .error("no image backend is configured (Imagine → Backends)", "NO_BACKEND"))

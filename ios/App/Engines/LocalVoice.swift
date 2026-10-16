@@ -101,14 +101,14 @@ actor LocalVoice {
     private func load(_ folder: URL) throws -> KokoroFrontend {
         if let frontend, frontend.folder == folder { return frontend.value }
         guard FileManager.default.fileExists(atPath: folder.appending(path: KokoroFrontend.companion.CONFIG).path) else {
-            throw LocalEngineError(code: "NO_MODEL", message: "The Kokoro voice is not installed")
+            throw LocalEngineError(code: "NO_MODEL", message: "The Kokoro voice is not installed. Get it in Models › voice · read aloud.")
         }
         do {
             let value = try KokoroFrontend.companion.load(dir: folder.path)
             frontend = (folder, value)
             return value
         } catch {
-            throw LocalEngineError(code: "BAD_MODEL", message: "Cannot read the voice's lexicons: \(error.localizedDescription)")
+            throw LocalEngineError(code: "BAD_MODEL", message: "Cannot read the voice's lexicons (\(error.localizedDescription)). Remove the voice in Models and download it again.")
         }
     }
 
@@ -128,7 +128,7 @@ actor LocalVoice {
 }
 
 /// Playback stopped because the audio system took the output away; [message] is user-facing.
-struct VoiceInterrupted: LocalizedError {
+struct VoiceInterrupted: LocalizedError, Equatable {
     let message: String
     var errorDescription: String? { message }
 }
@@ -143,8 +143,7 @@ struct VoiceInterrupted: LocalizedError {
  */
 @MainActor
 final class VoicePlayer {
-    private let engine = AVAudioEngine()
-    private let node = AVAudioPlayerNode()
+    private let output: any VoiceOutput
     private let format: AVAudioFormat
     private var stopped = false
     private var interruption: VoiceInterrupted?
@@ -156,10 +155,9 @@ final class VoicePlayer {
         let count = Atomic<Int>(0)
     }
 
-    init(sampleRate: Int = LocalVoice.sampleRate) {
+    init(sampleRate: Int = LocalVoice.sampleRate, output: (any VoiceOutput)? = nil) {
         format = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 1)!
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
+        self.output = output ?? EngineVoiceOutput(format: format)
     }
 
     func play(_ audio: AsyncThrowingStream<[Float], Error>) async throws {
@@ -167,12 +165,8 @@ final class VoicePlayer {
         interruption = nil
         let observers = observe()
         defer { observers.forEach { NotificationCenter.default.removeObserver($0) } }
-        try engine.start()
-        node.play()
-        defer {
-            node.stop()
-            engine.stop()
-        }
+        try output.start()
+        defer { output.stop() }
         let pending = Pending()
         var scheduled: Double = 0
         for try await block in audio {
@@ -183,7 +177,7 @@ final class VoicePlayer {
             block.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: block.count) }
             pending.count.add(1, ordering: .relaxed)
             scheduled += Double(block.count) / format.sampleRate
-            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: Self.completion(pending))
+            output.schedule(buffer, completion: Self.completion(pending))
         }
         let deadline = ContinuousClock.now + .seconds(scheduled) + Self.drainGrace
         while !stopped, !Task.isCancelled, pending.count.load(ordering: .relaxed) > 0 {
@@ -197,7 +191,7 @@ final class VoicePlayer {
     /// Stops playback now; a suspended [play] returns.
     func stop() {
         stopped = true
-        node.stop()
+        output.halt()
     }
 
     /**
@@ -212,7 +206,7 @@ final class VoicePlayer {
     private func interrupted(_ message: String) {
         guard interruption == nil, !stopped else { return }
         interruption = VoiceInterrupted(message: message)
-        node.stop()
+        output.halt()
     }
 
     private func observe() -> [any NSObjectProtocol] {
@@ -223,12 +217,55 @@ final class VoicePlayer {
                 guard type == .began else { return }
                 MainActor.assumeIsolated { self?.interrupted("Playback was interrupted") }
             },
-            center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.interrupted("The audio output changed") }
-            },
             center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.interrupted("The audio system restarted") }
             },
-        ]
+        ] + [output.engine].compactMap { engine in
+            center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.interrupted("The audio output changed") }
+            }
+        }
+    }
+}
+
+/// Where [VoicePlayer] plays its buffers: the audio engine (tests substitute a silent output).
+@MainActor
+protocol VoiceOutput: AnyObject {
+    /// The engine whose configuration change means the output was lost (nil: none).
+    var engine: AVAudioEngine? { get }
+    func start() throws
+    /// Stops playing now (stop, interruption); [stop] also stops the engine at the end of [VoicePlayer.play].
+    func halt()
+    func stop()
+    func schedule(_ buffer: AVAudioPCMBuffer, completion: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void)
+}
+
+/// An `AVAudioPlayerNode` on its own `AVAudioEngine`.
+@MainActor
+final class EngineVoiceOutput: VoiceOutput {
+    private let audio = AVAudioEngine()
+    private let node = AVAudioPlayerNode()
+
+    init(format: AVAudioFormat) {
+        audio.attach(node)
+        audio.connect(node, to: audio.mainMixerNode, format: format)
+    }
+
+    var engine: AVAudioEngine? { audio }
+
+    func start() throws {
+        try audio.start()
+        node.play()
+    }
+
+    func halt() { node.stop() }
+
+    func stop() {
+        node.stop()
+        audio.stop()
+    }
+
+    func schedule(_ buffer: AVAudioPCMBuffer, completion: @escaping @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void) {
+        node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: completion)
     }
 }

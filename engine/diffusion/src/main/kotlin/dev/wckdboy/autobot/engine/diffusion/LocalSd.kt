@@ -39,7 +39,7 @@ class SdEngineException(message: String) : Exception(message)
  * the model's memory. Output files are read and deleted as they arrive; nothing generated
  * lingers in the cache.
  */
-class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
+class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, private val connectTimeoutMillis: Long = CONNECT_TIMEOUT_MS) {
     private val app = context.applicationContext
     private val mutex = Mutex()
     private val main = Handler(Looper.getMainLooper())
@@ -75,8 +75,20 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
                 ready.complete(e)
             }
 
+            /** Unbound after its process died (once: the binding is gone after that). */
+            @Volatile
+            private var released = false
+
             override fun onServiceDisconnected(name: ComponentName) {
+                // The engine process died. Unbind: a binding kept to it makes Android restart the
+                // process and hold it forever, out of reach of the idle unbind and the memory
+                // coordinator. The next request binds afresh.
                 engine = null
+                if (!released) {
+                    released = true
+                    runCatching { app.unbindService(this) }
+                }
+                synchronized(this@LocalSd) { if (connection === this) connection = null }
             }
 
             override fun onBindingDied(name: ComponentName) {
@@ -90,7 +102,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
             throw SdEngineException("Cannot start the on-device image engine")
         }
         synchronized(this) { connection = conn }
-        val e = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { ready.await() }
+        val e = withTimeoutOrNull(connectTimeoutMillis) { ready.await() }
         if (e == null) {
             // A domain error, not a cancellation: callers must show it, and the binding must not linger.
             synchronized(this) { if (connection === conn) connection = null }
@@ -125,7 +137,6 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
         val death = IBinder.DeathRecipient {
             close(SdEngineException("The image engine stopped (likely out of memory). Try a smaller size or model."))
         }
-        binder.linkToDeath(death, 0)
         val callback = object : ISdCallback.Stub() {
             override fun onStatus(status: String) {
                 trySend(LocalSdEvent.Status(status))
@@ -148,6 +159,8 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L) {
             }
         }
         try {
+            // Inside the try: an engine that died since [acquire] must not keep this use counted.
+            binder.linkToDeath(death, 0)
             e.generate(request.toBundle(), callback)
         } catch (t: RemoteException) {
             runCatching { binder.unlinkToDeath(death, 0) }

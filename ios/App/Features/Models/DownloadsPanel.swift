@@ -8,6 +8,7 @@ import SwiftUI
  */
 struct DownloadsPanel: View {
     @Environment(AppContainer.self) private var app
+    @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
     @State private var reachability = NetworkReachability()
     @State private var notify = DownloadAlerts.enabled
@@ -32,7 +33,12 @@ struct DownloadsPanel: View {
                         Tag("got it") { app.downloader.dismissForceQuitNotice() }
                     }
                 }
-                if let block = state.block { MicroLabel(block.label, color: AutobotColors.amber, lines: 2) }
+                if let block = state.blocks.first {
+                    HStack(alignment: .top) {
+                        MicroLabel(block.label, color: AutobotColors.amber, lines: 2).frame(maxWidth: .infinity, alignment: .leading)
+                        if block == .killSwitch { Tag("privacy", accent: c.primary) { nav.push(.privacyCenter) } }
+                    }
+                }
                 if let p = state.active {
                     HStack(alignment: .center) {
                         Text(p.title).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)

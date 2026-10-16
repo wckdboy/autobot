@@ -10,6 +10,7 @@ struct OnDeviceEngine: DiffusionEngine {
     let library: ModelLibrary
     let llm: LocalLlm
     let diffusion: LocalDiffusion
+    var backendFor: @MainActor @Sendable (InstalledModel) -> Backend = { $0.backend }
 
     let capabilities = EngineCapabilities(
         modes: Set(DiffusionMode.allCases),
@@ -39,15 +40,19 @@ struct OnDeviceEngine: DiffusionEngine {
         }
     }
 
+    /// The installed model [request] runs (its own, else the first ready one) and the backend it runs on.
+    @MainActor
+    func target(_ request: DiffusionRequest) -> (dir: URL, backend: Backend)? {
+        let ready = library.models.filter { $0.isReady && $0.kind == .image && $0.engine == .coreML }
+        guard let model = ready.first(where: { $0.id == request.model }) ?? ready.first else { return nil }
+        return (ModelLibrary.dir(of: model.id), backendFor(model))
+    }
+
     private func run(_ request: DiffusionRequest, _ inputs: DiffusionInputs, emit: @escaping @Sendable (DiffusionEvent) -> Void) async throws {
         if request.mode != .txt2img && inputs.initImage == nil { throw DiffusionError(message: "\(request.mode.label) needs an input image", code: .unsupported) }
         if request.mode == .inpaint && inputs.mask == nil { throw DiffusionError(message: "Paint a mask first", code: .unsupported) }
         guard Engines.linked else { throw DiffusionError(message: EngineUnavailable().errorDescription ?? "", code: .unsupported) }
-        let resolved: (dir: URL, backend: Backend)? = await MainActor.run {
-            let ready = library.models.filter { $0.isReady && $0.kind == .image && $0.engine == .coreML }
-            guard let model = ready.first(where: { $0.id == request.model }) ?? ready.first else { return nil }
-            return (ModelLibrary.dir(of: model.id), model.backend)
-        }
+        let resolved = await MainActor.run { target(request) }
         guard let resolved else {
             throw DiffusionError(message: "No image model on this phone yet — get one in the Models tab", code: .unsupported)
         }
