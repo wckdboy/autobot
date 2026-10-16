@@ -1,0 +1,656 @@
+[
+  {
+    "name": "bold time",
+    "md": "It arrives at **17:25**.",
+    "blocks": [{"p": ["It arrives at ", {"strong": ["17:25"]}, "."]}],
+    "speak": "It arrives at 17:25."
+  },
+  {
+    "name": "paragraphs split on blank lines",
+    "md": "one\ntwo\n\nthree",
+    "blocks": [{"p": ["one\ntwo"]}, {"p": ["three"]}],
+    "speak": "one\ntwo\nthree"
+  },
+  {
+    "name": "empty",
+    "md": "",
+    "blocks": [],
+    "speak": ""
+  },
+  {
+    "name": "blank only",
+    "md": "  \n\n\t\n",
+    "blocks": [],
+    "speak": ""
+  },
+  {
+    "name": "italic star and underscore",
+    "md": "*one* and _two_",
+    "blocks": [{"p": [{"em": ["one"]}, " and ", {"em": ["two"]}]}],
+    "speak": "one and two"
+  },
+  {
+    "name": "bold and italic",
+    "md": "***both*** and **_mixed_**",
+    "blocks": [{"p": [{"em": [{"strong": ["both"]}]}, " and ", {"strong": [{"em": ["mixed"]}]}]}],
+    "speak": "both and mixed"
+  },
+  {
+    "name": "strong inside emphasis",
+    "md": "*a **b** c*",
+    "blocks": [{"p": [{"em": ["a ", {"strong": ["b"]}, " c"]}]}],
+    "speak": "a b c"
+  },
+  {
+    "name": "strike",
+    "md": "~~gone~~ and ~about 5",
+    "blocks": [{"p": [{"del": ["gone"]}, " and ~about 5"]}],
+    "speak": "gone and about 5"
+  },
+  {
+    "name": "single tilde strike stays text",
+    "md": "~not~ struck",
+    "blocks": [{"p": ["~not~ struck"]}],
+    "speak": "not struck"
+  },
+  {
+    "name": "snake_case stays text, a spaced __dunder__ is strong",
+    "md": "Use snake_case_names and __init__ here.",
+    "blocks": [{"p": ["Use snake_case_names and ", {"strong": ["init"]}, " here."]}],
+    "speak": "Use snake_case_names and init here."
+  },
+  {
+    "name": "intraword star emphasis",
+    "md": "un*frigging*believable",
+    "blocks": [{"p": ["un", {"em": ["frigging"]}, "believable"]}],
+    "speak": "unfriggingbelievable"
+  },
+  {
+    "name": "spaced stars are text",
+    "md": "2 * 3 * 4 = 24",
+    "blocks": [{"p": ["2 * 3 * 4 = 24"]}],
+    "speak": "2 3 4 = 24"
+  },
+  {
+    "name": "unclosed bold stays literal",
+    "md": "It arrives at **17:2",
+    "blocks": [{"p": ["It arrives at **17:2"]}],
+    "speak": "It arrives at 17:2"
+  },
+  {
+    "name": "unclosed emphasis mid stream",
+    "md": "This is *still typing",
+    "blocks": [{"p": ["This is *still typing"]}],
+    "speak": "This is still typing"
+  },
+  {
+    "name": "leftover star with matched pair",
+    "md": "***a**",
+    "blocks": [{"p": ["*", {"strong": ["a"]}]}],
+    "speak": "a"
+  },
+  {
+    "name": "escapes",
+    "md": "\\*not italic\\* and \\_not\\_ and \\`tick\\` and \\\\ backslash",
+    "blocks": [{"p": ["*not italic* and _not_ and `tick` and \\ backslash"]}],
+    "speak": "not italic and _not_ and tick and \\ backslash"
+  },
+  {
+    "name": "backslash before letter stays",
+    "md": "C:\\Users\\me",
+    "blocks": [{"p": ["C:\\Users\\me"]}],
+    "speak": "C:\\Users\\me"
+  },
+  {
+    "name": "inline code",
+    "md": "use `map` here",
+    "blocks": [{"p": ["use ", {"code": "map"}, " here"]}],
+    "speak": "use map here"
+  },
+  {
+    "name": "inline code with backticks",
+    "md": "``a ` b`` and ` `` `",
+    "blocks": [{"p": [{"code": "a ` b"}, " and ", {"code": "``"}]}],
+    "speak": "a b and"
+  },
+  {
+    "name": "unmatched backtick stays text",
+    "md": "a ` b",
+    "blocks": [{"p": ["a ` b"]}],
+    "speak": "a b"
+  },
+  {
+    "name": "empty code span stays literal",
+    "md": "a `` b",
+    "blocks": [{"p": ["a `` b"]}],
+    "speak": "a b"
+  },
+  {
+    "name": "code protects emphasis",
+    "md": "`*not em*` and *em*",
+    "blocks": [{"p": [{"code": "*not em*"}, " and ", {"em": ["em"]}]}],
+    "speak": "not em and em"
+  },
+  {
+    "name": "link",
+    "md": "See [the docs](https://example.com/docs?a=1&b=2) now.",
+    "blocks": [{"p": ["See ", {"link": "https://example.com/docs?a=1&b=2", "spans": ["the docs"]}, " now."]}],
+    "speak": "See the docs now."
+  },
+  {
+    "name": "link with title and parens",
+    "md": "[wiki](https://en.wikipedia.org/wiki/Foo_(bar) \"Foo\")",
+    "blocks": [{"p": [{"link": "https://en.wikipedia.org/wiki/Foo_(bar)", "spans": ["wiki"]}]}],
+    "speak": "wiki"
+  },
+  {
+    "name": "link with emphasis in label",
+    "md": "[**bold** link](https://a.example)",
+    "blocks": [{"p": [{"link": "https://a.example", "spans": [{"strong": ["bold"]}, " link"]}]}],
+    "speak": "bold link"
+  },
+  {
+    "name": "http link",
+    "md": "[plain](http://insecure.example/path)",
+    "blocks": [{"p": [{"link": "http://insecure.example/path", "spans": ["plain"]}]}],
+    "speak": "plain"
+  },
+  {
+    "name": "mailto link",
+    "md": "[mail me](mailto:me@example.com)",
+    "blocks": [{"p": [{"link": "mailto:me@example.com", "spans": ["mail me"]}]}],
+    "speak": "mail me"
+  },
+  {
+    "name": "unsafe link schemes are text",
+    "md": "[click](javascript:alert(1)) and [file](file:///etc/passwd) and [rel](/path)",
+    "blocks": [{"p": ["click and file and rel"]}],
+    "speak": "click and file and rel"
+  },
+  {
+    "name": "unclosed link stays literal",
+    "md": "[docs](https://example.com/do",
+    "blocks": [{"p": ["[docs](https://example.com/do"]}],
+    "speak": "[docs](https://example.com/do"
+  },
+  {
+    "name": "brackets without link",
+    "md": "array[0] and [1] footnote",
+    "blocks": [{"p": ["array[0] and [1] footnote"]}],
+    "speak": "array[0] and [1] footnote"
+  },
+  {
+    "name": "autolink",
+    "md": "<https://example.com/a?b=c> and <me@example.com>",
+    "blocks": [{"p": [{"link": "https://example.com/a?b=c", "spans": ["https://example.com/a?b=c"]}, " and ", {"link": "mailto:me@example.com", "spans": ["me@example.com"]}]}],
+    "speak": "link and link"
+  },
+  {
+    "name": "autolink other scheme is text",
+    "md": "<ftp://example.com/file>",
+    "blocks": [{"p": ["<ftp://example.com/file>"]}],
+    "speak": ""
+  },
+  {
+    "name": "bare url",
+    "md": "Visit https://example.com/page, or http://x.example/a_b_c.",
+    "blocks": [{"p": ["Visit ", {"link": "https://example.com/page", "spans": ["https://example.com/page"]}, ", or ", {"link": "http://x.example/a_b_c", "spans": ["http://x.example/a_b_c"]}, "."]}],
+    "speak": "Visit link, or link."
+  },
+  {
+    "name": "bare url in parens and bold",
+    "md": "(see https://example.com/x) and **https://example.com/y**",
+    "blocks": [{"p": ["(see ", {"link": "https://example.com/x", "spans": ["https://example.com/x"]}, ") and ", {"strong": [{"link": "https://example.com/y", "spans": ["https://example.com/y"]}]}]}],
+    "speak": "(see link) and link"
+  },
+  {
+    "name": "bare url keeps balanced parens",
+    "md": "https://en.wikipedia.org/wiki/Foo_(bar)",
+    "blocks": [{"p": [{"link": "https://en.wikipedia.org/wiki/Foo_(bar)", "spans": ["https://en.wikipedia.org/wiki/Foo_(bar)"]}]}],
+    "speak": "link"
+  },
+  {
+    "name": "url mid word is text",
+    "md": "xhttps://example.com",
+    "blocks": [{"p": ["xhttps://example.com"]}],
+    "speak": "xhttps://example.com"
+  },
+  {
+    "name": "image is never loaded",
+    "md": "![a cat](https://cats.example/cat.png) sleeping",
+    "blocks": [{"p": [{"image": "https://cats.example/cat.png", "alt": "a cat"}, " sleeping"]}],
+    "speak": "a cat sleeping"
+  },
+  {
+    "name": "image inside link",
+    "md": "[![build](https://ci.example/badge.svg)](https://ci.example)",
+    "blocks": [{"p": [{"link": "https://ci.example", "spans": [{"image": "https://ci.example/badge.svg", "alt": "build"}]}]}],
+    "speak": "build"
+  },
+  {
+    "name": "html is literal",
+    "md": "<b>bold?</b> <img src=\"https://t.example/p.gif\"> <script>alert(1)</script>",
+    "blocks": [{"p": ["<b>bold?</b> <img src=\"https://t.example/p.gif\"> <script>alert(1)</script>"]}],
+    "speak": "bold? alert(1)"
+  },
+  {
+    "name": "html block is literal",
+    "md": "<div>\n<p>hi</p>\n</div>",
+    "blocks": [{"p": ["<div>\n<p>hi</p>\n</div>"]}],
+    "speak": "hi"
+  },
+  {
+    "name": "hard breaks",
+    "md": "line one  \nline two\\\nline three",
+    "blocks": [{"p": ["line one\nline two\nline three"]}],
+    "speak": "line one\nline two\nline three"
+  },
+  {
+    "name": "inline math",
+    "md": "Euler: $e^{i\\pi} + 1 = 0$ is neat.",
+    "blocks": [{"p": ["Euler: ", {"math": "e^{i\\pi} + 1 = 0"}, " is neat."]}],
+    "speak": "Euler: e^{i\\pi} + 1 = 0 is neat."
+  },
+  {
+    "name": "dollars are not math",
+    "md": "It costs $5 and $10, or $5-$10.",
+    "blocks": [{"p": ["It costs $5 and $10, or $5-$10."]}],
+    "speak": "It costs $5 and $10, or $5-$10."
+  },
+  {
+    "name": "display math inline",
+    "md": "So $$x^2$$ holds.",
+    "blocks": [{"p": ["So ", {"math": "x^2"}, " holds."]}],
+    "speak": "So x^2 holds."
+  },
+  {
+    "name": "display math block",
+    "md": "$$\n\\int_0^1 x\\,dx = \\tfrac12\n$$",
+    "blocks": [{"code": "\\int_0^1 x\\,dx = \\tfrac12", "lang": "math", "closed": true}],
+    "speak": "formula."
+  },
+  {
+    "name": "display math one line",
+    "md": "$$a^2 + b^2 = c^2$$",
+    "blocks": [{"code": "a^2 + b^2 = c^2", "lang": "math", "closed": true}],
+    "speak": "formula."
+  },
+  {
+    "name": "unclosed display math",
+    "md": "$$\nx = 1",
+    "blocks": [{"code": "x = 1", "lang": "math", "closed": false}],
+    "speak": "formula."
+  },
+  {
+    "name": "headings",
+    "md": "# One\n## Two ##\n###### Six\n####### Seven",
+    "blocks": [{"h": 1, "spans": ["One"]}, {"h": 2, "spans": ["Two"]}, {"h": 6, "spans": ["Six"]}, {"p": ["####### Seven"]}],
+    "speak": "One.\nTwo.\nSix.\n####### Seven"
+  },
+  {
+    "name": "heading needs a space",
+    "md": "#hashtag and #1",
+    "blocks": [{"p": ["#hashtag and #1"]}],
+    "speak": "#hashtag and #1"
+  },
+  {
+    "name": "heading with inline",
+    "md": "## The `parse` **step**",
+    "blocks": [{"h": 2, "spans": ["The ", {"code": "parse"}, " ", {"strong": ["step"]}]}],
+    "speak": "The parse step."
+  },
+  {
+    "name": "rules",
+    "md": "a\n\n---\n\n***\n\n_ _ _",
+    "blocks": [{"p": ["a"]}, {"hr": true}, {"hr": true}, {"hr": true}],
+    "speak": "a"
+  },
+  {
+    "name": "rule interrupts paragraph",
+    "md": "text\n---\nmore",
+    "blocks": [{"p": ["text"]}, {"hr": true}, {"p": ["more"]}],
+    "speak": "text\nmore"
+  },
+  {
+    "name": "bullet list",
+    "md": "- one\n- two\n- three",
+    "blocks": [{"list": [{"blocks": [{"p": ["one"]}]}, {"blocks": [{"p": ["two"]}]}, {"blocks": [{"p": ["three"]}]}], "ordered": false, "start": 0}],
+    "speak": "one.\ntwo.\nthree."
+  },
+  {
+    "name": "mixed bullet chars",
+    "md": "* a\n+ b\n- c",
+    "blocks": [{"list": [{"blocks": [{"p": ["a"]}]}, {"blocks": [{"p": ["b"]}]}, {"blocks": [{"p": ["c"]}]}], "ordered": false, "start": 0}],
+    "speak": "a.\nb.\nc."
+  },
+  {
+    "name": "ordered list",
+    "md": "1. first\n2. second\n3. third",
+    "blocks": [{"list": [{"blocks": [{"p": ["first"]}]}, {"blocks": [{"p": ["second"]}]}, {"blocks": [{"p": ["third"]}]}], "ordered": true, "start": 1}],
+    "speak": "first.\nsecond.\nthird."
+  },
+  {
+    "name": "ordered list start",
+    "md": "3) three\n4) four",
+    "blocks": [{"list": [{"blocks": [{"p": ["three"]}]}, {"blocks": [{"p": ["four"]}]}], "ordered": true, "start": 3}],
+    "speak": "three.\nfour."
+  },
+  {
+    "name": "nested list",
+    "md": "- fruit\n  - apple\n  - pear\n- veg\n    - leek",
+    "blocks": [{"list": [{"blocks": [{"p": ["fruit"]}, {"list": [{"blocks": [{"p": ["apple"]}]}, {"blocks": [{"p": ["pear"]}]}], "ordered": false, "start": 0}]}, {"blocks": [{"p": ["veg"]}, {"list": [{"blocks": [{"p": ["leek"]}]}], "ordered": false, "start": 0}]}], "ordered": false, "start": 0}],
+    "speak": "fruit.\napple.\npear.\nveg.\nleek."
+  },
+  {
+    "name": "nested under ordered with two spaces",
+    "md": "1. Step\n  - detail\n2. Next",
+    "blocks": [{"list": [{"blocks": [{"p": ["Step"]}, {"list": [{"blocks": [{"p": ["detail"]}]}], "ordered": false, "start": 0}]}, {"blocks": [{"p": ["Next"]}]}], "ordered": true, "start": 1}],
+    "speak": "Step.\ndetail.\nNext."
+  },
+  {
+    "name": "loose list",
+    "md": "- a\n\n- b\n\n  continued\n\nafter",
+    "blocks": [{"list": [{"blocks": [{"p": ["a"]}]}, {"blocks": [{"p": ["b"]}, {"p": ["continued"]}]}], "ordered": false, "start": 0}, {"p": ["after"]}],
+    "speak": "a.\nb.\ncontinued\nafter"
+  },
+  {
+    "name": "list item lazy continuation",
+    "md": "- long item\nwraps here\n- next",
+    "blocks": [{"list": [{"blocks": [{"p": ["long item\nwraps here"]}]}, {"blocks": [{"p": ["next"]}]}], "ordered": false, "start": 0}],
+    "speak": "long item\nwraps here.\nnext."
+  },
+  {
+    "name": "task list",
+    "md": "- [ ] todo\n- [x] done\n- [X] also done\n- [] not a task",
+    "blocks": [{"list": [{"task": false, "blocks": [{"p": ["todo"]}]}, {"task": true, "blocks": [{"p": ["done"]}]}, {"task": true, "blocks": [{"p": ["also done"]}]}, {"blocks": [{"p": ["[] not a task"]}]}], "ordered": false, "start": 0}],
+    "speak": "todo.\ndone.\nalso done.\n[] not a task."
+  },
+  {
+    "name": "list interrupts paragraph",
+    "md": "Steps:\n1. one\n2. two\n\nItems:\n- a",
+    "blocks": [{"p": ["Steps:"]}, {"list": [{"blocks": [{"p": ["one"]}]}, {"blocks": [{"p": ["two"]}]}], "ordered": true, "start": 1}, {"p": ["Items:"]}, {"list": [{"blocks": [{"p": ["a"]}]}], "ordered": false, "start": 0}],
+    "speak": "Steps:\none.\ntwo.\nItems:\na."
+  },
+  {
+    "name": "number mid paragraph is not a list",
+    "md": "In the year\n1984. A novel.",
+    "blocks": [{"p": ["In the year\n1984. A novel."]}],
+    "speak": "In the year\n1984. A novel."
+  },
+  {
+    "name": "code inside list",
+    "md": "1. Run:\n   ```sh\n   make\n   ```\n2. Done",
+    "blocks": [{"list": [{"blocks": [{"p": ["Run:"]}, {"code": "make", "lang": "sh", "closed": true}]}, {"blocks": [{"p": ["Done"]}]}], "ordered": true, "start": 1}],
+    "speak": "Run:\ncode block.\nDone."
+  },
+  {
+    "name": "empty list item",
+    "md": "-\n- b",
+    "blocks": [{"list": [{"blocks": []}, {"blocks": [{"p": ["b"]}]}], "ordered": false, "start": 0}],
+    "speak": "b."
+  },
+  {
+    "name": "star rule not list",
+    "md": "* * *",
+    "blocks": [{"hr": true}],
+    "speak": ""
+  },
+  {
+    "name": "quote",
+    "md": "> quoted **text**\n> more",
+    "blocks": [{"quote": [{"p": ["quoted ", {"strong": ["text"]}, "\nmore"]}]}],
+    "speak": "quoted text\nmore"
+  },
+  {
+    "name": "quote with list and nesting",
+    "md": "> - a\n> - b\n>\n> > deeper",
+    "blocks": [{"quote": [{"list": [{"blocks": [{"p": ["a"]}]}, {"blocks": [{"p": ["b"]}]}], "ordered": false, "start": 0}, {"quote": [{"p": ["deeper"]}]}]}],
+    "speak": "a.\nb.\ndeeper"
+  },
+  {
+    "name": "quote ends at plain line",
+    "md": "> quote\nnot quote",
+    "blocks": [{"quote": [{"p": ["quote"]}]}, {"p": ["not quote"]}],
+    "speak": "quote\nnot quote"
+  },
+  {
+    "name": "fenced code",
+    "md": "before\n```kotlin\nval x = 1\n\nval y = 2\n```\nafter",
+    "blocks": [{"p": ["before"]}, {"code": "val x = 1\n\nval y = 2", "lang": "kotlin", "closed": true}, {"p": ["after"]}],
+    "speak": "before\ncode block.\nafter"
+  },
+  {
+    "name": "tilde fence and long fence",
+    "md": "~~~\na\n~~~\n\n````md\n```\ninner\n```\n````",
+    "blocks": [{"code": "a", "lang": null, "closed": true}, {"code": "```\ninner\n```", "lang": "md", "closed": true}],
+    "speak": "code block.\ncode block."
+  },
+  {
+    "name": "unterminated fence",
+    "md": "```py\nprint(1)",
+    "blocks": [{"code": "print(1)", "lang": "py", "closed": false}],
+    "speak": "code block."
+  },
+  {
+    "name": "fence closing needs bare line",
+    "md": "```\nx\n```js\ny\n```",
+    "blocks": [{"code": "x\n```js\ny", "lang": null, "closed": true}],
+    "speak": "code block."
+  },
+  {
+    "name": "indented fence",
+    "md": "  ```\n  code\n    more\n  ```",
+    "blocks": [{"code": "code\n  more", "lang": null, "closed": true}],
+    "speak": "code block."
+  },
+  {
+    "name": "table",
+    "md": "| Train | Time | Price |\n|:------|:----:|------:|\n| ICE 5 | 17:25 | €49.90 |\n| RE 7 | 18:02 | €12 |",
+    "blocks": [{"table": {"align": ["left", "center", "right"], "header": [["Train"], ["Time"], ["Price"]], "rows": [[["ICE 5"], ["17:25"], ["€49.90"]], [["RE 7"], ["18:02"], ["€12"]]]}}],
+    "speak": "Train, Time, Price.\nICE 5, 17:25, €49.90.\nRE 7, 18:02, €12."
+  },
+  {
+    "name": "table without outer pipes",
+    "md": "a | b\n--|--\n1 | 2",
+    "blocks": [{"table": {"align": ["none", "none"], "header": [["a"], ["b"]], "rows": [[["1"], ["2"]]]}}],
+    "speak": "a, b.\n1, 2."
+  },
+  {
+    "name": "table after paragraph",
+    "md": "Here:\n| a | b |\n|---|---|\n| 1 | 2 |\n\nDone.",
+    "blocks": [{"p": ["Here:"]}, {"table": {"align": ["none", "none"], "header": [["a"], ["b"]], "rows": [[["1"], ["2"]]]}}, {"p": ["Done."]}],
+    "speak": "Here:\na, b.\n1, 2.\nDone."
+  },
+  {
+    "name": "table pads and trims cells",
+    "md": "| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |",
+    "blocks": [{"table": {"align": ["none", "none"], "header": [["a"], ["b"]], "rows": [[["1"], []], [["1"], ["2"]]]}}],
+    "speak": "a, b.\n1.\n1, 2."
+  },
+  {
+    "name": "table escaped pipe and code",
+    "md": "| expr | value |\n|---|---|\n| `a|b` | x \\| y |",
+    "blocks": [{"table": {"align": ["none", "none"], "header": [["expr"], ["value"]], "rows": [[[{"code": "a|b"}], ["x | y"]]]}}],
+    "speak": "expr, value.\na|b, x | y."
+  },
+  {
+    "name": "table ends at line without pipe",
+    "md": "| a |\n|---|\n| 1 |\nplain",
+    "blocks": [{"table": {"align": ["none"], "header": [["a"]], "rows": [[["1"]]]}}, {"p": ["plain"]}],
+    "speak": "a.\n1.\nplain"
+  },
+  {
+    "name": "half table header only",
+    "md": "| Train | Time |",
+    "blocks": [{"table": {"align": ["none", "none"], "header": [["Train"], ["Time"]], "rows": []}}],
+    "speak": "Train, Time."
+  },
+  {
+    "name": "half table partial delimiter",
+    "md": "| Train | Time |\n|----|--",
+    "blocks": [{"table": {"align": ["none", "none"], "header": [["Train"], ["Time"]], "rows": []}}],
+    "speak": "Train, Time."
+  },
+  {
+    "name": "half table partial row",
+    "md": "| a | b |\n|---|---|\n| 1 | 2",
+    "blocks": [{"table": {"align": ["none", "none"], "header": [["a"], ["b"]], "rows": [[["1"], ["2"]]]}}],
+    "speak": "a, b.\n1, 2."
+  },
+  {
+    "name": "pipe paragraph is not table",
+    "md": "a | b\nc | d",
+    "blocks": [{"p": ["a | b\nc | d"]}],
+    "speak": "a | b\nc | d"
+  },
+  {
+    "name": "cjk emphasis",
+    "md": "这是**粗体**。",
+    "blocks": [{"p": ["这是", {"strong": ["粗体"]}, "。"]}],
+    "speak": "这是粗体。"
+  },
+  {
+    "name": "crlf",
+    "md": "a\r\nb\r\n\r\nc",
+    "blocks": [{"p": ["a\nb"]}, {"p": ["c"]}],
+    "speak": "a\nb\nc"
+  },
+  {
+    "name": "rule of three",
+    "md": "*foo**bar**baz*",
+    "blocks": [{"p": [{"em": ["foo", {"strong": ["bar"]}, "baz"]}]}],
+    "speak": "foobarbaz"
+  },
+  {
+    "name": "underscore emphasis next to punctuation",
+    "md": "(_quoted_) and _a_b_",
+    "blocks": [{"p": ["(", {"em": ["quoted"]}, ") and ", {"em": ["a_b"]}]}],
+    "speak": "(quoted) and a_b"
+  },
+  {
+    "name": "bold label with colon",
+    "md": "**Note:** read this",
+    "blocks": [{"p": [{"strong": ["Note:"]}, " read this"]}],
+    "speak": "Note: read this"
+  },
+  {
+    "name": "emphasis around a link",
+    "md": "*see [x](https://a.example)*",
+    "blocks": [{"p": [{"em": ["see ", {"link": "https://a.example", "spans": ["x"]}]}]}],
+    "speak": "see x"
+  },
+  {
+    "name": "link label with brackets",
+    "md": "[a [b] c](https://a.example)",
+    "blocks": [{"p": [{"link": "https://a.example", "spans": ["a [b] c"]}]}],
+    "speak": "a [b] c"
+  },
+  {
+    "name": "link with angle destination",
+    "md": "[spaced](<https://a.example/a b>)",
+    "blocks": [{"p": [{"link": "https://a.example/a b", "spans": ["spaced"]}]}],
+    "speak": "spaced"
+  },
+  {
+    "name": "empty link label shows url",
+    "md": "[](https://a.example)",
+    "blocks": [{"p": [{"link": "https://a.example", "spans": []}]}],
+    "speak": "link"
+  },
+  {
+    "name": "strike around strong",
+    "md": "~~**old** price~~ now",
+    "blocks": [{"p": [{"del": [{"strong": ["old"]}, " price"]}, " now"]}],
+    "speak": "old price now"
+  },
+  {
+    "name": "url inside code is code",
+    "md": "`https://example.com`",
+    "blocks": [{"p": [{"code": "https://example.com"}]}],
+    "speak": "https://example.com"
+  },
+  {
+    "name": "escaped dollar and math",
+    "md": "Price \\$5 and $x$",
+    "blocks": [{"p": ["Price $5 and ", {"math": "x"}]}],
+    "speak": "Price $5 and x"
+  },
+  {
+    "name": "heading keeps inner hash",
+    "md": "# C# notes",
+    "blocks": [{"h": 1, "spans": ["C# notes"]}],
+    "speak": "C# notes."
+  },
+  {
+    "name": "lone hash is empty heading",
+    "md": "#",
+    "blocks": [{"h": 1, "spans": []}],
+    "speak": ""
+  },
+  {
+    "name": "list after heading",
+    "md": "## Steps\n1. a\n2. b",
+    "blocks": [{"h": 2, "spans": ["Steps"]}, {"list": [{"blocks": [{"p": ["a"]}]}, {"blocks": [{"p": ["b"]}]}], "ordered": true, "start": 1}],
+    "speak": "Steps.\na.\nb."
+  },
+  {
+    "name": "two digit ordered list",
+    "md": "10. ten\n11. eleven",
+    "blocks": [{"list": [{"blocks": [{"p": ["ten"]}]}, {"blocks": [{"p": ["eleven"]}]}], "ordered": true, "start": 10}],
+    "speak": "ten.\neleven."
+  },
+  {
+    "name": "tab indented nested list",
+    "md": "- a\n\t- b",
+    "blocks": [{"list": [{"blocks": [{"p": ["a"]}, {"list": [{"blocks": [{"p": ["b"]}]}], "ordered": false, "start": 0}]}], "ordered": false, "start": 0}],
+    "speak": "a.\nb."
+  },
+  {
+    "name": "task item without text",
+    "md": "- [ ]",
+    "blocks": [{"list": [{"task": false, "blocks": []}], "ordered": false, "start": 0}],
+    "speak": ""
+  },
+  {
+    "name": "table inside list",
+    "md": "- t:\n  | a | b |\n  |---|---|\n  | 1 | 2 |",
+    "blocks": [{"list": [{"blocks": [{"p": ["t:"]}, {"table": {"align": ["none", "none"], "header": [["a"], ["b"]], "rows": [[["1"], ["2"]]]}}]}], "ordered": false, "start": 0}],
+    "speak": "t:\na, b.\n1, 2."
+  },
+  {
+    "name": "streaming fence opener",
+    "md": "Here:\n```",
+    "blocks": [{"p": ["Here:"]}, {"code": "", "lang": null, "closed": false}],
+    "speak": "Here:\ncode block."
+  },
+  {
+    "name": "streaming half link",
+    "md": "See [docs](https://exa",
+    "blocks": [{"p": ["See [docs](https://exa"]}],
+    "speak": "See [docs](https://exa"
+  },
+  {
+    "name": "streaming bold opener",
+    "md": "Total: **",
+    "blocks": [{"p": ["Total: **"]}],
+    "speak": "Total:"
+  },
+  {
+    "name": "streaming list marker",
+    "md": "Steps:\n\n1.",
+    "blocks": [{"p": ["Steps:"]}, {"list": [{"blocks": []}], "ordered": true, "start": 1}],
+    "speak": "Steps:"
+  },
+  {
+    "name": "long fence inside list item",
+    "md": "- a\n\n  ```\n  b\n\n  c\n  ```\n- d",
+    "blocks": [{"list": [{"blocks": [{"p": ["a"]}, {"code": "b\n\nc", "lang": null, "closed": true}]}, {"blocks": [{"p": ["d"]}]}], "ordered": false, "start": 0}],
+    "speak": "a.\ncode block.\nd."
+  },
+  {
+    "name": "speech sample",
+    "md": "# Plan\nHere is **the** _answer_ with `code` and a [link](https://example.com).\n```kotlin\nval x = 1\n```\n- first item\n- [x] done\n> quoted\n| a | b |\n|---|---|\n| 1 | 2 |\n---\nSee https://example.com/page for snake_case_names.",
+    "blocks": [{"h": 1, "spans": ["Plan"]}, {"p": ["Here is ", {"strong": ["the"]}, " ", {"em": ["answer"]}, " with ", {"code": "code"}, " and a ", {"link": "https://example.com", "spans": ["link"]}, "."]}, {"code": "val x = 1", "lang": "kotlin", "closed": true}, {"list": [{"blocks": [{"p": ["first item"]}]}, {"task": true, "blocks": [{"p": ["done"]}]}], "ordered": false, "start": 0}, {"quote": [{"p": ["quoted"]}]}, {"table": {"align": ["none", "none"], "header": [["a"], ["b"]], "rows": [[["1"], ["2"]]]}}, {"hr": true}, {"p": ["See ", {"link": "https://example.com/page", "spans": ["https://example.com/page"]}, " for snake_case_names."]}],
+    "speak": "Plan.\nHere is the answer with code and a link.\ncode block.\nfirst item.\ndone.\nquoted\na, b.\n1, 2.\nSee link for snake_case_names."
+  }
+]

@@ -5,6 +5,7 @@ import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
+import dev.wckdboy.autobot.core.designsystem.markdown.LiteMarkdown
 import dev.wckdboy.autobot.shared.voice.VoiceText
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,9 +40,13 @@ interface Speaker {
     fun stop()
 }
 
-/** Reads [markdown] sentence by sentence: speech starts after the first one and stops between any two. */
+/**
+ * Reads [markdown] sentence by sentence: speech starts after the first one and stops between any
+ * two. The text comes from the chat renderer's own parse ([LiteMarkdown.speakable]), so what is
+ * spoken is what is shown, without the symbols.
+ */
 suspend fun Speaker.read(markdown: String) {
-    val chunks = VoiceText.chunks(VoiceText.speakable(markdown))
+    val chunks = VoiceText.chunks(LiteMarkdown.speakable(markdown))
     chunks.forEachIndexed { i, chunk ->
         // stop() ends the piece being spoken; a cancelled caller must not start the next one.
         currentCoroutineContext().ensureActive()

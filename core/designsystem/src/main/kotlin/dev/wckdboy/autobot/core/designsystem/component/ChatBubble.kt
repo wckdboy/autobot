@@ -1,7 +1,6 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,28 +12,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.markdown.LiteMarkdown
-import dev.wckdboy.autobot.core.designsystem.markdown.MdBlock
-import dev.wckdboy.autobot.core.designsystem.markdown.MdSpan
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
-import dev.wckdboy.autobot.core.designsystem.theme.CodeFontFamily
 
 enum class BubbleRole { USER, ASSISTANT }
 
 /**
  * A transcript message. User input is an outlined, right-aligned block with a mono `›` prompt
- * marker; assistant output is unframed full-width text with lightweight markdown (paragraphs,
- * inline code, fenced code blocks).
+ * marker; assistant output is unframed full-width text with chat markdown ([MarkdownBlocks]:
+ * headings, lists, quotes, tables, code, emphasis, links). A tapped link only opens after the
+ * [LinkPrompt] confirms it; nothing in a message is ever fetched.
  *
  * @param footer optional content under the message (e.g. token rate, model).
  */
@@ -49,6 +45,9 @@ fun ChatBubble(
     // While a reply streams, only its last block is parsed again (and earlier ones keep their
     // identity); the finished reply and history reuse earlier parses (LiteMarkdown.cached).
     val blocks = remember(text) { LiteMarkdown.cached(text).blocks }
+    var link by remember { mutableStateOf<String?>(null) }
+    val onLink = remember { { url: String -> link = url } }
+    link?.let { LinkPrompt(it, onDismiss = { link = null }) }
     val isUser = role == BubbleRole.USER
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -72,7 +71,7 @@ fun ChatBubble(
                         )
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        blocks.forEach { block -> MarkdownBlock(block) }
+                        MarkdownBlocks(blocks, onLink)
                         if (isStreaming && blocks.isEmpty()) {
                             Text("▍", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
                         }
@@ -80,58 +79,6 @@ fun ChatBubble(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun MarkdownBlock(block: MdBlock) {
-    when (block) {
-        is MdBlock.Paragraph -> {
-            val codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest
-            val codeColor = MaterialTheme.colorScheme.tertiary
-            val annotated = remember(block, codeBackground, codeColor) {
-                block.toAnnotatedString(codeBackground, codeColor)
-            }
-            Text(annotated, style = MaterialTheme.typography.bodyLarge)
-        }
-        is MdBlock.CodeBlock -> CodeBlockView(block)
-    }
-}
-
-private fun MdBlock.Paragraph.toAnnotatedString(codeBackground: Color, codeColor: Color): AnnotatedString =
-    buildAnnotatedString {
-        spans.forEach { span ->
-            when (span) {
-                is MdSpan.Text -> append(span.text)
-                is MdSpan.InlineCode -> withStyle(
-                    SpanStyle(fontFamily = CodeFontFamily, background = codeBackground, color = codeColor),
-                ) { append(span.code) }
-            }
-        }
-    }
-
-@Composable
-private fun CodeBlockView(block: MdBlock.CodeBlock) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MicroLabel(block.language ?: "code", color = MaterialTheme.colorScheme.tertiary)
-            }
-            Hairline()
-            VerbatimText(block.code, AutobotTheme.styles.codeBlock, Modifier.padding(10.dp))
         }
     }
 }
