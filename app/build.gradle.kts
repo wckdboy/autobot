@@ -22,8 +22,8 @@ android {
 
     defaultConfig {
         applicationId = "ai.wckd.autobot"
-        versionCode = 15
-        versionName = "1.6.3"
+        versionCode = 16
+        versionName = "1.6.4"
     }
 
     // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the
