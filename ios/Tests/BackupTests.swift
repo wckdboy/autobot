@@ -59,7 +59,7 @@ struct BackupTests {
     }
 
     /// Export from the app, remove the session, import: it comes back with its log; nothing is duplicated.
-    @Test func serviceExportImportMergesWithoutOverwriting() async throws {
+    @Test(.timeLimit(.minutes(3))) func serviceExportImportMergesWithoutOverwriting() async throws {
         let app = AppContainer()
         await app.unlockData()
         let c = app.conversations.create(incognito: false, providerId: nil, model: "m", title: "Backup round trip")
@@ -81,7 +81,7 @@ struct BackupTests {
     }
 
     /// Memory notes travel in the manifest and merge by id on import.
-    @Test func memoryNotesExportAndMerge() async throws {
+    @Test(.timeLimit(.minutes(3))) func memoryNotesExportAndMerge() async throws {
         let app = AppContainer()
         await app.unlockData()
         guard case .saved(let id) = app.memory.save(id: nil, text: "Backup memory \(UUID().uuidString)", tags: "backup") else {

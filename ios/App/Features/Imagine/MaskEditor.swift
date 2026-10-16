@@ -64,7 +64,7 @@ struct MaskEditor: View {
         VStack(spacing: 0) {
             HStack {
                 MicroLabel("// Mask", color: c.primary).padding(.leading, 8).frame(maxWidth: .infinity, alignment: .leading)
-                MicroLabel(mask.inverted ? "inverted · \(mask.strokes.count) strokes" : "\(mask.strokes.count) strokes").padding(.trailing, 8)
+                MicroLabel(mask.inverted ? "inverted · \(counted(mask.strokes.count, "stroke"))" : counted(mask.strokes.count, "stroke")).padding(.trailing, 8)
                 TextAction("Fit", color: c.primary) {
                     scale = 1
                     offset = .zero

@@ -8,7 +8,7 @@ import UIKit
 /// `AUTOBOT_SNAPSHOT_DIR` is set.
 @MainActor
 struct MotionV2SnapshotTests {
-    @Test func renderInkV2Screens() async throws {
+    @Test(.timeLimit(.minutes(5))) func renderInkV2Screens() async throws {
         guard let dir = ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_DIR"] else { return }
         for mode in [ThemeMode.dark, .light] {
             let suffix = mode == .dark ? "dark" : "light"

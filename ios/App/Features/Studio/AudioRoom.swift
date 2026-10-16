@@ -260,7 +260,7 @@ struct AudioRoom: View {
     private var runBar: some View {
         let blocker = model.blocker
         return VStack(spacing: 6) {
-            Text(blocker ?? (model.tab == .sound ? String(format: "%.1f s · %d steps · %d clip%@", model.seconds, model.steps, model.count, model.count == 1 ? "" : "s") : "voice \(model.voice) · \(String(format: "%.2f", model.speed))×"))
+            Text(blocker ?? (model.tab == .sound ? String(format: "%.1f s · ", model.seconds) + "\(counted(model.steps, "step")) · \(counted(model.count, "clip"))" : "voice \(model.voice) · \(String(format: "%.2f", model.speed))×"))
                 .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
             PrimaryButton(model.tab == .sound ? "Generate" : "Read aloud", enabled: blocker == nil) { model.generate() }
         }

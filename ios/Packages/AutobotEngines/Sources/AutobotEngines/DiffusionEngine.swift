@@ -185,7 +185,7 @@ public actor DiffusionEngine {
     ) async throws -> [DiffusionImage] {
         try Task.checkCancellation()
         let state = state
-        let units = (backend == .auto ? model.preferredBackend : backend).computeUnits
+        let units = Self.computeUnits(model, backend: backend)
         let token = state.begin()
         defer { state.end(token) }
         return try await worker.run({
@@ -204,6 +204,21 @@ public actor DiffusionEngine {
     public func unload() async {
         let state = state
         _ = try? await worker.run { state.unload() }
+    }
+
+    /// Core ML compute units for [model] on [backend] (`.auto` = the model's preferred one).
+    public static func computeUnits(_ model: CoreMLDiffusionModel, backend: ComputeBackend) -> MLComputeUnits {
+        (backend == .auto ? model.preferredBackend : backend).computeUnits
+    }
+
+    /**
+     Whether the pipeline loads each stage lazily and drops it after use. SDXL always does, and SD
+     on phones under 8 GB (6 GB models report about 5.6 GiB). Otherwise the whole pipeline (~1.2 GB
+     palettized for SD 1.5 / 2.1) stays resident: reloading the UNet onto the Neural Engine for
+     every image costs seconds each time.
+     */
+    public static func reduceMemory(arch: CoreMLDiffusionModel.Arch, physicalMemory: UInt64) -> Bool {
+        arch == .sdxl || physicalMemory < 7 << 30
     }
 
     /// A1111-style sampler/scheduler names → what the Core ML pipeline offers.
@@ -270,10 +285,7 @@ private final class PipelineState: @unchecked Sendable {
         onEvent(.loading(firstRun: !FileManager.default.fileExists(atPath: marker.path)))
         let config = MLModelConfiguration()
         config.computeUnits = units
-        // SDXL, and SD on 6 GB phones, load each stage lazily and drop it after use. Otherwise the
-        // whole pipeline (~1.2 GB palettized) stays resident: reloading the UNet onto the Neural
-        // Engine for every image costs seconds each time.
-        let reduceMemory = model.arch == .sdxl || ProcessInfo.processInfo.physicalMemory < 7 << 30
+        let reduceMemory = DiffusionEngine.reduceMemory(arch: model.arch, physicalMemory: ProcessInfo.processInfo.physicalMemory)
         let loaded: any StableDiffusionPipelineProtocol
         switch model.arch {
         case .sd:

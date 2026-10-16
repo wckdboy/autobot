@@ -91,7 +91,7 @@ struct StudioTransportTests {
         return socket
     }
 
-    @Test func binaryExchangeCarriesRawBytesBothWaysAndAuditsThem() async {
+    @Test(.timeLimit(.minutes(3))) func binaryExchangeCarriesRawBytesBothWaysAndAuditsThem() async {
         BinaryStub.reset()
         let policy = NetworkPolicy()
         policy.setMode(.direct)
@@ -113,7 +113,7 @@ struct StudioTransportTests {
         #expect(entry.bytesReceived == Int64(BinaryStub.payload.count))
     }
 
-    @Test func binaryExchangeIsBlockedOffline() async {
+    @Test(.timeLimit(.minutes(3))) func binaryExchangeIsBlockedOffline() async {
         BinaryStub.reset()
         let transport = URLSessionTransport(clients: HttpClientFactory(policy: NetworkPolicy(), auditLog: AuditLog(), protocolClasses: [BinaryStub.self]))
         let sink = Bytes()
@@ -126,7 +126,7 @@ struct StudioTransportTests {
         #expect(BinaryStub.received.isEmpty)
     }
 
-    @Test func webSocketToARemoteHostIsBlockedOfflineAndAudited() async {
+    @Test(.timeLimit(.minutes(3))) func webSocketToARemoteHostIsBlockedOfflineAndAudited() async {
         let audit = AuditLog()
         let transport = URLSessionTransport(clients: HttpClientFactory(policy: NetworkPolicy(), auditLog: audit))
         let socket = await connect(transport, "wss://pc.example.invalid/ws?clientId=c1")
@@ -138,7 +138,7 @@ struct StudioTransportTests {
         #expect(entry.tag == "studio:comfyui")
     }
 
-    @Test func cleartextWebSocketToARemoteHostIsBlockedEvenWhenDirect() async {
+    @Test(.timeLimit(.minutes(3))) func cleartextWebSocketToARemoteHostIsBlockedEvenWhenDirect() async {
         let policy = NetworkPolicy()
         policy.setMode(.direct)
         let audit = AuditLog()
@@ -148,7 +148,7 @@ struct StudioTransportTests {
         #expect(audit.entries.last!.blocked)
     }
 
-    @Test func loopbackWebSocketIsAdmittedOfflineAndFailsOnlyOnTheSocket() async {
+    @Test(.timeLimit(.minutes(3))) func loopbackWebSocketIsAdmittedOfflineAndFailsOnlyOnTheSocket() async {
         let audit = AuditLog()
         let transport = URLSessionTransport(clients: HttpClientFactory(policy: NetworkPolicy(), auditLog: audit))
         // Nothing listens on port 9: the kill switch admits loopback, the connection then fails.

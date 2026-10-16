@@ -88,6 +88,7 @@ fun ModelsRoute(
     onOpenImagine: (modelId: String) -> Unit,
     onOpenGallery: () -> Unit,
     onOpenNetwork: () -> Unit,
+    onOpenVoice: () -> Unit = {},
     viewModel: ModelsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -97,6 +98,7 @@ fun ModelsRoute(
                 is ModelsEvent.OpenSession -> onOpenSession(event.conversationId)
                 is ModelsEvent.OpenImagine -> onOpenImagine(event.modelId)
                 ModelsEvent.OpenGallery -> onOpenGallery()
+                ModelsEvent.OpenVoice -> onOpenVoice()
             }
         }
     }

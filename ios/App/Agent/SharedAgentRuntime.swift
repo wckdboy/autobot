@@ -236,7 +236,9 @@ final class SharedAgentRuntime: AgentRuntime {
         runningHandle?.cancel()
         mcpHandle?.cancel()
         sessions.removeAll()
-        bridge.shutdown {}
+        // Kotlin calls this on its own thread: a closure formed here would be main-actor isolated
+        // and trap there (Swift 6 checks isolation at run time), killing a panic wipe midway.
+        bridge.shutdown { @Sendable in }
         store.clearIncognito()
         // The bridge's scope is cancelled: callbacks still outstanding never come.
         let pending = waiting.values
@@ -244,19 +246,26 @@ final class SharedAgentRuntime: AgentRuntime {
         pending.forEach { $0() }
     }
 
+    /// How long a "Test" or model-list fetch waits before saying the server does not answer.
+    static var testTimeout: Duration = .seconds(30)
+
     /**
      Calls the bridge with a callback and waits for it, or returns [stopped] at once once the
-     bridge is shut down (now or while waiting). Exactly one of the two resumes the caller.
+     bridge is shut down (now or while waiting), or [late] after [testTimeout]. Exactly one of
+     them resumes the caller.
      */
-    private func call<T: Sendable>(stopped: T, _ start: (_ done: @escaping @Sendable (T) -> Void) -> Void) async -> T {
+    private func call<T: Sendable>(stopped: T, late: T, _ start: (_ done: @escaping @Sendable (T) -> Void) -> Void) async -> T {
         if isShutDown { return stopped }
         let id = UUID()
         let once = ResumeOnce<T>()
+        let limit = Self.testTimeout
+        let timer = Task { try? await Task.sleep(for: limit); if !Task.isCancelled { once.resume(late) } }
         let value = await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
             once.set(continuation)
             waiting[id] = { once.resume(stopped) }
             start { once.resume($0) }
         }
+        timer.cancel()
         waiting[id] = nil
         return value
     }
@@ -264,18 +273,19 @@ final class SharedAgentRuntime: AgentRuntime {
     /// Provider "test connection" through the shared codec and the app's transport: success, a
     /// summary (model count and first ids, or the error) and the model list to cache.
     func testConnection(_ spec: ProviderSpec) async -> (ok: Bool, message: String, modelsJson: String?) {
-        let result = await call(stopped: Reply3(ok: false, message: Self.stoppedMessage, json: nil)) { done in
-            bridge.testConnection(spec: spec) { ok, message, json in done(Reply3(ok: ok.boolValue, message: message, json: json)) }
+        let result = await call(stopped: Reply3(ok: false, message: Self.stoppedMessage, json: nil),
+                                late: Reply3(ok: false, message: noAnswerMessage(spec.baseUrl, after: Self.testTimeout), json: nil)) { done in
+            bridge.testConnection(spec: spec) { @Sendable ok, message, json in done(Reply3(ok: ok.boolValue, message: message, json: json)) }
         }
-        return (result.ok, result.message, result.json)
+        return (result.ok, result.ok ? result.message : withNetworkHint(result.message), result.json)
     }
 
     /// Fetches a provider's chat models: the `ModelCache` JSON, or an error message.
     func listModels(_ spec: ProviderSpec) async -> (json: String?, error: String?) {
-        let result = await call(stopped: Reply2(json: nil, error: Self.stoppedMessage)) { done in
-            bridge.listModels(spec: spec) { json, error in done(Reply2(json: json, error: error)) }
+        let result = await call(stopped: Reply2(json: nil, error: Self.stoppedMessage), late: Reply2(json: nil, error: noAnswerMessage(spec.baseUrl, after: Self.testTimeout))) { done in
+            bridge.listModels(spec: spec) { @Sendable json, error in done(Reply2(json: json, error: error)) }
         }
-        return (result.json, result.error)
+        return (result.json, result.error.map(withNetworkHint))
     }
 
     private static let stoppedMessage = "The agent runtime was stopped"
@@ -287,12 +297,13 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// MCP "test connection" (initialize + tools/list) through the app's transport.
     func testMcpServer(_ server: McpServer, token: Secret?) async -> (Bool, String) {
-        let result = await call(stopped: Reply3(ok: false, message: Self.stoppedMessage, json: nil)) { done in
-            bridge.testMcpServer(spec: SharedMapping.mcpSpec(server), token: token?.reveal()) { ok, message in
+        let result = await call(stopped: Reply3(ok: false, message: Self.stoppedMessage, json: nil),
+                                late: Reply3(ok: false, message: noAnswerMessage(server.url, after: Self.testTimeout), json: nil)) { done in
+            bridge.testMcpServer(spec: SharedMapping.mcpSpec(server), token: token?.reveal()) { @Sendable ok, message in
                 done(Reply3(ok: ok.boolValue, message: message, json: nil))
             }
         }
-        return (result.ok, result.message)
+        return (result.ok, result.ok ? result.message : withNetworkHint(result.message))
     }
 
     /// Adds a host-implemented tool (e.g. `generate_image`) to every session.
@@ -319,20 +330,6 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// Skills found in the workspace (`name: description`).
     func skills() -> [String] { bridge.skills() }
-}
-
-/// Resumes a continuation once: with the bridge's answer, or the fallback after a shutdown.
-private final class ResumeOnce<T: Sendable>: Sendable {
-    private let continuation = Mutex<CheckedContinuation<T, Never>?>(nil)
-
-    func set(_ c: CheckedContinuation<T, Never>) { continuation.withLock { $0 = c } }
-
-    func resume(_ value: T) {
-        continuation.withLock { c -> CheckedContinuation<T, Never>? in
-            defer { c = nil }
-            return c
-        }?.resume(returning: value)
-    }
 }
 
 /**

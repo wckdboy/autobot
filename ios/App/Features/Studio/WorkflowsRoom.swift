@@ -56,7 +56,7 @@ struct WorkflowsRoom: View {
                         .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                 }
                 ForEach(studio.library.workflows, id: \.id) { w in
-                    RunRow(title: w.name, subtitle: "\(w.output.name.lowercased()) · \(w.params.count) params · v\(w.version) · \(studio.comfyServer(w.backendId)?.name ?? "any pc")", action: { opened = w.id }) {
+                    RunRow(title: w.name, subtitle: "\(w.output.name.lowercased()) · \(counted(w.params.count, "param")) · v\(w.version) · \(studio.comfyServer(w.backendId)?.name ?? "any pc")", action: { opened = w.id }) {
                         Tag(w.output.name.lowercased(), accent: c.primary)
                     }
                 }

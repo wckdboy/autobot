@@ -99,8 +99,8 @@ struct BackendsScreen: View {
             let result: String
             do {
                 let c = try await engine.catalog()
-                result = ["ok", c.models.isEmpty ? nil : "\(c.models.count) models", c.loras.isEmpty ? nil : "\(c.loras.count) loras",
-                          c.samplers.isEmpty ? nil : "\(c.samplers.count) samplers"].compactMap { $0 }.joined(separator: " · ")
+                result = ["ok", c.models.isEmpty ? nil : counted(c.models.count, "model"), c.loras.isEmpty ? nil : counted(c.loras.count, "lora"),
+                          c.samplers.isEmpty ? nil : counted(c.samplers.count, "sampler")].compactMap { $0 }.joined(separator: " · ")
             } catch {
                 result = "fail · \(error.localizedDescription)"
             }

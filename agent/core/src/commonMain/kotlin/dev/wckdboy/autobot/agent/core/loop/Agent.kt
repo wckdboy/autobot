@@ -272,7 +272,7 @@ class Agent(
         try {
             turnRoute = null
             routeNotice = null
-            turnModels.clear()
+            modelsLock.withLock { turnModels.clear() }
             // Claimed before anything is logged: a turn that fails on the store still consumes its
             // input, or the driver would start it again forever.
             val claimed = claimTurnInput()
@@ -348,13 +348,25 @@ class Agent(
 
     /** Provider and model of each request of the running turn (the prompt went there), in order. */
     private val turnModels = mutableListOf<LlmCallConfig>()
+    private val modelsLock = Lock()
+
+    /** The routes the latest turn's requests went to, in order (its subagents' and summaries' included). */
+    val turnRoutes: List<LlmCallConfig> get() = modelsLock.withLock { turnModels.toList() }
+
+    /**
+     * Records a request of the running turn made outside its own steps (a subagent's, a compaction
+     * summary's), so the turn's receipt lists the model the data went to.
+     */
+    fun recordModel(config: LlmCallConfig) {
+        modelsLock.withLock { turnModels += config }
+    }
 
     /** Logs the turn's privacy receipt; a failing receipt hook never fails the turn. */
     private suspend fun appendReceipt(turn: Int) {
         val receipt = try {
-            ctx.run(Hooks.TurnReceipt, TurnReceiptInput(this, turn)) { TurnReceipts.base(log.entries.value, it.turn, turnModels.toList()) }
+            ctx.run(Hooks.TurnReceipt, TurnReceiptInput(this, turn)) { TurnReceipts.base(log.entries.value, it.turn, turnRoutes) }
         } catch (_: Throwable) {
-            TurnReceipts.base(log.entries.value, turn, turnModels.toList())
+            TurnReceipts.base(log.entries.value, turn, turnRoutes)
         }
         log.append(receipt)
     }
@@ -432,10 +444,14 @@ class Agent(
         while (true) {
             acc = StreamAccumulator(turn, step, nanoTime())
             val call = LlmCall(callConfig, deriveMessages(log.entries.value), schemas, sessionId = id)
-            turnModels += callConfig
+            recordModel(callConfig)
             try {
                 streamOnce(adapter.provider, call, acc)
-                if (acc.isEmpty()) throw LlmException(LlmFailure(LlmErrorCode.EMPTY_RESPONSE, "The model returned an empty response"))
+                // An answer cut short before any content (engine stopped, filtered, out of tokens) is
+                // reported as such below; retrying it as "empty" would only repeat the cut.
+                if (acc.isEmpty() && acc.finishReason !in CUT_SHORT) {
+                    throw LlmException(LlmFailure(LlmErrorCode.EMPTY_RESPONSE, "The model returned an empty response"))
+                }
                 break
             } catch (e: CancellationException) {
                 withContext(NonCancellable) { commitInterrupted(acc, acc.servedBy ?: callConfig.model) }
@@ -471,7 +487,7 @@ class Agent(
 
         val calls = uniqueCallIds(acc.completedCalls(step), turn, step)
         // An on-device stand-in answered instead of the requested model.
-        acc.servedBy?.let { turnModels += callConfig.copy(model = it) }
+        acc.servedBy?.let { recordModel(callConfig.copy(model = it)) }
         log.append(
             SessionEvent.AssistantMessage(
                 turn = turn,
@@ -625,5 +641,8 @@ class Agent(
 
     companion object {
         private const val PUBLISH_INTERVAL_NS = 33_000_000L
+
+        /** Finish reasons of an answer the engine or provider cut short. */
+        private val CUT_SHORT = setOf("error", "content_filter", "length")
     }
 }

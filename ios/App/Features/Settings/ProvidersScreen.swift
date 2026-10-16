@@ -173,7 +173,7 @@ struct ProvidersScreen: View {
                         }
                         .textStyle(.micro)
                         if let models, let list = ModelLists.models(models.json) {
-                            MicroLabel("\(list.count) models · \(ModelLists.age(fetchedAt: models.fetchedAt))")
+                            MicroLabel("\(counted(list.count, "model")) · \(ModelLists.age(fetchedAt: models.fetchedAt))")
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -434,7 +434,7 @@ private struct ProviderEditorSheet: View {
                 } else if let e = models.error {
                     e
                 } else if let at = models.fetchedAt {
-                    "\(models.models.count) models · \(ModelLists.age(fetchedAt: at))"
+                    "\(counted(models.models.count, "model")) · \(ModelLists.age(fetchedAt: at))"
                 } else if preset.hasModelsEndpoint {
                     "offline list · refresh to fetch"
                 } else {

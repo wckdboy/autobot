@@ -171,6 +171,29 @@ class FetchSessionTest {
     }
 
     @Test
+    fun partialAnswerThatDoesNotContinueThePartStartsOver() {
+        // The server answers the resume from the wrong offset: appending would splice two files.
+        val session = FetchSession(hub(), null)
+        assertEquals(FetchStep.Restart, session.onResponse(206, mapOf("content-range" to "bytes 0-299999/300000"), have = 100_000, contentLength = 300_000))
+        val host = Host(
+            ArrayDeque(
+                listOf(
+                    Reply(206, mapOf("Content-Range" to "bytes 50000-${content.size - 1}/${content.size}"), content.copyOfRange(50_000, content.size)),
+                    Reply(200, body = content),
+                ),
+            ),
+            part = content.copyOfRange(0, 100_000),
+        )
+        val result = host.run(FetchSession(hub(sha256 = sha, size = content.size.toLong()), null))
+        assertTrue(host.deletedPart)
+        assertEquals(listOf("bytes=100000-", null), host.sent.map { it.headers["Range"] })
+        assertEquals(sha, result.sha256)
+        assertTrue(host.part!!.contentEquals(content))
+        // The matching offset appends as before.
+        assertTrue((FetchSession(hub(), null).onResponse(206, mapOf("Content-Range" to "bytes 100000-299999/300000"), 100_000, 200_000) as FetchStep.Write).append)
+    }
+
+    @Test
     fun unknownSizeIsLearnedFromTheResponse() {
         val session = FetchSession(hub(), null)
         assertEquals(FetchStep.Next, session.begin(1000))
@@ -227,6 +250,12 @@ class FetchSessionTest {
         val civitai = ModelFile(FileRole.MODEL, "x", "https://civitai.com/api/download/models/1", auth = AuthHost.CIVITAI)
         assertTrue(FetchSession(civitai, null).failure(401, emptyMap(), "").message!!.startsWith("Civitai requires login"))
         assertEquals("Access denied (HTTP 403): early-access file", FetchSession(civitai, null).failure(403, emptyMap(), "Early Access only").message)
+        // A Hub 401/403 without the gated marker (a private repo, a token without read access) says what to do.
+        listOf(401, 403).forEach { status ->
+            val denied = FetchSession(hub(), null).failure(status, emptyMap(), "")
+            assertFalse(denied.retryable)
+            assertTrue(denied.message!!, denied.message!!.contains("Remote → Accounts") && denied.message!!.contains("HTTP $status"))
+        }
         assertFalse(FetchRules.failure(410, emptyMap(), "", null).retryable)
         assertTrue(FetchRules.failure(429, emptyMap(), "", null).retryable)
         assertEquals("HTTP 500", FetchRules.failure(500, emptyMap(), "", null).message)

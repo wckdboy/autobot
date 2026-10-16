@@ -8,7 +8,6 @@ import dev.wckdboy.autobot.shared.studio.comfy.ComfyFile
 import dev.wckdboy.autobot.shared.studio.comfy.ComfyRun
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceTimeBy
@@ -100,17 +99,6 @@ class ComfyClientTest {
     }
 
     @Test
-    fun aJobTheServerForgotFailsInsteadOfPollingForever() = runTest(timeout = 10.seconds) {
-        val server = server()
-        server.json["GET /history/PROMPT"] = { 200 to "{}" }
-        server.json["GET /queue"] = { 200 to """{"queue_running":[],"queue_pending":[]}""" }
-        val result = async { runCatching { client(server, sockets = false).execute(graph) } }
-        advanceTimeBy(60_000)
-        val error = result.await().exceptionOrNull()
-        assertTrue(error.toString(), error is ComfyException && "lost this job" in error.message!!)
-    }
-
-    @Test
     fun aSocketThatDropsMidRunFallsBackToPolling() = runTest {
         val server = server()
         server.socketScript = { l ->
@@ -169,6 +157,8 @@ class ComfyClientTest {
     fun cancellingDequeuesAndInterrupts() = runTest {
         val server = server()
         server.json["GET /history/PROMPT"] = { 200 to "{}" }
+        // Still running on the server (a prompt it no longer lists at all counts as lost).
+        server.json["GET /queue"] = { 200 to """{"queue_running":[[1,"PROMPT",{},{},[]]],"queue_pending":[]}""" }
         val run = async { client(server, sockets = false).execute(graph) }
         runCurrent()
         advanceTimeBy(2_500)

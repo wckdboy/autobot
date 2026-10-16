@@ -55,7 +55,7 @@ struct BackgroundTransferTests {
         return try client.admitForTransfer(request)
     }
 
-    @Test func allowedHopIsAuditedAndDropsCredentialsForAnotherHost() async throws {
+    @Test(.timeLimit(.minutes(3))) func allowedHopIsAuditedAndDropsCredentialsForAnotherHost() async throws {
         RedirectStub.reset(target: "http://localhost/cdn/blob")
         let audit = AuditLog(capacity: 50, clock: { 0 })
         let client = HttpClientFactory(policy: NetworkPolicy(), auditLog: audit).create(tag: "models:download")
@@ -79,7 +79,7 @@ struct BackgroundTransferTests {
         #expect(logged.first?.path == "/cdn/blob")
     }
 
-    @Test func hopToRemoteHostIsBlockedWhileOffline() async throws {
+    @Test(.timeLimit(.minutes(3))) func hopToRemoteHostIsBlockedWhileOffline() async throws {
         RedirectStub.reset(target: "https://cdn.example.invalid/blob?sig=1")
         let audit = AuditLog(capacity: 50, clock: { 0 })
         let client = HttpClientFactory(policy: NetworkPolicy(), auditLog: audit).create(tag: "models:download")

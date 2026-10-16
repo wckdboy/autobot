@@ -9,6 +9,8 @@ plugins {
 
 android {
     namespace = "dev.wckdboy.autobot.core.models"
+    // The downloader runs end to end under Robolectric (notifications need the resources).
+    testOptions.unitTests.isIncludeAndroidResources = true
 }
 
 dependencies {
@@ -22,4 +24,7 @@ dependencies {
     api(libs.kotlinx.serialization.json)
 
     testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.room.runtime)
 }

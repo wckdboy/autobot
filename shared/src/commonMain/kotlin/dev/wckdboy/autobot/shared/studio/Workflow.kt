@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
 
@@ -135,9 +136,9 @@ class Detection(val params: List<WorkflowParam>, val output: AssetType, val outp
 internal class GraphView(val graph: JsonObject) {
     val ids: List<String> = graph.keys.sortedWith(compareBy<String>({ it.substringBefore(':').toLongOrNull() ?: Long.MAX_VALUE }, { it }))
 
-    fun classOf(id: String): String? = ((graph[id] as? JsonObject)?.get("class_type") as? JsonPrimitive)?.content
+    fun classOf(id: String): String? = ((graph[id] as? JsonObject)?.get("class_type") as? JsonPrimitive)?.contentOrNull
     fun inputs(id: String): JsonObject = (graph[id] as? JsonObject)?.get("inputs") as? JsonObject ?: JsonObject(emptyMap())
-    fun title(id: String): String? = (((graph[id] as? JsonObject)?.get("_meta") as? JsonObject)?.get("title") as? JsonPrimitive)?.content
+    fun title(id: String): String? = (((graph[id] as? JsonObject)?.get("_meta") as? JsonObject)?.get("title") as? JsonPrimitive)?.contentOrNull
 
     /** `[nodeId, slot]` link, or null for a literal. */
     fun link(value: JsonElement?): Pair<String, Int>? {

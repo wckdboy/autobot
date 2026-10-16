@@ -303,6 +303,18 @@ struct InstalledModel: Codable, Identifiable, Equatable, Sendable {
 /// Formats bytes as `2.4 GB` / `512 MB` (the shared rules).
 func formatBytes(_ bytes: Int64) -> String { ModelsKt.formatBytes(bytes: bytes) }
 
+/**
+ A catalog row's subtitle: the exact size first, then the plan's subtitle without a size of its
+ own (some catalog subtitles start with a rounded MiB figure, which read as "59 MB · 57 MB").
+ */
+func sizedSubtitle(bytes: Int64, _ parts: String?...) -> String {
+    let size = #/^~?\d+(\.\d+)?\s?(B|KB|MB|GB|TB|KiB|MiB|GiB)$/#.ignoresCase()
+    let rest = parts.compactMap { $0 }.flatMap { $0.components(separatedBy: " · ") }
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty && $0.wholeMatch(of: size) == nil }
+    return ([bytes > 0 ? formatBytes(bytes) : nil].compactMap { $0 } + rest).joined(separator: " · ")
+}
+
 /// Guesses the file format from its name (and the repo owner, for Local Dream packages).
 func formatOf(_ name: String, owner: String? = nil) -> ModelFormat { ModelFormat(ModelsKt.formatOf(name: name, owner: owner)) }
 

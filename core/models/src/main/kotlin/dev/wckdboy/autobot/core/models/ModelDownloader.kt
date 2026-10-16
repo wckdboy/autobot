@@ -19,6 +19,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -56,6 +57,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Android stops it (network lost, process killed) the interrupted model queues again and the job
  * resumes it from its part file. A pause, Task Manager's stop or the kill switch leave the model
  * paused; the kill switch's pauses continue by themselves once a network mode is allowed again.
+ *
+ * A pause or a removal is written to the registry first, under the same lock the loop picks the
+ * next model with, and only then is the transfer stopped: what the user sees is what survives a
+ * crash or a kill, and a model picked a moment earlier never starts.
  */
 @Singleton
 class ModelDownloader @Inject constructor(
@@ -87,7 +92,7 @@ class ModelDownloader @Inject constructor(
 
     /** The queue loop of the running job, and the job it reports to. */
     private var worker: Job? = null
-    private var running: Pair<JobService, JobParameters>? = null
+    private var running: DownloadJob? = null
 
     /** A job started and its loop is not running yet: a kick must not schedule (restart) it. */
     @Volatile private var starting = false
@@ -133,44 +138,65 @@ class ModelDownloader @Inject constructor(
         }
     }
 
-    fun resume(id: String) {
-        scope.launch(guard) {
-            notifications.clearPaused()
-            attempts.remove(id)
-            library.get(id)?.let { library.progress(id, it.downloadedBytes, ModelStatus.QUEUED) }
-            kick()
-        }
+    /** Queues [id] again (a pause, a failure, or a model whose files went missing); the job ends once it is queued. */
+    fun resume(id: String): Job = scope.launch(guard) {
+        notifications.clearPaused()
+        attempts.remove(id)
+        library.get(id)?.let { library.progress(id, library.bytesOnDisk(id), ModelStatus.QUEUED) }
+        kick()
     }
 
-    /** Pauses [id]; the rest of the queue carries on. */
-    fun pause(id: String, fromNotification: Boolean = false) {
-        scope.launch(guard) {
-            if (currentId == id) current?.cancelAndJoin()
-            library.get(id)?.let {
+    /** Pauses [id]; the rest of the queue carries on. The job ends once the pause is stored and the transfer stopped. */
+    fun pause(id: String, fromNotification: Boolean = false): Job = scope.launch(guard) {
+        val transfer = lock.withLock {
+            val model = library.get(id) ?: return@withLock null
+            if (model.status == ModelStatus.QUEUED || model.status == ModelStatus.DOWNLOADING) {
                 library.progress(id, library.bytesOnDisk(id), ModelStatus.PAUSED)
-                if (fromNotification) notifications.paused(id, it.title)
             }
+            if (fromNotification) notifications.paused(id, model.title)
+            current.takeIf { currentId == id }
         }
+        transfer?.cancelAndJoin()
     }
 
-    /** Cancels [id] and deletes what it downloaded. */
-    fun remove(id: String) {
-        scope.launch(guard) {
-            if (currentId == id) current?.cancelAndJoin()
-            notifications.clearPaused()
-            library.remove(id)
+    /**
+     * Cancels [id] and deletes what it downloaded. The registry entry goes first, so the cancel
+     * sticks even if the process dies before the transfer has stopped or the files are deleted
+     * (left-over files are swept on the next start). The job ends when all is done.
+     */
+    fun remove(id: String): Job = scope.launch(guard) {
+        val transfer = lock.withLock {
+            library.forget(id)
+            current.takeIf { currentId == id }
         }
+        attempts.remove(id)
+        transfer?.cancelAndJoin()
+        notifications.clearPaused()
+        library.deleteFiles(id)
+    }
+
+    /**
+     * A ready model whose files are gone (deleted outside the app) becomes a failed download:
+     * the downloads panel offers to retry it, which fetches what is missing.
+     */
+    fun markMissing(id: String): Job = scope.launch(guard) {
+        lock.withLock { markIfMissing(library.get(id) ?: return@withLock) }
+    }
+
+    private suspend fun markIfMissing(model: InstalledModel) {
+        val missing = library.missingFiles(model)
+        if (missing.isEmpty()) return
+        library.transition(model.id, ModelStatus.READY, ModelStatus.FAILED, library.bytesOnDisk(model.id), DownloadQueue.missingFilesMessage(missing.size, model.manifest.files.size))
     }
 
     /** Pauses everything queued or running. */
-    fun pauseAll() {
-        scope.launch(guard) {
-            library.all().filter { it.status == ModelStatus.QUEUED }.forEach { library.progress(it.id, it.downloadedBytes, ModelStatus.PAUSED) }
-            currentId?.let { id ->
-                current?.cancelAndJoin()
-                library.progress(id, library.bytesOnDisk(id), ModelStatus.PAUSED)
-            }
+    fun pauseAll(): Job = scope.launch(guard) {
+        val transfer = lock.withLock {
+            library.all().filter { it.status == ModelStatus.QUEUED || it.status == ModelStatus.DOWNLOADING }
+                .forEach { library.progress(it.id, library.bytesOnDisk(it.id), ModelStatus.PAUSED) }
+            current
         }
+        transfer?.cancelAndJoin()
     }
 
     /** "Wi-Fi only" changes the job's network constraint: the job is scheduled again with it. */
@@ -196,6 +222,10 @@ class ModelDownloader @Inject constructor(
             recovered = true
             runCatching {
                 DownloadQueue.recover(library.all()).forEach { library.progress(it.id, library.bytesOnDisk(it.id), ModelStatus.QUEUED) }
+                // Files of models removed just before the process died.
+                library.sweepOrphans().forEach { Log.i(TAG, "deleted the files of a removed model: $it") }
+                // Ready models whose files were deleted outside the app are offered for download again.
+                lock.withLock { library.all().filter { it.isReady }.forEach { markIfMissing(it) } }
             }.onFailure { Log.w(TAG, "queue recovery failed", it) }
         }
         // Rows still QUEUED (and the ones just restored) get a job if none is waiting for them.
@@ -205,16 +235,26 @@ class ModelDownloader @Inject constructor(
     // ---- The job
 
     /** [ModelDownloadJob] started: show its notification right away, then run the queue. */
-    fun onJobStarted(service: JobService, params: JobParameters) {
+    fun onJobStarted(service: JobService, params: JobParameters) = onJobStarted(
+        object : DownloadJob {
+            override fun notify(notification: android.app.Notification) {
+                service.setNotification(params, DownloadNotifications.NOTIFICATION_ID, notification, JobService.JOB_END_NOTIFICATION_POLICY_REMOVE)
+            }
+
+            override fun finished(reschedule: Boolean) = service.jobFinished(params, reschedule)
+        },
+    )
+
+    internal fun onJobStarted(job: DownloadJob) {
         starting = true
-        showJobNotification(service, params, notifications.running(null, null, 0, null))
+        showJobNotification(job, notifications.running(null, null, 0, null))
         scope.launch(guard) {
             try {
                 lock.withLock { worker }?.cancelAndJoin()
                 lock.withLock {
-                    running = service to params
+                    running = job
                     closing = false
-                    worker = scope.launch(Dispatchers.IO + guard) { drain(service, params) }
+                    worker = scope.launch(Dispatchers.IO + guard) { drain(job) }
                     starting = false
                 }
             } finally {
@@ -237,7 +277,9 @@ class ModelDownloader @Inject constructor(
             }
             loop?.cancelAndJoin()
             if (byUser) {
-                library.all().filter { it.status == ModelStatus.QUEUED }.forEach { library.progress(it.id, it.downloadedBytes, ModelStatus.PAUSED) }
+                lock.withLock {
+                    library.all().filter { it.status == ModelStatus.QUEUED }.forEach { library.progress(it.id, it.downloadedBytes, ModelStatus.PAUSED) }
+                }
             }
         }
         return !byUser
@@ -245,13 +287,11 @@ class ModelDownloader @Inject constructor(
 
     private enum class Outcome { NEXT, WAIT_FOR_NETWORK, KILL_SWITCH }
 
-    private fun showJobNotification(service: JobService, params: JobParameters, notification: android.app.Notification) {
-        runCatching {
-            service.setNotification(params, DownloadNotifications.NOTIFICATION_ID, notification, JobService.JOB_END_NOTIFICATION_POLICY_REMOVE)
-        }
+    private fun showJobNotification(job: DownloadJob, notification: android.app.Notification) {
+        runCatching { job.notify(notification) }
     }
 
-    private suspend fun drain(service: JobService, params: JobParameters) {
+    private suspend fun drain(job: DownloadJob) {
         val self = currentCoroutineContext()[Job]
         _busy.value = true
         requeueOnStop = false
@@ -260,25 +300,37 @@ class ModelDownloader @Inject constructor(
             recoverAfterRestart()
             awaitNetworkPolicy()
             while (true) {
-                val next = lock.withLock {
-                    DownloadQueue.next(library.all()).also { if (it == null) closing = true }
-                } ?: break
                 var outcome = Outcome.NEXT
-                coroutineScope {
-                    val child = launch { outcome = runOne(next, service, params) }
-                    current = child
-                    currentId = next.id
+                // Picked and published as current under the lock a pause or a removal takes:
+                // either it sees this transfer (and stops it), or this pick no longer sees the model.
+                val more = coroutineScope {
+                    val child = lock.withLock {
+                        val next = DownloadQueue.next(library.all())
+                        if (next == null) {
+                            closing = true
+                            return@withLock null
+                        }
+                        launch(start = CoroutineStart.LAZY) { outcome = runOne(next, job) }.also {
+                            current = it
+                            currentId = next.id
+                        }
+                    } ?: return@coroutineScope false
+                    child.start()
                     child.join()
+                    true
                 }
                 current = null
                 currentId = null
+                if (!more) break
                 if (outcome == Outcome.WAIT_FOR_NETWORK) {
                     reschedule = true
                     break
                 }
                 if (outcome == Outcome.KILL_SWITCH) {
-                    library.all().filter { it.status == ModelStatus.QUEUED }
-                        .forEach { library.progress(it.id, it.downloadedBytes, ModelStatus.PAUSED, DownloadQueue.KILL_SWITCH_ERROR) }
+                    lock.withLock {
+                        library.all().filter { it.status == ModelStatus.QUEUED }
+                            .forEach { library.progress(it.id, it.downloadedBytes, ModelStatus.PAUSED, DownloadQueue.KILL_SWITCH_ERROR) }
+                    }
                 }
             }
         } catch (e: CancellationException) {
@@ -293,9 +345,9 @@ class ModelDownloader @Inject constructor(
                 _progress.value = null
                 _busy.value = false
                 val again = lock.withLock {
-                    if (running?.second === params) {
+                    if (running === job) {
                         running = null
-                        runCatching { service.jobFinished(params, reschedule) }
+                        runCatching { job.finished(reschedule) }
                     }
                     if (worker === self) worker = null
                     closing = false
@@ -306,8 +358,8 @@ class ModelDownloader @Inject constructor(
         }
     }
 
-    private suspend fun runOne(model: InstalledModel, service: JobService, params: JobParameters): Outcome = try {
-        attempt(model, service, params)
+    private suspend fun runOne(model: InstalledModel, job: DownloadJob): Outcome = try {
+        attempt(model, job)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -319,13 +371,14 @@ class ModelDownloader @Inject constructor(
         Outcome.NEXT
     }
 
-    private suspend fun attempt(model: InstalledModel, service: JobService, params: JobParameters): Outcome {
+    private suspend fun attempt(model: InstalledModel, job: DownloadJob): Outcome {
         val waiting = DownloadQueue.queued(library.all()).count { it.id != model.id }
         resetSpeed()
         return try {
+            // Paused or removed since it was picked: leave it be.
+            if (!library.start(model.id, model.downloadedBytes)) return Outcome.NEXT
             requireSpace(model)
-            library.progress(model.id, model.downloadedBytes, ModelStatus.DOWNLOADING)
-            showJobNotification(service, params, notifications.running(null, model.title, waiting, null))
+            showJobNotification(job, notifications.running(null, model.title, waiting, null))
             var manifest = model.manifest
             val done = mutableListOf<Long>()
             for ((index, file) in manifest.files.withIndex()) {
@@ -334,48 +387,59 @@ class ModelDownloader @Inject constructor(
                     val total = manifest.files.sumOf { it.sizeBytes }.coerceAtLeast(sizeBefore + fileTotal)
                     report(model, sizeBefore + written, total, waiting)
                 }
-                // Adopt the authoritative size/hash learned from the server.
+                // Adopt the authoritative size/hash learned from the server, and keep it: a resume
+                // after a later file fails skips this one instead of fetching it again.
                 manifest = manifest.copy(files = manifest.files.toMutableList().also { it[index] = result })
                 done += result.sizeBytes
+                if (result != file) library.update(model, manifest, manifest.files.sumOf { it.sizeBytes })
             }
             val total = manifest.files.sumOf { it.sizeBytes }
             library.update(model, manifest, total)
-            library.progress(model.id, total, ModelStatus.READY)
+            library.transition(model.id, ModelStatus.DOWNLOADING, ModelStatus.READY, total)
             attempts.remove(model.id)
             if (!visibility.visible) notifications.finished(model.id, model.title, ok = true)
             Outcome.NEXT
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
-                library.progress(model.id, library.bytesOnDisk(model.id), if (requeueOnStop) ModelStatus.QUEUED else ModelStatus.PAUSED)
+                // A pause already stored PAUSED and a removal deleted the entry: only a stop by
+                // Android (or the job being replaced) still finds it DOWNLOADING.
+                val status = if (requeueOnStop) ModelStatus.QUEUED else ModelStatus.PAUSED
+                library.transition(model.id, ModelStatus.DOWNLOADING, status, library.bytesOnDisk(model.id))
             }
             throw e
         } catch (e: DownloadException) {
             val status = if (e.retryable) ModelStatus.PAUSED else ModelStatus.FAILED
-            library.progress(model.id, library.bytesOnDisk(model.id), status, e.message)
+            library.transition(model.id, ModelStatus.DOWNLOADING, status, library.bytesOnDisk(model.id), e.message)
             if (status == ModelStatus.FAILED && !visibility.visible) notifications.finished(model.id, model.title, ok = false)
             Outcome.NEXT
         } catch (e: NetworkBlockedException) {
             if (policy.mode.value == NetworkMode.Offline) {
-                library.progress(model.id, library.bytesOnDisk(model.id), ModelStatus.PAUSED, DownloadQueue.KILL_SWITCH_ERROR)
+                library.transition(model.id, ModelStatus.DOWNLOADING, ModelStatus.PAUSED, library.bytesOnDisk(model.id), DownloadQueue.KILL_SWITCH_ERROR)
                 Outcome.KILL_SWITCH
             } else {
-                library.progress(model.id, library.bytesOnDisk(model.id), ModelStatus.PAUSED, "Blocked by the network policy (${e.message})")
+                library.transition(model.id, ModelStatus.DOWNLOADING, ModelStatus.PAUSED, library.bytesOnDisk(model.id), "Blocked by the network policy (${e.message})")
                 Outcome.NEXT
             }
         } catch (e: IOException) {
+            if (DownloadQueue.isDiskFull(e)) {
+                // The disk filled up while writing: retrying can't help until space is freed.
+                val free = runCatching { StatFs(context.filesDir.path).availableBytes }.getOrDefault(0L)
+                library.transition(model.id, ModelStatus.DOWNLOADING, ModelStatus.PAUSED, library.bytesOnDisk(model.id), DownloadQueue.diskFullMessage(free))
+                return Outcome.NEXT
+            }
             if (!environment.current().connected) {
                 // The job waits for a network and continues from the part file.
-                library.progress(model.id, library.bytesOnDisk(model.id), ModelStatus.QUEUED)
+                library.transition(model.id, ModelStatus.DOWNLOADING, ModelStatus.QUEUED, library.bytesOnDisk(model.id))
                 return Outcome.WAIT_FOR_NETWORK
             }
             val attempt = (attempts[model.id] ?: 0) + 1
             attempts[model.id] = attempt
             if (attempt < MAX_ATTEMPTS) {
-                library.progress(model.id, library.bytesOnDisk(model.id), ModelStatus.QUEUED)
-                delay(RETRY_DELAY_MS shl (attempt - 1))
+                library.transition(model.id, ModelStatus.DOWNLOADING, ModelStatus.QUEUED, library.bytesOnDisk(model.id))
+                delay(retryDelayMs shl (attempt - 1))
             } else {
                 attempts.remove(model.id)
-                library.progress(model.id, library.bytesOnDisk(model.id), ModelStatus.PAUSED, e.message ?: "Network error")
+                library.transition(model.id, ModelStatus.DOWNLOADING, ModelStatus.PAUSED, library.bytesOnDisk(model.id), e.message ?: "Network error")
             }
             Outcome.NEXT
         }
@@ -436,7 +500,7 @@ class ModelDownloader @Inject constructor(
         }
         if (now - lastDbWrite > 1_000_000_000L) {
             lastDbWrite = now
-            library.progress(model.id, downloaded, ModelStatus.DOWNLOADING)
+            library.downloaded(model.id, downloaded)
         }
     }
 
@@ -447,6 +511,10 @@ class ModelDownloader @Inject constructor(
             throw DownloadException("${DownloadQueue.LOW_STORAGE_PREFIX}: needs ${formatBytes(needed)}, ${formatBytes(free)} free", retryable = true)
         }
     }
+
+    /** Before the first retry; doubled for each next one. Tests shorten it. */
+    @Volatile
+    internal var retryDelayMs = RETRY_DELAY_MS
 
     /** Downloads one file (resuming) and returns it with its verified size and SHA-256. */
     private suspend fun downloadFile(model: InstalledModel, file: ModelFile, onProgress: suspend (Long, Long) -> Unit): ModelFile {
@@ -469,6 +537,13 @@ class ModelDownloader @Inject constructor(
         const val MAX_ATTEMPTS = 3
         const val RETRY_DELAY_MS = 2_000L
     }
+}
+
+/** The running [ModelDownloadJob] as the queue loop reports to it. */
+internal interface DownloadJob {
+    fun notify(notification: android.app.Notification)
+
+    fun finished(reschedule: Boolean)
 }
 
 /**

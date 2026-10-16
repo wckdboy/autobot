@@ -53,7 +53,7 @@ struct KillSwitchTests {
         #expect(policy.allowLoopbackWhenOffline)
     }
 
-    @Test func offlineBlocksRemoteHostsBeforeAnyIo() async {
+    @Test(.timeLimit(.minutes(3))) func offlineBlocksRemoteHostsBeforeAnyIo() async {
         let client = factory.create(tag: "test")
         await #expect(throws: NetworkBlockedError.self) {
             _ = try await get(client, "https://api.example.invalid/v1/chat/completions?api_key=secret")
@@ -61,7 +61,7 @@ struct KillSwitchTests {
         #expect(KillSwitchStub.requests.isEmpty)
     }
 
-    @Test func blockedMessageNamesOffline() async {
+    @Test(.timeLimit(.minutes(3))) func blockedMessageNamesOffline() async {
         let client = factory.create(tag: "test")
         do {
             _ = try await get(client, "https://api.example.invalid/")
@@ -73,7 +73,7 @@ struct KillSwitchTests {
         }
     }
 
-    @Test func blockedRequestIsAuditedWithoutQuery() async {
+    @Test(.timeLimit(.minutes(3))) func blockedRequestIsAuditedWithoutQuery() async {
         let client = factory.create(tag: "deepseek")
         _ = try? await get(client, "https://api.example.invalid/v1/chat/completions?api_key=secret#frag")
         let entry = auditLog.entries.last!
@@ -88,7 +88,7 @@ struct KillSwitchTests {
         #expect(!"\(entry)".contains("secret"))
     }
 
-    @Test func offlineAllowsLoopbackByDefault() async throws {
+    @Test(.timeLimit(.minutes(3))) func offlineAllowsLoopbackByDefault() async throws {
         let client = factory.create(tag: "ollama")
         let response = try await get(client, "http://127.0.0.1:11434/v1/models")
         #expect(response.status == 200)
@@ -99,7 +99,7 @@ struct KillSwitchTests {
         #expect(entry.route == "loopback")
     }
 
-    @Test func offlineBlocksLoopbackWhenDisallowed() async {
+    @Test(.timeLimit(.minutes(3))) func offlineBlocksLoopbackWhenDisallowed() async {
         policy.setAllowLoopbackWhenOffline(false)
         let client = factory.create(tag: "ollama")
         await #expect(throws: NetworkBlockedError.self) { _ = try await get(client, "http://127.0.0.1:11434/v1/models") }
@@ -107,14 +107,14 @@ struct KillSwitchTests {
         #expect(auditLog.entries.last?.blocked == true)
     }
 
-    @Test func cleartextToRemoteHostIsBlockedEvenWhenDirect() async {
+    @Test(.timeLimit(.minutes(3))) func cleartextToRemoteHostIsBlockedEvenWhenDirect() async {
         policy.setMode(.direct)
         let client = factory.create(tag: "test")
         await #expect(throws: NetworkBlockedError.self) { _ = try await get(client, "http://example.invalid/") }
         #expect(KillSwitchStub.requests.isEmpty)
     }
 
-    @Test func routeChangeAfterClientCreationIsBlocked() async {
+    @Test(.timeLimit(.minutes(3))) func routeChangeAfterClientCreationIsBlocked() async {
         policy.setMode(.direct)
         let client = factory.create(tag: "test")
         policy.setMode(.tor())
@@ -129,7 +129,7 @@ struct KillSwitchTests {
         #expect(KillSwitchStub.requests.isEmpty)
     }
 
-    @Test func switchingToOfflineBlocksExistingClients() async {
+    @Test(.timeLimit(.minutes(3))) func switchingToOfflineBlocksExistingClients() async {
         policy.setMode(.direct)
         let client = factory.create(tag: "test")
         policy.setMode(.offline)
@@ -138,7 +138,7 @@ struct KillSwitchTests {
         #expect(KillSwitchStub.requests.isEmpty)
     }
 
-    @Test func auditRecordsBytesSentStatusAndTag() async throws {
+    @Test(.timeLimit(.minutes(3))) func auditRecordsBytesSentStatusAndTag() async throws {
         policy.setMode(.direct)
         KillSwitchStub.reset(status: 201, body: "created")
         let client = factory.create(tag: "default-tag")
@@ -155,7 +155,7 @@ struct KillSwitchTests {
         #expect(entry.tag == "per-request")
     }
 
-    @Test func headerScrubSetsUserAgentAndRemovesReferer() async throws {
+    @Test(.timeLimit(.minutes(3))) func headerScrubSetsUserAgentAndRemovesReferer() async throws {
         let client = factory.create(tag: "test")
         var request = URLRequest(url: URL(string: "http://127.0.0.1/")!)
         request.setValue("https://tracker.example", forHTTPHeaderField: "Referer")
@@ -170,7 +170,7 @@ struct KillSwitchTests {
         #expect(recorded.headers["Accept-Language"] == "en")
     }
 
-    @Test func redirectsAreNotFollowed() async throws {
+    @Test(.timeLimit(.minutes(3))) func redirectsAreNotFollowed() async throws {
         KillSwitchStub.reset(status: 302, body: "")
         let client = factory.create(tag: "test")
         let response = try await get(client, "http://127.0.0.1/start")

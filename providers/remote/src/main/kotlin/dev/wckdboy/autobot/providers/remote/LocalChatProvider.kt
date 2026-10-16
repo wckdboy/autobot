@@ -46,8 +46,13 @@ class LocalChatProvider(
             emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Model '${request.model}' is not installed on this phone (Models tab)"))
             return@flow
         }
-        if (!File(path).isFile) {
-            emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, "${model.title}'s file is missing from this phone — remove it in Models and download it again", code = MISSING_FILE))
+        if (!File(path).isFile || model.paths[FileRole.MMPROJ]?.let { !File(it).isFile } == true) {
+            emit(
+                ChatEvent.Error(
+                    ErrorKind.BAD_REQUEST,
+                    "The files of ${model.title} are missing (deleted outside the app). Download it again in the Models tab.",
+                ),
+            )
             return@flow
         }
         val nCtx = model.manifest.recommended?.contextLength?.coerceAtMost(MAX_CONTEXT) ?: contextLength
@@ -86,7 +91,6 @@ class LocalChatProvider(
 
     companion object {
         const val DEFAULT_CONTEXT = 8192
-        const val MISSING_FILE = "MODEL_FILE_MISSING"
         private const val MAX_CONTEXT = 32768
 
         internal fun encode(request: ChatRequest, mmproj: String? = null): JsonObject = LocalLlmCodec.encode(request, mmproj)

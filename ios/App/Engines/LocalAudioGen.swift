@@ -68,14 +68,14 @@ actor LocalAudioGen {
         if let tokenizer, tokenizer.folder == folder { return tokenizer.value }
         let file = folder.appending(path: StableAudioCatalog.shared.TOKENIZER)
         guard FileManager.default.fileExists(atPath: file.path) else {
-            throw LocalEngineError(code: "NO_MODEL", message: "Stable Audio Open Small is not installed")
+            throw LocalEngineError(code: "NO_MODEL", message: "Stable Audio Open Small is not installed. Get it in Models › audio · studio.")
         }
         do {
             let value = try T5Tokenizer.companion.load(path: file.path)
             tokenizer = (folder, value)
             return value
         } catch {
-            throw LocalEngineError(code: "BAD_MODEL", message: "Cannot read the audio model's tokenizer: \(error.localizedDescription)")
+            throw LocalEngineError(code: "BAD_MODEL", message: "Cannot read the audio model's tokenizer (\(error.localizedDescription)). Remove it in Models and download it again.")
         }
     }
 }

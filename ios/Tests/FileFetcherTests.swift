@@ -62,7 +62,7 @@ struct FileFetcherTests {
         ModelFile(role: .model, name: "m.gguf", url: "http://127.0.0.1/resolve/main/m.gguf", sizeBytes: size, sha256: sha256, auth: auth)
     }
 
-    @Test func followsRedirectAdoptsHubHashAndVerifies() async throws {
+    @Test(.timeLimit(.minutes(3))) func followsRedirectAdoptsHubHashAndVerifies() async throws {
         FetchStub.enqueue(.init(status: 302, headers: ["Location": "/cdn/blob?sig=1", "X-Linked-ETag": "\"\(sha)\"", "X-Linked-Size": "\(content.count)"]))
         FetchStub.enqueue(.init(status: 200, body: content))
         let target = dir.appendingPathComponent("out.gguf")
@@ -82,7 +82,7 @@ struct FileFetcherTests {
         #expect(requests[1].value(forHTTPHeaderField: "Authorization") == nil)
     }
 
-    @Test func resumesWithRangeFromPartialFile() async throws {
+    @Test(.timeLimit(.minutes(3))) func resumesWithRangeFromPartialFile() async throws {
         let target = dir.appendingPathComponent("out.gguf")
         try content.prefix(100_000).write(to: URL(fileURLWithPath: target.path + ".part"))
         FetchStub.enqueue(.init(status: 206, headers: ["Content-Range": "bytes 100000-\(content.count - 1)/\(content.count)"], body: content.suffix(from: 100_000)))
@@ -94,7 +94,7 @@ struct FileFetcherTests {
         #expect(try Data(contentsOf: target) == content)
     }
 
-    @Test func checksumMismatchDeletesTheDownload() async throws {
+    @Test(.timeLimit(.minutes(3))) func checksumMismatchDeletesTheDownload() async throws {
         FetchStub.enqueue(.init(status: 200, body: content))
         let target = dir.appendingPathComponent("out.gguf")
         do {
@@ -107,7 +107,7 @@ struct FileFetcherTests {
         #expect(!FileManager.default.fileExists(atPath: target.path + ".part"))
     }
 
-    @Test func gatedRepoIsNotRetryable() async throws {
+    @Test(.timeLimit(.minutes(3))) func gatedRepoIsNotRetryable() async throws {
         FetchStub.enqueue(.init(status: 401, headers: ["X-Error-Code": "GatedRepo"], body: Data("restricted".utf8)))
         do {
             _ = try await fetcher.fetch(file(), to: dir.appendingPathComponent("x"), credential: nil) { _, _ in }
@@ -133,7 +133,7 @@ struct FileFetcherTests {
         #expect(!FileFetcher.isHubHost("civitai-delivery-worker-prod.r2.cloudflarestorage.com", .civitai))
     }
 
-    @Test func offlineBlocksRemoteDownloads() async throws {
+    @Test(.timeLimit(.minutes(3))) func offlineBlocksRemoteDownloads() async throws {
         let remote = ModelFile(role: .model, name: "m.gguf", url: "https://huggingface.co/a/b/resolve/main/m.gguf")
         await #expect(throws: NetworkBlockedError.self) {
             _ = try await fetcher.fetch(remote, to: dir.appendingPathComponent("y"), credential: nil) { _, _ in }
