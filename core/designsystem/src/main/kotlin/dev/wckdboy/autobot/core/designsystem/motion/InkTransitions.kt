@@ -8,7 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -20,17 +19,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.DotBatch
@@ -44,8 +35,8 @@ import kotlinx.coroutines.launch
 // Screen, sheet and list transitions in the ink language (motion spec v2 §3).
 
 /**
- * Screen-to-screen: the incoming screen fades in over `transitionMillis` (its red plate is drawn
- * by [misregisterEnter]); the outgoing one fades out faster. With reduced motion, a
+ * Screen-to-screen: the incoming screen fades in over `transitionMillis` (and settles into
+ * register via [misregisterEnter]); the outgoing one fades out faster. With reduced motion, a
  * `reducedMotionMillis` crossfade. Used for pushes and non-gesture pops; predictive back keeps
  * the platform's own gesture-driven spec.
  */
@@ -59,46 +50,23 @@ fun <T> inkScreenTransition(reduced: Boolean): AnimatedContentTransitionScope<T>
 }
 
 /**
- * The "misregistration push": when [animate] (first composition of a pushed screen), an ink
- * plate of the content — its text and marks in [plate] colour, the paper left clear — is drawn
- * `registerOffset` down-right and settles into register while fading, over `transitionMillis`.
- * One offscreen layer for those 240 ms, nothing after. Nothing with reduced motion.
- * [darkTheme] picks which pixels count as ink (light on dark, dark on light/paper).
+ * The push settling into register: when [animate] (first composition of a pushed screen), the
+ * screen starts `registerOffset` down-right and settles to 0 over `transitionMillis`. v3 dropped
+ * the red ink plate (an offscreen layer that drew the whole incoming screen twice per frame, on
+ * the transition's busiest frames); this is a translation of the screen's own layer — no extra
+ * drawing, no recomposition. Nothing after the push, or with reduced motion.
  */
 @Composable
-fun Modifier.misregisterEnter(
-    animate: Boolean,
-    plate: Color = MaterialTheme.colorScheme.primary,
-    darkTheme: Boolean = MaterialTheme.colorScheme.background.luminance() < 0.5f,
-): Modifier {
+fun Modifier.misregisterEnter(animate: Boolean): Modifier {
     val reduced = LocalInkMotion.current.reduced
-    val progress = remember { Animatable(if (animate && !reduced) 0f else 1f) }
-    LaunchedEffect(Unit) {
-        if (progress.value < 1f) progress.animateTo(1f, tween(Motion.transitionMillis, easing = LinearEasing))
-    }
-    return misregisterPlate({ progress.value }, plate, darkTheme)
-}
-
-/** The misregistration plate at [progress] (0…1 of the push; read only while drawing). */
-internal fun Modifier.misregisterPlate(progress: () -> Float, plate: Color, darkTheme: Boolean): Modifier = drawWithCache {
-    val paint = Paint().apply {
-        colorFilter = ColorFilter.colorMatrix(ColorMatrix(InkMath.inkPlateMatrix(plate.red, plate.green, plate.blue, darkTheme)))
-    }
-    val offset = Motion.registerOffset.dp.toPx()
-    val bounds = Rect(Offset.Zero, size)
-    onDrawWithContent {
-        drawContent()
-        val t = progress()
-        if (t < 1f) {
-            val d = offset * InkMath.misregisterOffset(t)
-            paint.alpha = InkMath.misregisterAlpha(t)
-            drawIntoCanvas { canvas ->
-                canvas.saveLayer(bounds, paint)
-                canvas.translate(d, d)
-                drawContent()
-                canvas.restore()
-            }
-        }
+    val first = remember { animate && !reduced }
+    if (!first) return this
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { progress.animateTo(1f, tween(Motion.transitionMillis, easing = LinearEasing)) }
+    return graphicsLayer {
+        val d = Motion.registerOffset.dp.toPx() * InkMath.misregisterOffset(progress.value)
+        translationX = d
+        translationY = d
     }
 }
 
@@ -147,17 +115,15 @@ fun rememberInkDissolve(): InkDissolveState {
 /**
  * The row half of [InkDissolveState]: while its [key] dissolves, the row is masked by a dot grid
  * whose dots shrink to nothing (lightly staggered along the diagonal) and its height collapses.
- * Progress is read only in layout and draw; untouched rows pay nothing.
+ * Progress is read only in layout and draw; untouched rows allocate nothing.
  */
 @Composable
 fun Modifier.inkDissolve(state: InkDissolveState, key: Any): Modifier {
-    val active = state.isDissolving(key)
+    // Rows of a long list pay one map read; the animation and its path exist only while dissolving.
+    if (!state.isDissolving(key)) return this
     val progress = remember(key) { Animatable(0f) }
     val batch = remember { DotBatch() }
-    LaunchedEffect(active) {
-        if (active) progress.animateTo(1f, tween(Motion.dissolveMillis, easing = LinearEasing)) else progress.snapTo(0f)
-    }
-    if (!active) return this
+    LaunchedEffect(key) { progress.animateTo(1f, tween(Motion.dissolveMillis, easing = LinearEasing)) }
     return dissolveAt(batch) { progress.value }
 }
 

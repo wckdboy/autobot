@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -34,6 +36,8 @@ import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -45,9 +49,7 @@ import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.WeakHashMap
-import kotlin.math.ceil
 import kotlin.math.max
-import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -66,6 +68,15 @@ internal class DotBatch {
     fun dot(x: Float, y: Float, radius: Float) {
         if (radius > 0.3f) platform.addCircle(x, y, radius, android.graphics.Path.Direction.CW)
     }
+}
+
+/**
+ * One dot drawn as a circle. For dots that never overlap (bars, loaders, cards) this beats a
+ * path of circles: the renderer draws circles analytically and batches them, while a changing
+ * many-contour path is re-rasterised every frame. No allocation (Offset is a value class).
+ */
+internal fun DrawScope.inkDot(color: Color, x: Float, y: Float, radius: Float, alpha: Float = 1f) {
+    if (radius > 0.3f) drawCircle(color, radius, Offset(x, y), alpha)
 }
 
 /** Downsampled luminance (0 dark … 1 light) of an image, sampled at normalised coordinates. */
@@ -301,45 +312,69 @@ fun HalftoneStrip(
 ) {
     val clock = rememberInkClock(active)
     val flow = remember { FlowPhase() }
-    val batch = remember { DotBatch() }
     Canvas(modifier.size(cell * cols, cell * rows)) {
         val phase = flow.at(clock.time, STRIP_SPEED)
         val cw = size.width / cols
         val ch = size.height / rows
         val r0 = minOf(cw, ch) * 0.46f
-        batch.reset()
         for (r in 0 until rows) for (col in 0 until cols) {
             val v = InkMath.wave(col / cols.toFloat(), r / rows.toFloat(), -phase)
-            batch.dot((col + 0.5f) * cw, (r + 0.5f) * ch, r0 * InkMath.lerp(0.22f, 1f, v))
+            inkDot(color, (col + 0.5f) * cw, (r + 0.5f) * ch, r0 * InkMath.lerp(0.22f, 1f, v))
         }
-        drawPath(batch.path, color)
     }
 }
 
 /** The strip ripples faster than the plate flow so it reads as alive at its tiny size. */
 private const val STRIP_SPEED = 3f
 
-/** Leading-edge flow on progress bars. */
-private const val EDGE_SPEED = 4f
-private const val EDGE_DOTS = 6
-
-/** Dots trailing the indeterminate segment. */
-private const val TRAIL_DOTS = 7
-
 /** Paused bars are dimmed to this. */
 private const val PAUSED_ALPHA = 0.45f
+
+/** Bars thinner than this still draw dots this big (centred, overflowing the bar a little). */
+private val BAR_MIN_DOT = 4.dp
 
 /** [InkProgressBar] states. [Idle]: static, full strength (nothing running yet / finished). */
 enum class InkBarState { Running, Idle, Paused, Error }
 
+/** A bar's dot slots for one size: centres cached, rebuilt only when the size changes. */
+private class BarSlots {
+    var width = -1f
+    var height = -1f
+    var count = 0
+    var xs = FloatArray(0)
+    var full = 0f
+    var pin = 0f
+
+    /** Every slot's pin as x,y pairs, drawn in one round-capped points call (filled dots cover theirs). */
+    var pins = FloatArray(0)
+    val pinPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { strokeCap = android.graphics.Paint.Cap.ROUND }
+
+    fun update(w: Float, h: Float, minDot: Float) {
+        if (w == width && h == height) return
+        width = w
+        height = h
+        val dot = max(h, minDot)
+        count = InkMath.barSlots(w, dot)
+        val pitch = if (count > 0) w / count else 0f
+        if (xs.size != count) xs = FloatArray(count)
+        for (i in 0 until count) xs[i] = (i + 0.5f) * pitch
+        full = minOf(dot, pitch) / 2f
+        pin = max(full * Motion.barEmptyDotScale, 0.6f)
+        pins = FloatArray(count * 2) { if (it % 2 == 0) xs[it / 2] else h / 2f }
+    }
+}
+
 /**
- * Progress as a thin printed rule. Determinate ([progress] 0…1): the width eases over
- * `progressMillis` (no jumps) and the filled part is a fine halftone that is densest at the
- * leading edge, with a small flowing dot cluster at the head while [state] is Running.
- * Indeterminate ([progress] null): a short ink segment sweeps with ease-in-out every
- * `indeterminateSweepMillis`, leaving a fading dot trail. [InkBarState.Paused]: static and dimmed
- * with a "‖" mark at the head. [InkBarState.Error]: fills in the error colour, then holds.
- * Animated values are read only while drawing; the clock runs only while Running.
+ * Progress as a row of dots (spec v3 §1). Empty slots are faint pins in [track]. Determinate
+ * ([progress] 0…1): slots up to the progress fill with dots that grow from `barFillStartScale`
+ * at the start to full at the head, the head dots easing in as progress passes them (progress
+ * eases over `progressMillis`); full is a row of full circles; while Running the filled dots
+ * breathe ±`barRunningWaveAmplitude` with the wave. Indeterminate ([progress] null): every slot
+ * swells with a travelling wave. [InkBarState.Paused]: static, dimmed, with a "‖" mark.
+ * [InkBarState.Error]: the filled dots turn [errorColor] and hold.
+ * Slot centres are cached; each frame only radii change (drawn as circles, never a path).
+ * Animated values are read only while
+ * drawing, on the shared clock, which runs only while Running.
  */
 @Composable
 fun InkProgressBar(
@@ -352,94 +387,53 @@ fun InkProgressBar(
 ) {
     val reduced = LocalInkMotion.current.reduced
     val error = state == InkBarState.Error
-    val width = animateFloatAsState(
-        if (error) 1f else (progress ?: 0f).coerceIn(0f, 1f),
+    val fill = animateFloatAsState(
+        (progress ?: if (error) 1f else 0f).coerceIn(0f, 1f),
         tween(if (reduced) Motion.reducedMotionMillis else Motion.progressMillis),
         label = "inkProgress",
     )
     val running = state == InkBarState.Running
     val clock = rememberInkClock(running)
-    val flow = remember { FlowPhase() }
-    val batch = remember { DotBatch() }
-    Canvas(modifier) {
-        val h = size.height
-        val alpha = if (state == InkBarState.Paused) PAUSED_ALPHA else 1f
-        val ink = if (error) errorColor else color
-        drawRect(track, alpha = alpha)
-        if (progress == null && !error) {
-            drawSweep(batch, ink, alpha, if (running && !reduced) clock.time * 1000f else Float.NaN)
-        } else {
-            val w = size.width * width.value
-            drawHalftoneFill(batch, ink, alpha, w)
-            if (running && !reduced && !error) {
-                val phase = flow.at(clock.time, EDGE_SPEED)
-                val spacing = h * 2.4f
-                batch.reset()
-                for (i in 0 until EDGE_DOTS) {
-                    val x = w + spacing * (i + 0.6f)
-                    if (x > size.width) break
-                    val v = 0.5f + 0.5f * sin(Math.PI.toFloat() * (phase - i * 0.35f))
-                    batch.dot(x, h / 2f, h * 0.75f * v * (1f - i / EDGE_DOTS.toFloat()))
+    val slots = remember { BarSlots() }
+    val indeterminate = progress == null && !error
+    Spacer(
+        modifier.drawBehind {
+            slots.update(size.width, size.height, BAR_MIN_DOT.toPx())
+            val n = slots.count
+            if (n == 0) return@drawBehind
+            val cy = size.height / 2f
+            val alpha = if (state == InkBarState.Paused) PAUSED_ALPHA else 1f
+            val ink = if (error) errorColor else color
+            val ms = clock.time * 1000f
+            val full = slots.full
+            var head = 0f
+            if (indeterminate) {
+                for (i in 0 until n) inkDot(ink, slots.xs[i], cy, full * InkMath.waveScale(InkMath.dotWave(i.toFloat(), ms)), alpha)
+            } else {
+                val p = fill.value
+                val front = InkMath.barFront(p, n)
+                val breathe = running && !reduced
+                slots.pinPaint.color = track.copy(alpha = track.alpha * alpha).toArgb()
+                slots.pinPaint.strokeWidth = slots.pin * 2f
+                drawContext.canvas.nativeCanvas.drawPoints(slots.pins, slots.pinPaint)
+                for (i in 0 until n) {
+                    val k = InkMath.barFillScale(i, front, p)
+                    if (k > 0f) {
+                        val r = full * k * if (breathe) InkMath.runningWave(InkMath.dotWave(i.toFloat(), ms)) else 1f
+                        inkDot(ink, slots.xs[i], cy, r, alpha)
+                        head = slots.xs[i] + r
+                    }
                 }
-                drawPath(batch.path, ink)
             }
-        }
-        if (state == InkBarState.Paused) {
-            // "‖": two hairlines just past the head, a little taller than a thin rule.
-            val x = (if (progress == null) 0f else size.width * width.value) + 3.dp.toPx()
-            val markH = max(h, 8.dp.toPx())
-            val top = (h - markH) / 2f
-            val bar = 1.dp.toPx()
-            drawRect(color, Offset(x, top), Size(bar, markH))
-            drawRect(color, Offset(x + bar * 2.5f, top), Size(bar, markH))
-        }
-    }
-}
-
-/** The determinate fill: rows of dots across [w] whose radius rises to solid ink at the head. */
-private fun DrawScope.drawHalftoneFill(batch: DotBatch, ink: Color, alpha: Float, w: Float) {
-    if (w <= 0f) return
-    val h = size.height
-    val rows = max(1, (h / 3.dp.toPx()).toInt())
-    val cell = h / rows
-    val cols = ceil(w / cell).toInt()
-    batch.reset()
-    for (r in 0 until rows) for (c in 0 until cols) {
-        val x = (c + 0.5f) * cell
-        if (x > w) break
-        // 0.72 × cell covers the cell, so the head reads as a solid rule.
-        batch.dot(x, (r + 0.5f) * cell, cell * 0.72f * InkMath.barDensity(x / w))
-    }
-    drawPath(batch.path, ink, alpha = alpha)
-}
-
-/** The indeterminate segment and its fading trail at [millis] (NaN: still, reduced motion). */
-private fun DrawScope.drawSweep(batch: DotBatch, ink: Color, alpha: Float, millis: Float) {
-    val w = size.width
-    val h = size.height
-    if (millis.isNaN()) {
-        // Static: an even stipple along the track.
-        batch.reset()
-        var x = h
-        while (x < w) {
-            batch.dot(x, h / 2f, h * 0.4f)
-            x += h * 2.4f
-        }
-        drawPath(batch.path, ink, alpha = alpha)
-        return
-    }
-    val head = InkMath.sweepHead(millis) * w
-    val tail = head - InkMath.SWEEP_SEGMENT * w
-    val left = max(0f, tail)
-    val right = minOf(w, head)
-    if (right > left) drawRect(ink, Offset(left, 0f), Size(right - left, h), alpha = alpha)
-    batch.reset()
-    val spacing = h * 2.2f
-    for (i in 0 until TRAIL_DOTS) {
-        val x = tail - spacing * (i + 0.7f)
-        if (x < 0f) break
-        if (x > w) continue
-        batch.dot(x, h / 2f, h * 0.6f * InkMath.sweepTrail(i, TRAIL_DOTS))
-    }
-    drawPath(batch.path, ink, alpha = alpha)
+            if (state == InkBarState.Paused) {
+                // "‖": two hairlines just past the head.
+                val x = minOf(head + 3.dp.toPx(), size.width - 4.dp.toPx())
+                val markH = max(size.height, 8.dp.toPx())
+                val top = (size.height - markH) / 2f
+                val bar = 1.dp.toPx()
+                drawRect(color, Offset(x, top), Size(bar, markH))
+                drawRect(color, Offset(x + bar * 2.5f, top), Size(bar, markH))
+            }
+        },
+    )
 }

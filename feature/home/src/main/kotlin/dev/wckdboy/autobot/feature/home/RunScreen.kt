@@ -35,6 +35,7 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.ProvideInkAmbient
 import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
 import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 
@@ -69,76 +70,79 @@ fun RunScreen(
     // The image card's empty hero drifts as ambient paper; still while the phone's CPU works.
     val ambient = rememberInkAmbient(heavyWork = state.busy)
     Scaffold(topBar = { AutobotTopBar(actions = { if (state.live > 0) CountBadge("${state.live} LIVE") }) }) { padding ->
-        LazyColumn(
-            Modifier.padding(padding).fillMaxSize().ambientTouch(ambient),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            item {
-                SectionLabel(state.status)
-                Spacer(Modifier.height(10.dp))
-                Text("Run\nanything.", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
-                Spacer(Modifier.height(18.dp))
-            }
-            item {
-                Row(Modifier.fillMaxWidth().height(268.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val last by produceState<ImageBitmap?>(null, state.lastImageId) { value = state.lastImageId?.let { actions.thumbnail(it) } }
-                    ModeCard(
-                        index = "01",
-                        title = "Image",
-                        subtitle = state.imageLabel,
-                        route = state.imageRoute,
-                        onClick = onOpenImagine,
-                        modifier = Modifier.weight(1.1f).fillMaxSize(),
-                        background = {
-                            val image = last
-                            if (image != null) {
-                                HalftoneImage(image, Modifier.fillMaxSize(), cell = 7.dp)
-                            } else {
-                                HalftoneField(Modifier.fillMaxSize(), cell = 8.dp, ambient = ambient)
-                            }
-                        },
-                    )
-                    Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ModeCard("02", "Chat", state.chat?.label ?: "add a model", state.chat?.route, { if (state.chat != null) actions.start(RunMode.CHAT) else onOpenModels() }, Modifier.weight(1f).fillMaxWidth())
-                        ModeCard("03", "Agent", state.agent?.label ?: "add a model", state.agent?.route, { if (state.agent != null) actions.start(RunMode.AGENT) else onOpenModels() }, Modifier.weight(1f).fillMaxWidth())
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ModeCard("04", "Code", state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, Modifier.weight(1f).fillMaxSize())
-                    // Studio mode: image, audio, video, workflows and the library behind its own bar.
-                    ModeCard("05", "Studio", "image · audio · video", null, onOpenStudio, Modifier.weight(1f).fillMaxSize())
-                }
-                Spacer(Modifier.height(22.dp))
-            }
-            if (!state.hasAnything) {
+        // One ambient clock for the hero and the living mode cards.
+        ProvideInkAmbient(ambient) {
+            LazyColumn(
+                Modifier.padding(padding).fillMaxSize().ambientTouch(ambient),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
                 item {
-                    MicroLabel("no models yet — download one to run on this phone, or add a provider under remote")
+                    SectionLabel(state.status)
                     Spacer(Modifier.height(10.dp))
-                    PrimaryButton("Get a model", onOpenModels, Modifier.fillMaxWidth())
+                    Text("Run\nanything.", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(Modifier.height(18.dp))
+                }
+                item {
+                    Row(Modifier.fillMaxWidth().height(268.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val last by produceState<ImageBitmap?>(null, state.lastImageId) { value = state.lastImageId?.let { actions.thumbnail(it) } }
+                        ModeCard(
+                            index = "01",
+                            title = "Image",
+                            subtitle = state.imageLabel,
+                            route = state.imageRoute,
+                            onClick = onOpenImagine,
+                            modifier = Modifier.weight(1.1f).fillMaxSize(),
+                            background = {
+                                val image = last
+                                if (image != null) {
+                                    HalftoneImage(image, Modifier.fillMaxSize(), cell = 7.dp)
+                                } else {
+                                    HalftoneField(Modifier.fillMaxSize(), cell = 8.dp, ambient = ambient)
+                                }
+                            },
+                        )
+                        Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ModeCard("02", "Chat", state.chat?.label ?: "add a model", state.chat?.route, { if (state.chat != null) actions.start(RunMode.CHAT) else onOpenModels() }, Modifier.weight(1f).fillMaxWidth(), living = true)
+                            ModeCard("03", "Agent", state.agent?.label ?: "add a model", state.agent?.route, { if (state.agent != null) actions.start(RunMode.AGENT) else onOpenModels() }, Modifier.weight(1f).fillMaxWidth(), living = true)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ModeCard("04", "Code", state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, Modifier.weight(1f).fillMaxSize(), living = true)
+                        // Studio mode: image, audio, video, workflows and the library behind its own bar.
+                        ModeCard("05", "Studio", "image · audio · video", null, onOpenStudio, Modifier.weight(1f).fillMaxSize(), living = true)
+                    }
                     Spacer(Modifier.height(22.dp))
                 }
-            }
-            item {
-                Row {
-                    MicroLabel("recent runs", Modifier.weight(1f).padding(top = 14.dp))
-                    TextButton(onClick = onOpenAllRuns) { Text("ALL →", style = MaterialTheme.typography.labelMedium) }
+                if (!state.hasAnything) {
+                    item {
+                        MicroLabel("no models yet — download one to run on this phone, or add a provider under remote")
+                        Spacer(Modifier.height(10.dp))
+                        PrimaryButton("Get a model", onOpenModels, Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(22.dp))
+                    }
                 }
+                item {
+                    Row {
+                        MicroLabel("recent runs", Modifier.weight(1f).padding(top = 14.dp))
+                        TextButton(onClick = onOpenAllRuns) { Text("ALL →", style = MaterialTheme.typography.labelMedium) }
+                    }
+                }
+                items(state.recent, key = { it.key }) { run ->
+                    RunRow(
+                        title = run.title,
+                        subtitle = run.subtitle,
+                        onClick = {
+                            run.conversationId?.let(onOpenSession)
+                            run.galleryId?.let(onOpenGalleryItem)
+                        },
+                    ) { RouteTag(run.route) }
+                }
+                if (state.recent.isEmpty()) {
+                    item { MicroLabel("nothing yet", Modifier.padding(vertical = 12.dp)) }
+                }
+                item { Box(Modifier.height(16.dp)) }
             }
-            items(state.recent, key = { it.key }) { run ->
-                RunRow(
-                    title = run.title,
-                    subtitle = run.subtitle,
-                    onClick = {
-                        run.conversationId?.let(onOpenSession)
-                        run.galleryId?.let(onOpenGalleryItem)
-                    },
-                ) { RouteTag(run.route) }
-            }
-            if (state.recent.isEmpty()) {
-                item { MicroLabel("nothing yet", Modifier.padding(vertical = 12.dp)) }
-            }
-            item { Box(Modifier.height(16.dp)) }
         }
     }
 }

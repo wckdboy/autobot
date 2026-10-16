@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import dev.wckdboy.autobot.core.designsystem.R
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
+import dev.wckdboy.autobot.core.designsystem.motion.LocalInkTickers
+import dev.wckdboy.autobot.core.designsystem.motion.rememberInkTickers
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkMotion
 
 /**
@@ -271,7 +273,10 @@ fun AutobotTheme(
         if (darkTheme && amoled) base.toAmoled() else base
     }
     MaterialTheme(colorScheme = scheme, typography = AutobotTypography, shapes = AutobotShapes) {
-        CompositionLocalProvider(LocalInkMotion provides rememberInkMotion(), content = content)
+        CompositionLocalProvider(LocalInkMotion provides rememberInkMotion()) {
+            // One frame loop per motion tier for the whole window (nested themes reuse the outer one).
+            CompositionLocalProvider(LocalInkTickers provides (LocalInkTickers.current ?: rememberInkTickers()), content = content)
+        }
     }
 }
 

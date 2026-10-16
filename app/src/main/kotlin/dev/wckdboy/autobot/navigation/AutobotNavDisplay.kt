@@ -16,7 +16,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntryDecorator
@@ -69,19 +68,16 @@ private const val PAPER = "ink.paper"
 
 /**
  * Wraps each entry so one that enters while a push is in flight ([pushing], judged once when it
- * first composes) — i.e. the pushed screen — prints in with the misregistration plate. A screen
- * revealed by back (button or predictive gesture) or a tab switch never does. Paper screens ink
- * their dark marks.
+ * first composes) — i.e. the pushed screen — settles into register as it fades in. A screen
+ * revealed by back (button or predictive gesture) or a tab switch never does.
  */
 @Composable
 private fun inkEnterDecorator(pushing: () -> Boolean): NavEntryDecorator<NavKey> {
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val currentPushing by rememberUpdatedState(pushing)
-    return remember(dark) {
+    return remember {
         NavEntryDecorator(decorate = { entry ->
             val animate = remember { currentPushing() }
-            val paper = entry.metadata[PAPER] == true
-            Box(Modifier.fillMaxSize().misregisterEnter(animate, darkTheme = dark && !paper)) { entry.Content() }
+            Box(Modifier.fillMaxSize().misregisterEnter(animate)) { entry.Content() }
         })
     }
 }

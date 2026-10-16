@@ -57,15 +57,16 @@ fun Modifier.stamp(key: Any?, enabled: Boolean = true): Modifier {
  */
 @Composable
 fun Modifier.inkEnter(animate: Boolean, delayMillis: Int = 0): Modifier {
+    // Judged once: history (most list items) gets no layer, animation or coroutine at all.
+    val first = remember { animate }
+    if (!first) return this
     val reduced = LocalInkMotion.current.reduced
-    val progress = remember { Animatable(if (animate) 0f else 1f) }
+    val progress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        if (progress.value < 1f) {
-            progress.animateTo(
-                1f,
-                tween(if (reduced) Motion.reducedMotionMillis else Motion.enterMillis, delayMillis = if (reduced) 0 else delayMillis, easing = LinearEasing),
-            )
-        }
+        progress.animateTo(
+            1f,
+            tween(if (reduced) Motion.reducedMotionMillis else Motion.enterMillis, delayMillis = if (reduced) 0 else delayMillis, easing = LinearEasing),
+        )
     }
     return graphicsLayer {
         val t = progress.value
@@ -91,10 +92,10 @@ fun Modifier.inkStagger(index: Int): Modifier = inkEnter(animate = true, delayMi
 @Composable
 fun Modifier.registerGhost(animate: Boolean, color: Color, shape: Shape = RectangleShape): Modifier {
     val reduced = LocalInkMotion.current.reduced
-    val progress = remember { Animatable(if (animate && !reduced) 0f else 1f) }
-    LaunchedEffect(Unit) {
-        if (progress.value < 1f) progress.animateTo(1f, tween(Motion.registerMillis, easing = LinearEasing))
-    }
+    val first = remember { animate && !reduced }
+    if (!first) return this
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { progress.animateTo(1f, tween(Motion.registerMillis, easing = LinearEasing)) }
     return drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         val offset = Motion.registerOffset.dp.toPx()

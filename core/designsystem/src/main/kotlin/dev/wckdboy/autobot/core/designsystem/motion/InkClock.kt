@@ -16,9 +16,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
@@ -27,8 +30,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import kotlin.math.max
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.withContext
 
 /**
  * The device's motion budget: [reduced] when the user turned animations off (animator or
@@ -87,48 +94,137 @@ private fun powerSave(context: Context): Boolean =
     context.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
 
 /**
- * Seconds of animation time for procedural ink. Read [time] only in draw lambdas (Canvas,
- * drawBehind, graphicsLayer) so a tick redraws without recomposing.
+ * One frame loop for a motion tier, shared by every ink animation on screen (spec v3 §4: at most
+ * one ticking clock per tier). It ticks at most every [intervalMillis] while at least one
+ * consumer holds it, the host is RESUMED and motion is allowed, and stops otherwise. Its time
+ * only advances while it ticks.
  */
 @Stable
-class InkClock internal constructor() {
+class InkTicker internal constructor() {
     internal val seconds = mutableFloatStateOf(0f)
-    val time: Float get() = seconds.floatValue
+    private val users = mutableIntStateOf(0)
+
+    /** Ticker time without subscribing the caller. */
+    internal val now: Float get() = Snapshot.withoutReadObservation { seconds.floatValue }
+
+    internal fun acquire() {
+        users.intValue++
+    }
+
+    internal fun release() {
+        users.intValue--
+    }
+
+    /** Runs the loop while held; call from one effect per ticker. */
+    internal suspend fun run(intervalMillis: Int, lifecycle: Lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            snapshotFlow { users.intValue > 0 }.collectLatest { held ->
+                if (held) tick(intervalMillis)
+            }
+        }
+    }
+
+    private suspend fun tick(interval: Int) {
+        val start = seconds.floatValue
+        var base = -1L
+        var last = -1L
+        InkStats.loops++
+        try {
+            // The main handler, not the frame dispatcher, for the sleeps between frames.
+            withContext(Dispatchers.Main) {
+                while (true) {
+                    val ticked = withFrameNanos { now ->
+                        if (base < 0) base = now
+                        if (InkMath.isFrameDue(last, now, interval)) {
+                            last = now
+                            InkStats.ticks++
+                            seconds.floatValue = start + (now - base) / 1e9f
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    // Sleep through most of the interval instead of waking on every vsync.
+                    if (ticked) delay(InkMath.idleMillis(interval))
+                }
+            }
+        } finally {
+            InkStats.loops--
+        }
+    }
+}
+
+/** The two shared tiers: [active] work (30 fps, 15 in Battery Saver) and [ambient] paper (≤10 fps). */
+@Stable
+class InkTickers internal constructor() {
+    val active = InkTicker()
+    val ambient = InkTicker()
+}
+
+/** Provided by `AutobotTheme` (one per window); null means "make your own" (isolated previews/tests). */
+val LocalInkTickers = staticCompositionLocalOf<InkTickers?> { null }
+
+/** Creates the window's tickers and runs their loops (lifecycle-aware, off with reduced motion). */
+@Composable
+fun rememberInkTickers(): InkTickers {
+    val tickers = remember { InkTickers() }
+    val motion = LocalInkMotion.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val enabled = !motion.reduced && !LocalInspectionMode.current
+    val interval = motion.frameIntervalMillis
+    LaunchedEffect(tickers, enabled, interval, lifecycle) {
+        if (enabled) tickers.active.run(interval, lifecycle)
+    }
+    LaunchedEffect(tickers, enabled, interval, lifecycle) {
+        if (enabled) tickers.ambient.run(max(interval, Motion.ambientFrameIntervalMillis), lifecycle)
+    }
+    return tickers
 }
 
 /**
- * A frame clock that ticks only while [running], the screen is RESUMED and motion is allowed,
- * at most every `frameIntervalMillis` (`lowPowerFrameIntervalMillis` in Battery Saver). Time
- * holds still while stopped and resumes where it left off, so patterns never jump.
+ * One consumer's view of a shared [InkTicker]: seconds of animation time that advance only
+ * while this consumer runs and hold still while it is stopped (so patterns never jump when it
+ * resumes). Read [time] only in draw lambdas (Canvas, drawBehind, drawWithCache, graphicsLayer):
+ * a tick then redraws without recomposing.
+ */
+@Stable
+class InkClock internal constructor(private val ticker: InkTicker) {
+    private val running = mutableStateOf(false)
+    private var held = 0f
+    private var base = 0f
+
+    val time: Float get() = if (running.value) held + ticker.seconds.floatValue - base else held
+
+    internal fun start() {
+        base = ticker.now
+        running.value = true
+    }
+
+    internal fun stop() {
+        held += ticker.now - base
+        running.value = false
+    }
+}
+
+/**
+ * A clock on the shared ticker of its tier: the active tier (`frameIntervalMillis`, 15 fps in
+ * Battery Saver), or the ambient tier when [minIntervalMillis] is `ambientFrameIntervalMillis` or
+ * more. It advances only while [running], the screen is RESUMED and motion is allowed; every
+ * visible clock of a tier advances on the same frames.
  */
 @Composable
 fun rememberInkClock(running: Boolean, minIntervalMillis: Int = 0): InkClock {
-    val clock = remember { InkClock() }
-    val motion = LocalInkMotion.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val active = running && !motion.reduced && !LocalInspectionMode.current
-    // [minIntervalMillis] slows a clock further (the ambient tier: `ambientFrameIntervalMillis`).
-    val interval = max(motion.frameIntervalMillis, minIntervalMillis)
-    LaunchedEffect(active, interval, lifecycle) {
-        if (!active) return@LaunchedEffect
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            val start = clock.seconds.floatValue
-            var base = -1L
-            var last = -1L
-            while (true) {
-                val ticked = withFrameNanos { now ->
-                    if (base < 0) base = now
-                    if (InkMath.isFrameDue(last, now, interval)) {
-                        last = now
-                        clock.seconds.floatValue = start + (now - base) / 1e9f
-                        true
-                    } else {
-                        false
-                    }
-                }
-                // Sleep through most of the interval instead of waking on every vsync.
-                if (ticked) delay(InkMath.idleMillis(interval))
-            }
+    val tickers = LocalInkTickers.current ?: rememberInkTickers()
+    val ticker = if (minIntervalMillis >= Motion.ambientFrameIntervalMillis) tickers.ambient else tickers.active
+    val clock = remember(ticker) { InkClock(ticker) }
+    val active = running && !LocalInkMotion.current.reduced && !LocalInspectionMode.current
+    DisposableEffect(clock, active) {
+        if (!active) return@DisposableEffect onDispose {}
+        ticker.acquire()
+        clock.start()
+        onDispose {
+            clock.stop()
+            ticker.release()
         }
     }
     return clock

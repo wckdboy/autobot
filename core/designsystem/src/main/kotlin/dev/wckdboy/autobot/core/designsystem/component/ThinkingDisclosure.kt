@@ -27,7 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -49,7 +49,7 @@ fun ThinkingDisclosure(
     initiallyExpanded: Boolean = false,
 ) {
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
-    val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
+    val rotation = animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
     val accent = MaterialTheme.colorScheme.secondary
     // The rule is drawn, not measured: intrinsic measurement of a very long trace overflows layout.
     Row(modifier.fillMaxWidth().drawBehind { drawRect(accent.copy(alpha = 0.6f), size = Size(2.dp.toPx(), size.height)) }) {
@@ -71,7 +71,8 @@ fun ThinkingDisclosure(
                 Icon(
                     Icons.Filled.KeyboardArrowDown,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp).rotate(rotation),
+                    // Read in the layer, so the chevron turns without recomposing the header.
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rotation.value },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

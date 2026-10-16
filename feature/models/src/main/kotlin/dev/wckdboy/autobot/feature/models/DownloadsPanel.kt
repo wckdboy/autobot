@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.inkCard
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.models.DownloadQueue
 import dev.wckdboy.autobot.core.models.DownloadsState
@@ -34,7 +35,8 @@ import dev.wckdboy.autobot.core.models.formatBytes
 @Composable
 internal fun DownloadsPanel(state: DownloadsState, actions: ModelsViewModel) {
     Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall).padding(12.dp),
+        // The one living surface on the models screen (not its rows): a quiet breathing field.
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall).inkCard().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

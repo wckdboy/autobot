@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -15,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -77,6 +79,18 @@ class InkAmbient internal constructor(internal val clock: InkClock, internal val
     val time: Float get() = clock.time
 }
 
+/**
+ * The screen's ambient clock, for living surfaces deeper in the tree ([inkCard], [inkGround]) so a
+ * screen runs one ambient clock however many cards it shows. Null: each surface makes its own.
+ */
+val LocalInkAmbient = staticCompositionLocalOf<InkAmbient?> { null }
+
+/** Provides [ambient] as the screen's [LocalInkAmbient] to [content]. */
+@Composable
+fun ProvideInkAmbient(ambient: InkAmbient, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalInkAmbient provides ambient, content = content)
+}
+
 @Composable
 fun rememberInkAmbient(heavyWork: Boolean = false): InkAmbient {
     val motion = LocalInkMotion.current
@@ -112,7 +126,7 @@ fun Modifier.inkGround(
     plate: Color = MaterialTheme.colorScheme.primary,
     cell: Dp = GROUND_CELL,
     seed: Float = 0f,
-    ambient: InkAmbient = rememberInkAmbient(heavyWork),
+    ambient: InkAmbient = LocalInkAmbient.current ?: rememberInkAmbient(heavyWork),
 ): Modifier {
     val batch = remember { DotBatch() }
     return this
@@ -124,6 +138,80 @@ fun Modifier.inkGround(
             translate(shift, shift) { drawPath(batch.path, plate, alpha = Motion.ambientOpacity * 0.5f) }
             drawPath(batch.path, dot, alpha = Motion.ambientOpacity)
         }
+}
+
+/** Living card dots at full swell fill this much of their pitch. */
+private const val CARD_DOT = 0.36f
+
+/**
+ * A living card's dot field for one size: centres, spatial wave phases and base radii are
+ * computed once per size (at most `cardMaxDots`); each frame only the radii change. Nothing is
+ * allocated per frame.
+ */
+internal class CardField {
+    private var width = -1f
+    private var height = -1f
+    private var count = 0
+    private var xs = FloatArray(0)
+    private var ys = FloatArray(0)
+    private var phase = FloatArray(0)
+    private var base = FloatArray(0)
+
+    fun update(w: Float, h: Float, pitchPx: Float) {
+        if (w == width && h == height) return
+        width = w
+        height = h
+        val p = InkMath.cardPitch(w, h, pitchPx)
+        val cols = max(1, (w / p).toInt())
+        val rows = max(1, (h / p).toInt())
+        count = cols * rows
+        if (xs.size < count) {
+            xs = FloatArray(count)
+            ys = FloatArray(count)
+            phase = FloatArray(count)
+            base = FloatArray(count)
+        }
+        // Centred grid: an even margin on every side.
+        val ox = (w - cols * p) / 2f + p / 2f
+        val oy = (h - rows * p) / 2f + p / 2f
+        for (r in 0 until rows) for (c in 0 until cols) {
+            val i = r * cols + c
+            val x = ox + c * p
+            val y = oy + r * p
+            xs[i] = x
+            ys[i] = y
+            phase[i] = InkMath.cardPhase(x, y, w)
+            base[i] = p * CARD_DOT * InkMath.cardFalloff(x / w, y / h)
+        }
+    }
+
+    /** Draws the field at wave time [seconds] (dots never overlap: plain circles, one paint). */
+    fun draw(scope: DrawScope, seconds: Float, color: Color, alpha: Float) {
+        val t = InkMath.cardTimePhase(seconds)
+        for (i in 0 until count) scope.inkDot(color, xs[i], ys[i], base[i] * InkMath.cardDot(phase[i], t), alpha)
+    }
+}
+
+/**
+ * Living card background (spec v3 §2): a low-contrast halftone grid (`cardDotPitch`) in [dot] —
+ * the card's ink — at `cardDotOpacity` (about 10% visual weight), whose dot radii follow a slow
+ * travelling wave: one wavelength per card width, one cycle per `cardWavePeriodSeconds`, lighter
+ * towards the top-left. Drawn behind the element's content (put it inside the card's shape and
+ * background) on the screen's [LocalInkAmbient] clock, or its own on the same shared ambient
+ * tier: ≤10 fps, still once idle, in Battery Saver, during heavy work and with reduced motion.
+ * Reads the clock only while drawing. For a few hero surfaces per screen, never list rows.
+ */
+@Composable
+fun Modifier.inkCard(
+    dot: Color = MaterialTheme.colorScheme.onSurface,
+    ambient: InkAmbient? = LocalInkAmbient.current,
+): Modifier {
+    val clock = ambient ?: rememberInkAmbient()
+    val field = remember { CardField() }
+    return drawBehind {
+        field.update(size.width, size.height, Motion.cardDotPitch.dp.toPx())
+        field.draw(this, clock.time, dot, Motion.cardDotOpacity)
+    }
 }
 
 /** Fills [batch] with the hero field over this canvas at [phase]. */

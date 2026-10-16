@@ -191,7 +191,10 @@ fun CountBadge(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** A mode tile on the Run screen: `03` / big title / model / route tag. */
+/**
+ * A mode tile on the Run screen: `03` / big title / model / route tag. [living]: a quiet
+ * [inkCard] field behind the content (ignored when there is [background] art).
+ */
 @Composable
 fun ModeCard(
     index: String,
@@ -201,6 +204,7 @@ fun ModeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     background: (@Composable () -> Unit)? = null,
+    living: Boolean = false,
 ) {
     Surface(
         onClick = onClick,
@@ -209,7 +213,7 @@ fun ModeCard(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         val card = MaterialTheme.colorScheme.surfaceContainerHigh
-        Box {
+        Box(if (living && background == null) Modifier.inkCard() else Modifier) {
             if (background != null) {
                 background()
                 // Fade the art into the card colour so the title stays legible over dense dots.

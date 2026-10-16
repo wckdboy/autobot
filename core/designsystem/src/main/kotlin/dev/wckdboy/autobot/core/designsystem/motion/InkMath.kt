@@ -4,7 +4,6 @@ import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.cos
-import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -145,48 +144,6 @@ object InkMath {
         return if (p < 0f) p + 1f else p
     }
 
-    /** How far past each end of the diagonal the loader's drop starts and ends (and its width). */
-    const val LOADER_SPREAD = 0.35f
-
-    /** Loader dots at rest (fraction of full radius) and where the drop is. */
-    const val LOADER_REST = 0.28f
-
-    /**
-     * Loader: where the ink drop is along the square's diagonal (0 = top-left, 1 = bottom-right)
-     * at [millis]; it eases in and out across the square once per `loaderCycleMillis`, starting
-     * and ending just off the plate so the loop has no visible seam.
-     */
-    fun loaderDrop(millis: Float): Float =
-        lerp(-LOADER_SPREAD, 1f + LOADER_SPREAD, easeInOutCubic(cycle(millis, Motion.loaderCycleMillis)))
-
-    /** Loader dot radius multiplier for a dot at diagonal position [d] (0…1) with the drop at [drop]. */
-    fun loaderSwell(d: Float, drop: Float): Float {
-        val k = (d - drop) / LOADER_SPREAD
-        return LOADER_REST + (1f - LOADER_REST) * exp(-k * k)
-    }
-
-    /** Diagonal position (0…1) of loader dot ([col], [row]) on an [n]×[n] square. */
-    fun loaderDiagonal(col: Int, row: Int, n: Int): Float =
-        if (n <= 1) 0.5f else (col + row) / (2f * (n - 1))
-
-    /** Determinate bar: the halftone at [x] along the filled part (0 = start, 1 = head), densest at the head. */
-    fun barDensity(x: Float): Float = lerp(BAR_TAIL_DENSITY, 1f, easeInCubic(x))
-    const val BAR_TAIL_DENSITY = 0.22f
-
-    /** Indeterminate bar: the segment's length as a fraction of the track. */
-    const val SWEEP_SEGMENT = 0.28f
-
-    /**
-     * Indeterminate bar: the segment's leading edge (fraction of the track) at [millis]; it
-     * sweeps from just off the start to just past the end with ease-in-out every
-     * `indeterminateSweepMillis`.
-     */
-    fun sweepHead(millis: Float): Float =
-        lerp(0f, 1f + SWEEP_SEGMENT, easeInOutCubic(cycle(millis, Motion.indeterminateSweepMillis)))
-
-    /** Indeterminate bar: radius factor of trail dot [i] (0 = nearest the segment) of [count]; fades to nothing. */
-    fun sweepTrail(i: Int, count: Int): Float = if (count <= 0) 0f else clamp01(1f - (i + 1f) / (count + 1f))
-
     /** Ambient ground: flow phase at [seconds] (one wave cycle = 2 phase units per `ambientCycleSeconds`). */
     fun ambientPhase(seconds: Float): Float = 2f * seconds / Motion.ambientCycleSeconds
 
@@ -201,14 +158,8 @@ object InkMath {
     fun ambientIdleRemainingMillis(lastTouchMillis: Long, nowMillis: Long): Long =
         max(0L, lastTouchMillis + Motion.ambientIdleStopSeconds * 1000L - nowMillis)
 
-    /** Strength of the misregistration plate at the start of a push (it fades as it registers). */
-    const val MISREGISTER_ALPHA = 0.55f
-
-    /** Push transition at [t] (0…1 of `transitionMillis`): the red plate's offset as a fraction of `registerOffset`. */
+    /** Push transition at [t] (0…1 of `transitionMillis`): the screen's offset as a fraction of `registerOffset`. */
     fun misregisterOffset(t: Float): Float = 1f - easeOutCubic(t)
-
-    /** Push transition at [t]: the plate's opacity, gone by the time it is in register. */
-    fun misregisterAlpha(t: Float): Float = MISREGISTER_ALPHA * (1f - easeOutCubic(t))
 
     /** Most sheet sections that get their own stagger step; later ones enter with the sixth. */
     const val MAX_STAGGER_SECTIONS = 6
@@ -230,26 +181,83 @@ object InkMath {
     fun dissolveHeight(t: Float): Float = 1f - easeInOutCubic((t - DISSOLVE_COLLAPSE_START) / (1f - DISSOLVE_COLLAPSE_START))
     const val DISSOLVE_COLLAPSE_START = 0.35f
 
-    private const val PLATE_CONTRAST = 1.4f
-    private const val PLATE_FLOOR = 0.3f
+    // --- v3: the dot bar, the wave loader and living cards ---------------------------------
+
+    /** Dot bar: how many dot slots fit a bar [width] wide whose dots are [dotHeight] across (pitch = height × `barDotPitch`). */
+    fun barSlots(width: Float, dotHeight: Float): Int =
+        if (width <= 0f || dotHeight <= 0f) 0 else max(1, (width / (dotHeight * Motion.barDotPitch)).toInt())
+
+    /** Dot bar: a filled dot grows from nothing to its ramp size while the fill front moves this many slots past it. */
+    const val BAR_HEAD_SLOTS = 2.5f
 
     /**
-     * A 4×5 colour matrix (Android layout, offsets in 0…255) that turns a screen into a [r],[g],[b]
-     * ink plate: colour becomes the plate colour and alpha follows the ink — light pixels on a dark
-     * theme ([darkTheme]), dark pixels on a light one — so only text and marks print, not the paper.
+     * Dot bar: where the fill front is (in slots) at [progress] on a bar of [slots]. Scaled so the
+     * last dot is fully grown exactly at 1, which makes growth continuous (no popping) and a full
+     * bar a row of full circles.
      */
-    fun inkPlateMatrix(r: Float, g: Float, b: Float, darkTheme: Boolean): FloatArray {
-        // Contrast so the paper (and quiet surfaces) stay clear: alpha = 1.4·ink − 0.3, scaled by
-        // the source alpha so transparent pixels never print (on light, ink = alpha − luma).
-        val s = if (darkTheme) PLATE_CONTRAST else -PLATE_CONTRAST
-        val a = if (darkTheme) -PLATE_FLOOR else PLATE_CONTRAST - PLATE_FLOOR
-        return floatArrayOf(
-            0f, 0f, 0f, 0f, r * 255f,
-            0f, 0f, 0f, 0f, g * 255f,
-            0f, 0f, 0f, 0f, b * 255f,
-            s * 0.299f, s * 0.587f, s * 0.114f, a, 0f,
-        )
+    fun barFront(progress: Float, slots: Int): Float = clamp01(progress) * (max(1, slots) - 1 + BAR_HEAD_SLOTS)
+
+    /**
+     * Dot bar: radius (fraction of a full dot) of slot [i] with the front at [front] and the bar at
+     * [progress]; 0 for an unfilled slot. Filled dots ramp from `barFillStartScale` at the start to
+     * full at the head, and the head dots ease in as the front passes them. The ramp evens out as
+     * the bar completes, so 100% is all full circles.
+     */
+    fun barFillScale(i: Int, front: Float, progress: Float): Float {
+        val grow = clamp01((front - i) / BAR_HEAD_SLOTS)
+        if (grow <= 0f) return 0f
+        val ramp = lerp(Motion.barFillStartScale, 1f, clamp01((i + 0.5f) / max(1f, front)))
+        val p = clamp01(progress)
+        val done = p * p * p * p
+        return lerp(ramp, 1f, done) * easeOutCubic(grow)
     }
+
+    /**
+     * The "working" wave (0…1) at dot position [i] (in slots, along the travel direction) at
+     * [millis]: one cycle per `loaderCycleMillis`, a wavelength of `barWaveSlots`, travelling
+     * towards higher [i].
+     */
+    fun dotWave(i: Float, millis: Float): Float {
+        val turns = i / Motion.barWaveSlots - cycle(millis, Motion.loaderCycleMillis)
+        return 0.5f + 0.5f * sin(2f * PI.toFloat() * turns)
+    }
+
+    /** Wave dots at rest (fraction of a full dot) between swells. */
+    const val WAVE_REST = 0.3f
+
+    /** Radius (fraction of a full dot) of a loading dot at wave value [v]: swelling crests, small troughs. */
+    fun waveScale(v: Float): Float = lerp(WAVE_REST, 1f, v * v)
+
+    /** A determinate bar's running filled dots breathe with the wave by ±`barRunningWaveAmplitude`. */
+    fun runningWave(v: Float): Float = 1f + Motion.barRunningWaveAmplitude * (2f * v - 1f)
+
+    /** Living card: dot pitch (px) grown from [pitch] so a [width]×[height] card holds at most `cardMaxDots`. */
+    fun cardPitch(width: Float, height: Float, pitch: Float): Float = cappedCell(width, height, pitch, Motion.cardMaxDots)
+
+    /**
+     * Living card: the travelling wave's spatial phase (radians) at ([x], [y]) px on a card [width]
+     * wide: one wavelength per card width, running down-right at a shallow angle.
+     */
+    fun cardPhase(x: Float, y: Float, width: Float): Float {
+        val k = 2f * PI.toFloat() / max(1f, width)
+        return k * (x * CARD_DIR_X + y * CARD_DIR_Y)
+    }
+    private const val CARD_DIR_X = 0.866f
+    private const val CARD_DIR_Y = 0.5f
+
+    /** Living card: the wave's time phase (radians) at [seconds], one cycle per `cardWavePeriodSeconds`. */
+    fun cardTimePhase(seconds: Float): Float =
+        2f * PI.toFloat() * cycle(seconds * 1000f, Motion.cardWavePeriodSeconds * 1000)
+
+    /** Living card: radius factor r / base = 0.55 + 0.45·sin(spatial − time). */
+    fun cardDot(spatial: Float, time: Float): Float = 0.55f + 0.45f * sin(spatial - time)
+
+    /**
+     * Living card: a dot's base radius factor by where it sits (normalised [x], [y]): lighter
+     * towards the top-left, where titles and text usually start, full towards the bottom-right.
+     */
+    fun cardFalloff(x: Float, y: Float): Float = lerp(CARD_FALLOFF_MIN, 1f, clamp01((x + y) * 0.5f))
+    const val CARD_FALLOFF_MIN = 0.35f
 }
 
 /**

@@ -31,59 +31,6 @@ class InkMathV2Test {
     }
 
     @Test
-    fun loaderDropCrossesTheSquareEachCycleWithoutASeam() {
-        val c = Motion.loaderCycleMillis.toFloat()
-        val start = InkMath.loaderDrop(0f)
-        val end = InkMath.loaderDrop(c - 0.01f)
-        assertTrue("starts off the plate", start < 0f)
-        assertTrue("ends off the plate", end > 1f)
-        assertEquals("loops", start, InkMath.loaderDrop(c), eps)
-        // moves monotonically across one cycle
-        var last = Float.NEGATIVE_INFINITY
-        for (i in 0..20) {
-            val d = InkMath.loaderDrop(c * i / 21f)
-            assertTrue(d >= last)
-            last = d
-        }
-        // off the plate every dot rests at nearly the same size, so the loop seam is invisible
-        val restA = InkMath.loaderSwell(0f, start)
-        val restB = InkMath.loaderSwell(1f, end)
-        assertTrue(restA < 0.7f && restB < 0.7f)
-    }
-
-    @Test
-    fun loaderDotsSwellAsTheDropPasses() {
-        assertEquals(1f, InkMath.loaderSwell(0.4f, 0.4f), eps)
-        assertTrue(InkMath.loaderSwell(0.6f, 0.4f) < 1f)
-        assertTrue(InkMath.loaderSwell(0.6f, 0.4f) > InkMath.loaderSwell(0.9f, 0.4f))
-        assertTrue(InkMath.loaderSwell(0f, 5f) >= InkMath.LOADER_REST - eps)
-        assertEquals(0f, InkMath.loaderDiagonal(0, 0, 4), eps)
-        assertEquals(1f, InkMath.loaderDiagonal(3, 3, 4), eps)
-        assertEquals(0.5f, InkMath.loaderDiagonal(3, 0, 4), eps)
-        assertEquals(0.5f, InkMath.loaderDiagonal(0, 0, 1), eps)
-    }
-
-    @Test
-    fun barIsDensestAtTheHead() {
-        assertEquals(InkMath.BAR_TAIL_DENSITY, InkMath.barDensity(0f), eps)
-        assertEquals(1f, InkMath.barDensity(1f), eps)
-        assertTrue(InkMath.barDensity(0.5f) < InkMath.barDensity(0.9f))
-    }
-
-    @Test
-    fun indeterminateSweepCrossesTheTrackAndTrailFades() {
-        val s = Motion.indeterminateSweepMillis.toFloat()
-        assertEquals(0f, InkMath.sweepHead(0f), eps)
-        assertTrue("ends with the whole segment past the end", InkMath.sweepHead(s - 0.01f) > 1f + InkMath.SWEEP_SEGMENT - 0.01f)
-        assertEquals("loops", 0f, InkMath.sweepHead(s), eps)
-        assertTrue("eases in", InkMath.sweepHead(s * 0.1f) < (1f + InkMath.SWEEP_SEGMENT) * 0.1f)
-        assertTrue(InkMath.sweepTrail(0, 6) > InkMath.sweepTrail(5, 6))
-        assertTrue(InkMath.sweepTrail(5, 6) > 0f)
-        assertEquals(0f, InkMath.sweepTrail(6, 6), eps)
-        assertEquals(0f, InkMath.sweepTrail(0, 0), eps)
-    }
-
-    @Test
     fun ambientGroundIsSlowAndBreathes() {
         assertEquals(0f, InkMath.ambientPhase(0f), eps)
         assertEquals("one wave cycle per ambientCycleSeconds", 2f, InkMath.ambientPhase(Motion.ambientCycleSeconds.toFloat()), eps)
@@ -112,27 +59,7 @@ class InkMathV2Test {
     fun misregistrationSettlesAndClears() {
         assertEquals(1f, InkMath.misregisterOffset(0f), eps)
         assertEquals(0f, InkMath.misregisterOffset(1f), eps)
-        assertEquals(InkMath.MISREGISTER_ALPHA, InkMath.misregisterAlpha(0f), eps)
-        assertEquals(0f, InkMath.misregisterAlpha(1f), eps)
         assertTrue("≤240 ms", Motion.transitionMillis <= 240)
-    }
-
-    @Test
-    fun plateMatrixInksTheMarksNotThePaper() {
-        fun alpha(m: FloatArray, lum: Float, a: Float = 1f): Float {
-            val v = lum * 255f
-            return ((m[15] + m[16] + m[17]) * v + m[18] * a * 255f + m[19]).coerceIn(0f, 255f) / 255f
-        }
-        val dark = InkMath.inkPlateMatrix(1f, 0.2f, 0.1f, darkTheme = true)
-        assertEquals("plate colour", 255f, dark[4], eps)
-        assertEquals(0.2f * 255f, dark[9], eps)
-        assertEquals("black paper stays clear", 0f, alpha(dark, 0.04f), eps)
-        assertEquals("white text prints", 1f, alpha(dark, 1f), eps)
-        val light = InkMath.inkPlateMatrix(1f, 0.2f, 0.1f, darkTheme = false)
-        assertEquals("cream paper stays clear", 0f, alpha(light, 0.95f), eps)
-        assertEquals("black text prints", 1f, alpha(light, 0f), eps)
-        assertEquals("transparent never prints (light)", 0f, alpha(light, 0f, a = 0f), eps)
-        assertEquals("transparent never prints (dark)", 0f, alpha(dark, 0f, a = 0f), eps)
     }
 
     @Test
