@@ -251,12 +251,12 @@ object InkMath {
 
     /**
      * Living card: radius factor r / base = [CARD_DOT_MEAN] + [CARD_DOT_SWING]·sin(spatial − time),
-     * 0.28…1: every dot stays visible at the wave's low point.
+     * 0.24…1: every dot stays visible at the wave's low point.
      */
     fun cardDot(spatial: Float, time: Float): Float = (CARD_DOT_MEAN + CARD_DOT_SWING * sin(spatial - time)).toFloat()
 
-    const val CARD_DOT_MEAN = 0.64
-    const val CARD_DOT_SWING = 0.36
+    const val CARD_DOT_MEAN = 0.62
+    const val CARD_DOT_SWING = 0.38
 
     /**
      * Living card: a dot's base radius factor by where it sits (normalised [x], [y]): lighter

@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.core.designsystem.motion
 
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -100,8 +101,11 @@ object DotGeometry {
     /** Card dots at full swell fill this much of their pitch (diameter 0.72·pitch: never touching). */
     const val CARD_DOT = 0.36f
 
-    /** The card wave's wavelength, in token pitches (≈ one phone-width card, whatever its size). */
-    const val CARD_WAVELENGTH_PITCHES = 32
+    /** The card wave's wavelength in dp (as on iOS, in pt): fixed, so a dot's phase depends only on its position. */
+    const val CARD_WAVELENGTH_DP = 320.0
+
+    /** The card wave's direction (radians, y down): down-right at a shallow angle, as on iOS. */
+    const val CARD_WAVE_ANGLE = 0.45
 
     /**
      * A living card's square grid: the token pitch in whole px (grown, still whole, when a big card
@@ -119,12 +123,12 @@ object DotGeometry {
             x = axis(width, p, p / 2f)
             y = axis(height, p, p / 2f)
         }
-        return Card(x, y, CARD_WAVELENGTH_PITCHES * pitchPx(tokenPitchPx).toDouble())
+        return Card(x, y, CARD_WAVELENGTH_DP * tokenPitchPx / Motion.cardDotPitch)
     }
 
     /**
-     * r = base·(0.64 + 0.36·sin(kx·x + ky·y − ωt)), in doubles: k = 2π/λ along a shallow
-     * down-right direction, ω = 2π / `cardWavePeriodSeconds`. Depends on absolute position and the
+     * r = base·(0.62 + 0.38·sin(k·p − ωt)), in doubles: k = 2π/λ·(cos 0.45, sin 0.45) with
+     * λ = 320 dp, ω = 2π / `cardWavePeriodSeconds`. Depends on absolute position and the
      * clock only, so the wave is continuous across frames, pauses and size changes.
      */
     fun cardRadius(base: Double, x: Double, y: Double, seconds: Double, wavelength: Double): Double {
@@ -135,8 +139,8 @@ object DotGeometry {
         return max(0.0, base * (InkMath.CARD_DOT_MEAN + InkMath.CARD_DOT_SWING * sin(phase)))
     }
 
-    private const val CARD_DIR_X = 0.8660254037844386 // cos 30°
-    private const val CARD_DIR_Y = 0.5
+    private val CARD_DIR_X = cos(CARD_WAVE_ANGLE)
+    private val CARD_DIR_Y = sin(CARD_WAVE_ANGLE)
 
     /** Full-swell radius of a card dot at ([x], [y]) on a [width]×[height] card: lighter towards the top-left. */
     fun cardBase(pitch: Float, x: Float, y: Float, width: Float, height: Float): Double =

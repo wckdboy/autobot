@@ -77,7 +77,7 @@ class InkMathV3Test {
         assertEquals("one wavelength per card width (along the wave)", 2f * Math.PI.toFloat() * 0.866f, InkMath.cardPhase(400f, 0f, 400f), 1e-3f)
         for (s in listOf(0f, 1f, 3f, 7.5f)) for (x in listOf(0f, 1f, 2f, 5f)) {
             val r = InkMath.cardDot(x, s)
-            assertTrue(r in 0.279f..1.001f)
+            assertTrue(r in 0.239f..1.001f)
         }
         assertEquals(InkMath.CARD_FALLOFF_MIN, InkMath.cardFalloff(0f, 0f), eps)
         assertEquals(1f, InkMath.cardFalloff(1f, 1f), eps)

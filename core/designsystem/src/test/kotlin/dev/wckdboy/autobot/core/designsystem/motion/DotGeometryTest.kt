@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.core.designsystem.motion
 
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.sin
@@ -96,6 +97,7 @@ class DotGeometryTest {
             assertEquals(card.x.pitch, card.y.pitch, 0f)
             assertTrue(card.x.count * card.y.count <= Motion.cardMaxDots)
             assertTrue("max diameter < pitch", 2 * card.x.pitch * DotGeometry.CARD_DOT < card.x.pitch)
+            assertEquals("λ = 320 dp whatever the card's size", 320.0 * d, card.wavelength, 1e-3)
         }
     }
 
@@ -108,12 +110,12 @@ class DotGeometryTest {
                 val a = DotGeometry.cardRadius(base, x, y, t, 352.0)
                 assertEquals("one cycle per cardWavePeriodSeconds", a, DotGeometry.cardRadius(base, x, y, t + period, 352.0), 1e-9)
                 val k = 2 * PI / 352.0
-                val expected = base * (0.64 + 0.36 * sin(k * (x * 0.8660254037844386 + y * 0.5) - 2 * PI * (t % period) / period))
+                val expected = base * (0.62 + 0.38 * sin(k * (x * cos(0.45) + y * sin(0.45)) - 2 * PI * (t % period) / period))
                 assertEquals(expected, a, 1e-9)
-                assertTrue("never below 0.28 of base", a >= 0.28 * base - 1e-9 && a <= base + 1e-9)
+                assertTrue("never below 0.24 of base", a >= 0.24 * base - 1e-9 && a <= base + 1e-9)
             }
             // Continuous: a frame (33 ms) never moves a radius by more than its rate allows.
-            val maxRate = base * 0.36 * 2 * PI / period
+            val maxRate = base * 0.38 * 2 * PI / period
             var t = 0.0
             while (t < 2 * period) {
                 val step = abs(DotGeometry.cardRadius(base, x, y, t + 0.033, 352.0) - DotGeometry.cardRadius(base, x, y, t, 352.0))
