@@ -82,6 +82,7 @@ import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
@@ -215,12 +216,7 @@ fun ChatListScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!state.loading && !state.hasProviders) {
-                Panel(Modifier.fillMaxWidth().padding(12.dp), title = "No model provider", accent = AutobotColors.Amber) {
-                    Text(
-                        "Add DeepSeek, OpenRouter, a local Ollama server or any OpenAI-compatible endpoint.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Panel(Modifier.fillMaxWidth().padding(12.dp), title = "No model yet", accent = AutobotColors.Amber) {
                     TextButton(onClick = onOpenProviders) { Text("ADD PROVIDER") }
                 }
             }
@@ -283,7 +279,8 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
         }
         Column(Modifier.weight(1f)) {
             Text("SESSIONS", style = MaterialTheme.typography.titleLarge)
-            MicroLabel("${counted(state.total, "session")} · ${state.live} live")
+            // Only what there is: the empty state already says "no sessions".
+            if (state.total > 0) MicroLabel(counted(state.total, "session") + if (state.live > 0) " · ${state.live} live" else "")
         }
         PrivacyStatusPill(state.privacyStatus, onClick = onOpenPrivacyCenter)
     }
@@ -293,10 +290,8 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (state.incognito) AutobotColors.Uv else MaterialTheme.colorScheme.outline)
-        Column(Modifier.weight(1f)) {
-            MicroLabel("incognito", color = if (state.incognito) AutobotColors.Uv else MaterialTheme.colorScheme.onSurfaceVariant)
-            MicroLabel("memory only · never written to disk", color = MaterialTheme.colorScheme.outline)
-        }
+        MicroLabel("incognito", color = if (state.incognito) AutobotColors.Uv else MaterialTheme.colorScheme.onSurfaceVariant)
+        InfoButton("Incognito", "New chats are kept in memory only, never written to disk.", Modifier.weight(1f))
         Switch(checked = state.incognito, onCheckedChange = actions.setIncognito)
         Button(
             onClick = actions.newChat,
@@ -512,7 +507,7 @@ private fun ConversationRow(
     val title = remember(item.title, item.titleSpans, highlight) { highlighted(item.title, item.titleSpans, highlight) }
     val snippet = remember(item.snippet, item.snippetSpans, highlight) { item.snippet?.let { highlighted(it, item.snippetSpans, highlight) } }
     val meta = remember(item.subtitle, item.updatedAt, now) {
-        listOf(item.subtitle, DateUtils.getRelativeTimeSpanString(item.updatedAt, now, DateUtils.MINUTE_IN_MILLIS).toString()).filter { it.isNotBlank() }.joinToString(" · ")
+        listOf(item.subtitle, (if (now - item.updatedAt < DateUtils.MINUTE_IN_MILLIS) "just now" else DateUtils.getRelativeTimeSpanString(item.updatedAt, now, DateUtils.MINUTE_IN_MILLIS).toString())).filter { it.isNotBlank() }.joinToString(" · ")
     }
     Row(
         Modifier

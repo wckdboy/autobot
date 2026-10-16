@@ -22,11 +22,11 @@ import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.diffusion.BackendKind
@@ -93,7 +93,7 @@ fun RemoteRoute(
                 }
             }
             item {
-                RunRow("Add or edit providers", "deepseek · openrouter · ollama · any openai-compatible", onClick = onOpenProviders) { Tag("open") }
+                RunRow(if (state.providers.isEmpty()) "Add a provider" else "Edit providers", "", onClick = onOpenProviders) { Tag(if (state.providers.isEmpty()) "add" else "open") }
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("image backends · pc & lan")
             }
@@ -103,16 +103,17 @@ fun RemoteRoute(
                 }
             }
             item {
-                RunRow("Add or edit backends", "a1111 / forge · local dream host · sse engines", onClick = onOpenBackends) { Tag("open") }
+                RunRow(if (state.backends.isEmpty()) "Add a PC" else "Edit backends", "", onClick = onOpenBackends) { Tag(if (state.backends.isEmpty()) "add" else "open") }
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("accounts · model hubs")
                 RunRow("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts) { Tag("open") }
                 RunRow("Civitai", (state.accounts.civitaiUser?.let { "key · $it" } ?: "no api key") + " · ${state.accounts.civitaiHost.host}", onClick = onOpenAccounts) { Tag("open") }
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("privacy")
-                RunRow("Privacy Center", "network mode · kill switch · audit log · panic wipe", onClick = onOpenPrivacy) { Tag("open") }
-                Spacer(Modifier.height(12.dp))
-                MicroLabel("on-device models never use the network; everything here goes through the kill switch")
+                RunRow("Privacy Center", "", onClick = onOpenPrivacy) {
+                    InfoButton("Remote", "On-device models never use the network. Everything on this tab goes through the kill switch.")
+                    Tag("open")
+                }
             }
         }
     }

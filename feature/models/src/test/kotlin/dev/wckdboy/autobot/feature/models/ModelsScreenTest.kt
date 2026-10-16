@@ -124,11 +124,10 @@ class ModelsScreenTest {
 
         // Running: progress, speed and time left, with pause.
         text("250 MB / 500 MB · 5 MB/s · ").assertIsDisplayed()
-        // The running download's PAUSE button, then the queued row's PAUSE tag.
+        // PAUSE on the running download (panel and its row) and on the queued one: each pauses its own download.
         val pauses = compose.onAllNodesWithText("PAUSE")
-        pauses[0].performClick()
-        pauses[1].performClick()
-        assertEquals(listOf("pause(r)", "pause(q)"), calls.filter { it.startsWith("pause") })
+        repeat(pauses.fetchSemanticsNodes().size) { pauses[it].performClick() }
+        assertEquals(setOf("pause(r)", "pause(q)"), calls.filter { it.startsWith("pause") }.toSet())
         // Queued, kill-switch paused, failed (with its reason): each says so and offers its action.
         text("queued · 1").assertIsDisplayed()
         // The panel says what blocks the queue, and the paused row why it waits.
@@ -137,12 +136,11 @@ class ModelsScreenTest {
         compose.onAllNodesWithText("RESUME")[0].performClick()
         compose.onAllNodesWithText("RETRY")[0].performClick()
         assertTrue(calls.toString(), "resume(p)" in calls && "resume(f)" in calls)
-        // Installed rows: one size each, downloaded / total while it is not done.
-        text("chat · gguf · 250 MB / 500 MB").assertIsDisplayed()
-        compose.onAllNodesWithText("chat · gguf · 500 MB · llama.cpp", substring = true, ignoreCase = true).assertCountEquals(2) // done, and queued (nothing yet)
+        // Installed rows: their size only, never the progress again (the panel shows it once).
+        compose.onAllNodesWithText("250 MB / 500 MB", substring = true).assertCountEquals(1)
+        compose.onAllNodesWithText("chat · gguf · 500 MB · llama.cpp", substring = true, ignoreCase = true).assertCountEquals(5)
         compose.onNodeWithText("READY").assertIsDisplayed()
-        compose.onNodeWithText("50%").performClick()
-        assertTrue(calls.toString(), calls.count { it == "pause(r)" } == 2)
+        compose.onAllNodesWithText("50%").assertCountEquals(0)
     }
 
     @Test
@@ -158,7 +156,7 @@ class ModelsScreenTest {
     @Test
     fun installedSizeIsOneFigure() {
         assertEquals("500 MB", installedSize(model("d", "Done", ModelStatus.READY, downloaded = 500_000_000)))
-        assertEquals("100 MB / 500 MB", installedSize(model("p", "Paused", ModelStatus.PAUSED, downloaded = 100_000_000)))
+        assertEquals("progress is in the downloads panel only", "500 MB", installedSize(model("p", "Paused", ModelStatus.PAUSED, downloaded = 100_000_000)))
         assertEquals("500 MB", installedSize(model("q", "Queued", ModelStatus.QUEUED, downloaded = 0)))
     }
 

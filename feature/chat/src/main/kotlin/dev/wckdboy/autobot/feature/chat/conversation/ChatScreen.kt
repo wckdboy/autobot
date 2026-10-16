@@ -67,6 +67,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -252,7 +254,7 @@ fun ChatScreen(
     ) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
             if (state.showOfflineBanner) Banner("Offline mode: this provider is remote, so the kill switch blocks it.", "PRIVACY", onOpenPrivacyCenter)
-            if (state.loaded && state.providers.isEmpty()) Banner("No model yet — download one or add a provider.", "ADD", onOpenProviders)
+            if (state.loaded && state.providers.isEmpty()) Banner("No model yet.", "ADD", onOpenProviders)
             state.notice?.let { Banner(it, "OK", actions::dismissNotice) }
 
             val empty = state.loaded && state.items.isEmpty() && !hasLive
@@ -684,18 +686,17 @@ private fun EmptySession(state: ChatUiState) {
     Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionLabel(if (state.toolsEnabled) "agent ready · workspace /workspace" else "chat")
         Text(if (state.toolsEnabled) "What should\nit do?" else "Ask\nanything.", style = MaterialTheme.typography.displaySmall)
-        MicroLabel("type / for commands", color = MaterialTheme.colorScheme.outline)
     }
 }
 
-/** `POLICY · READ: AUTO · WRITE: AUTO · DELETE: ASK · NETWORK: ASK` */
+/** `POLICY · WORKSPACE · ASKS: DELETE, NETWORK`: what runs without asking, in a few words. */
 @Composable
 private fun PolicyLine(state: ChatUiState) {
     if (!state.toolsEnabled) return
     val text = when (state.permission) {
-        PermissionPreset.READ_ONLY -> "policy · read: auto · write: deny · network: ask"
-        PermissionPreset.WORKSPACE -> "policy · read: auto · write: auto · delete: ask · network: ask"
-        PermissionPreset.FULL_ACCESS -> "policy · everything: auto · kill switch still applies"
+        PermissionPreset.READ_ONLY -> "policy · read-only · asks: network"
+        PermissionPreset.WORKSPACE -> "policy · workspace · asks: delete, network"
+        PermissionPreset.FULL_ACCESS -> "policy · full access"
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         MicroLabel(text, Modifier.weight(1f))
@@ -813,6 +814,10 @@ private fun InputBar(
     }
     val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) onDictate() }
     val context = LocalContext.current
+    // A new, empty chat with a model ready opens with the keyboard up: one tap fewer to the first message.
+    val focus = remember { FocusRequester() }
+    val fresh = state.loaded && state.items.all { it is SessionItem.Notice } && state.providers.isNotEmpty() && !state.running
+    LaunchedEffect(fresh) { if (fresh && text.isEmpty()) runCatching { focus.requestFocus() } }
     // System photo picker: no storage permission, the app only sees what the user picks.
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) { uris ->
         uris.take(MAX_ATTACHMENTS - state.pendingImages.size).forEach(onAttach)
@@ -863,7 +868,7 @@ private fun InputBar(
                 ConsoleTextField(
                     value = text,
                     onValueChange = { text = it },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).focusRequester(focus),
                     placeholder = if (state.running) "queue a follow-up…" else "message · / for commands",
                     maxLines = 8,
                 )

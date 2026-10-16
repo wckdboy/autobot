@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.navigation
 
+import dev.wckdboy.autobot.BuildConfig
+
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -184,6 +186,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenVault = { navigate(Vault) },
                             onOpenImageBackends = { navigate(ImageBackends) },
                             onOpenMcpServers = { navigate(McpServers) },
+                            version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                         )
                     }
                     entry<ChatList> {

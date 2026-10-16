@@ -116,8 +116,6 @@ fun RunScreen(
                 }
                 if (!state.hasAnything) {
                     item {
-                        MicroLabel("no models yet — download one to run on this phone, or add a provider under remote")
-                        Spacer(Modifier.height(10.dp))
                         PrimaryButton("Get a model", onOpenModels, Modifier.fillMaxWidth())
                         Spacer(Modifier.height(22.dp))
                     }

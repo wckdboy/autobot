@@ -43,12 +43,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
+import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
+import dev.wckdboy.autobot.core.designsystem.component.NavRow
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
+import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
@@ -58,7 +63,7 @@ import dev.wckdboy.autobot.shared.search.SearchProvider
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -76,17 +81,29 @@ data class SettingsUiState(
     val quotaFallback: Boolean = false,
     val searchProvider: SearchProvider = SearchProvider.NONE,
     val offline: Boolean = false,
+    /** "Offline", "Direct", "Tor", "SOCKS5": the Privacy Center row's value. */
+    val networkLabel: String = "Direct",
+    val providerCount: Int = 0,
 )
+
+/** The network mode as one word, as on iOS. */
+fun networkLabel(mode: NetworkMode): String = when (mode) {
+    NetworkMode.Offline -> "Offline"
+    NetworkMode.Direct -> "Direct"
+    is NetworkMode.Tor -> "Tor"
+    is NetworkMode.Socks5 -> "SOCKS5"
+}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val chats: ChatLibrary,
+    providers: ProviderRepository,
     appLockManager: AppLockManager,
 ) : ViewModel() {
     private val lockAvailable = appLockManager.canAuthenticate()
 
-    val uiState: StateFlow<SettingsUiState> = settings.settings.map {
+    val uiState: StateFlow<SettingsUiState> = combine(settings.settings, providers.observeProviders()) { it, list ->
         SettingsUiState(
             themeMode = it.themeMode,
             amoled = it.amoled,
@@ -100,6 +117,8 @@ class SettingsViewModel @Inject constructor(
             quotaFallback = it.quotaFallback,
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
+            networkLabel = networkLabel(it.networkMode),
+            providerCount = list.size,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState(appLockAvailable = lockAvailable))
 
@@ -133,6 +152,7 @@ fun SettingsRoute(
     onOpenMcpServers: () -> Unit = {},
     onOpenMemory: () -> Unit = {},
     onOpenVault: () -> Unit = {},
+    version: String = "",
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -143,7 +163,7 @@ fun SettingsRoute(
         AlertDialog(
             onDismissRequest = { confirmDeleteChats = false },
             title = { Text("Delete all chats?") },
-            text = { Text("Every session, its encrypted history, tool calls, approvals and attached images is removed from this phone. Folders, memory notes and workspace files stay. This cannot be undone.") },
+            text = { Text("Every session is removed from this phone. Folders, memory and files stay.") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteAllChats()
@@ -175,6 +195,7 @@ fun SettingsRoute(
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
         onDeleteAllChats = { confirmDeleteChats = true },
+        version = version,
     )
 }
 
@@ -200,6 +221,7 @@ fun SettingsScreen(
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
     onDeleteAllChats: () -> Unit = {},
+    version: String = "",
 ) {
     Scaffold(
         topBar = {
@@ -219,52 +241,31 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            NavigationRow("Model providers", "Chat endpoints and API keys", onOpenProviders)
-            NavigationRow("MCP servers", "Remote tools for agent sessions, each call approved", onOpenMcpServers)
-            NavigationRow("Image backends", "Diffusion servers: on-device sidecar, Local Dream host, A1111/Forge", onOpenImageBackends)
-            NavigationRow("Privacy Center", "Network mode, audit log, panic wipe", onOpenPrivacyCenter)
-            NavigationRow("Export & import", "Move sessions, gallery and memory between phones, sealed with a passphrase", onOpenBackup)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SectionHeader("Connections")
+            NavRow("Model providers", onOpenProviders, value = state.providerCount.takeIf { it > 0 }?.toString())
+            NavRow("MCP servers", onOpenMcpServers)
+            NavRow("Image backends", onOpenImageBackends)
+            NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
+            Divider()
 
             SectionHeader("Agent")
+            SwitchRow("Memory", state.memoryEnabled, onMemoryEnabled, info = "The agent recalls and saves notes, kept encrypted on this phone.")
+            NavRow("Memory notes", onOpenMemory)
+            NavRow("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
             SwitchRow(
-                "Memory",
-                "Let the agent recall and save notes, kept encrypted on this phone",
-                state.memoryEnabled,
-                onMemoryEnabled,
-            )
-            NavigationRow("Memory notes", "View, search, edit and delete what the agent remembers", onOpenMemory)
-            NavigationRow(
-                "Vault",
-                if (state.vaultEnabled) "On · your files, searched by meaning on this phone" else "Off · private search over your own files",
-                onOpenVault,
-            )
-            SwitchRow(
-                "On limit, fall back",
-                "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",
+                "Fallback on limit",
                 state.quotaFallback,
                 onQuotaFallback,
+                info = "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
             )
-            NavigationRow(
+            NavRow(
                 "Web search",
-                if (state.searchProvider == SearchProvider.NONE) "Off · SearXNG or Brave Search" else "${state.searchProvider.label} · queries only, through your route",
                 onOpenWebSearch,
+                value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
+                info = "Used by sessions with agent tools on. Only the query is sent, through your network route.",
             )
-            Text(
-                "Used in sessions with agent tools on (not plain chat)",
-                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (state.searchProvider != SearchProvider.NONE && state.offline) {
-                Text(
-                    "Offline mode blocks searches",
-                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            if (state.searchProvider != SearchProvider.NONE && state.offline) Note("Offline mode blocks searches", MaterialTheme.colorScheme.error)
+            Divider()
 
             SectionHeader("Appearance")
             // The ink segmented control: its selection block slides and leaves a registration ghost.
@@ -275,30 +276,28 @@ fun SettingsScreen(
                 { it.name.lowercase() },
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            SwitchRow("AMOLED black", "Pure black backgrounds in dark theme", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
-            SwitchRow("Dynamic color", "Use wallpaper colors instead of the underground palette", state.dynamicColor, onDynamicColor)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SwitchRow("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
+            SwitchRow("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the ink palette.")
+            Divider()
 
             SectionHeader("Security")
             SwitchRow(
-                title = "App lock",
-                subtitle = if (state.appLockAvailable) {
-                    "Require biometrics or device credential"
-                } else {
-                    "Set up a screen lock on this device to enable"
-                },
-                checked = state.appLockEnabled && state.appLockAvailable,
-                onChange = onAppLock,
+                "App lock",
+                state.appLockEnabled && state.appLockAvailable,
+                onAppLock,
+                state = if (state.appLockAvailable) null else "Needs a screen lock",
+                info = if (state.appLockAvailable) "Require biometrics or the device credential." else null,
                 enabled = state.appLockAvailable,
             )
             if (state.appLockEnabled && state.appLockAvailable) {
                 Text(
-                    "Lock after leaving the app",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    "Lock after",
+                    modifier = Modifier.padding(horizontal = 16.dp).padding(top = 4.dp),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     LockTimeoutOptions.forEach { (millis, label) ->
@@ -310,62 +309,34 @@ fun SettingsScreen(
                     }
                 }
             }
-            SwitchRow(
-                "Incognito by default",
-                "New chats are kept in memory only",
-                state.incognitoByDefault,
-                onIncognitoByDefault,
+            SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = "New chats are kept in memory only, never written to disk.")
+            Divider()
+
+            SectionHeader("Data")
+            NavRow("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
+            NavRow("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
+            Divider()
+
+            SectionHeader("About")
+            MicroLabel(
+                if (version.isBlank()) "autobot · no analytics" else "autobot $version · no analytics",
+                Modifier.padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 24.dp),
             )
-            Row(
-                Modifier.fillMaxWidth().clickable(onClick = onDeleteAllChats).padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Column {
-                    Text("Delete all chats", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
-                    Text(
-                        "Remove every session from this phone; folders and memory stay",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
         }
     }
 }
 
 @Composable
+private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+@Composable
+private fun Note(text: String, color: androidx.compose.ui.graphics.Color) =
+    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = color)
+
+/** `// CONNECTIONS`: the app's section label (as on iOS). */
+@Composable
 internal fun SectionHeader(text: String) {
-    Text(
-        text,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-    )
-}
-
-@Composable
-internal fun SwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    ListItem(
-        modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) },
-        headlineContent = { Text(title) },
-        supportingContent = { Text(subtitle) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
-    )
-}
-
-@Composable
-private fun NavigationRow(title: String, subtitle: String, onClick: () -> Unit) {
-    ListItem(
-        modifier = Modifier.clickable(onClick = onClick),
-        headlineContent = { Text(title) },
-        supportingContent = { Text(subtitle) },
-        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-    )
+    SectionLabel(text, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp))
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0B0C0F)

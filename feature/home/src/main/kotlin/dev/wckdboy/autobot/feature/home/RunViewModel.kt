@@ -219,7 +219,17 @@ class RunViewModel @Inject constructor(
         // Storage errors (disk full, database unavailable) must not crash the home screen.
         viewModelScope.launchSafely({ Log.w("Run", "cannot start a session", it) }) {
             val incognito = settings.settings.first().incognitoByDefault
-            val conversation = conversations.createConversation(incognito, target.providerId, target.model)
+            // Tapping a tile again reuses the newest chat when nothing was ever sent in it (same
+            // model, not filed away), so repeated taps no longer leave a trail of empty "New chat"s.
+            val unused = if (incognito) {
+                null
+            } else {
+                conversations.observeRecentConversations(1).first().firstOrNull()?.takeIf {
+                    it.providerId == target.providerId && it.model == target.model && !it.pinned && !it.archived && it.folderId == null &&
+                        !conversations.isIncognito(it.id) && conversations.searchText(it.id).isNullOrBlank()
+                }
+            }
+            val conversation = unused ?: conversations.createConversation(incognito, target.providerId, target.model)
             host.setToolsEnabled(conversation.id, mode != RunMode.CHAT)
             events.send(RunEvent.OpenSession(conversation.id))
         }

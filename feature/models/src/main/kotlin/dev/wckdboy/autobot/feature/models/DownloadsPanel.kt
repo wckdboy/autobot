@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
@@ -40,7 +41,8 @@ internal fun DownloadsPanel(state: DownloadsState, actions: ModelsActions) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            MicroLabel("downloads", Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+            MicroLabel("downloads", color = MaterialTheme.colorScheme.primary)
+            InfoButton("Downloads", "Downloads keep going when you leave Autobot. Pause and cancel them from the notification.", Modifier.weight(1f))
             Tag(
                 if (state.wifiOnly) "wi-fi only" else "any network",
                 accent = if (state.wifiOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -67,10 +69,6 @@ internal fun DownloadsPanel(state: DownloadsState, actions: ModelsActions) {
         state.paused.forEach { m ->
             val reason = DownloadQueue.pausedReason(m)?.label ?: m.error ?: if (m.status == ModelStatus.FAILED) "failed" else "paused"
             QueueRow(m, reason, actions)
-        }
-        if (state.active != null || state.queued.isNotEmpty()) {
-            Spacer(Modifier.height(2.dp))
-            MicroLabel("keeps going when you leave autobot · pause and cancel from the notification")
         }
     }
     Spacer(Modifier.height(14.dp))

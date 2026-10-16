@@ -162,8 +162,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
 
             Panel(title = "Add backend", accent = AutobotColors.Acid) {
                 Text(
-                    "Loopback backends keep working in Offline mode. Anything else must be HTTPS and follows your " +
-                        "network mode and kill switch.",
+                    "Loopback works offline; other servers need HTTPS.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

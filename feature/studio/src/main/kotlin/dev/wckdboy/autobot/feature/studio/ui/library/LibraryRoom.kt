@@ -140,7 +140,7 @@ fun LibraryRoom(
                 }
                 Segmented(LibraryView.entries, state.view, actions::setView, { it.name.lowercase() }, Modifier.fillMaxWidth())
                 MicroLabel("${state.assets.size} asset${if (state.assets.size == 1) "" else "s"}" + (state.comparePick?.let { " · comparing: pick the second" } ?: ""))
-                if (state.assets.isEmpty()) MicroLabel("nothing here yet — make something in a room, it lands in this project")
+                if (state.assets.isEmpty()) MicroLabel("nothing here yet")
             }
         }
         items(state.assets, key = { it.id }) { asset ->

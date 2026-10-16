@@ -20,8 +20,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -51,6 +54,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -184,8 +189,8 @@ fun ImagineScreen(
     ) { padding ->
         Column(
             Modifier
+                // The bottom bar rides above the keyboard (below), so the scaffold padding already clears it.
                 .padding(padding)
-                .imePadding()
                 .fillMaxSize()
                 .then(if (empty) Modifier.inkGround(ambient = ambient) else Modifier.ambientTouch(ambient))
                 .verticalScroll(rememberScrollState())
@@ -195,18 +200,14 @@ fun ImagineScreen(
             state.error?.let { ErrorLine(it, actions::dismissError) }
             if (state.loaded && state.backends.isEmpty()) {
                 SectionLabel("no image engine yet")
-                Text(
-                    "Download an image model to run on this phone, or point Autobot at a PC (A1111 / Forge / Local Dream host).",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PrimaryButton("Get a model", onOpenModels, Modifier.weight(1f))
                     GhostButton("Add a pc", onOpenBackends, Modifier.weight(1f))
                 }
             }
 
-            PromptField(request.prompt, actions::setPrompt, state.tokenEstimate)
+            // An engine is ready and nothing is written yet: the keyboard comes up, one tap fewer to a first image.
+            PromptField(request.prompt, actions::setPrompt, state.tokenEstimate, autoFocus = state.loaded && state.backends.isNotEmpty())
 
             // Model chips: on-device models and each PC backend's checkpoints.
             if (state.chips.isNotEmpty()) {
@@ -280,15 +281,21 @@ private fun sizeLabel(w: Int, h: Int) = if (w == h) "$w²" else "${w}×$h"
 
 /** The prompt, set in the display face with a red caret (mockup 04). */
 @Composable
-private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int) {
+private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, autoFocus: Boolean = false) {
     // The text lives here: typing never waits on the studio's state round trip.
     val prompt = rememberLocalText(value, onChange)
+    val focus = remember { FocusRequester() }
+    var focused by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(autoFocus) {
+        if (autoFocus && !focused && prompt.text.isEmpty()) runCatching { focus.requestFocus() }
+        if (autoFocus) focused = true
+    }
     Column {
         NoPersonalizedLearning {
             BasicTextField(
                 value = prompt.text,
                 onValueChange = prompt::edit,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp).focusRequester(focus),
                 textStyle = MaterialTheme.typography.headlineMedium.copy(color = MaterialTheme.colorScheme.onBackground),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = PromptKeyboardOptions,
@@ -384,7 +391,11 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
             delay(1_000 - (now - running.startedAt).mod(1_000L) + 5)
         }
     }
-    Column(Modifier.background(MaterialTheme.colorScheme.background).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Above the keyboard while typing a prompt: Generate stays one tap away.
+    Column(
+        Modifier.background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 when {

@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 
@@ -116,17 +118,18 @@ class ChatListScreenTest {
     @Test
     fun countsArePluralisedCorrectly() {
         val update = show(state(item("c1", "Trip plans"), total = 1))
-        compose.onNodeWithText("1 SESSION · 0 LIVE").assertIsDisplayed()
+        compose.onNodeWithText("1 SESSION").assertIsDisplayed()
         update(state(item("c1", "Trip plans"), item("c2", "Groceries"), total = 2).copy(live = 1))
         compose.onNodeWithText("2 SESSIONS · 1 LIVE").assertIsDisplayed()
+        // Nothing to count: the empty state says "no sessions", the header does not repeat it.
         update(ChatListUiState(loading = false, total = 0))
-        compose.onNodeWithText("0 SESSIONS · 0 LIVE").assertIsDisplayed()
+        compose.onAllNodesWithText("0 SESSIONS", substring = true).assertCountEquals(0)
     }
 
     @Test
     fun noProviderSaysSoAndLinksToProviders() {
         show(state(item("c1", "Trip plans")).copy(hasProviders = false))
-        compose.onNodeWithText("NO MODEL PROVIDER").assertIsDisplayed()
+        compose.onNodeWithText("NO MODEL YET").assertIsDisplayed()
         compose.onNodeWithText("ADD PROVIDER").performClick()
         assertEquals(1, openedProviders)
     }

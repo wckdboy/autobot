@@ -134,7 +134,7 @@ fun ImageRoom(
             if (state.loaded && state.backends.isEmpty()) {
                 EmptyRoom(
                     "no image engine yet",
-                    "Download an image model to run on this phone, or add a PC (A1111 / Forge / Local SSE). ComfyUI workflows run from the Workflows room.",
+                    "Run one on this phone or on a PC.",
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         PrimaryButton("Get a model", onOpenModels, Modifier.weight(1f))
@@ -287,7 +287,7 @@ private fun Controls(
     val request = state.request
     val caps = state.capabilities
     var showLoras by rememberSaveable { mutableStateOf(false) }
-    PromptEditor(request.prompt, actions::setPrompt, "Describe an image… {red|blue} makes one per choice", Modifier.inkStagger(0), onOpenLibrary = onOpenLibrary, cursor = onCursor)
+    PromptEditor(request.prompt, actions::setPrompt, "Describe an image…", Modifier.inkStagger(0), onOpenLibrary = onOpenLibrary, cursor = onCursor)
     WildcardPreview(request.prompt, state.batch)
 
     if (state.backends.size > 1) {

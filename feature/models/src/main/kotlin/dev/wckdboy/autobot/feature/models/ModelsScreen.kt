@@ -211,10 +211,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                         }
                         item(key = "s-$label") { Spacer(Modifier.height(14.dp)) }
                     }
-                    item {
-                        MicroLabel("npu packages run on the hexagon npu, gguf models on the cpu or adreno gpu · downloads are verified (sha-256 or zip crc) before use")
-                        Spacer(Modifier.height(24.dp))
-                    }
+                    item { Spacer(Modifier.height(24.dp)) }
                 }
                 ModelsTab.HUGGING_FACE -> {
                     item { HfSearch(state, actions, onOpenAccounts) }
@@ -299,12 +296,8 @@ private fun SearchEmpty(
     }
 }
 
-/** Size readout for an installed row: progress while it downloads, the size once it is done. */
-internal fun installedSize(model: InstalledModel): String? = when {
-    model.totalBytes <= 0 -> null
-    model.status != ModelStatus.READY && model.downloadedBytes > 0 -> "${formatBytes(model.downloadedBytes)} / ${formatBytes(model.totalBytes)}"
-    else -> formatBytes(model.totalBytes)
-}
+/** Size readout for an installed row: its size only (progress is in the downloads panel, once). */
+internal fun installedSize(model: InstalledModel): String? = model.totalBytes.takeIf { it > 0 }?.let(::formatBytes)
 
 @Composable
 private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove: () -> Unit = { actions.remove(model.id) }) {
@@ -325,7 +318,8 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove
         Box(Modifier.stamp(model.status, enabled = model.status == ModelStatus.READY)) {
             when (model.status) {
                 ModelStatus.READY -> Tag("ready", accent = MaterialTheme.colorScheme.primary, filled = true)
-                ModelStatus.DOWNLOADING -> Tag("${(model.fraction * 100).toInt()}%", accent = MaterialTheme.colorScheme.primary, onClick = { actions.pause(model.id) })
+                // Progress is shown once, in the downloads panel; the row offers what a tap does.
+                ModelStatus.DOWNLOADING -> Tag("pause", accent = MaterialTheme.colorScheme.primary, onClick = { actions.pause(model.id) })
                 ModelStatus.QUEUED -> Tag("queued", onClick = { actions.pause(model.id) })
                 ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
                 ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
@@ -342,7 +336,7 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove
 private fun CatalogRow(plan: ModelPlan, fit: Fit?, installed: Boolean, onGet: () -> Unit) {
     RunRow(
         title = plan.title,
-        subtitle = listOfNotNull(formatBytes(plan.totalBytes), plan.subtitle, plan.license).joinToString(" · "),
+        subtitle = listOfNotNull(formatBytes(plan.totalBytes), plan.subtitle).joinToString(" · "),
     ) {
         fit?.let {
             Tag(
@@ -480,11 +474,7 @@ private fun NpuOfferRow(offer: NpuOffer, arch: String?, installed: Boolean, onGe
     val file = offer.fileFor(arch)
     RunRow(
         title = offer.title,
-        subtitle = listOfNotNull(
-            "≈" + formatBytes(offer.approxBytes),
-            offer.subtitle,
-            file?.let { LocalDream.chipOf(it) }?.let { "build $it" },
-        ).joinToString(" · "),
+        subtitle = listOfNotNull(formatBytes(offer.approxBytes), offer.subtitle).joinToString(" · "),
     ) {
         when {
             installed -> Tag("added", accent = MaterialTheme.colorScheme.onSurfaceVariant)

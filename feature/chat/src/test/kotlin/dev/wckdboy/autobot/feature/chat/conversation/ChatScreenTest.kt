@@ -61,7 +61,7 @@ class ChatScreenTest {
     @Test
     fun withoutAProviderItSaysWhatToDo() {
         show(ChatUiState(loaded = true))
-        compose.onNodeWithText("No model yet — download one or add a provider.").assertIsDisplayed()
+        compose.onNodeWithText("No model yet.").assertIsDisplayed()
         compose.onNodeWithText("ADD").performClick()
         assertEquals(1, openedProviders)
     }

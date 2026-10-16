@@ -14,6 +14,7 @@ import dev.wckdboy.autobot.core.data.model.ChatFolderRow
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.model.Conversation
+import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.network.NetworkPolicy
@@ -124,6 +125,7 @@ class ChatListViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val savedState: SavedStateHandle,
     networkPolicy: NetworkPolicy,
+    library: ModelLibrary,
 ) : ViewModel() {
 
     /** `null` until the user toggles; falls back to the persisted default. */
@@ -168,8 +170,10 @@ class ChatListViewModel @Inject constructor(
 
     private val data = combine(all, conversations.observeFolders(), chats.pending, host.running, ::Data)
 
-    val uiState: StateFlow<ChatListUiState> = combine(data, providers.observeProviders(), view, inputs) { d, providerList, v, (settings, override, mode) ->
-        val providerNames = providerList.associate { it.id to it.displayName }
+    /** Provider names and on-device model titles, so rows read "This phone · Qwen3.5 0.8B", not an id. */
+    private val names = combine(providers.observeProviders(), library.models) { p, m -> p.associate { it.id to it.displayName } to m.associate { it.id to it.title } }
+
+    val uiState: StateFlow<ChatListUiState> = combine(data, names, view, inputs) { d, (providerNames, modelTitles), v, (settings, override, mode) ->
         val hidden = d.pending.flatMapTo(HashSet()) { it.ids }
         val visible = d.list.filter { it.id !in hidden }
         val byId = visible.associateBy { it.id }
@@ -192,7 +196,7 @@ class ChatListViewModel @Inject constructor(
                     ConversationItem(
                         id = c.id,
                         title = c.title,
-                        subtitle = listOfNotNull(c.providerId?.let(providerNames::get), c.model).joinToString(" · "),
+                        subtitle = listOfNotNull(c.providerId?.let(providerNames::get), c.model?.let { modelTitles[it] ?: it }).joinToString(" · "),
                         updatedAt = c.updatedAt,
                         incognito = e.incognito,
                         running = c.id in d.running,
@@ -222,7 +226,7 @@ class ChatListViewModel @Inject constructor(
             pendingDeletion = d.pending.lastOrNull(),
             incognito = override ?: settings.incognitoByDefault,
             privacyStatus = mode.toPrivacyStatus(),
-            hasProviders = providerList.isNotEmpty(),
+            hasProviders = providerNames.isNotEmpty(),
             loading = false,
         )
     }.combine(message) { state, m -> state.copy(message = m) }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatListUiState())

@@ -43,6 +43,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -206,32 +207,18 @@ fun VaultScreen(
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             item(key = "toggle") {
-                ListItem(
-                    modifier = Modifier.clickable { onEnabled(!state.enabled) },
-                    headlineContent = { Text("Let the agent search the vault") },
-                    supportingContent = {
-                        Text(if (state.enabled) "The agent can look up passages with vault_search." else "Off: the agent neither sees nor searches your files.")
-                    },
-                    trailingContent = { Switch(checked = state.enabled, onCheckedChange = onEnabled) },
-                )
-            }
-            item(key = "copy") {
-                Text(
-                    "Indexed on this phone, encrypted, never uploaded.",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium,
+                SwitchRow(
+                    "Agent search",
+                    state.enabled,
+                    onEnabled,
+                    info = "When on, the agent can look up passages with vault_search. Files are indexed on this phone, encrypted, never uploaded.",
                 )
             }
             item(key = "model") {
                 ListItem(
                     overlineContent = { Text("Embedding model") },
                     headlineContent = { Text(state.model ?: "None installed") },
-                    supportingContent = {
-                        Text(
-                            if (state.model == null) "Download an embedding model to add files." else "Text, Markdown and PDF (Android 15+) files.",
-                            color = muted,
-                        )
-                    },
+                    supportingContent = if (state.model == null) null else ({ Text("Text, Markdown and PDF (Android 15+)", color = muted) }),
                     trailingContent = { TextButton(onClick = onOpenModels) { Text("Models") } },
                 )
             }
@@ -307,7 +294,7 @@ fun VaultScreen(
             if (state.documents.isEmpty()) {
                 item(key = "empty") {
                     Text(
-                        "No files yet. Tap + to add notes, Markdown or PDFs: they are split into passages and embedded on this phone.",
+                        "No files yet. Tap + to add notes, Markdown or PDFs.",
                         modifier = Modifier.padding(32.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = muted,

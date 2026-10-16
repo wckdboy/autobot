@@ -41,6 +41,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
+import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -57,7 +59,6 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.CodeFontFamily
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
-import dev.wckdboy.autobot.feature.settings.SwitchRow
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.text.SimpleDateFormat
@@ -124,25 +125,18 @@ fun PrivacyCenterScreen(
             }
             item(key = "loopback", contentType = "switch") {
                 SwitchRow(
-                    title = "Allow loopback while offline",
-                    subtitle = "Lets on-device servers (e.g. Ollama at 127.0.0.1) work in Offline mode",
+                    title = "Loopback when offline",
                     checked = state.allowLoopbackWhenOffline,
                     onChange = onAllowLoopback,
+                    info = "Lets on-device servers (e.g. Ollama at 127.0.0.1) work in Offline mode.",
                 )
             }
             item(key = "audit-header", contentType = "header") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Header("Live audit log (${state.audit.size})", Modifier.weight(1f))
+                    Header("Audit log (${state.audit.size})")
+                    InfoButton("Audit log", "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.", Modifier.weight(1f))
                     TextButton(onClick = onClearAudit, modifier = Modifier.padding(end = 8.dp)) { Text("Clear") }
                 }
-            }
-            item(key = "audit-note", contentType = "note") {
-                Text(
-                    "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             if (state.audit.isEmpty()) {
                 item(key = "audit-empty", contentType = "note") {
@@ -159,7 +153,7 @@ fun PrivacyCenterScreen(
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Panic wipe", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
                     Text(
-                        "Destroys encryption keys, conversations, providers, API keys and settings, then closes the app. This cannot be undone.",
+                        "Erases keys, chats, providers and settings, then closes the app.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
