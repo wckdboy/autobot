@@ -37,6 +37,24 @@ enum CivitaiScope: String, CaseIterable, Hashable {
     var types: [String] { self == .checkpoint ? ["Checkpoint"] : ["LORA", "LoCon", "DoRA"] }
 }
 
+/// Why a hub search shows no rows, and what the user can do about it.
+struct SearchNotice: Equatable {
+    enum Action: Equatable { case networkSettings, account, retry }
+
+    let title: String
+    let detail: String
+    let action: Action?
+
+    var actionLabel: String? {
+        switch action {
+        case .networkSettings: "network settings"
+        case .account: "account"
+        case .retry: "retry"
+        case nil: nil
+        }
+    }
+}
+
 /// An open Hub repository (sheet item).
 struct OpenRepo: Identifiable {
     let repo: HfRepo
@@ -55,6 +73,9 @@ final class ModelsModel {
     var hfQuery = ""
     var hfLoading = false
     var hfResults: [HfModelSummary] = []
+    /// The last search failed (nil while it runs or after a success).
+    private(set) var hfError: HubError?
+    private(set) var hfSearched = false
     var openRepo: OpenRepo?
     var openLoading = false
     var civitaiScope: CivitaiScope = .checkpoint
@@ -62,6 +83,8 @@ final class ModelsModel {
     var civitaiLoading = false
     var civitaiResults: [CivitaiModel] = []
     var civitaiCursor: String?
+    private(set) var civitaiError: HubError?
+    private(set) var civitaiSearched = false
     var message: String?
     var device: DeviceProfile?
     /// The engines package's hardware facts, read once (not on every render of the profile).
@@ -137,15 +160,23 @@ final class ModelsModel {
         searchTask?.cancel()
         searchTask = Task {
             hfLoading = true
+            hfError = nil
             defer { hfLoading = false }
-            let results = await guarded {
+            let outcome = await searching {
                 if scope == .image {
                     try await hub.search(query.isEmpty ? "stable diffusion" : query, gguf: false, coreML: true)
                 } else {
                     try await hub.search(query.isEmpty ? "instruct" : query, gguf: true)
                 }
             }
-            if !Task.isCancelled { hfResults = results ?? [] }
+            guard !Task.isCancelled, let outcome else { return }
+            hfSearched = true
+            switch outcome {
+            case .success(let results): hfResults = results
+            case .failure(let error):
+                hfResults = []
+                hfError = error
+            }
         }
     }
 
@@ -184,11 +215,20 @@ final class ModelsModel {
         searchTask?.cancel()
         searchTask = Task {
             civitaiLoading = true
+            civitaiError = nil
             defer { civitaiLoading = false }
-            let page = await guarded { try await civitai.search(query, types: scope.types, baseModels: Self.supportedBases, cursor: cursor) }
-            guard !Task.isCancelled else { return }
-            civitaiResults = reset ? (page?.items ?? []) : civitaiResults + (page?.items ?? [])
-            civitaiCursor = page?.nextCursor
+            let outcome = await searching { try await civitai.search(query, types: scope.types, baseModels: Self.supportedBases, cursor: cursor) }
+            guard !Task.isCancelled, let outcome else { return }
+            civitaiSearched = true
+            switch outcome {
+            case .success(let page):
+                civitaiResults = reset ? page.items : civitaiResults + page.items
+                civitaiCursor = page.nextCursor
+            case .failure(let error):
+                if reset { civitaiResults = [] }
+                civitaiCursor = nil
+                civitaiError = error
+            }
         }
     }
 
@@ -198,6 +238,49 @@ final class ModelsModel {
             return
         }
         install(plan)
+    }
+
+    /// A search's result, or its failure as a [HubError]; nil when it was cancelled.
+    private func searching<T>(_ block: () async throws -> T) async -> Result<T, HubError>? {
+        do {
+            return .success(try await block())
+        } catch is CancellationError {
+            return nil
+        } catch let e as HubError {
+            return .failure(e)
+        } catch let e as NetworkBlockedError {
+            return .failure(HubError(message: e.message, code: .blocked))
+        } catch {
+            return Task.isCancelled ? nil : .failure(HubError(message: error.localizedDescription))
+        }
+    }
+
+    /**
+     What an empty result list says: Offline mode (the kill switch blocks the hub) with the way to
+     the network setting, a refused token, a failure to retry, or no matches. Nil while a search
+     runs, when there are rows, or before the first search.
+     */
+    static func searchNotice(hub: String, loading: Bool, hasResults: Bool, searched: Bool, error: HubError?, offline: Bool) -> SearchNotice? {
+        if loading || hasResults { return nil }
+        if offline || error?.code == .blocked {
+            return SearchNotice(
+                title: "Offline mode is on",
+                detail: "Searching \(hub) needs the network, and the kill switch blocks it. Allow a network mode in Privacy Center, then search again.",
+                action: .networkSettings,
+            )
+        }
+        if let error {
+            switch error.code {
+            case .unauthorized, .gated:
+                return SearchNotice(title: "\(hub) refused the request", detail: error.message, action: .account)
+            case .rateLimited:
+                return SearchNotice(title: "\(hub) asks to slow down", detail: "Too many searches in a short time. Wait a moment, then retry.", action: .retry)
+            default:
+                return SearchNotice(title: "Couldn't search \(hub)", detail: error.message, action: .retry)
+            }
+        }
+        guard searched else { return nil }
+        return SearchNotice(title: "No results", detail: "Nothing on \(hub) matches this search. Try another name or fewer words.", action: nil)
     }
 
     private func guarded<T>(_ block: () async throws -> T) async -> T? {
@@ -314,7 +397,12 @@ struct ModelsScreen: View {
             if model.hfLoading || model.openLoading { InkLoader() }
             Hairline()
         }
-        if model.hfResults.isEmpty && !model.hfLoading { EmptyResults() }
+        if let notice = ModelsModel.searchNotice(hub: "Hugging Face", loading: model.hfLoading, hasResults: !model.hfResults.isEmpty,
+                                                 searched: model.hfSearched, error: model.hfError, offline: app.settings.settings.mode == .offline) {
+            SearchNoticeView(notice: notice) { act(notice.action, retry: model.searchHf) }
+        } else if model.hfResults.isEmpty && !model.hfLoading {
+            EmptyResults()
+        }
         ForEach(model.hfResults) { m in
             RunRow(
                 title: String(m.id.split(separator: "/").last ?? Substring(m.id)),
@@ -323,6 +411,15 @@ struct ModelsScreen: View {
             ) {
                 if m.gated { Tag("gated", accent: AutobotColors.amber) }
             }
+        }
+    }
+
+    private func act(_ action: SearchNotice.Action?, retry: () -> Void) {
+        switch action {
+        case .networkSettings: nav.push(.privacyCenter)
+        case .account: nav.push(.accounts)
+        case .retry: retry()
+        case nil: break
         }
     }
 
@@ -341,13 +438,38 @@ struct ModelsScreen: View {
             if model.civitaiLoading { InkLoader() }
             Hairline()
         }
-        if model.civitaiResults.isEmpty && !model.civitaiLoading { EmptyResults() }
+        if let notice = ModelsModel.searchNotice(hub: "Civitai", loading: model.civitaiLoading, hasResults: !model.civitaiResults.isEmpty,
+                                                 searched: model.civitaiSearched, error: model.civitaiError, offline: app.settings.settings.mode == .offline) {
+            SearchNoticeView(notice: notice) { act(notice.action, retry: { model.searchCivitai() }) }
+        } else if model.civitaiResults.isEmpty && !model.civitaiLoading {
+            EmptyResults()
+        }
         ForEach(model.civitaiResults) { m in
             CivitaiRow(model: m, installed: installed, previews: model.previews) { model.installCivitai(m) }
         }
         if model.civitaiCursor != nil {
             TextAction("More", color: c.primary) { model.searchCivitai(reset: false) }
         }
+    }
+}
+
+/// Why a search list is empty, with what to do about it.
+struct SearchNoticeView: View {
+    let notice: SearchNotice
+    let onAction: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(notice.title).textStyle(.titleMedium).foregroundStyle(c.onSurface)
+            MicroLabel(notice.detail, lines: 4)
+            if let label = notice.actionLabel {
+                Tag(label, accent: c.primary, filled: notice.action == .networkSettings, action: onAction)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 16)
     }
 }
 
@@ -452,7 +574,7 @@ private struct CatalogRow: View {
     @Environment(\.scheme) private var c
 
     var body: some View {
-        RunRow(title: plan.title, subtitle: [formatBytes(plan.totalBytes), plan.subtitle, plan.license].compactMap { $0 }.joined(separator: " · ")) {
+        RunRow(title: plan.title, subtitle: sizedSubtitle(bytes: plan.totalBytes, plan.subtitle, plan.license)) {
             if let fit {
                 Tag(fit.label, accent: fitColor(fit, c))
             }
@@ -496,7 +618,7 @@ private struct RepoSheet: View {
                     ForEach(bundles, id: \.self) { folder in
                         let size = repo.coreMLSize(folder)
                         let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
-                        RunRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.contains("split_einsum") ? "neural engine" : "gpu")") {
+                        RunRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.lowercased().contains("original") ? "gpu" : "neural engine")") {
                             if let fit { Tag(fit.label, accent: fitColor(fit, c)) }
                             Tag("get", accent: c.primary, filled: true) { model.installCoreML(repo, folder: folder) }
                         }

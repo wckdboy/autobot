@@ -140,7 +140,7 @@ struct DownloadResumeTests {
         #expect(BackgroundTransfer.proxy(route: "garbage") == nil)
     }
 
-    @Test func bulkTransferContinuesThePartFileAndVerifies() async throws {
+    @Test(.timeLimit(.minutes(3))) func bulkTransferContinuesThePartFileAndVerifies() async throws {
         let content = Data((0 ..< 300_000).map { UInt8($0 % 251) })
         let sha = SHA256.hash(data: content).map { String(format: "%02x", $0) }.joined()
         let target = dir.appendingPathComponent("out.gguf")

@@ -129,7 +129,7 @@ struct StudioTests {
     }
 
     /// The queue reports from Kotlin's threads; the hub mirrors it on main (no isolation trap).
-    @Test func queueReachesTheHubFromKotlinThreads() async throws {
+    @Test(.timeLimit(.minutes(3))) func queueReachesTheHubFromKotlinThreads() async throws {
         let app = AppContainer()
         await app.unlockData()
         let studio = app.studio

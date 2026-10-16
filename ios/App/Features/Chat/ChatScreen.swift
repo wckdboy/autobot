@@ -35,6 +35,54 @@ func stepTitle(_ name: String) -> String {
     }
 }
 
+/// A setup problem shown above a chat, with the screen that fixes it.
+struct ChatBanner: Equatable, Identifiable {
+    enum Target: Equatable { case providers, privacyCenter, models }
+
+    let id: String
+    let text: String
+    let action: String
+    let target: Target
+}
+
+/**
+ What is wrong with a chat's setup before anything is sent: no provider at all, Offline mode
+ blocking a remote provider, a cloud provider saved without its API key, or an on-device model
+ that is no longer on this phone. Each says what to do and opens the screen that does it.
+ */
+enum ChatBanners {
+    /// The selected on-device model: fine, or gone (removed, not finished, or its files deleted).
+    enum LocalModel: Equatable { case fine, missing(String) }
+
+    static func list(loaded: Bool, noProviders: Bool, showOffline: Bool, provider: Provider?, needsKey: Bool, local: LocalModel) -> [ChatBanner] {
+        guard loaded else { return [] }
+        if noProviders {
+            return [ChatBanner(id: "none", text: "No model yet — download one or add a provider.", action: "ADD", target: .providers)]
+        }
+        var out: [ChatBanner] = []
+        if showOffline {
+            out.append(ChatBanner(id: "offline", text: "Offline mode: this provider is remote, so the kill switch blocks it.", action: "PRIVACY", target: .privacyCenter))
+        }
+        if let provider, needsKey, provider.kind != .local, (provider.apiKeyRef ?? "").isEmpty {
+            out.append(ChatBanner(id: "key", text: "\(provider.displayName) has no API key, so messages will fail. Add it in Model providers.", action: "KEY", target: .providers))
+        }
+        if case .missing(let name) = local {
+            out.append(ChatBanner(id: "local", text: "“\(name)” is not on this phone any more. Download it again, or pick another model.", action: "MODELS", target: .models))
+        }
+        return out
+    }
+
+    /// [model] of the "This phone" provider: whether it can run (Apple Intelligence needs no file).
+    @MainActor
+    static func local(_ model: String?, library: ModelLibrary) -> LocalModel {
+        guard let model, !model.isEmpty, model != AppleIntelligence.id else { return .fine }
+        guard let installed = library.get(model) else { return .missing(model.components(separatedBy: "catalog:").last ?? model) }
+        guard installed.isReady else { return .missing(installed.title) }
+        let files = library.paths(installed).values
+        return files.allSatisfy { FileManager.default.fileExists(atPath: $0.path) } ? .fine : .missing(installed.title)
+    }
+}
+
 /// Routing facts of the session's provider (port of the routing half of `ChatViewModel.uiState`).
 @MainActor
 private struct ChatRouting {
@@ -116,11 +164,14 @@ struct ChatScreen: View {
                 Button { showModels = true } label: { RouteTag(route: routing.route) }.buttonStyle(PressStyle())
                 IconAction(symbol: "ellipsis", label: "Session settings") { showSession = true }
             }
-            if routing.showOfflineBanner {
-                Banner(text: "Offline mode: this provider is remote, so the kill switch blocks it.", action: "PRIVACY") { nav.push(.privacyCenter) }
-            }
-            if app.dataLoaded && app.providers.providers.isEmpty {
-                Banner(text: "No model yet — download one or add a provider.", action: "ADD") { nav.push(.providers) }
+            ForEach(banners(routing)) { b in
+                Banner(text: b.text, action: b.action) {
+                    switch b.target {
+                    case .providers: nav.push(.providers)
+                    case .privacyCenter: nav.push(.privacyCenter)
+                    case .models: nav.reset(.models)
+                    }
+                }
             }
             if let notice = model.notice {
                 Banner(text: notice, action: "OK") { model.notice = nil }
@@ -744,6 +795,20 @@ private struct PolicyLine: View {
     }
 }
 
+extension ChatScreen {
+    fileprivate func banners(_ routing: ChatRouting) -> [ChatBanner] {
+        let provider = routing.provider
+        return ChatBanners.list(
+            loaded: app.dataLoaded,
+            noProviders: app.providers.providers.isEmpty,
+            showOffline: routing.showOfflineBanner,
+            provider: provider,
+            needsKey: provider.map { ProviderPresets.resolve($0).requiresApiKey } ?? false,
+            local: provider?.kind == .local ? ChatBanners.local(routing.selectedModel, library: app.library) : .fine,
+        )
+    }
+}
+
 private struct Banner: View {
     let text: String
     let action: String
@@ -1245,7 +1310,7 @@ private struct ModelSheet: View {
 
     private func modelsLabel(_ p: Provider) -> String {
         guard let stored = app.providers.modelLists[p.id], let list = ModelLists.models(stored.json) else { return "offline list" }
-        return "\(list.count) models · \(ModelLists.age(fetchedAt: stored.fetchedAt))"
+        return "\(counted(list.count, "model")) · \(ModelLists.age(fetchedAt: stored.fetchedAt))"
     }
 
     private func canRefresh(_ p: Provider) -> Bool { p.kind != .local && ProviderPresets.resolve(p).hasModelsEndpoint }

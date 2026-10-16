@@ -119,7 +119,7 @@ struct MotionV3Tests {
         }
     }
 
-    @Test func animatingNeverReevaluatesTheParent() async throws {
+    @Test(.timeLimit(.minutes(5))) func animatingNeverReevaluatesTheParent() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: Busy().environment(\.scenePhase, .active).autobotTheme(.dark))
@@ -151,7 +151,7 @@ struct MotionV3Tests {
         if work == 0 && ambient == 0 { #expect(!InkClock.work.running && !InkClock.ambient.running) }
     }
 
-    @Test func stillAndReducedMotionNeverSubscribe() async throws {
+    @Test(.timeLimit(.minutes(5))) func stillAndReducedMotionNeverSubscribe() async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: Busy().environment(\.scenePhase, .active).environment(\.inkStill, true).autobotTheme(.dark))

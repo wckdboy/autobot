@@ -136,8 +136,8 @@ struct McpServersScreen: View {
         #if canImport(AutobotShared)
         guard let status = (app.agent as? SharedAgentRuntime)?.mcpStatus[s.id] else { return nil }
         switch status.state {
-        case .ready: return ("connected · \(status.toolCount) tools" + (status.protocolVersion.map { " · mcp \($0)" } ?? ""), false)
-        case .unavailable: return ("unavailable · \(status.message ?? "error")", true)
+        case .ready: return ("connected · \(counted(Int(status.toolCount), "tool"))" + (status.protocolVersion.map { " · mcp \($0)" } ?? ""), false)
+        case .unavailable: return ("unavailable · \(withNetworkHint(status.message ?? "error"))", true)
         default: return nil
         }
         #else

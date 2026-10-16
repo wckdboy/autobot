@@ -236,11 +236,18 @@ final class StudioHub {
         engineLabels = labels
     }
 
+    /// How long a ComfyUI test or validation waits for the server.
+    static var testTimeout: Duration = .seconds(20)
+
     func testComfy(_ server: ComfyServer) async -> (ok: Bool, text: String) {
-        await withCheckedContinuation { c in
-            bridge.testComfy(backend: comfyBackend(server)) { @Sendable ok, text in c.resume(returning: (ok.boolValue, text)) }
+        let backend = comfyBackend(server)
+        let result = await awaitCallback(within: Self.testTimeout, late: Answer(ok: false, text: noAnswerMessage(server.baseUrl, after: Self.testTimeout))) { done in
+            bridge.testComfy(backend: backend) { @Sendable ok, text in done(Answer(ok: ok.boolValue, text: text)) }
         }
+        return (result.ok, result.ok ? result.text : withNetworkHint(result.text))
     }
+
+    private struct Answer: Sendable { let ok: Bool, text: String }
 
     // MARK: Projects
 
@@ -428,22 +435,33 @@ final class StudioHub {
         var error: String?
     }
 
+    /// Imports [json]; a server that does not answer in time is skipped (parameters from the graph alone, unchecked).
     func importWorkflow(name: String, json: String, backendId: String?) async -> Imported {
-        await withCheckedContinuation { c in
+        let answer = await awaitCallback(within: Self.testTimeout, late: Imported?.none) { done in
             bridge.importWorkflow(name: name, json: json, backendId: backendId) { @Sendable w, validation, checked, error in
-                c.resume(returning: Imported(workflow: w, validation: validation, checked: checked.boolValue, error: error))
+                done(Imported(workflow: w, validation: validation, checked: checked.boolValue, error: error))
             }
         }
+        if let answer { return answer }
+        guard backendId != nil else { return Imported(error: "The import did not finish") }
+        return await importWorkflow(name: name, json: json, backendId: nil)
     }
 
     /// The validation message (nil = ready) or the error reaching the server.
     func validate(_ w: StudioWorkflow, on backendId: String) async -> (message: String?, error: String?) {
-        await withCheckedContinuation { c in bridge.validate(workflow: w, backendId: backendId) { @Sendable m, e in c.resume(returning: (m, e)) } }
+        let url = comfyServers.first { $0.id == backendId }?.baseUrl ?? backendId
+        let r = await awaitCallback(within: Self.testTimeout, late: Validation(message: nil, error: noAnswerMessage(url, after: Self.testTimeout))) { done in
+            bridge.validate(workflow: w, backendId: backendId) { @Sendable m, e in done(Validation(message: m, error: e)) }
+        }
+        return (r.message, r.error)
     }
 
+    private struct Validation: Sendable { let message: String?, error: String? }
+
+    /// [w] with the server's current options; unchanged when the server fails or does not answer in time.
     func refreshOptions(_ w: StudioWorkflow, on backendId: String) async -> StudioWorkflow {
-        await withCheckedContinuation { (c: CheckedContinuation<Unchecked<StudioWorkflow>, Never>) in
-            bridge.refreshOptions(workflow: w, backendId: backendId) { @Sendable w in c.resume(returning: Unchecked(w)) }
+        await awaitCallback(within: Self.testTimeout, late: Unchecked(w)) { done in
+            bridge.refreshOptions(workflow: w, backendId: backendId) { @Sendable w in done(Unchecked(w)) }
         }.value
     }
 

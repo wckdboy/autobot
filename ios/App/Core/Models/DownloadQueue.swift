@@ -28,6 +28,14 @@ struct DownloadsState: Equatable, Sendable {
     var block: DownloadBlock?
 
     var isEmpty: Bool { active == nil && queued.isEmpty && paused.isEmpty }
+
+    /// What the panel's header explains: the queue's block, else why paused rows wait (the kill
+    /// switch pauses everything it stops, so nothing is queued then).
+    var blocks: [DownloadBlock] {
+        if let block { return [block] }
+        let reasons = paused.compactMap(DownloadQueue.pausedReason)
+        return [DownloadBlock.killSwitch, .lowStorage].filter(reasons.contains)
+    }
 }
 
 /**
