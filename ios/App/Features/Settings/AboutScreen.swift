@@ -13,9 +13,14 @@ struct AboutScreen: View {
     @Environment(\.scheme) private var c
     @Environment(\.openURL) private var openURL
     @State private var copied = false
+    @State private var allNotes = false
 
+    /// Blocks of the release notes shown before "Show all".
+    static let notesPreview = 4
     private let info = AboutInfo.current
-    private let notes: [ReleaseNoteBlock]? = AboutInfo.whatsNewMarkdown().map(ReleaseNotes.parse)
+    /// Parsed once per launch (the screen struct is re-created whenever its parent re-renders).
+    private static let releaseNotes: [ReleaseNoteBlock]? = AboutInfo.whatsNewMarkdown().map(ReleaseNotes.parse)
+    private var notes: [ReleaseNoteBlock]? { Self.releaseNotes }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,7 +73,8 @@ struct AboutScreen: View {
     @ViewBuilder private var whatsNew: some View {
         if let notes, !notes.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(notes.enumerated()), id: \.offset) { _, block in
+                let shown = allNotes ? notes : Array(notes.prefix(Self.notesPreview))
+                ForEach(Array(shown.enumerated()), id: \.offset) { _, block in
                     switch block {
                     case .heading(_, let text):
                         Text(text).textStyle(.titleSmall).foregroundStyle(c.onSurface).padding(.top, 6)
@@ -83,11 +89,18 @@ struct AboutScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                if notes.count > Self.notesPreview {
+                    TextAction(allNotes ? "Show less" : "Show all", color: c.primary) {
+                        withAnimation(.easeInOut(duration: 0.2)) { allNotes.toggle() }
+                    }
+                    .frame(minHeight: 44)
+                }
             }
             .tint(c.primary)
             .textSelection(.enabled)
             .padding(.horizontal, Tokens.Spacing.gutter)
-            .padding(.bottom, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 4)
         } else {
             MicroLabel("release notes are missing from this build").padding(.horizontal, Tokens.Spacing.gutter).padding(.bottom, 8)
         }
