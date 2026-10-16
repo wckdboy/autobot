@@ -9,6 +9,8 @@ import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.InstalledModel
+import dev.wckdboy.autobot.core.models.LocalDream
+import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import dev.wckdboy.autobot.engine.llama.LocalLlmEvent
 import dev.wckdboy.autobot.engine.npu.LocalNpu
@@ -29,6 +31,8 @@ data class ComputeDevices(
     val llmBackends: Set<Backend> = setOf(Backend.CPU),
     /** Every device the llama.cpp engine registered, for the diagnostics report. */
     val engineDevices: List<EngineDevice> = emptyList(),
+    /** How far the QNN/HTP bring-up got, which skel the DSP needs, and a real context load (report). */
+    val npuDetails: List<String> = emptyList(),
 )
 
 /**
@@ -41,6 +45,7 @@ class ComputeBench @Inject constructor(
     private val llm: LocalLlm,
     private val npu: LocalNpu,
     private val profile: ComputeProfile,
+    private val library: ModelLibrary,
 ) {
     suspend fun devices(): ComputeDevices {
         val list = runCatching { JSONArray(llm.devices()) }.getOrNull()
@@ -70,6 +75,45 @@ class ComputeBench @Inject constructor(
             npuError = status?.optString("error")?.takeIf { !npuOk && it.isNotBlank() },
             llmBackends = backends,
             engineDevices = engineDevices,
+            npuDetails = npuDetails(status),
+        )
+    }
+
+    /**
+     * Loads the smallest installed QNN context binary on the NPU and frees it: one line telling
+     * whether a real model loads on this phone's HTP ([arch]), with the runtime's own error if not.
+     * Only for the diagnostics report: it is an NPU job, so other engines' models are freed first.
+     */
+    suspend fun npuProbe(arch: String?): String {
+        val candidates = runCatching { library.all() }.getOrDefault(emptyList())
+            .filter { it.isReady && it.manifest.npu?.runtime == "qnn" }
+            .mapNotNull { m -> (m.paths[FileRole.VAE_DECODER] ?: m.paths[FileRole.MODEL])?.let { m to it } }
+            .sortedBy { (_, path) -> File(path).length() }
+        val (model, path) = candidates.firstOrNull() ?: return "context load test: no QNN package installed"
+        val built = model.manifest.npu?.htpArch
+        val label = "context load test (${model.title}, built for ${built ?: "?"})"
+        var result: String? = null
+        val failure = runCatching {
+            npu.generate(JSONObject().put("op", "probe").put("model", path).toString()).collect { e -> if (e is NpuEvent.Result) result = e.json }
+        }.exceptionOrNull()
+        if (failure != null) return "$label: FAILED ${failure.message ?: failure.javaClass.simpleName}"
+        val json = runCatching { JSONObject(result ?: "{}") }.getOrDefault(JSONObject())
+        json.optJSONObject("error")?.let { e ->
+            val hint = LocalDream.incompatibility(built, arch)?.let { " ($it)" }.orEmpty()
+            return "$label: FAILED ${e.optString("message")}$hint"
+        }
+        return "$label: ok in ${json.optLong("load_ms")} ms"
+    }
+
+    private fun npuDetails(status: JSONObject?): List<String> {
+        if (status == null) return listOf("engine: no status (the :npu process did not answer)")
+        return listOfNotNull(
+            "stage: ${status.optString("stage", "?")}",
+            status.optString("qnn_build").takeIf { it.isNotBlank() }?.let { "qnn runtime: $it" },
+            status.optLong("soc_model").takeIf { it > 0 }?.let { "htp soc model id: $it" },
+            "native libs extracted: ${status.optBoolean("libs_extracted")}",
+            status.optString("skels").takeIf { it.isNotBlank() }?.let { "skels in apk: $it" },
+            status.optString("skel").takeIf { it.isNotBlank() }?.let { "skel for this htp: $it" },
         )
     }
 

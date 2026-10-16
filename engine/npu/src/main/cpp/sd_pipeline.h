@@ -11,6 +11,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,10 @@ private:
 
     std::string generate(const std::string & request, const Events & events);
     std::string upscale(const std::string & request, const Events & events);
+    std::string probe(const std::string & request);
+
+    /** Frees every resident model whose file is not in [keep]. */
+    void evict_except(const std::set<std::string> & keep);
 };
 
 }  // namespace npu
