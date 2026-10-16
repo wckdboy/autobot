@@ -169,12 +169,30 @@ public actor LlamaEngine {
 
     /// Stops the running completion and those waiting to run.
     public nonisolated func cancel() {
+        session.stopPreparing()
         session.cancelAll()
+    }
+
+    /**
+     * Loads the chat model at [modelPath] in the background (a chat with it was opened), so the
+     * first message does not wait for the load. Skipped when completions are already waiting;
+     * [cancel] and [unload] stop it. Returns when the load is done or skipped.
+     */
+    public func prepare(modelPath: String, contextLength: Int, backend: ComputeBackend = .auto) async {
+        let session = session
+        let backend = metalUsable ? backend.rawValue : "cpu"
+        session.armPreparing()
+        _ = try? await worker.run({
+            session.prepare(path: modelPath, nCtx: contextLength, backend: backend)
+        }, onCancel: {
+            session.stopPreparing()
+        })
     }
 
     /// Frees the resident models now (e.g. before image generation needs the memory).
     public func unload() async {
         let session = session
+        session.stopPreparing()
         _ = try? await worker.run {
             session.release()
             session.releaseEmbedder()
@@ -196,6 +214,8 @@ private final class Session: @unchecked Sendable {
     let handle = NativeHandle()
     /// Requests issued and not finished, by token; true once cancelled.
     private let requests = Mutex<(next: UInt64, cancelled: [UInt64: Bool])>((1, [:]))
+    /// True once an ahead-of-time load ([prepare]) should stop.
+    private let preparing = Mutex(false)
     private var initialized = false
     private var devices: Int32 = 0
     private var loadedPath: String?
@@ -250,17 +270,11 @@ private final class Session: @unchecked Sendable {
         if devices == 0 {
             throw EngineError("LOAD_FAILED", "no compute backend available")
         }
-        if handle.pointer == nil || loadedPath != path || loadedCtx != nCtx || loadedBackend != backend {
-            release()
-            guard let loaded = autobot_llama_load(path, Int32(nCtx), inferenceThreads(), backend) else {
-                throw EngineError("LOAD_FAILED", "could not load model (corrupt file or not enough memory)")
-            }
-            handle.set(loaded)
-            loadedPath = path
-            loadedCtx = nCtx
-            loadedBackend = backend
+        // A cancel during the load stops it within moments (the load polls isCancelled).
+        guard load(path: path, nCtx: nCtx, backend: backend, abort: { [unowned self] in self.isCancelled(token) }) else {
+            if isCancelled(token) { throw EngineError.cancelled }
+            throw EngineError("LOAD_FAILED", "could not load model (corrupt file or not enough memory)")
         }
-        // Loading takes seconds and cannot be interrupted: a cancel that came meanwhile stops here.
         if isCancelled(token) { throw EngineError.cancelled }
         let sink = DeltaSink(onDelta)
         let user = Unmanaged.passRetained(sink)
@@ -276,6 +290,45 @@ private final class Session: @unchecked Sendable {
         }
         return takeString(result, free: autobot_llama_string_free)
     }
+
+    /// Makes [path] the resident model unless it is; false when it cannot load or [abort] said stop.
+    private func load(path: String, nCtx: Int, backend: String, abort: @escaping () -> Bool) -> Bool {
+        if handle.pointer != nil, loadedPath == path, loadedCtx == nCtx, loadedBackend == backend { return true }
+        release()
+        let check = Unmanaged.passRetained(LoadAbort(abort))
+        defer { check.release() }
+        let loaded = autobot_llama_load_abortable(path, Int32(nCtx), inferenceThreads(), backend, { user in
+            guard let user else { return 0 }
+            return Unmanaged<LoadAbort>.fromOpaque(user).takeUnretainedValue().check() ? 1 : 0
+        }, check.toOpaque())
+        guard let loaded else { return false }
+        handle.set(loaded)
+        loadedPath = path
+        loadedCtx = nCtx
+        loadedBackend = backend
+        return true
+    }
+
+    /// Loads ahead of a chat; stops when a request arrives or the engine is told to unload or cancel.
+    func prepare(path: String, nCtx: Int, backend: String) {
+        let stopped = { [unowned self] in self.preparing.withLock { $0 } }
+        if hasRequests || stopped() { return }
+        initialize()
+        if devices == 0 { return }
+        _ = load(path: path, nCtx: nCtx, backend: backend, abort: stopped)
+    }
+
+    /// Allows the next [prepare] (called when it is queued, so a later stop still reaches it).
+    func armPreparing() {
+        preparing.withLock { $0 = false }
+    }
+
+    /// Stops an ahead-of-time load, queued or in progress.
+    func stopPreparing() {
+        preparing.withLock { $0 = true }
+    }
+
+    private var hasRequests: Bool { requests.withLock { !$0.cancelled.isEmpty } }
 
     /// Cancels request [token]: before it starts (it then never generates), or while it runs.
     func cancel(_ token: UInt64) {
@@ -340,6 +393,15 @@ private final class Session: @unchecked Sendable {
         guard let pointer = handle.take() else { return }
         autobot_llama_free(pointer)
         loadedPath = nil
+    }
+}
+
+/// The "stop loading" check handed to the engine core while a model loads.
+private final class LoadAbort {
+    let check: () -> Bool
+
+    init(_ check: @escaping () -> Bool) {
+        self.check = check
     }
 }
 

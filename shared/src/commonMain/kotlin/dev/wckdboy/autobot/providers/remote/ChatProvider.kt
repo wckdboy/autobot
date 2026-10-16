@@ -141,4 +141,10 @@ interface ChatProvider {
 
     /** The provider's chat models (see [ModelLists]); kill switch, route and audit log apply. */
     suspend fun listModels(): ModelListResult = ModelListResult.Failure(ErrorKind.BAD_REQUEST, "No model list")
+
+    /**
+     * A chat with [model] was opened: an on-device provider may load it now, so the first message
+     * does not wait for the load. Best effort and quick to return; remote providers do nothing.
+     */
+    suspend fun prepare(model: String) = Unit
 }

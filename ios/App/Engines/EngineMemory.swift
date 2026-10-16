@@ -81,6 +81,11 @@ actor EngineMemory {
         }
     }
 
+    /// Whether any of [kinds] is working now.
+    func isBusy(any kinds: Set<ResidentEngine>) -> Bool {
+        kinds.contains { busy[$0, default: 0] > 0 }
+    }
+
     /// Memory warning or background: every engine goes (busy ones when they are done).
     func releaseAll() async { await release(Set(ResidentEngine.allCases)) }
 

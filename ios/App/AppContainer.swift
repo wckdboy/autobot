@@ -225,6 +225,15 @@ final class AppContainer {
         #endif
     }
 
+    /// A chat on the on-device model [modelId] opened: load it now so its first message does not
+    /// wait for the load (skipped for models too big for this device).
+    func prepareLocalChat(modelId: String) async {
+        #if canImport(AutobotShared)
+        guard let model = snapshots.model(modelId), !model.tooBig else { return }
+        await llm.prepare(modelPath: model.path, contextLength: model.contextLength, backend: model.backend)
+        #endif
+    }
+
     /// Model registry changed: refresh the built-in providers and the bridge's model snapshot.
     func modelsChanged() {
         guard dataLoaded else { return }

@@ -28,4 +28,17 @@ interface ILlamaEngine {
      * model cannot be loaded or run. Blocks the caller; runs after any queued chat.
      */
     float[] embed(String modelPath, in String[] texts);
+
+    /**
+     * Stops the completion that reported to [callback]: before it starts (it then answers
+     * CANCELLED), while its model loads, or while it runs. Other completions are not touched.
+     */
+    oneway void cancelChat(ILlamaCallback callback);
+
+    /**
+     * Loads [modelPath] ahead of time (a chat with it was opened), so the first message does not
+     * wait for the load. Skipped when completions are queued; [unload] or a chat for another
+     * model stops it.
+     */
+    oneway void prepare(String modelPath, int nCtx, String backend);
 }
