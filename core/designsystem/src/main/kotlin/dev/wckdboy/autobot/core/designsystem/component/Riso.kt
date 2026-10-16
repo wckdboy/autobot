@@ -214,9 +214,9 @@ fun ModeCard(
     ) {
         val card = MaterialTheme.colorScheme.surfaceContainerHigh
         Box(if (living && background == null) Modifier.inkCard() else Modifier) {
-            if (background != null) {
-                background()
-                // Fade the art into the card colour so the title stays legible over dense dots.
+            if (background != null || living) {
+                background?.invoke()
+                // Fade the art (or the living field) into the card colour so the title stays legible.
                 Box(
                     Modifier
                         .fillMaxSize()
