@@ -32,6 +32,8 @@ rm -rf "$WORK" && mkdir -p "$WORK"
 
 step "version $VERSION"
 scripts/bump-version.sh "$VERSION"
+# The app bundles these notes as its offline "What's new" (About screen on both platforms).
+[ -z "$NOTES" ] || cp "$NOTES" shared/release/whats-new.md
 BUILD=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
 
 step "Android + shared: tests, debug and signed release"
@@ -84,7 +86,7 @@ EOF
 fi
 
 step "commit, tag, publish $TAG"
-git add app/build.gradle.kts ios/project.yml ios/Packages/AutobotEngines/scripts/build-xcframeworks.sh
+git add app/build.gradle.kts ios/project.yml ios/Packages/AutobotEngines/scripts/build-xcframeworks.sh shared/release/whats-new.md
 git commit -q -m "Release $VERSION ($BUILD)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
