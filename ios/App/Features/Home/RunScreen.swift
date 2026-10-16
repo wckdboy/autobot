@@ -48,7 +48,7 @@ struct RunState {
 
         func target(_ p: Provider, _ model: String? = nil) -> RunTarget {
             let m = model ?? p.defaultModel
-            return RunTarget(providerId: p.id, model: m, label: titles[m] ?? (m.isEmpty ? p.displayName : m), route: routeOf(p))
+            return RunTarget(providerId: p.id, model: m, label: titles[m] ?? (m.isEmpty ? p.displayName : m), route: routeOf(p, model: app.library.get(m)))
         }
 
         chat = local.map { target($0, readyChat.first { $0.kind == .chat }?.id ?? $0.defaultModel) } ?? remote.first.map { target($0) }
@@ -58,7 +58,7 @@ struct RunState {
         let backend = app.backends.startingBackend(offline: app.settings.settings.mode == .offline)
         let imageModel = models.first { $0.isReady && $0.kind == .image && $0.engine == .coreML }
         imageLabel = backend == nil ? "no backend" : backend!.kind == .onDevice ? (imageModel?.title ?? "This phone") : backend!.name
-        imageRoute = backend.map { $0.kind == .onDevice ? .localNpu : $0.isLoopback ? .localCpu : .pcLan }
+        imageRoute = backend.map { Route.imageBackend($0, model: imageModel) }
 
         let byId = Dictionary(providers.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let hidden = app.chats.hidden
@@ -67,7 +67,7 @@ struct RunState {
                 id: "c-\(c.id)",
                 title: c.title,
                 subtitle: c.model.map { titles[$0] ?? $0 } ?? "—",
-                route: c.providerId.flatMap { byId[$0] }.map(routeOf) ?? .cloudApi,
+                route: c.providerId.flatMap { byId[$0] }.map { routeOf($0, model: c.model.flatMap { app.library.get($0) }) } ?? .cloudApi,
                 time: c.updatedAt,
                 conversationId: c.id,
             )
@@ -101,6 +101,21 @@ struct RunState {
         } else if let p = app.studio.project, p.name.lowercased() != "studio" {
             studioLabel = p.name.lowercased()
         }
+    }
+}
+
+/// The Run screen's card grid: two columns that line up across both rows, equal gutters.
+enum RunGrid {
+    static let gutter: CGFloat = 8
+    static let topHeight: CGFloat = 268
+    static let bottomHeight: CGFloat = 100
+
+    /// Column widths for [width]: left (Image, Code) : right (Chat/Agent, Studio) = 1.1 : 1,
+    /// rounded to whole points so both rows share the same edges.
+    static func columns(width: CGFloat) -> (left: CGFloat, right: CGFloat) {
+        let inner = max(width - gutter, 0)
+        let left = (inner * 1.1 / 2.1).rounded()
+        return (left, inner - left)
     }
 }
 
@@ -166,11 +181,12 @@ struct RunScreen: View {
     }
 
     private func cards(_ state: RunState) -> some View {
-        VStack(spacing: 8) {
-            GeometryReader { geo in
-                // Image : (Chat / Agent) = 1.1 : 1, as on Android.
-                let width = geo.size.width - 8
-                HStack(spacing: 8) {
+        GeometryReader { geo in
+            // Two columns shared by both rows (Image : Chat/Agent = 1.1 : 1, as on Android), one
+            // gutter everywhere: Code sits under Image and Studio under Chat/Agent.
+            let columns = RunGrid.columns(width: geo.size.width)
+            VStack(spacing: RunGrid.gutter) {
+                HStack(spacing: RunGrid.gutter) {
                     ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute, action: { nav.push(.imagine()) }) {
                         if let lastImage {
                             HalftoneImage(image: lastImage, cell: 7)
@@ -178,22 +194,25 @@ struct RunScreen: View {
                             HalftoneField(cell: 8)
                         }
                     }
-                    .frame(width: width * 1.1 / 2.1)
-                    VStack(spacing: 8) {
+                    .frame(width: columns.left)
+                    VStack(spacing: RunGrid.gutter) {
                         ModeCard(index: "02", title: "Chat", subtitle: state.chat?.label ?? "add a model", route: state.chat?.route, living: true) { start(.chat, state) }
                         ModeCard(index: "03", title: "Agent", subtitle: state.agent?.label ?? "add a model", route: state.agent?.route, living: true, seed: 2.1) { start(.agent, state) }
                     }
-                    .frame(width: width / 2.1)
+                    .frame(width: columns.right)
                 }
+                .frame(height: RunGrid.topHeight)
+                HStack(spacing: RunGrid.gutter) {
+                    ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route, living: true, seed: 4.2) { start(.code, state) }
+                        .frame(width: columns.left)
+                    ModeCard(index: "05", title: "Studio", subtitle: state.studioLabel, route: nil, living: true, seed: 5.3) { nav.enterStudio(.image) }
+                        .frame(width: columns.right)
+                        .accessibilityHint("Image, audio and video generation, workflows and the library")
+                }
+                .frame(height: RunGrid.bottomHeight)
             }
-            .frame(height: 268)
-            HStack(spacing: 8) {
-                ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route, living: true, seed: 4.2) { start(.code, state) }
-                ModeCard(index: "05", title: "Studio", subtitle: state.studioLabel, route: nil, living: true, seed: 5.3) { nav.enterStudio(.image) }
-                    .accessibilityHint("Image, audio and video generation, workflows and the library")
-            }
-            .frame(height: 100)
         }
+        .frame(height: RunGrid.topHeight + RunGrid.gutter + RunGrid.bottomHeight)
     }
 
     /// Starts a session for [mode] on its target; tools on for agent and code.

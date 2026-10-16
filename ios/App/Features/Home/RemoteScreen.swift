@@ -13,6 +13,8 @@ struct RemoteScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Remote") {
                 PrivacyStatusPill(status: app.settings.settings.mode.privacyStatus) { nav.push(.privacyCenter) }
+                    // A bordered pill lines up with the content gutter (the bar's end padding is sized for icon targets).
+                    .padding(.trailing, Tokens.Spacing.gutter - Tokens.Spacing.topBarPaddingEnd)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -20,7 +22,7 @@ struct RemoteScreen: View {
                     SectionLabel("providers")
                     ForEach(providers) { p in
                         RunRow(title: p.displayName, subtitle: p.defaultModel, action: { nav.push(.providers) }) {
-                            RouteTag(route: Loopback.isLoopbackURL(p.baseUrl) || p.kind == .ollama ? .pcLan : .cloudApi)
+                            RouteTag(route: routeOf(p))
                         }
                     }
                     RunRow(title: providers.isEmpty ? "Add a provider" : "Add or edit", subtitle: "", action: { nav.push(.providers) }) { Chevron() }
@@ -28,7 +30,7 @@ struct RemoteScreen: View {
                     SectionLabel("image backends")
                     ForEach(backends) { b in
                         RunRow(title: b.name, subtitle: b.kind.label, action: { nav.push(.imageBackends) }) {
-                            RouteTag(route: b.isLoopback ? .localCpu : .pcLan)
+                            RouteTag(route: Route.imageBackend(b, model: nil))
                         }
                     }
                     RunRow(title: backends.isEmpty ? "Add a PC" : "Add or edit", subtitle: "", action: { nav.push(.imageBackends) }) { Chevron() }

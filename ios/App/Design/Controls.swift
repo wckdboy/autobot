@@ -224,19 +224,48 @@ struct SwitchRow: View {
     var body: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).textStyle(.bodyLarge).foregroundStyle(enabled ? c.onSurface : c.onSurfaceVariant)
+                // The ⓘ sits right after the title (its 44 pt target overhangs the text edge).
+                HStack(spacing: 0) {
+                    Text(title).textStyle(.bodyLarge).foregroundStyle(enabled ? c.onSurface : c.onSurfaceVariant)
+                    if let info { InfoButton(title: title, text: info).padding(.vertical, -12).padding(.leading, -6) }
+                }
                 if let subtitle { Text(subtitle).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture { if enabled { isOn.toggle() } }
-            if let info { InfoButton(title: title, text: info) }
             RisoToggle(isOn: $isOn, enabled: enabled)
                 .accessibilityLabel(title)
         }
         .padding(.horizontal, Tokens.Spacing.gutter)
         .padding(.vertical, 8)
-        .frame(minHeight: 52)
+        .frame(minHeight: Self.minHeight)
+    }
+
+    /// Every settings row is at least this tall (≥ the 44 pt touch minimum).
+    static let minHeight: CGFloat = 52
+}
+
+/// A settings row that does something destructive (red title, optional ⓘ, no chevron).
+struct DestructiveRow: View {
+    let title: String
+    var info: String? = nil
+    let action: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: action) {
+                Text(title).textStyle(.bodyLarge).foregroundStyle(c.error)
+                    .frame(minHeight: SwitchRow.minHeight, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+            if let info { InfoButton(title: title, text: info).padding(.leading, -6) }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Tokens.Spacing.gutter)
+        .frame(maxWidth: .infinity, minHeight: SwitchRow.minHeight, alignment: .leading)
     }
 }
 
@@ -245,12 +274,15 @@ struct NavigationRow: View {
     let title: String
     /// A short state value (`On`, `Off`, `3`), trailing like iOS Settings; nil when there is none.
     var value: String? = nil
+    /// The trailing glyph: a chevron (pushes a screen), `arrow.up.right` for a link that leaves the app.
+    var trailingSymbol = "chevron.right"
     let action: () -> Void
     @Environment(\.scheme) private var c
 
-    init(title: String, value: String? = nil, action: @escaping () -> Void) {
+    init(title: String, value: String? = nil, trailingSymbol: String = "chevron.right", action: @escaping () -> Void) {
         self.title = title
         self.value = value
+        self.trailingSymbol = trailingSymbol
         self.action = action
     }
 
@@ -262,11 +294,11 @@ struct NavigationRow: View {
                 if let value {
                     Text(value).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
                 }
-                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(c.onSurfaceVariant)
+                Image(systemName: trailingSymbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(c.onSurfaceVariant)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, Tokens.Spacing.gutter)
-            .frame(minHeight: 52)
+            .frame(minHeight: SwitchRow.minHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())

@@ -177,6 +177,8 @@ extension Animation {
 extension EnvironmentValues {
     /// Renders every ink animation at its end state (snapshot tests).
     @Entry var inkStill = false
+    /// The subtree is laid out but not seen (the app under an open Studio): its ink clocks stop.
+    @Entry var inkOffscreen = false
 }
 
 /// Frame budget of an [InkTimeline]: work (30 / 15 fps) or ambient (10 fps, off in Low Power).
@@ -197,11 +199,12 @@ struct InkTimeline<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.inkStill) private var still
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.inkOffscreen) private var offscreen
     @State private var visible = false
     @State private var subscription = InkSubscription()
 
     var body: some View {
-        let running = InkMath.shouldAnimate(active: active, visible: visible, foreground: scenePhase == .active, reduceMotion: reduceMotion || still)
+        let running = InkMath.shouldAnimate(active: active, visible: visible && !offscreen, foreground: scenePhase == .active, reduceMotion: reduceMotion || still)
         let clock = InkClock.shared(tier)
         InkTick(clock: running ? clock : nil, content: content)
             .onAppear { visible = true }

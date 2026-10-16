@@ -26,6 +26,7 @@ enum Destination: Hashable {
     case accounts
     case compute
     case licenses
+    case about
     case memory
     case vault
 }
@@ -75,7 +76,8 @@ final class Navigator {
             case "settings": tab = .settings
             case "sessions": path = [.chatList]
             case "privacy": tab = .settings; path = [.privacyCenter]
-            case "providers": tab = .settings; path = [.providers]
+            case "providers": tab = .remote; path = [.providers]
+            case "about": tab = .settings; path = [.about]
             case "mcp": tab = .settings; path = [.mcpServers]
             case "licenses": tab = .settings; path = [.licenses]
             case "memory": tab = .settings; path = [.memory]
@@ -137,6 +139,8 @@ struct AutobotNavHost: View {
         let inStudio = nav.studio != nil
         ZStack {
             app
+                // Hidden, not removed: its living cards and grounds must not keep ticking.
+                .environment(\.inkOffscreen, inStudio)
                 .opacity(inStudio ? 0 : 1)
                 .allowsHitTesting(!inStudio)
                 .accessibilityHidden(inStudio)
@@ -193,6 +197,7 @@ struct AutobotNavHost: View {
         case .accounts: AccountsScreen()
         case .compute: ComputeScreen()
         case .licenses: LicensesScreen()
+        case .about: AboutScreen()
         case .memory: MemoryScreen()
         case .vault: VaultScreen()
         }

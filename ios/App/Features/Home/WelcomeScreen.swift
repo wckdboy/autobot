@@ -34,7 +34,7 @@ struct WelcomeScreen: View {
                     .foregroundStyle(c.onSurfaceVariant)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
-                    RouteTag(route: .localCpu)
+                    RouteTag(route: .localGpu)
                     RouteTag(route: .pcLan)
                     RouteTag(route: .cloudApi)
                 }

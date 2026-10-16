@@ -20,6 +20,7 @@ struct LibraryRoom: View {
     @State private var pair: ComparePair?
 
     var body: some View {
+        let _ = InkProbe.hit("body.library")
         let studio = app.studio
         let types: Set<AssetType> = switch type {
         case "image": [.image]

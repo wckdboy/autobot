@@ -45,6 +45,8 @@ final class ImageRoomModel: MaskEditing {
 
     @ObservationIgnored private let app: AppContainer
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// The settings the last model selection left in the form (to tell the user's edits apart).
+    @ObservationIgnored private(set) var appliedDefaults: Recommended?
 
     init(app: AppContainer) {
         self.app = app
@@ -86,8 +88,8 @@ final class ImageRoomModel: MaskEditing {
 
     var runsOn: (label: String, route: Route)? {
         if let backend {
-            if backend.kind == .onDevice { return ("this iphone", .localNpu) }
-            return (backend.name, backend.isLoopback ? .localCpu : .pcLan)
+            let model = backend.kind == .onDevice ? request.model.flatMap { app.library.get($0) } ?? onDeviceModels.first : nil
+            return (backend.kind == .onDevice ? "this iphone" : backend.name, Route.imageBackend(backend, model: model))
         }
         if let workflow, let s = app.studio.comfyServer(workflow.backendId) ?? app.studio.comfyServers.first { return (s.name, s.route) }
         return nil
@@ -140,18 +142,22 @@ final class ImageRoomModel: MaskEditing {
         }
     }
 
-    func selectOnDeviceModel(_ m: InstalledModel) {
+    func selectOnDeviceModel(_ m: InstalledModel) { selectModel(m.id, ImageDefaults.recommended(for: m)) }
+
+    /// A checkpoint of the backend (by the name it lists).
+    func selectRemoteModel(_ name: String) {
+        selectModel(name, app.library.get(name).map(ImageDefaults.recommended(for:)) ?? ImageDefaults.recommended(remoteModel: name))
+    }
+
+    /// Selects a model with its recommended settings, except the ones the user changed since the
+    /// last model selection.
+    private func selectModel(_ id: String, _ rec: Recommended) {
+        let kept = ImageDefaults.edited(request, since: appliedDefaults)
         edit { r in
-            r.model = m.id
-            if let rec = m.manifest.recommended {
-                r.steps = rec.steps ?? r.steps
-                r.cfgScale = rec.cfg ?? r.cfgScale
-                r.sampler = rec.sampler ?? r.sampler
-                r.scheduler = rec.scheduler ?? r.scheduler
-                r.width = rec.width ?? r.width
-                r.height = rec.height ?? r.height
-            }
+            r.model = id
+            ImageDefaults.apply(rec, to: &r, keeping: kept)
         }
+        appliedDefaults = ImageDefaults.snapshot(request)
     }
 
     func refreshCatalog() {
@@ -535,7 +541,7 @@ struct ImageRoom: View {
                 }
             }
         } else if !model.catalog.models.isEmpty {
-            SelectField(label: "Checkpoint", value: shortModelName(r.model ?? model.catalog.currentModel ?? ""), options: model.catalog.models, optionLabel: shortModelName) { v in model.edit { $0.model = v } }
+            SelectField(label: "Checkpoint", value: shortModelName(r.model ?? model.catalog.currentModel ?? ""), options: model.catalog.models, optionLabel: shortModelName) { v in model.selectRemoteModel(v) }
         }
         Segmented(options: model.modes, selected: model.mode, label: { $0.rawValue }) { m in model.mode = m }
         if model.mode != .txt2img { inputStrip }

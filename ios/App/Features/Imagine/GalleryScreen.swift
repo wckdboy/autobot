@@ -75,6 +75,7 @@ struct GalleryScreen: View {
             if items.isEmpty {
                 MicroLabel(all.isEmpty ? "nothing generated yet" : "no matches")
                     .fixedSize()
+                    .inkClearance(c.background)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .inkGround(fade: .center)
             } else {

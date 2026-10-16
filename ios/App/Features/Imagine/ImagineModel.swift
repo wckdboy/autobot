@@ -54,6 +54,8 @@ final class ImagineModel {
     /// Engine capabilities by backend kind (they are constants of the engine type; building an
     /// engine to read them on every render was wasted work).
     @ObservationIgnored private var capabilityCache: [BackendKind: EngineCapabilities] = [:]
+    /// Settings the user changed by hand this session: choosing a model keeps them.
+    @ObservationIgnored private(set) var userEdited: Set<ImageSetting> = []
 
     init(app: AppContainer) {
         self.app = app
@@ -84,7 +86,7 @@ final class ImagineModel {
         return backends.flatMap { b -> [ModelChip] in
             if b.kind == .onDevice {
                 return onDevice.map { m in
-                    let accel = m.backend == .gpu ? "gpu" : "npu"
+                    let accel = Route.onDeviceImage(m).accelerator ?? "npu"
                     return ModelChip(backendId: b.id, model: m.id, label: "\(m.title) · \(accel)", onDevice: true, accelerator: accel)
                 }
             }
@@ -125,14 +127,25 @@ final class ImagineModel {
     /// The route tag of the current backend.
     var route: Route? {
         guard let backend else { return nil }
-        if backend.kind == .onDevice { return selectedChip?.accelerator == "gpu" ? .localGpu : .localNpu }
-        return backend.isLoopback ? .localCpu : .pcLan
+        return Route.imageBackend(backend, model: backend.kind == .onDevice ? selectedChip?.model.flatMap { app.library.get($0) } : nil)
     }
 
     // MARK: Lifecycle
 
     func onAppear() {
         if let backend { refreshCatalog(backend) }
+        sizeForModel()
+    }
+
+    /**
+     The starting model (picked last session, or the backend's loaded checkpoint) must not run
+     below its native size: an SDXL-class model left at an SD 1.5 512² request gets its own size.
+     A size the user set by hand this session stays.
+     */
+    func sizeForModel() {
+        guard !userEdited.contains(.size), let chip = selectedChip, let rec = recommended(chip),
+              let w = rec.width, let h = rec.height, w * h > request.width * request.height else { return }
+        edit { $0.width = w; $0.height = h }
     }
 
     /// Loads the decoded images of the latest results (kept by the generator across screens).
@@ -170,9 +183,22 @@ final class ImagineModel {
 
     func setPrompt(_ text: String) { edit { $0.prompt = text } }
     func setNegative(_ text: String) { edit { $0.negativePrompt = text } }
-    func setSteps(_ steps: Int) { edit { $0.steps = steps } }
-    func setCfg(_ cfg: Double) { edit { $0.cfgScale = (cfg * 2).rounded(.down) / 2 } }
+    func setSteps(_ steps: Int) {
+        userEdited.insert(.steps)
+        edit { $0.steps = steps }
+    }
+
+    func setCfg(_ cfg: Double) {
+        userEdited.insert(.cfg)
+        edit { $0.cfgScale = (cfg * 2).rounded(.down) / 2 }
+    }
+
     func setSize(_ width: Int, _ height: Int) {
+        userEdited.insert(.size)
+        resize(width, height)
+    }
+
+    private func resize(_ width: Int, _ height: Int) {
         let multiple = capabilities?.sizeMultiple ?? 8
         edit {
             $0.width = PromptSyntax.snap(width, multiple: multiple)
@@ -183,8 +209,15 @@ final class ImagineModel {
     func setSeed(_ seed: Int64) { edit { $0.seed = seed } }
     func randomizeSeed() { edit { $0.seed = Int64.random(in: 0 ..< Self.maxSeed) } }
     func setRandomSeed() { edit { $0.seed = -1 } }
-    func setSampler(_ sampler: String, scheduler: String?) { edit { $0.sampler = sampler; $0.scheduler = scheduler } }
-    func setScheduler(_ scheduler: String?) { edit { $0.scheduler = scheduler } }
+    func setSampler(_ sampler: String, scheduler: String?) {
+        userEdited.insert(.sampler)
+        edit { $0.sampler = sampler; $0.scheduler = scheduler }
+    }
+
+    func setScheduler(_ scheduler: String?) {
+        userEdited.insert(.sampler)
+        edit { $0.scheduler = scheduler }
+    }
     func setBatch(_ count: Int) { edit { $0.batchCount = min(max(count, 1), Self.maxBatch) } }
     func setDenoise(_ value: Double) { edit { $0.denoiseStrength = (value * 100).rounded(.down) / 100 } }
     func setMaskBlur(_ px: Int) { edit { $0.maskBlur = px } }
@@ -198,20 +231,22 @@ final class ImagineModel {
 
     func removeLora(_ name: String) { edit { r in r.loras.removeAll { $0.name == name } } }
 
-    /// Picks a backend + model; on-device models bring their recommended settings.
+    /// Picks a backend + model; the model brings its recommended settings ([ImageDefaults]),
+    /// except the ones the user changed by hand in this session.
     func selectChip(_ chip: ModelChip) {
         if backend?.id != chip.backendId { selectBackend(chip.backendId) }
         setModel(chip.model)
-        guard chip.onDevice, let id = chip.model, let rec = app.library.get(id)?.manifest.recommended else { return }
-        edit { r in
-            r.steps = rec.steps ?? r.steps
-            r.cfgScale = rec.cfg ?? r.cfgScale
-            r.sampler = rec.sampler ?? r.sampler
-            r.scheduler = rec.scheduler ?? (rec.sampler != nil ? nil : r.scheduler)
-            r.width = rec.width ?? r.width
-            r.height = rec.height ?? r.height
-            if r.negativePrompt.isEmpty { r.negativePrompt = rec.negativePrompt ?? "" }
-        }
+        guard let rec = recommended(chip) else { return }
+        let kept = userEdited
+        edit { ImageDefaults.apply(rec, to: &$0, keeping: kept) }
+    }
+
+    /// The recommended settings of [chip]'s model: an installed model's catalog values, else its
+    /// architecture's (by the name a backend lists).
+    func recommended(_ chip: ModelChip) -> Recommended? {
+        guard let id = chip.model else { return nil }
+        if let installed = app.library.get(id) { return ImageDefaults.recommended(for: installed) }
+        return chip.onDevice ? nil : ImageDefaults.recommended(remoteModel: id)
     }
 
     /// Selects an installed on-device model (tapped on the Models screen) with its recommended settings.
@@ -246,6 +281,7 @@ final class ImagineModel {
                 guard !Task.isCancelled else { return }
                 self?.catalogs[backend.id] = catalog
                 self?.catalogStatus = .ready
+                self?.sizeForModel()
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.catalogStatus = .error
@@ -280,7 +316,7 @@ final class ImagineModel {
         preferInit = true
         let longSide = min(max(max(image.width, image.height), 512), 1024)
         let scale = Double(longSide) / Double(max(image.width, image.height))
-        setSize(Int(Double(image.width) * scale), Int(Double(image.height) * scale))
+        resize(Int(Double(image.width) * scale), Int(Double(image.height) * scale))
         if request.mode == .txt2img { setMode(.img2img) }
     }
 

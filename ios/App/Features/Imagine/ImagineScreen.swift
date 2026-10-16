@@ -111,7 +111,7 @@ struct ImagineScreen: View {
                 .padding(.horizontal, Tokens.Spacing.gutter)
             }
             .scrollDismissesKeyboard(.interactively)
-            .inkGround(m.results.isEmpty && !m.isRunning)
+            // No paper ground here: the prompt and the readouts fill the screen, and dots must not sit behind text.
             StudioBar(model: m) { showTune = true }
         }
         // One sync when a job starts or ends or a result arrives.

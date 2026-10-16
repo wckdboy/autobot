@@ -52,12 +52,51 @@ func counted(_ n: Int, _ singular: String, _ plural: String? = nil) -> String {
     "\(n) \(n == 1 ? singular : plural ?? singular + "s")"
 }
 
-/// The route of a configured provider (where its requests go).
-func routeOf(_ p: Provider) -> Route {
-    if p.kind == .local { return .localGpu }
-    if Loopback.isLoopbackURL(p.baseUrl) { return .localCpu }
-    if isPrivateHost(p.baseUrl) { return .pcLan }
+/// The route of a configured provider (where its requests go). The on-device provider is
+/// llama.cpp on Metal ([localChat]). A server on loopback is not this app's engine: iOS cannot keep
+/// a model server running beside it, so 127.0.0.1 is a forwarded PC (or the Simulator's Mac) and
+/// tags as one, like LAN hosts. Everything else is a cloud API.
+func routeOf(_ p: Provider, model: InstalledModel? = nil) -> Route {
+    if p.kind == .local { return Route.localChat(model) }
+    if Loopback.isLoopbackURL(p.baseUrl) || isPrivateHost(p.baseUrl) { return .pcLan }
     return .cloudApi
+}
+
+/**
+ Route tags name the engine that actually runs a model on this phone: Core ML image models on
+ the Neural Engine (or the GPU), llama.cpp chat on Metal. "CPU" only when the user forced the
+ CPU for that model (Models › Compute).
+ */
+extension Route {
+    /// An on-device Core ML image model: the user's backend if they chose one, else where `.auto`
+    /// runs it (the GPU for "original"-attention builds, the Neural Engine otherwise).
+    static func onDeviceImage(_ model: InstalledModel?) -> Route {
+        switch model?.backend ?? .auto {
+        case .cpu: return .localCpu
+        case .gpu: return .localGpu
+        case .npu: return .localNpu
+        case .auto: return model.map(prefersGpu) == true ? .localGpu : .localNpu
+        }
+    }
+
+    /// An on-device chat model (llama.cpp): Metal unless the user forced the CPU. llama.cpp has
+    /// no Neural Engine backend, so "npu" also runs on the GPU.
+    static func localChat(_ model: InstalledModel?) -> Route {
+        model?.backend == .cpu ? .localCpu : .localGpu
+    }
+
+    /// An image backend: on-device (with its selected model), else a PC (LAN or loopback, see [routeOf]).
+    static func imageBackend(_ backend: DiffusionBackend, model: InstalledModel?) -> Route {
+        if backend.kind == .onDevice { return onDeviceImage(model) }
+        return .pcLan
+    }
+
+    /// Core ML packages compiled with "original" attention run on the GPU under `.auto`
+    /// (`CoreMLDiffusionModel.preferredBackend`); split-einsum ones on the Neural Engine.
+    private static func prefersGpu(_ model: InstalledModel) -> Bool {
+        let marker = "/original/"
+        return model.id.contains(":original") || model.manifest.files.contains { $0.url.contains(marker) }
+    }
 }
 
 func isPrivateHost(_ url: String) -> Bool {

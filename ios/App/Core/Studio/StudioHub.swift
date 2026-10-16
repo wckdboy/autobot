@@ -15,7 +15,7 @@ struct ComfyServer: Codable, Identifiable, Equatable, Hashable, Sendable {
 
     var isLoopback: Bool { Loopback.isLoopbackURL(baseUrl) }
     var routeOverride: RouteOverride { RouteOverride(rawValue: routing) ?? .inherit }
-    var route: Route { isLoopback ? .localCpu : isPrivateHost(baseUrl) ? .pcLan : .cloudApi }
+    var route: Route { isLoopback || isPrivateHost(baseUrl) ? .pcLan : .cloudApi }
 }
 
 /// One X/Y grid run, kept while the Studio is open so its result grid can be shown.
@@ -307,6 +307,7 @@ final class StudioHub {
     func deleteAsset(_ id: String) {
         host.remove(kind: StudioStoreBridgeCompanion.shared.ASSETS, id: id)
         library.apply(kind: StudioStoreBridgeCompanion.shared.ASSETS, id: id, json: nil)
+        StudioThumbs.remove(id)
         let files = files
         Task.detached { files.delete(id) }
     }
@@ -330,6 +331,13 @@ final class StudioHub {
 
     /// A small image of an image or video asset (decoded, cached by the caller).
     func thumbnail(_ asset: StudioAsset) async -> UIImage? {
+        if let cached = StudioThumbs.get(asset.id) { return cached }
+        let image = await loadThumbnail(asset)
+        if let image { StudioThumbs.put(asset.id, image) }
+        return image
+    }
+
+    private func loadThumbnail(_ asset: StudioAsset) async -> UIImage? {
         let files = files, id = asset.id, isVideo = asset.type == .video
         let data: Data? = await Task.detached {
             if let t = files.thumbnail(id) { return t }

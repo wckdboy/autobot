@@ -59,18 +59,13 @@ private enum ModeKind: CaseIterable {
     }
 }
 
-/// Privacy Center (port of `PrivacyCenterScreen.kt`): network mode, kill switch, live audit log,
-/// panic wipe.
+/// Privacy Center (port of `PrivacyCenterScreen.kt`): network mode, loopback, live audit log.
+/// Panic wipe lives in Settings › Privacy & security (one home per thing).
 struct PrivacyCenterScreen: View {
-    static let wipeConfirmation = "WIPE"
-
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
     @State private var audit: [AuditRow] = []
-    @State private var showWipe = false
-    @State private var typed = ""
-    @State private var wiping = false
 
     var body: some View {
         let settings = app.settings.settings
@@ -96,8 +91,6 @@ struct PrivacyCenterScreen: View {
                         Text("No requests").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
                     }
                     ForEach(audit) { AuditRowView(row: $0) }
-                    Hairline().padding(.vertical, 16)
-                    wipePanel
                 }
                 .padding(.bottom, 32)
             }
@@ -108,45 +101,10 @@ struct PrivacyCenterScreen: View {
                 audit = entries.reversed().map(AuditRow.init)
             }
         }
-        .alert("Wipe everything?", isPresented: $showWipe) {
-            TextField("Confirmation", text: $typed)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-            Button("Wipe", role: .destructive) { wipe() }
-                .disabled(typed != Self.wipeConfirmation)
-            Button("Cancel", role: .cancel) { typed = "" }
-        } message: {
-            Text("All keys and data will be destroyed and the app will close. Type WIPE to confirm.")
-        }
-    }
-
-    private var wipePanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Panic wipe").textStyle(.titleMedium).foregroundStyle(c.error)
-            Text("Destroys every key and all data, then closes the app.")
-                .textStyle(.bodySmall)
-                .foregroundStyle(c.onSurfaceVariant)
-                .fixedSize(horizontal: false, vertical: true)
-            GhostButton("Wipe everything", accent: c.error, enabled: !wiping, busy: wiping) {
-                typed = ""
-                showWipe = true
-            }
-        }
-        .padding(.horizontal, Tokens.Spacing.gutter)
     }
 
     private func header(_ text: String) -> some View {
         SectionLabel(text).padding(.horizontal, Tokens.Spacing.gutter).padding(.top, 16).padding(.bottom, 4)
-    }
-
-    /// Wipes all local data and keys, then kills the process. Requires the typed confirmation.
-    private func wipe() {
-        guard typed == Self.wipeConfirmation, !wiping else { return }
-        wiping = true
-        Task {
-            _ = await app.panicWipe.wipe()
-            app.panicWipe.killProcess()
-        }
     }
 }
 

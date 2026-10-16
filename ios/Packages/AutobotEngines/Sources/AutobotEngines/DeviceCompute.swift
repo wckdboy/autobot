@@ -121,6 +121,7 @@ public struct DeviceCompute: Sendable, Codable, Hashable {
         "iPhone18,2": ("iPhone 17 Pro Max", "A19 Pro"),
         "iPhone18,3": ("iPhone 17", "A19"),
         "iPhone18,4": ("iPhone Air", "A19 Pro"),
+        "iPhone18,5": ("iPhone 17e", "A19"),
         "iPad13,4": ("iPad Pro 11-inch (3rd generation)", "M1"),
         "iPad13,5": ("iPad Pro 11-inch (3rd generation)", "M1"),
         "iPad13,6": ("iPad Pro 11-inch (3rd generation)", "M1"),

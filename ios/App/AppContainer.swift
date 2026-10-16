@@ -176,6 +176,7 @@ final class AppContainer {
     /// Drops decrypted content cached for rendering (gallery thumbnails, parsed chat text): panic wipe.
     static func clearDecryptedCaches() {
         GalleryThumbs.removeAll()
+        StudioThumbs.removeAll()
         MarkdownCache.shared.removeAll()
     }
 

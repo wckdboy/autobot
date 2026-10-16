@@ -46,6 +46,11 @@ targets:
       - path: ../core/designsystem/src/main/res/font/jetbrains_mono.ttf
         group: App/Resources/Fonts
         buildPhase: resources
+      # This version's release notes (Settings › About), rewritten by scripts/release.sh each
+      # release; referenced from shared/, not copied.
+      - path: ../shared/release/whats-new.md
+        group: App/Resources
+        buildPhase: resources
     dependencies:
       - package: AutobotEngines
         product: AutobotEngines
