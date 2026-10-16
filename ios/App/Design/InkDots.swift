@@ -73,7 +73,8 @@ extension InkMath {
 
     // MARK: Living cards
 
-    /// Living card dots: radius multiplier (0.1…1) of a dot whose wave phase is [phase] (radians)
+    /// Living card dots: radius multiplier (0.24…1, so every dot stays visible at the wave's low
+    /// point) of a dot whose wave phase is [phase] (radians)
     /// at [seconds], one cycle per [period] s. The time is reduced to the cycle first, so the
     /// period is exact whatever the size of [seconds].
     static func cardWave(phase: Double, seconds: Double, period: Double) -> Double {
@@ -82,7 +83,7 @@ extension InkMath {
 
     /// The same at a [cycle] position (0…1).
     static func cardWave(phase: Double, cycle: Double) -> Double {
-        0.55 + 0.45 * sin(phase - 2 * .pi * cycle)
+        0.62 + 0.38 * sin(phase - 2 * .pi * cycle)
     }
 }
 
@@ -349,7 +350,7 @@ enum InkField {
         path(grid, cycle: InkMath.cycle(seconds / period), seed: seed, scale: scale, fill: fill)
     }
 
-    /// One frame at wave position [cycle] (0…1): r = base·w·(0.55 + 0.45·sin(kx·x + ky·y − 2π·cycle)).
+    /// One frame at wave position [cycle] (0…1): r = base·w·(0.62 + 0.38·sin(kx·x + ky·y − 2π·cycle)).
     static func path(_ grid: InkDotGrid, cycle: Double, seed: Double = 0, scale: Double = InkGrid.cardRadiusShare, fill: Double = 1) -> Path {
         var path = Path()
         for (i, r) in radii(grid, cycle: cycle, seed: seed, scale: scale, fill: fill).enumerated() {

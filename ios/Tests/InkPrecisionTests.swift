@@ -128,14 +128,14 @@ struct InkPrecisionTests {
 
     @Test func cardWaveHasAnExactPeriodAndAFixedWaveVector() {
         let period = Double(Tokens.Motion.cardWavePeriodSeconds)
-        // r = base·(0.55 + 0.45·sin(kx·x + ky·y − ωt)), ω = 2π / period.
+        // r = base·(0.62 + 0.38·sin(kx·x + ky·y − ωt)), ω = 2π / period.
         for (x, y) in [(0.0, 0.0), (37.5, 81), (300, 12)] {
             for t in [0.0, 1.3, 7.9, 811_000_123.4] {
                 let r = InkGrid.cardRadius(base: 4, x: x, y: y, cycle: InkMath.cycle(t / period))
-                let reference = 4 * (0.55 + 0.45 * sin(InkGrid.cardKx * x + InkGrid.cardKy * y - 2 * .pi * InkMath.cycle(t / period)))
+                let reference = 4 * (0.62 + 0.38 * sin(InkGrid.cardKx * x + InkGrid.cardKy * y - 2 * .pi * InkMath.cycle(t / period)))
                 #expect(abs(r - reference) < 1e-12)
                 #expect(abs(InkMath.cardWave(phase: 1, seconds: t, period: period) - InkMath.cardWave(phase: 1, seconds: t + period, period: period)) < 1e-9)
-                #expect(r >= 0.1 * 4 - 1e-12 && r <= 4 + 1e-12)
+                #expect(r >= 0.24 * 4 - 1e-12 && r <= 4 + 1e-12)
             }
         }
         // A dot keeps its phase when the surface resizes: the phase is kx·x + ky·y in points.

@@ -136,9 +136,9 @@ enum InkGrid {
     /// The share of the pitch a living card's largest dot reaches (diameter 0.72 pitch < pitch).
     static let cardRadiusShare = 0.36
 
-    /// r = base·(0.55 + 0.45·sin(kx·x + ky·y − 2π·τ)), [cycle] τ = elapsed / period (0…1).
+    /// r = base·(0.62 + 0.38·sin(kx·x + ky·y − 2π·τ)), [cycle] τ = elapsed / period (0…1).
     static func cardRadius(base: Double, x: Double, y: Double, cycle: Double) -> Double {
-        base * (0.55 + 0.45 * sin(cardKx * x + cardKy * y - 2 * .pi * cycle))
+        base * (0.62 + 0.38 * sin(cardKx * x + cardKy * y - 2 * .pi * cycle))
     }
 }
 

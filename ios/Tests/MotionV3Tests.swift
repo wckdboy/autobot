@@ -80,7 +80,7 @@ struct MotionV3Tests {
         let period = Double(Tokens.Motion.cardWavePeriodSeconds)
         let a = InkMath.cardWave(phase: 1, seconds: 2, period: period)
         #expect(abs(a - InkMath.cardWave(phase: 1, seconds: 2 + period, period: period)) < 1e-9)
-        #expect(a >= 0.1 && a <= 1)
+        #expect(a >= 0.24 && a <= 1)
     }
 
     @Test func cardGridIsCachedAndCapped() {
