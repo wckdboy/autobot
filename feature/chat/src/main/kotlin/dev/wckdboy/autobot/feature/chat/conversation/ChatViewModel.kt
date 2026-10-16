@@ -17,6 +17,10 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
+import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
+import dev.wckdboy.autobot.providers.remote.ThinkingDefaults
+import dev.wckdboy.autobot.providers.remote.ThinkingSupport
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.loop.LiveStream
@@ -95,6 +99,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -126,7 +132,18 @@ data class ProviderOption(
 }
 
 @Immutable
-data class LiveUi(val text: String, val reasoning: String, val toolNames: List<String>, val tokensPerSecond: Float?)
+data class LiveUi(
+    val text: String,
+    val reasoning: String,
+    val toolNames: List<String>,
+    val tokensPerSecond: Float?,
+    /** Reasoning tokens counted by the engine (on-device), null when unknown. */
+    val reasoningTokens: Int? = null,
+    /** The reasoning closed; the answer streams. */
+    val reasoningDone: Boolean = false,
+    /** "budget" or "loop" when the engine ended the reasoning early. */
+    val reasoningStop: String? = null,
+)
 
 @Immutable
 data class ApprovalUi(
@@ -194,6 +211,12 @@ data class ChatUiState(
     val voice: VoiceUi? = null,
     /** Files the agent changed in this chat, per turn (the "changes" sheet). */
     val changes: List<ChangeGroup> = emptyList(),
+    /** The Think switch requests use now. */
+    val thinking: ThinkingSetting = ThinkingSetting.AUTO,
+    /** Whether the chat's model reasons (the Think chip shows unless [ThinkingSupport.NONE]). */
+    val thinkingSupport: ThinkingSupport = ThinkingSupport.NONE,
+    /** The user's Think default for this chat's model, if set. */
+    val thinkingDefault: ThinkingSetting? = null,
 )
 
 /**
@@ -302,7 +325,10 @@ class ChatViewModel @AssistedInject constructor(
             Transcript(projection, steps, approvals, question)
         }
         combine(transcript, a.status, a.config, a.permission) { t, status, config, permission ->
-            AgentSnapshot(t.projection, t.stepNumbers, status == AgentStatus.RUNNING, t.approvals, t.question, config.toolsEnabled, permission)
+            AgentSnapshot(
+                t.projection, t.stepNumbers, status == AgentStatus.RUNNING, t.approvals, t.question, config.toolsEnabled, permission,
+                config.llm.thinking ?: ThinkingSetting.AUTO,
+            )
         }
     }.catch { e ->
         notice.value = "Cannot show this chat: ${userMessage(e)}"
@@ -337,7 +363,24 @@ class ChatViewModel @AssistedInject constructor(
         val question: QuestionUi? = null,
         val toolsEnabled: Boolean = true,
         val permission: PermissionPreset = PermissionPreset.WORKSPACE,
+        val thinking: ThinkingSetting = ThinkingSetting.AUTO,
     )
+
+    private data class ThinkingInfo(val support: ThinkingSupport = ThinkingSupport.NONE, val default: ThinkingSetting? = null)
+
+    /** Whether the chat's model reasons, and the user's default for it; follows the route and Settings. */
+    private val thinkingInfo: Flow<ThinkingInfo> = routing.map { (conversation, withModels, _) ->
+        val provider = withModels.first.firstOrNull { it.id == conversation?.providerId } ?: withModels.first.firstOrNull()
+        val model = conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel
+        if (provider == null || model.isNullOrBlank()) null else provider.id to model
+    }.distinctUntilChanged().combine(host.thinkingDefaults) { target, text -> target to text }
+        .mapLatest { (target, text) ->
+            if (target == null) ThinkingInfo() else ThinkingInfo(
+                runCatching { host.thinkingSupport(target.first, target.second) }.getOrDefault(ThinkingSupport.NONE),
+                ThinkingDefaults.get(text, target.first, target.second),
+            )
+        }
+        .catch { emit(ThinkingInfo()) }
 
     private data class VoiceSnapshot(val dictation: Dictation, val dictated: String?, val speakingKey: String?, val mode: VoiceUi?)
 
@@ -392,9 +435,10 @@ class ChatViewModel @AssistedInject constructor(
             speakingKey = v.speakingKey,
             voice = v.mode,
             changes = snap.projection.changes,
+            thinking = snap.thinking,
             loaded = true,
         )
-    }
+    }.combine(thinkingInfo.onStart { emit(ThinkingInfo()) }) { state, info -> state.copy(thinkingSupport = info.support, thinkingDefault = info.default) }
 
     val uiState: StateFlow<ChatUiState> = baseState
         .flowOn(Dispatchers.Default)
@@ -460,6 +504,9 @@ class ChatViewModel @AssistedInject constructor(
             reasoning = reasoning,
             toolNames = toolCalls.mapNotNull { it.name },
             tokensPerSecond = if (seconds > 0.5f && approxTokens > 0) approxTokens / seconds else null,
+            reasoningTokens = reasoningTokens,
+            reasoningDone = reasoningDone,
+            reasoningStop = reasoningStop,
         )
     }
 
@@ -737,6 +784,7 @@ class ChatViewModel @AssistedInject constructor(
         when (parts[0].lowercase()) {
             "compact" -> compact()
             "tools" -> setToolsEnabled(arg != "off")
+            "think" -> parseThinking(arg)?.let(::setThinking) ?: run { notice.value = "usage: /think off | auto | on [budget]" }
             "permission", "perm" -> {
                 val preset = PermissionPreset.fromLabel(arg) ?: PermissionPreset.entries.firstOrNull { it.name.equals(arg, true) }
                 if (preset == null) notice.value = "usage: /permission read-only | workspace-write | full-access" else setPermission(preset)
@@ -783,6 +831,17 @@ class ChatViewModel @AssistedInject constructor(
 
     override fun setToolsEnabled(enabled: Boolean) {
         viewModelScope.launchSafely(::failed) { host.setToolsEnabled(conversationId, enabled) }
+    }
+
+    override fun setThinking(setting: ThinkingSetting) {
+        viewModelScope.launchSafely(::failed) { host.setThinking(conversationId, setting) }
+    }
+
+    override fun setThinkingDefault(setting: ThinkingSetting?) {
+        val state = uiState.value
+        val provider = state.selectedProviderId ?: return
+        val model = state.selectedModel ?: return
+        viewModelScope.launchSafely(::failed) { host.setThinkingDefault(provider, model, setting) }
     }
 
     override fun setPermission(preset: PermissionPreset) {
@@ -913,4 +972,16 @@ private fun decodeThumbnail(bytes: ByteArray): ImageBitmap? {
     while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= THUMBNAIL_PX) sample *= 2
     val opts = BitmapFactory.Options().apply { inSampleSize = sample }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+}
+
+/** `/think off`, `/think auto`, `/think on`, `/think on 512` (or `/think 512`); null when unreadable. */
+internal fun parseThinking(arg: String): ThinkingSetting? {
+    val words = arg.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val number = words.firstNotNullOfOrNull { w -> w.removeSuffix("k").toIntOrNull()?.let { if (w.endsWith("k")) it * 1024 else it } }
+    return when (words.firstOrNull()) {
+        "off" -> ThinkingSetting.OFF
+        "auto" -> ThinkingSetting.AUTO
+        "on" -> ThinkingSetting(ThinkingMode.ON, number?.takeIf { it > 0 })
+        else -> number?.takeIf { it > 0 }?.let { ThinkingSetting(ThinkingMode.ON, it) }
+    }
 }

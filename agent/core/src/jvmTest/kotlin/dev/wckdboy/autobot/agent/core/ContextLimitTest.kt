@@ -85,6 +85,8 @@ class ContextLimitTest {
         advanceUntilIdle()
         val summary = model.calls.single { it.isSummary }
         assertEquals("cheap", summary.config.model)
+        // Summaries never reason: background work gets thinking off.
+        assertEquals(dev.wckdboy.autobot.agent.core.llm.ThinkingSetting.OFF, summary.config.thinking)
         assertEquals("pressure", agent.all<SessionEvent.CompactionStart>().single().reason)
         val receipt = agent.all<SessionEvent.TurnReceipt>().last()
         assertEquals(setOf("main-model", "cheap"), receipt.models.map { it.model }.toSet())

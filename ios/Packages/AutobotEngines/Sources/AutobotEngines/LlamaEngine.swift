@@ -7,6 +7,8 @@ import Synchronization
 public enum DeltaKind: Int32, Sendable {
     case content = 0
     case reasoning = 1
+    /// Reasoning progress JSON `{tokens, done, stop?}` (the engine counts the think span).
+    case reasoningStatus = 2
 }
 
 public struct ToolCall: Sendable, Codable, Hashable {
@@ -109,6 +111,13 @@ public actor LlamaEngine {
             session.initialize()
             return String(cString: autobot_llama_system_info())
         }
+    }
+
+    /// The chat template stored in the GGUF at [path] (`tokenizer.chat_template`), read from the file
+    /// header without loading the model: whether the model reasons, and whether that can be switched off.
+    public nonisolated static func chatTemplate(path: String) -> String? {
+        let template = takeString(autobot_llama_chat_template(path), free: autobot_llama_string_free)
+        return template.isEmpty ? nil : template
     }
 
     /// Info about the resident model (JSON: description, n_params, size_bytes, n_ctx, backend…), or nil.
@@ -284,7 +293,8 @@ private final class Session: @unchecked Sendable {
                 guard let bytes, let user else { return 0 }
                 let sink = Unmanaged<DeltaSink>.fromOpaque(user).takeUnretainedValue()
                 let text = String(decoding: UnsafeRawBufferPointer(start: bytes, count: len), as: UTF8.self)
-                sink.emit(DeltaKind(rawValue: kind) ?? .content, text)
+                // A kind this build does not know is dropped, never shown as answer text.
+                if let kind = DeltaKind(rawValue: kind) { sink.emit(kind, text) }
                 return 0
             }, user.toOpaque())
         }

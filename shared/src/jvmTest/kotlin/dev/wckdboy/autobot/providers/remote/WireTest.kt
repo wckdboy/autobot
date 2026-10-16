@@ -25,7 +25,7 @@ class WireTest {
     @Test
     fun anthropicRequestHoistsSystemMergesToolResultsAndMarksCacheBreakpoints() {
         val request = ChatRequest(
-            model = "claude-opus-5-5",
+            model = "claude-sonnet-4-6", // takes a temperature (the 5 family refuses one, see ThinkingWireTest)
             messages = listOf(
                 ChatMessage(ChatRole.SYSTEM, "Be brief."),
                 ChatMessage(ChatRole.USER, "Read two files"),

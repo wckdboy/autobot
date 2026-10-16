@@ -25,15 +25,17 @@ data class ModelMessage(
 /** Function schema sent to the model. */
 data class ToolSchema(val name: String, val description: String, val parameters: JsonObject)
 
-enum class ReasoningEffort { OFF, LOW, HIGH, MAX }
-
 /** Which adapter and model a call goes to, plus sampling knobs. */
 data class LlmCallConfig(
     val provider: String,
     val model: String,
     val temperature: Double? = null,
     val maxTokens: Int? = null,
-    val reasoningEffort: ReasoningEffort? = null,
+    /**
+     * The chat's Think switch; null leaves it to the default (auto on this device, the provider's
+     * own default elsewhere). Background calls (subagents, summaries, titles) send [ThinkingSetting.OFF].
+     */
+    val thinking: ThinkingSetting? = null,
 )
 
 /**
@@ -51,6 +53,12 @@ data class LlmCall(
 sealed interface StreamChunk {
     data class TextDelta(val text: String) : StreamChunk
     data class ReasoningDelta(val text: String) : StreamChunk
+
+    /**
+     * Reasoning progress, from engines that count it (on-device): [tokens] inside the think span so far,
+     * [done] once it closed, [stop] = "budget" or "loop" when the engine closed it early.
+     */
+    data class ReasoningStatus(val tokens: Int, val done: Boolean = false, val stop: String? = null) : StreamChunk
 
     /** Fragments with the same [index] form one call; [argumentsDelta] concatenates to raw JSON. */
     data class ToolCallDelta(val index: Int, val id: String?, val name: String?, val argumentsDelta: String) : StreamChunk

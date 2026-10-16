@@ -87,6 +87,7 @@ struct ChatOrganizationTests {
         f.conversations.setPinned([c.id], true)
         f.conversations.setArchived([c.id], true)
         f.conversations.move([c.id], to: folder.id)
+        f.conversations.waitForWrites()
 
         let reloaded = ConversationRepository(store: f.store)
         reloaded.load()

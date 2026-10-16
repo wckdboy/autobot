@@ -57,6 +57,13 @@ internal data class WireChatRequest(
     @SerialName("max_tokens") val maxTokens: Int? = null,
     val tools: List<WireTool>? = null,
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
+    // Thinking switches of other providers (see RemoteThinking); null fields are never encoded.
+    val reasoning: JsonObject? = null,
+    @SerialName("chat_template_kwargs") val chatTemplateKwargs: JsonObject? = null,
+    @SerialName("reasoning_budget_tokens") val reasoningBudgetTokens: Int? = null,
+    @SerialName("enable_thinking") val enableThinking: Boolean? = null,
+    @SerialName("thinking_budget") val thinkingBudget: Int? = null,
+    val thinking: JsonObject? = null,
 )
 
 @Serializable

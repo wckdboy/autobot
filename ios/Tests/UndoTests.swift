@@ -28,7 +28,7 @@ struct UndoTests {
         #expect(tool.change == nil)
         #expect(!tool.isUndone)
         let answer = #"{"type":"assistant","key":"e3","text":"hi","receipt":null,"turnChanges":null}"#
-        guard case .assistant(_, _, _, _, _, _, _, nil) = try decode(SessionItem.self, answer) else { Issue.record("expected no turn changes"); return }
+        guard case .assistant(_, _, _, _, _, _, _, nil, _) = try decode(SessionItem.self, answer) else { Issue.record("expected no turn changes"); return }
         // A projection from before undo has no `changes`.
         let projection = try decode(SessionProjection.self, #"{"items":[],"todos":[],"lastUsage":null,"contextWindow":null}"#)
         #expect(projection.changes.isEmpty)
@@ -36,7 +36,7 @@ struct UndoTests {
 
     @Test func turnChangesAndTheChangesSheetDecode() throws {
         let answer = #"{"type":"assistant","key":"e9","text":"done","turnChanges":{"turn":2,"files":2,"undone":true,"revertId":"revert-4","undoable":false}}"#
-        guard case .assistant(_, _, _, _, _, _, _, let changes?) = try decode(SessionItem.self, answer) else { Issue.record("expected turn changes"); return }
+        guard case .assistant(_, _, _, _, _, _, _, let changes?, _) = try decode(SessionItem.self, answer) else { Issue.record("expected turn changes"); return }
         #expect(changes == TurnChanges(turn: 2, files: 2, undone: true, revertId: "revert-4", undoable: false))
 
         let projection = try decode(SessionProjection.self, #"""

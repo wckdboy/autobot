@@ -38,8 +38,10 @@ import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 
 /**
- * Collapsible reasoning trace: an ultraviolet rule with a `∴ reasoning` header. Collapsed it
- * shows the last line as a ticker while [isThinking]; expanded it shows the full trace.
+ * Collapsible reasoning trace: an ultraviolet rule with a `∴ thinking · 412 tokens` header.
+ * Collapsed it shows the last line as a ticker while [isThinking]; expanded it shows the full
+ * trace. [tokens] is the engine's count (null: an estimate from the text, marked `≈`); [stop]
+ * says when the engine ended the reasoning early ("budget", "loop").
  */
 @Composable
 fun ThinkingDisclosure(
@@ -47,6 +49,8 @@ fun ThinkingDisclosure(
     modifier: Modifier = Modifier,
     isThinking: Boolean = false,
     initiallyExpanded: Boolean = false,
+    tokens: Int? = null,
+    stop: String? = null,
 ) {
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
     val rotation = animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
@@ -65,8 +69,8 @@ fun ThinkingDisclosure(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (isThinking) HalftoneStrip(color = accent, cell = 3.dp)
-                MicroLabel(if (isThinking) "∴ thinking" else "∴ reasoning", color = accent)
-                MicroLabel("${reasoning.length / 4} tok", color = MaterialTheme.colorScheme.outline)
+                MicroLabel(if (isThinking) "∴ thinking" else "∴ thought", color = accent)
+                MicroLabel(thinkingMeta(reasoning, tokens, stop), color = MaterialTheme.colorScheme.outline)
                 Box(Modifier.weight(1f))
                 Icon(
                     Icons.Filled.KeyboardArrowDown,
@@ -99,6 +103,15 @@ fun ThinkingDisclosure(
     }
 }
 
+/** `412 tokens · stopped at budget`; `≈103 tok` when only the text length is known. */
+fun thinkingMeta(reasoning: String, tokens: Int?, stop: String?): String = buildString {
+    if (tokens != null && tokens > 0) append(tokens).append(if (tokens == 1) " token" else " tokens") else append("≈${reasoning.length / 4} tok")
+    when (stop) {
+        "budget" -> append(" · stopped at budget")
+        "loop" -> append(" · stopped: repeating")
+    }
+}
+
 @Preview(name = "ThinkingDisclosure", showBackground = true, backgroundColor = 0xFF09090B, widthDp = 360)
 @Composable
 private fun ThinkingDisclosurePreview() {
@@ -106,6 +119,7 @@ private fun ThinkingDisclosurePreview() {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ThinkingDisclosure("The user wants a reversed list…\nConsider asReversed().", isThinking = true)
             ThinkingDisclosure("First consider immutability. `reversed()` returns a new list.", initiallyExpanded = true)
+            ThinkingDisclosure("14:35 plus two hours is 16:35…", tokens = 140, stop = "budget")
         }
     }
 }

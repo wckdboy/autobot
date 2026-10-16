@@ -74,5 +74,5 @@ if(ANDROID)
 endif()
 if(APPLE)
     # Newer core entry points are weak in the bench, so an older core still links.
-    target_link_options(llama_bench PRIVATE "-Wl,-U,_autobot_llama_load_abortable")
+    target_link_options(llama_bench PRIVATE "-Wl,-U,_autobot_llama_load_abortable" "-Wl,-U,_autobot_llama_chat_template")
 endif()

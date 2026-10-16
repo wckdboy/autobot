@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.providers.remote.ConnectionTestResult
 import dev.wckdboy.autobot.providers.remote.ErrorKind
 import dev.wckdboy.autobot.providers.remote.LocalChatRouter
 import dev.wckdboy.autobot.providers.remote.LocalLlmCodec
+import dev.wckdboy.autobot.providers.remote.LocalModelSize
 import dev.wckdboy.autobot.providers.remote.LocalModelState
 import dev.wckdboy.autobot.providers.remote.SystemAvailability
 import dev.wckdboy.autobot.providers.remote.SystemLlm
@@ -25,6 +26,9 @@ interface LocalSink {
     fun onContent(text: String)
     fun onReasoning(text: String)
 
+    /** Reasoning progress from the engine, JSON `{tokens, done, stop?}` (AUTOBOT_LLAMA_DELTA_REASONING_STATUS). */
+    fun onReasoningStatus(json: String)
+
     /** The engine's final result JSON (see [LocalLlmCodec.decodeResult]). */
     fun onResult(json: String)
     fun onFailure(message: String)
@@ -42,6 +46,12 @@ interface LocalEngine {
 
     /** The vision projector of [modelId], if it has one. */
     fun mmproj(modelId: String): String?
+
+    /**
+     * The chat template in [modelId]'s GGUF (`tokenizer.chat_template`, read from the file header
+     * without loading the model), or null: says whether the model reasons ([ThinkingSupport]).
+     */
+    fun chatTemplate(modelId: String): String? = null
 
     /** Installed, ready chat models (for the connection test). */
     fun readyModelCount(): Int
@@ -79,7 +89,7 @@ class LocalEngineChatProvider(private val engine: LocalEngine) : ChatProvider {
         system = system,
         gguf = { request ->
             sinkFlow("Model '${request.model}' is not installed on this device (Models tab)") { sink ->
-                engine.chat(request.model, LocalLlmCodec.encode(request, engine.mmproj(request.model)).toString(), sink)
+                engine.chat(request.model, LocalLlmCodec.encode(request, engine.mmproj(request.model), LocalModelSize.paramsB(request.model)).toString(), sink)
             }
         },
     )
@@ -102,6 +112,10 @@ class LocalEngineChatProvider(private val engine: LocalEngine) : ChatProvider {
 
                     override fun onReasoning(text: String) {
                         trySend(ChatEvent.ReasoningDelta(text))
+                    }
+
+                    override fun onReasoningStatus(json: String) {
+                        LocalLlmCodec.decodeStatus(json)?.let { trySend(it) }
                     }
 
                     override fun onResult(json: String) {

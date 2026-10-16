@@ -179,7 +179,7 @@ final class StreamRecorder: NSObject, SessionStreamListener, @unchecked Sendable
     }
 
     var answers: [String] {
-        (latest?.items ?? []).compactMap { if case .assistant(_, let text, _, _, _, _, _, _) = $0 { text } else { nil } }
+        (latest?.items ?? []).compactMap { if case .assistant(_, let text, _, _, _, _, _, _, _) = $0 { text } else { nil } }
     }
 
     var prompts: [String] {
@@ -187,7 +187,7 @@ final class StreamRecorder: NSObject, SessionStreamListener, @unchecked Sendable
     }
 
     var interrupted: Bool {
-        (latest?.items ?? []).contains { if case .assistant(_, _, _, let interrupted, _, _, _, _) = $0 { interrupted } else { false } }
+        (latest?.items ?? []).contains { if case .assistant(_, _, _, let interrupted, _, _, _, _, _) = $0 { interrupted } else { false } }
     }
 
     var notices: [String] { (latest?.items ?? []).compactMap { if case .notice(_, let text, _) = $0 { text } else { nil } } }
@@ -486,7 +486,7 @@ struct SharedRuntimeTests {
         #expect(await eventually { reopened.transcript.items.count == 2 })
         await runtime.send(ids[0], text: "q0b", images: [])
         #expect(await eventually {
-            reopened.transcript.items.contains { if case .assistant(_, let text, _, _, _, _, _, _) = $0 { text == "re: q0b" } else { false } }
+            reopened.transcript.items.contains { if case .assistant(_, let text, _, _, _, _, _, _, _) = $0 { text == "re: q0b" } else { false } }
         })
         #expect(conversations.get(ids[0])?.title == "q0")
         runtime.shutdown()

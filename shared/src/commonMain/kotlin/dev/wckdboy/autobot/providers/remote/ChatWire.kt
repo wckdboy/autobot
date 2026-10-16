@@ -39,19 +39,19 @@ interface ChatWire {
  *
  * @param includeUsage send `stream_options.include_usage` (only where the provider documents it).
  * @param echoExtraContent send tool calls' `extra_content` back (Gemini thought signatures).
- * @param reasoningEffort a `reasoning_effort` to send for a request, or null to send none.
+ * @param reasoning the thinking fields to send for a request ([RemoteThinking.openAi]); none by default.
  */
 class OpenAiWire(
     private val includeUsage: Boolean = true,
     private val echoExtraContent: Boolean = false,
-    private val reasoningEffort: (ChatRequest) -> String? = { null },
+    private val reasoning: (ChatRequest) -> OpenAiReasoning = { OpenAiReasoning() },
 ) : ChatWire {
     override val chatPath = "chat/completions"
 
     override fun headers(apiKey: String?): Map<String, String> = ProviderAuth.headers(AuthStyle.BEARER, apiKey)
 
     override fun encode(request: ChatRequest, fs: FileSystem): String =
-        OpenAiCodec.encodeRequest(request, includeUsage, fs, reasoningEffort(request), echoExtraContent)
+        OpenAiCodec.encodeRequest(request, includeUsage, fs, reasoning(request), echoExtraContent)
 
     override fun decoder(): StreamDecoder = SseDecoder()
 }

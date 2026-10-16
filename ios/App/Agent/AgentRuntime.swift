@@ -8,6 +8,9 @@ struct SessionSettings: Equatable, Sendable {
     var permission = PermissionPreset.workspace.label
     var provider = ""
     var model = ""
+    /// The chat's Think switch, and whether its model reasons ("NONE", "SWITCH", "ALWAYS": the chip shows unless NONE).
+    var thinking = ThinkingChoice()
+    var thinkingSupport = "NONE"
 
     var permissionPreset: PermissionPreset { PermissionPreset.fromLabel(permission) ?? .workspace }
 }
@@ -77,7 +80,10 @@ struct SessionUpdate: Sendable {
     init(_ state: ChatSessionState) {
         self.init(
             transcript: SessionTranscript(state.projection), live: state.live, running: state.running, approvals: state.approvals, question: state.question,
-            settings: SessionSettings(toolsEnabled: state.toolsEnabled, permission: state.permission, provider: state.provider, model: state.model),
+            settings: SessionSettings(
+                toolsEnabled: state.toolsEnabled, permission: state.permission, provider: state.provider, model: state.model,
+                thinking: ThinkingChoice(mode: state.thinking ?? "AUTO", budget: state.thinkingBudget), thinkingSupport: state.thinkingSupport ?? "NONE",
+            ),
         )
     }
 }
@@ -124,7 +130,10 @@ final class AgentSession {
             let projectionChanged = newValue.projection != transcript.projection
             var update = SessionUpdate(
                 transcript: nil, live: newValue.live, running: newValue.running, approvals: newValue.approvals, question: newValue.question,
-                settings: SessionSettings(toolsEnabled: newValue.toolsEnabled, permission: newValue.permission, provider: newValue.provider, model: newValue.model),
+                settings: SessionSettings(
+                    toolsEnabled: newValue.toolsEnabled, permission: newValue.permission, provider: newValue.provider, model: newValue.model,
+                    thinking: ThinkingChoice(mode: newValue.thinking ?? "AUTO", budget: newValue.thinkingBudget), thinkingSupport: newValue.thinkingSupport ?? "NONE",
+                ),
             )
             if projectionChanged { update.transcript = SessionTranscript(newValue.projection) }
             apply(update)
@@ -197,6 +206,54 @@ protocol AgentRuntime: AnyObject {
     func undoTurn(_ conversationId: String, turn: Int)
     /// Re-applies what an undo ([revertId]) put back.
     func redo(_ conversationId: String, revertId: String)
+    /// Sets the chat's Think switch (remembered with the chat).
+    func setThinking(_ conversationId: String, _ choice: ThinkingChoice)
+    /// The user's Think default for [model] on [provider] (Settings), if any.
+    func thinkingDefault(provider: String, model: String) -> ThinkingChoice?
+    /// Sets (nil: clears) [model]'s Think default; chats that never chose follow it.
+    func setThinkingDefault(provider: String, model: String, _ choice: ThinkingChoice?)
+}
+
+/// The chat's Think switch, as the shared `ThinkingSetting`: `mode` is OFF, AUTO or ON; `budget`
+/// (reasoning tokens) only for ON, nil there meaning the model's default.
+struct ThinkingChoice: Equatable, Hashable, Sendable {
+    var mode = "AUTO"
+    var budget: Int? = nil
+
+    static let auto = ThinkingChoice()
+    static let off = ThinkingChoice(mode: "OFF")
+    static let on = ThinkingChoice(mode: "ON")
+    /// Budgets offered for ON (nil: the model's default), as `ThinkingSetting.BUDGETS`.
+    static let budgets: [Int?] = [nil, 256, 512, 1024, 2048, 4096]
+
+    /// Tapping the chip: auto → on → off → auto.
+    var next: ThinkingChoice {
+        switch mode {
+        case "AUTO": .on
+        case "ON": .off
+        default: .auto
+        }
+    }
+
+    /// "think · auto", "think · off", "think · on", "think · 1k".
+    var chipLabel: String {
+        switch mode {
+        case "OFF": "think · off"
+        case "ON": budget.map { "think · \(Self.tokens($0))" } ?? "think · on"
+        default: "think · auto"
+        }
+    }
+
+    static func tokens(_ n: Int) -> String {
+        n >= 1000 ? (n % 1024 == 0 ? "\(n / 1024)k" : "\(n / 1000)k") : "\(n)"
+    }
+}
+
+/// Runtimes without a Think switch (the interim one).
+extension AgentRuntime {
+    func setThinking(_ conversationId: String, _ choice: ThinkingChoice) {}
+    func thinkingDefault(provider: String, model: String) -> ThinkingChoice? { nil }
+    func setThinkingDefault(provider: String, model: String, _ choice: ThinkingChoice?) {}
 }
 
 /// Runtimes without file tools have nothing to undo.
