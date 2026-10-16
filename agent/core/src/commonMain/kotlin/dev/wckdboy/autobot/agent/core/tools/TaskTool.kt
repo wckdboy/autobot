@@ -3,6 +3,7 @@ package dev.wckdboy.autobot.agent.core.tools
 import dev.wckdboy.autobot.agent.core.Hooks
 import dev.wckdboy.autobot.agent.core.Plugin
 import dev.wckdboy.autobot.agent.core.QuestionRequest
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.plugin
 import dev.wckdboy.autobot.agent.core.prompt.PromptSection
@@ -87,7 +88,8 @@ object TaskTool : ToolDefinition {
             else -> parentConfig.llm
         }
         val config = parentConfig.copy(
-            llm = llm,
+            // Subagents work in short tool steps: no reasoning (it costs a small model most of its output).
+            llm = llm.copy(thinking = ThinkingSetting.OFF),
             restriction = parentConfig.restriction.copy(deny = parentConfig.restriction.deny + name),
             maxStepsPerTurn = minOf(parentConfig.maxStepsPerTurn, MAX_STEPS),
             toolsEnabled = true,

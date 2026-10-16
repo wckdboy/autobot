@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.agent.core.Hooks
 import dev.wckdboy.autobot.agent.core.Plugin
 import dev.wckdboy.autobot.agent.core.RequestErrorDecision
 import dev.wckdboy.autobot.agent.core.ServiceKey
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.llm.LlmCall
 import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
 import dev.wckdboy.autobot.agent.core.llm.LlmErrorCode
@@ -121,7 +122,7 @@ class Compactor(private val retainRatio: Double = 0.16) {
         agent.recordModel(config)
         val messages = deriveMessages(entries) + ModelMessage(ModelRole.USER, SUMMARY_INSTRUCTION)
         val out = StringBuilder()
-        adapter.stream(LlmCall(config.copy(temperature = 0.2), messages, emptyList(), sessionId = agent.id)).collect { chunk ->
+        adapter.stream(LlmCall(config.copy(temperature = 0.2, thinking = ThinkingSetting.OFF), messages, emptyList(), sessionId = agent.id)).collect { chunk ->
             if (chunk is StreamChunk.TextDelta) out.append(chunk.text)
         }
         return out.toString().trim()

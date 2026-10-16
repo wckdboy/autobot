@@ -1,11 +1,13 @@
 package dev.wckdboy.autobot.providers.remote
 
+import dev.wckdboy.autobot.agent.core.llm.ThinkingPolicy
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -14,6 +16,11 @@ import kotlinx.serialization.json.put
  * Requests to and results from the on-device llama.cpp engine (`autobot_llama` core, used by the
  * Android `:llm` process and the iOS engine alike): OpenAI-shaped messages and tools in, a result
  * object with tool calls, usage and finish reason out.
+ *
+ * Thinking goes through the model's chat template (`enable_thinking`) and the engine's reasoning
+ * budget, as [ThinkingPolicy] plans it for the model's size: the answer keeps its own
+ * [DEFAULT_MAX_TOKENS] and the reasoning budget comes on top. The engine ends a think span at the
+ * budget, when it repeats itself, or when the answer would get less than `min_answer_tokens`.
  */
 object LocalLlmCodec {
     /**
@@ -23,7 +30,14 @@ object LocalLlmCodec {
      */
     const val CANCELLED = "CANCELLED"
 
-    fun encode(request: ChatRequest, mmproj: String? = null): JsonObject = buildJsonObject {
+    /** Answer tokens of a request that sets none. */
+    const val DEFAULT_MAX_TOKENS = 2048
+
+    /**
+     * @param paramsB the model's size in billions of parameters ([LocalModelSize]); scales the
+     *   reasoning budget (null: treated as a large model).
+     */
+    fun encode(request: ChatRequest, mmproj: String? = null, paramsB: Double? = null): JsonObject = buildJsonObject {
         put(
             "messages",
             buildJsonArray {
@@ -62,6 +76,9 @@ object LocalLlmCodec {
                                 )
                             }
                             m.toolCallId?.let { put("tool_call_id", it) }
+                            // Only what the adapter kept (the current turn's tool steps): templates
+                            // that want it back render it, the others ignore it.
+                            m.reasoning?.takeIf { it.isNotEmpty() && m.role == ChatRole.ASSISTANT }?.let { put("reasoning_content", it) }
                         },
                     )
                 }
@@ -88,7 +105,30 @@ object LocalLlmCodec {
         }
         mmproj?.let { put("mmproj", it) }
         request.temperature?.let { put("temperature", it) }
-        put("max_tokens", request.maxTokens ?: 2048)
+        val answer = request.maxTokens ?: DEFAULT_MAX_TOKENS
+        // Planned against answer + an equal share for reasoning, so the answer never pays for it.
+        val plan = ThinkingPolicy.plan(request.thinking, request.quickChat, paramsB, outputLimit = answer * 2)
+        val budget = plan.budget
+        if (plan.enabled && budget != null) {
+            put("enable_thinking", true)
+            put("reasoning_budget", budget)
+            put("min_answer_tokens", plan.answerReserve)
+            put("max_tokens", answer + budget)
+        } else {
+            put("enable_thinking", false)
+            put("max_tokens", answer)
+        }
+    }
+
+    /** A streamed reasoning progress delta (`{tokens, done, stop?}`), or null when malformed. */
+    fun decodeStatus(json: String): ChatEvent.ReasoningStatus? {
+        val o = runCatching { OpenAiCodec.parseJson(json) as JsonObject }.getOrNull() ?: return null
+        val tokens = (o["tokens"] as? JsonPrimitive)?.intOrNull ?: return null
+        return ChatEvent.ReasoningStatus(
+            tokens = tokens,
+            done = (o["done"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            stop = (o["stop"] as? JsonPrimitive)?.contentOrNull,
+        )
     }
 
     fun decodeResult(json: String): List<ChatEvent> {
@@ -113,10 +153,18 @@ object LocalLlmCodec {
                 (co["arguments"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
             )
         }
-        (o["usage"] as? JsonObject)?.let { u ->
+        val usage = o["usage"] as? JsonObject
+        val reasoningTokens = usage?.get("reasoning_tokens")?.jsonPrimitive?.intOrNull
+        (o["reasoning_stop"] as? JsonPrimitive)?.contentOrNull?.let { stop ->
+            events += ChatEvent.ReasoningStatus(reasoningTokens ?: 0, done = true, stop = stop)
+        }
+        usage?.let { u ->
             val prompt = u["prompt_tokens"]?.jsonPrimitive?.intOrNull
             val completion = u["completion_tokens"]?.jsonPrimitive?.intOrNull
-            events += ChatEvent.Usage(prompt, completion, if (prompt != null && completion != null) prompt + completion else null)
+            events += ChatEvent.Usage(
+                prompt, completion, if (prompt != null && completion != null) prompt + completion else null,
+                reasoningTokens = reasoningTokens?.takeIf { it > 0 },
+            )
         }
         (o["finish_reason"] as? JsonPrimitive)?.contentOrNull?.let { events += ChatEvent.Finish(it) }
         events += ChatEvent.Done

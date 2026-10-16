@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.providers.remote
 
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import kotlinx.coroutines.flow.Flow
 
 enum class ChatRole { SYSTEM, USER, ASSISTANT, TOOL }
@@ -45,7 +46,15 @@ data class ChatRequest(
     val tools: List<ToolSpec> = emptyList(),
     val echoReasoning: Boolean = false,
     val sessionKey: String? = null,
-)
+    /**
+     * The chat's Think switch (null: not set, the default applies). Each wire maps it to the
+     * provider's own control, and only for models that have one ([RemoteThinking], [LocalLlmCodec]).
+     */
+    val thinking: ThinkingSetting? = null,
+) {
+    /** A plain chat: no tools offered (the agent's tools are off, or the model has none). */
+    val quickChat: Boolean get() = tools.isEmpty()
+}
 
 /** Streaming output of [ChatProvider.streamChat]. */
 sealed interface ChatEvent {
@@ -57,7 +66,10 @@ sealed interface ChatEvent {
      * [id] and [name] arrive first, [argumentsDelta] is appended across fragments.
      */
     data class ToolCallDelta(val index: Int, val id: String?, val name: String?, val argumentsDelta: String) : ChatEvent
-    data class Usage(val promptTokens: Int?, val completionTokens: Int?, val totalTokens: Int?) : ChatEvent
+    data class Usage(val promptTokens: Int?, val completionTokens: Int?, val totalTokens: Int?, val reasoningTokens: Int? = null) : ChatEvent
+
+    /** Reasoning progress counted by the engine (on-device): see [dev.wckdboy.autobot.agent.core.llm.StreamChunk.ReasoningStatus]. */
+    data class ReasoningStatus(val tokens: Int, val done: Boolean = false, val stop: String? = null) : ChatEvent
 
     /** The choice finished: `stop`, `length`, `tool_calls`, `content_filter`, … */
     data class Finish(val reason: String) : ChatEvent

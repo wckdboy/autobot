@@ -46,6 +46,10 @@ sealed interface SessionItem {
         val receipt: Receipt? = null,
         /** The files the turn changed ("Undo turn"), on the turn's last answer once the turn ended. */
         val turnChanges: TurnChanges? = null,
+        /** Reasoning tokens, when counted (the engine or the provider). */
+        val reasoningTokens: Int? = null,
+        /** "budget" or "loop" when the engine ended the reasoning early. */
+        val reasoningStop: String? = null,
     ) : SessionItem
 
     @Serializable
@@ -194,7 +198,10 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
                 e.fallback?.let { why -> items += SessionItem.Notice("${key}f", fallbackNotice(e.model.orEmpty(), why), NoticeKind.WARN) }
                 if (e.text.isNotBlank() || !e.reasoning.isNullOrBlank()) {
                     lastAnswer = items.size
-                    items += SessionItem.Assistant(key, e.text, e.reasoning, e.interrupted, e.usage?.outputTokens, e.model)
+                    items += SessionItem.Assistant(
+                        key, e.text, e.reasoning, e.interrupted, e.usage?.outputTokens, e.model,
+                        reasoningTokens = e.usage?.reasoningTokens, reasoningStop = e.reasoningStop,
+                    )
                 }
                 e.usage?.let { usage = it }
                 e.toolCalls.forEachIndexed { i, call ->

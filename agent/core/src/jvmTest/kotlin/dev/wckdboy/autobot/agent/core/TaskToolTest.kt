@@ -13,6 +13,9 @@ import dev.wckdboy.autobot.agent.core.session.InMemorySessionStore
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
+import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
+import dev.wckdboy.autobot.agent.core.loop.chooseThinking
 import dev.wckdboy.autobot.agent.core.tools.ToolDefinition
 import dev.wckdboy.autobot.agent.core.tools.ToolKind
 import dev.wckdboy.autobot.agent.core.tools.ToolOutput
@@ -164,6 +167,24 @@ class TaskToolTest {
 
         assertEquals(listOf("m"), adapter.calls.filter { it.isSubagent }.map { it.config.model })
         assertEquals("report", agent.all<SessionEvent.ToolResult>().single().content)
+    }
+
+    @Test
+    fun subagentsThinkNeverWhateverTheChatChose() = runTest {
+        val adapter = RoutingAdapter { call ->
+            when {
+                call.isSubagent -> reply("report")
+                call.toolResults.isEmpty() -> listOf(task("t1", "job", "a"), StreamChunk.Finish("tool_calls"))
+                else -> reply("ok")
+            }
+        }
+        val agent = agent(adapter)
+        agent.chooseThinking(ThinkingSetting(ThinkingMode.ON, 2048))
+        agent.followup("go")
+        advanceUntilIdle()
+
+        assertEquals(listOf(ThinkingSetting.OFF), adapter.calls.filter { it.isSubagent }.map { it.config.thinking })
+        assertTrue(adapter.calls.filterNot { it.isSubagent }.all { it.config.thinking == ThinkingSetting(ThinkingMode.ON, 2048) })
     }
 
     @Test

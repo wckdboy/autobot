@@ -68,7 +68,7 @@ data class ProviderPreset(
         else -> OpenAiWire(
             includeUsage = includeUsage,
             echoExtraContent = id == ProviderPresets.GEMINI,
-            reasoningEffort = if (id == ProviderPresets.OPENAI) ProviderPresets::openAiReasoningEffort else { _ -> null },
+            reasoning = { RemoteThinking.openAi(id, it) },
         )
     }
 

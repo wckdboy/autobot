@@ -5,6 +5,10 @@ import dev.wckdboy.autobot.agent.core.Harness
 import dev.wckdboy.autobot.agent.core.Hooks
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
+import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
+import dev.wckdboy.autobot.agent.core.loop.chooseThinking
+import dev.wckdboy.autobot.agent.core.loop.restoreThinking
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentConfig
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
@@ -38,6 +42,9 @@ import dev.wckdboy.autobot.providers.remote.ModelListResult
 import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.RemoteModel
+import dev.wckdboy.autobot.providers.remote.SystemModels
+import dev.wckdboy.autobot.providers.remote.ThinkingDefaults
+import dev.wckdboy.autobot.providers.remote.ThinkingSupport
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerSpec
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
@@ -169,7 +176,18 @@ fun interface RunningListener {
 }
 
 @Serializable
-class LiveState(val text: String, val reasoning: String, val toolNames: List<String>, val tokensPerSecond: Float?)
+class LiveState(
+    val text: String,
+    val reasoning: String,
+    val toolNames: List<String>,
+    val tokensPerSecond: Float?,
+    /** Reasoning tokens so far, when the engine counts them (on-device). */
+    val reasoningTokens: Int? = null,
+    /** The reasoning closed (the answer streams now). */
+    val reasoningDone: Boolean = false,
+    /** "budget" or "loop" when the engine ended the reasoning early. */
+    val reasoningStop: String? = null,
+)
 
 @Serializable
 class ApprovalState(
@@ -218,6 +236,9 @@ class LiveFrameStream(
     val toolCalls: List<LiveToolCall>,
     val toolNames: List<String>,
     val tokensPerSecond: Float?,
+    val reasoningTokens: Int? = null,
+    val reasoningDone: Boolean = false,
+    val reasoningStop: String? = null,
 )
 
 /**
@@ -237,6 +258,11 @@ class LiveFrame(
     val permission: String,
     val provider: String,
     val model: String,
+    /** The chat's Think switch: OFF, AUTO or ON, with [thinkingBudget] for ON (null: the model's default). */
+    val thinking: String = "AUTO",
+    val thinkingBudget: Int? = null,
+    /** Whether the Think chip shows for this model ([ThinkingSupport]): NONE, SWITCH or ALWAYS. */
+    val thinkingSupport: String = "NONE",
 )
 
 /** A [SessionState] without its projection, which [AgentBridge.open] encodes only when it changes. */
@@ -251,6 +277,11 @@ internal class SessionFrame(
     val permission: String,
     val provider: String,
     val model: String,
+    /** The chat's Think switch: OFF, AUTO or ON, with [thinkingBudget] for ON (null: the model's default). */
+    val thinking: String = "AUTO",
+    val thinkingBudget: Int? = null,
+    /** Whether the Think chip shows for this model ([ThinkingSupport]): NONE, SWITCH or ALWAYS. */
+    val thinkingSupport: String = "NONE",
 )
 
 /** Everything a chat screen renders, computed by the same code as on Android. */
@@ -266,6 +297,11 @@ class SessionState(
     val permission: String,
     val provider: String,
     val model: String,
+    /** The chat's Think switch: OFF, AUTO or ON, with [thinkingBudget] for ON (null: the model's default). */
+    val thinking: String = "AUTO",
+    val thinkingBudget: Int? = null,
+    /** Whether the Think chip shows for this model ([ThinkingSupport]): NONE, SWITCH or ALWAYS. */
+    val thinkingSupport: String = "NONE",
 )
 
 /**
@@ -529,6 +565,7 @@ class AgentBridge(
             PermissionPreset.fromLabel(change.preset)?.let { agent.setPermission(it) }
         }
         agent.log.latest<SessionEvent.AgentSettingsChanged>()?.let { s -> agent.updateConfig { it.copy(toolsEnabled = s.toolsEnabled) } }
+        agent.restoreThinking(ThinkingDefaults.get(thinkingDefaults, providerId, model))
         watchers[sessionId] = scope.launch {
             agent.status.collect { status ->
                 running.update { if (status == AgentStatus.RUNNING) it + sessionId else it - sessionId }
@@ -640,6 +677,9 @@ class AgentBridge(
                     permission = permission.label,
                     provider = config.llm.provider,
                     model = config.llm.model,
+                    thinking = (config.llm.thinking ?: ThinkingSetting.AUTO).mode.name,
+                    thinkingBudget = config.llm.thinking?.budget,
+                    thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                 ),
             )
         }.conflate().collect { json ->
@@ -715,6 +755,9 @@ class AgentBridge(
                         permission = permission.label,
                         provider = config.llm.provider,
                         model = config.llm.model,
+                        thinking = (config.llm.thinking ?: ThinkingSetting.AUTO).mode.name,
+                        thinkingBudget = config.llm.thinking?.budget,
+                        thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                     )
                     // Nothing new (e.g. a tick with an empty delta): no frame.
                     val signature = BridgeJson.encodeToString(LiveFrame.serializer(), frame.withFrame(0))
@@ -729,7 +772,7 @@ class AgentBridge(
         }
 
     private fun LiveFrame.withFrame(n: Long) =
-        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model)
+        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport)
 
     private val resyncs = HashMap<String, MutableStateFlow<Int>>()
 
@@ -794,7 +837,46 @@ class AgentBridge(
 
     fun setRoute(sessionId: String, providerId: String, model: String) {
         rememberRoute(sessionId, providerId, model)
-        withAgent(sessionId) { a -> a.updateConfig { it.copy(llm = it.llm.copy(provider = providerId, model = model)) } }
+        withAgent(sessionId) { a ->
+            a.updateConfig { it.copy(llm = it.llm.copy(provider = providerId, model = model)) }
+            a.restoreThinking(ThinkingDefaults.get(thinkingDefaults, providerId, model))
+        }
+    }
+
+    /**
+     * The user's Think defaults per model ([ThinkingDefaults] text, from Settings): a chat that
+     * never chose follows its model's default. Applies to open chats at once.
+     */
+    fun setThinkingDefaults(text: String?) {
+        thinkingDefaults = text
+        scope.launch {
+            mutex.withLock { agents.values.toList() }.forEach { a ->
+                a.restoreThinking(ThinkingDefaults.get(text, a.config.value.llm.provider, a.config.value.llm.model))
+            }
+        }
+    }
+
+    @kotlin.concurrent.Volatile
+    private var thinkingDefaults: String? = null
+
+    /** Sets [sessionId]'s Think switch (OFF, AUTO, ON) and remembers it with the chat; [budget] for ON (null: the model's default). */
+    fun setThinking(sessionId: String, mode: String, budget: Int?) = withAgent(sessionId) { a ->
+        val m = ThinkingMode.entries.firstOrNull { it.name == mode.uppercase() } ?: return@withAgent
+        a.chooseThinking(ThinkingSetting(m, budget?.takeIf { it > 0 && m == ThinkingMode.ON }))
+    }
+
+    /** Chat templates of on-device models by id, read once from their files (`""`: none). */
+    @kotlin.concurrent.Volatile
+    private var localTemplates: Map<String, String> = emptyMap()
+
+    /** Whether [model] on [providerId] reasons (and can be switched): decides whether the Think chip shows. */
+    fun thinkingSupport(providerId: String, model: String): ThinkingSupport {
+        val kind = providers.provider(providerId)?.kind ?: return ThinkingSupport.NONE
+        if (kind == ProviderKind.LOCAL && !SystemModels.isSystem(model)) {
+            val template = localTemplates[model] ?: runCatching { local.chatTemplate(model) }.getOrNull().orEmpty().also { localTemplates = localTemplates + (model to it) }
+            ThinkingSupport.fromTemplate(template)?.let { return it }
+        }
+        return ThinkingSupport.byName(kind, model)
     }
 
     private fun rememberRoute(sessionId: String, providerId: String, model: String) {
@@ -970,6 +1052,9 @@ class AgentBridge(
             toolCalls = toolCalls.map { LiveToolCall(it.index, it.id, it.name, it.argumentsLength) },
             toolNames = toolCalls.mapNotNull { it.name },
             tokensPerSecond = if (seconds > 0.5f && approxTokens > 0) approxTokens / seconds else null,
+            reasoningTokens = reasoningTokens,
+            reasoningDone = reasoningDone,
+            reasoningStop = reasoningStop,
         )
     }
 
@@ -981,6 +1066,9 @@ class AgentBridge(
             reasoning = reasoning,
             toolNames = toolCalls.mapNotNull { it.name },
             tokensPerSecond = if (seconds > 0.5f && approxTokens > 0) approxTokens / seconds else null,
+            reasoningTokens = reasoningTokens,
+            reasoningDone = reasoningDone,
+            reasoningStop = reasoningStop,
         )
     }
 
