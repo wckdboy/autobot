@@ -1,6 +1,9 @@
 // llama.cpp engine core: chat templates, tool-call grammars and parsing come from llama.cpp
 // `common` (the same code llama-server uses). The KV cache keeps the previous prompt so
-// multi-step agent turns only decode the new suffix. No JNI or platform APIs in here.
+// multi-step agent turns only decode the new suffix. Models whose memory cannot be cut back
+// to an arbitrary position (hybrid/recurrent ones such as Qwen3.5) keep small checkpoints of
+// that state near the end of each prompt instead, as llama-server does. No JNI or platform
+// APIs in here.
 
 #include "autobot_llama.h"
 
@@ -24,14 +27,24 @@
 #include "mtmd.h"
 #include "sampling.h"
 
+// A snapshot of the part of the memory that cannot be rolled back (recurrent state), taken
+// after the first `n_tokens` tokens of `cached` were decoded.
+struct Checkpoint {
+    size_t n_tokens = 0;
+    std::vector<uint8_t> data;
+};
+
 struct autobot_llama_session {
     llama_model * model = nullptr;
     llama_context * ctx = nullptr;
     common_chat_templates_ptr templates;
     std::vector<llama_token> cached;  // tokens currently in the KV cache (sequence 0)
+    bool partial_rm = true;           // the memory can drop any suffix (false: hybrid/recurrent models)
+    std::vector<Checkpoint> checkpoints;  // oldest first; only when !partial_rm
     std::atomic<bool> cancel{false};
-    uint64_t token = 0;                       // the running request's token (0: none or untokened)
+    std::atomic<uint64_t> token{0};           // the running request's token (0: none or untokened)
     std::atomic<uint64_t> cancel_token{0};    // last token asked to stop; kept until reused
+    std::atomic<bool> prefilling{false};      // the abort callback may interrupt a decode
     int n_ctx = 0;
     int n_batch = 512;
     std::string backend;  // "cpu", "gpu" or "npu": where the model actually loaded
@@ -46,6 +59,11 @@ namespace {
 using Session = autobot_llama_session;
 
 constexpr int PARSE_EVERY = 3;  // re-parse the partial output every N tokens
+
+// Checkpoints are taken this many tokens before the end of each prompt: the next turn's prompt
+// usually re-renders the end of this one (generation prompt, reasoning) a little differently.
+constexpr size_t CHECKPOINT_BACK = 4;
+constexpr size_t MAX_CHECKPOINTS = 3;
 
 std::atomic<autobot_llama_log_fn> g_log{nullptr};
 std::atomic<void *> g_log_user{nullptr};
@@ -162,22 +180,139 @@ void emit_extension(Sink & sink, int kind, std::string & emitted, const std::str
 }
 
 bool cancelled(const Session & s) {
-    return s.cancel.load() || (s.token != 0 && s.cancel_token.load() == s.token);
+    const uint64_t token = s.token.load();
+    return s.cancel.load() || (token != 0 && s.cancel_token.load() == token);
 }
 
-int decode_tokens(Session & s, const std::vector<llama_token> & tokens, size_t from, bool last_logits) {
+// ggml abort callback: stops a prompt decode between graph nodes, so a cancel during a long
+// prefill lands within milliseconds instead of after the current batch. Generation steps are
+// short and are not interrupted (an aborted step would cost a checkpoint restore).
+bool abort_requested(void * user) {
+    const auto * s = static_cast<const Session *>(user);
+    return s->prefilling.load(std::memory_order_relaxed) && cancelled(*s);
+}
+
+void forget_cache(Session & s) {
+    llama_memory_clear(llama_get_memory(s.ctx), true);
+    s.cached.clear();
+    s.checkpoints.clear();
+}
+
+// Cuts the cache back so that at most the first `keep` tokens of `cached` remain, and returns
+// how many do (fewer when a hybrid model has no checkpoint close enough).
+size_t truncate_cache(Session & s, size_t keep, bool resync = false) {
+    llama_memory_t mem = llama_get_memory(s.ctx);
+    keep = std::min(keep, s.cached.size());
+    s.checkpoints.erase(std::remove_if(s.checkpoints.begin(), s.checkpoints.end(),
+                                       [&](const Checkpoint & c) { return c.n_tokens > keep; }),
+                        s.checkpoints.end());
+    if (keep == s.cached.size() && !resync) return keep;
+    if (s.partial_rm) {
+        if (llama_memory_seq_rm(mem, 0, (llama_pos) keep, -1)) {
+            s.cached.resize(keep);
+            return keep;
+        }
+    } else if (!s.checkpoints.empty()) {
+        // Restore the newest checkpoint, then drop the attention cache after it.
+        const Checkpoint & c = s.checkpoints.back();
+        if (llama_state_seq_set_data_ext(s.ctx, c.data.data(), c.data.size(), 0, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == c.data.size() &&
+            llama_memory_seq_rm(mem, 0, (llama_pos) c.n_tokens, -1)) {
+            s.cached.resize(c.n_tokens);
+            return c.n_tokens;
+        }
+        LOGE("could not restore a checkpoint at %zu tokens", c.n_tokens);
+    }
+    forget_cache(s);
+    return 0;
+}
+
+void save_checkpoint(Session & s) {
+    for (const auto & c : s.checkpoints) {
+        if (c.n_tokens == s.cached.size()) return;
+    }
+    const size_t size = llama_state_seq_get_size_ext(s.ctx, 0, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
+    if (size == 0) return;
+    // The oldest one usually ends the system prompt, which every chat shares: keep it longest.
+    while (s.checkpoints.size() >= MAX_CHECKPOINTS) s.checkpoints.erase(s.checkpoints.begin() + (s.checkpoints.size() > 1 ? 1 : 0));
+    Checkpoint c;
+    c.n_tokens = s.cached.size();
+    c.data.resize(size);
+    if (llama_state_seq_get_data_ext(s.ctx, c.data.data(), size, 0, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) != size) return;
+    s.checkpoints.push_back(std::move(c));
+}
+
+// Decodes tokens[cached.size(), end) in batches, keeping `cached` in step with the memory.
+int decode_range(Session & s, const std::vector<llama_token> & tokens, size_t end, bool last_logits) {
     common_batch batch(s.ctx);
-    for (size_t i = from; i < tokens.size(); i += s.n_batch) {
-        const size_t end = std::min(tokens.size(), i + (size_t) s.n_batch);
+    while (s.cached.size() < end) {
+        const size_t from = s.cached.size();
+        const size_t to = std::min(end, from + (size_t) s.n_batch);
         batch.clear();
-        for (size_t j = i; j < end; ++j) {
-            batch.add(tokens[j], (llama_pos) j, 0, last_logits && j == tokens.size() - 1);
+        for (size_t j = from; j < to; ++j) {
+            batch.add(tokens[j], (llama_pos) j, 0, last_logits && j == end - 1);
         }
         if (cancelled(s)) return -2;
         const int rc = llama_process(s.ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+        if (rc == 2) return -2;  // aborted by abort_requested
         if (rc != 0) return rc;
+        s.cached.insert(s.cached.end(), tokens.begin() + (long) from, tokens.begin() + (long) to);
     }
     return 0;
+}
+
+// Decodes the uncached part of `prompt` (`cached` must be a prefix of it). When the memory
+// cannot be rolled back otherwise, takes checkpoints after the first `stable` tokens (the system
+// prompt, shared by every chat) and shortly before the end of the prompt.
+int decode_prompt(Session & s, const std::vector<llama_token> & prompt, size_t stable) {
+    struct Prefill {
+        Session & s;
+        explicit Prefill(Session & session) : s(session) { s.prefilling.store(true); }
+        ~Prefill() { s.prefilling.store(false); }
+    } prefill(s);
+    int rc = 0;
+    if (!s.partial_rm) {
+        const size_t near_end = prompt.size() > CHECKPOINT_BACK ? prompt.size() - CHECKPOINT_BACK : 0;
+        for (const size_t at : {std::min(stable, near_end), near_end}) {
+            if (at == 0 || at < s.cached.size()) continue;
+            rc = decode_range(s, prompt, at, false);
+            if (rc != 0) break;
+            save_checkpoint(s);
+        }
+    }
+    if (rc == 0) rc = decode_range(s, prompt, prompt.size(), true);
+    // A failed or aborted batch leaves nothing of itself in an attention cache, but a recurrent
+    // state cannot be rolled back: return to the last consistent point.
+    if (rc != 0 && !s.partial_rm) truncate_cache(s, s.cached.size(), true);
+    return rc;
+}
+
+// How many leading tokens of `prompt` render the system message(s) and tools alone: the part
+// every chat of the same agent shares. 0 when there is no such part or it cannot be told apart.
+size_t system_prefix(Session * s, const common_chat_templates_inputs & inputs, const std::string & text,
+                     const std::vector<llama_token> & prompt) {
+    size_t n_system = 0;
+    while (n_system < inputs.messages.size() && inputs.messages[n_system].role == "system") ++n_system;
+    if (n_system == 0 || n_system == inputs.messages.size()) return 0;
+    try {
+        // The same system part followed by a placeholder user turn (templates refuse a
+        // conversation without one): the rendered texts agree up to the user's words.
+        common_chat_templates_inputs head = inputs;
+        head.messages.resize(n_system);
+        common_chat_msg placeholder;
+        placeholder.role = "user";
+        placeholder.content = "\x01";
+        head.messages.push_back(placeholder);
+        head.add_generation_prompt = false;
+        const std::string rendered = common_chat_templates_apply(s->templates.get(), head).prompt;
+        size_t chars = 0;
+        while (chars < rendered.size() && chars < text.size() && rendered[chars] == text[chars]) ++chars;
+        const std::vector<llama_token> tokens = common_tokenize(s->ctx, text.substr(0, chars), true, true);
+        size_t n = 0;
+        while (n < tokens.size() && n < prompt.size() && tokens[n] == prompt[n]) ++n;
+        return n;  // tokens compared, so a cut that tokenizes differently only shortens it
+    } catch (const std::exception &) {
+        return 0;
+    }
 }
 
 std::string chat(Session * s, const std::string & request_text, Sink & sink) {
@@ -218,8 +353,7 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         size_t prompt_tokens = 0;
         int64_t prompt_us = 0;
         if (s->kv_dirty) {
-            llama_memory_clear(mem, true);
-            s->cached.clear();
+            forget_cache(*s);
             s->kv_dirty = false;
         }
 
@@ -256,8 +390,7 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                 return error_json("CONTEXT_WINDOW_EXCEEDED",
                     "prompt has " + std::to_string(prompt_tokens) + " tokens; context is " + std::to_string(s->n_ctx));
             }
-            llama_memory_clear(mem, true);
-            s->cached.clear();
+            forget_cache(*s);
             s->kv_dirty = true;
             const int64_t t_prompt = ggml_time_us();
             llama_pos n_past = 0;
@@ -276,18 +409,16 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
             }
             while (keep < prompt.size() && keep < s->cached.size() && prompt[keep] == s->cached[keep]) ++keep;
             if (keep == prompt.size()) keep = prompt.size() - 1;  // always re-evaluate the last token for logits
-            llama_memory_seq_rm(mem, 0, (llama_pos) keep, -1);
-            s->cached.resize(keep);
             const int64_t t_prompt = ggml_time_us();
-            const int rc = decode_tokens(*s, prompt, keep, true);
+            keep = truncate_cache(*s, keep);
+            const size_t stable = s->partial_rm ? 0 : system_prefix(s, inputs, chat.prompt, prompt);
+            const int rc = decode_prompt(*s, prompt, stable);
             prompt_us = ggml_time_us() - t_prompt;
             if (rc == -2) return error_json("CANCELLED", "cancelled");
             if (rc != 0) {
-                llama_memory_clear(mem, false);
-                s->cached.clear();
+                forget_cache(*s);
                 return error_json("DECODE_FAILED", "prompt decode failed (" + std::to_string(rc) + ")");
             }
-            s->cached = prompt;
             prompt_tokens = prompt.size();
             pos = (llama_pos) prompt.size();
         }
@@ -373,6 +504,8 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
             batch.clear();
             batch.add(tok, pos, 0, true);
             if (llama_process(s->ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+                // The memory may hold part of this step: return to a consistent point.
+                if (!s->partial_rm) truncate_cache(*s, s->cached.size(), true);
                 finish = "error";
                 break;
             }
@@ -516,7 +649,9 @@ autobot_llama_session * autobot_llama_load(const char * path_c, int n_ctx, int n
         s->n_ctx = (int) llama_n_ctx(ctx);
         s->backend = kind;
         s->templates = common_chat_templates_init(model, "");
-        LOGI("loaded %s on %s", path.c_str(), kind.c_str());
+        s->partial_rm = common_context_can_seq_rm(ctx) == COMMON_CONTEXT_SEQ_RM_TYPE_PART;
+        llama_set_abort_callback(ctx, abort_requested, s);
+        LOGI("loaded %s on %s%s", path.c_str(), kind.c_str(), s->partial_rm ? "" : " (prompt cache via checkpoints)");
         return s;
     }
     return nullptr;
@@ -545,10 +680,10 @@ char * autobot_llama_chat_request(autobot_llama_session * s, uint64_t token, con
                                   autobot_llama_delta_fn on_delta, void * user) {
     std::lock_guard<std::mutex> guard(s->lock);
     s->cancel.store(false);
-    s->token = token;
+    s->token.store(token);
     Sink sink{on_delta, user};
     char * result = dup(chat(s, std::string(request, request_len), sink));
-    s->token = 0;
+    s->token.store(0);
     return result;
 }
 
