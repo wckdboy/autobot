@@ -51,7 +51,9 @@ class LocalChatProviderTest {
         assertEquals("c1", (messages[2] as JsonObject)["tool_call_id"]!!.jsonPrimitive.content)
         val tool = (json["tools"] as JsonArray)[0] as JsonObject
         assertTrue((tool["function"] as JsonObject)["parameters"] is JsonObject)
-        assertEquals("2048", json["max_tokens"]!!.jsonPrimitive.content)
+        // Agent mode, size unknown (auto): the answer keeps 2048 tokens and the reasoning budget comes on top.
+        assertEquals("true", json["enable_thinking"]!!.jsonPrimitive.content)
+        assertEquals(2048 + json["reasoning_budget"]!!.jsonPrimitive.content.toInt(), json["max_tokens"]!!.jsonPrimitive.content.toInt())
     }
 
     @Test

@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.graphics.ImageBitmap
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 
 /** What the chat screen can ask of its [ChatViewModel] (an interface so the screen can be measured with a fake). */
@@ -32,6 +33,12 @@ interface ChatActions {
     fun refreshModels()
     fun setToolsEnabled(enabled: Boolean)
     fun setPermission(preset: PermissionPreset)
+
+    /** This chat's Think switch (remembered with the chat). */
+    fun setThinking(setting: ThinkingSetting)
+
+    /** The Think default for this chat's model (null: back to auto). */
+    fun setThinkingDefault(setting: ThinkingSetting?)
     fun compact()
     fun rename(title: String)
     fun setPinned(pinned: Boolean)

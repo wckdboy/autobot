@@ -9,7 +9,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -109,6 +112,9 @@ import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
+import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
+import dev.wckdboy.autobot.providers.remote.ThinkingLabels
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
@@ -166,6 +172,7 @@ private val BoundedText = Saver<MutableState<String>, String>(save = { it.value.
 private val COMMANDS = listOf(
     "/compact" to "summarize older history to free context",
     "/tools on|off" to "toggle tool use for this session",
+    "/think off|auto|on [budget]" to "reasoning for this chat",
     "/permission read-only|workspace-write|full-access" to "set the permission preset",
     "/model <id>" to "switch model",
     "/stop" to "cancel the running turn",
@@ -216,6 +223,7 @@ fun ChatScreen(
     var renaming by rememberSaveable { mutableStateOf(false) }
     var openReceipt by remember { mutableStateOf<Receipt?>(null) }
     var showChanges by rememberSaveable { mutableStateOf(false) }
+    var showThink by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val currentLive by rememberUpdatedState(live)
     // Read here (the screen recomposes when a reply starts or ends), never inside the list's
@@ -301,7 +309,7 @@ fun ChatScreen(
 
             if (state.todos.isNotEmpty() && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
             state.question?.let { QuestionCard(it, actions::answer) }
-            PolicyLine(state)
+            PolicyLine(state, onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) }, onThinkMore = { showThink = true })
             val voice = state.voice
             if (voice != null) {
                 VoicePanel(voice, micLevels, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
@@ -331,6 +339,7 @@ fun ChatScreen(
         )
     }
     openReceipt?.let { ReceiptSheet(it) { openReceipt = null } }
+    if (showThink) ThinkSheet(state, actions::setThinking, actions::setThinkingDefault) { showThink = false }
     if (renaming) {
         NameDialog(
             title = "Rename chat",
@@ -444,7 +453,7 @@ private fun AssistantMessage(
     onSpeak: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        item.reasoning?.takeIf { it.isNotEmpty() }?.let { ThinkingDisclosure(reasoning = it) }
+        item.reasoning?.takeIf { it.isNotEmpty() }?.let { ThinkingDisclosure(reasoning = it, tokens = item.reasoningTokens, stop = item.reasoningStop) }
         if (item.text.isNotEmpty()) {
             ChatBubble(
                 role = BubbleRole.ASSISTANT,
@@ -476,7 +485,14 @@ private fun AssistantMessage(
 @Composable
 private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (live.reasoning.isNotEmpty()) ThinkingDisclosure(reasoning = live.reasoning, isThinking = live.text.isEmpty())
+        if (live.reasoning.isNotEmpty()) {
+            ThinkingDisclosure(
+                reasoning = live.reasoning,
+                isThinking = !live.reasoningDone && live.text.isEmpty(),
+                tokens = live.reasoningTokens,
+                stop = live.reasoningStop,
+            )
+        }
         if (live.text.isEmpty() && live.reasoning.isEmpty() && live.toolNames.isEmpty()) {
             // Nothing to read yet: a tiny halftone strip instead of an empty bubble.
             HalftoneStrip(Modifier.padding(vertical = 6.dp))
@@ -694,14 +710,21 @@ private fun EmptySession(state: ChatUiState) {
 
 /** `POLICY · WORKSPACE · ASKS: DELETE, NETWORK`: what runs without asking, in a few words. */
 @Composable
-private fun PolicyLine(state: ChatUiState) {
-    if (!state.toolsEnabled) return
-    val text = when (state.permission) {
-        PermissionPreset.READ_ONLY -> "policy · read-only · asks: network"
-        PermissionPreset.WORKSPACE -> "policy · workspace · asks: delete, network"
-        PermissionPreset.FULL_ACCESS -> "policy · full access"
+private fun PolicyLine(state: ChatUiState, onThink: () -> Unit = {}, onThinkMore: () -> Unit = {}) {
+    val think = state.thinkingSupport.shown
+    if (!state.toolsEnabled && !think) return
+    val text = when {
+        !state.toolsEnabled -> ""
+        state.permission == PermissionPreset.READ_ONLY -> "policy · read-only · asks: network"
+        state.permission == PermissionPreset.WORKSPACE -> "policy · workspace · asks: delete, network"
+        else -> "policy · full access"
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (think) ThinkChip(state.thinking, onThink, onThinkMore)
         MicroLabel(text, Modifier.weight(1f))
         val used = state.contextUsed
         val window = state.contextWindow
@@ -1174,6 +1197,71 @@ private fun SessionSheet(
                     )
                 }
                 TextButton(onClick = onChanges) { Text("VIEW") }
+            }
+        }
+    }
+}
+
+/**
+ * The Think switch of the chat: `think · auto`. A tap cycles auto → on → off; a long press opens
+ * the budget and the model's default ([ThinkSheet]).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ThinkChip(setting: ThinkingSetting, onTap: () -> Unit, onMore: () -> Unit) {
+    val active = setting.mode != ThinkingMode.OFF
+    val color = if (active) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
+    Box(
+        Modifier
+            .border(1.dp, color.copy(alpha = 0.6f))
+            .combinedClickable(onClickLabel = "Change thinking", onLongClickLabel = "Thinking budget", onLongClick = onMore, onClick = onTap)
+            .semantics { contentDescription = "Thinking ${setting.mode.name.lowercase()}" + (setting.budget?.let { ", budget $it tokens" } ?: "") }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) { MicroLabel("\u2234 " + ThinkingLabels.chip(setting), color = color) }
+}
+
+/** Long press on the Think chip: mode, budget for On, and the default for this model. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThinkSheet(
+    state: ChatUiState,
+    onThinking: (ThinkingSetting) -> Unit,
+    onDefault: (ThinkingSetting?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val setting = state.thinking
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SectionLabel("think", Modifier.inkStagger(0))
+            Segmented(
+                ThinkingMode.entries,
+                setting.mode,
+                { mode -> onThinking(ThinkingSetting(mode, if (mode == ThinkingMode.ON) setting.budget else null)) },
+                { it.name.lowercase() },
+                Modifier.fillMaxWidth().inkStagger(1),
+            )
+            if (setting.mode == ThinkingMode.ON) {
+                Column(Modifier.inkStagger(2), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MicroLabel("budget · tokens")
+                    Segmented(
+                        ThinkingSetting.BUDGETS,
+                        setting.budget,
+                        { budget -> onThinking(ThinkingSetting(ThinkingMode.ON, budget)) },
+                        { it?.let(ThinkingLabels::tokens) ?: "model" },
+                        Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            Row(Modifier.inkStagger(3), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Default for this model", style = MaterialTheme.typography.titleMedium)
+                    MicroLabel(state.thinkingDefault?.let { ThinkingLabels.chip(it) } ?: "auto")
+                }
+                if (state.thinkingDefault == setting || (state.thinkingDefault == null && setting == ThinkingSetting.AUTO)) {
+                    TextButton(onClick = { onDefault(null) }, enabled = state.thinkingDefault != null) { Text("CLEAR") }
+                } else {
+                    TextButton(onClick = { onDefault(setting) }) { Text("SET") }
+                }
             }
         }
     }

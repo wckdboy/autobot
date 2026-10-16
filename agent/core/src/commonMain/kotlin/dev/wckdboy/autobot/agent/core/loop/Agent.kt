@@ -99,6 +99,12 @@ data class LiveStream(
     val toolCalls: List<PartialToolCall>,
     val startedAtNanos: Long,
     val chunks: Int,
+    /** Reasoning tokens so far, when the engine counts them (on-device); null otherwise. */
+    val reasoningTokens: Int? = null,
+    /** The reasoning span closed (the answer is streaming). */
+    val reasoningDone: Boolean = false,
+    /** Why the engine closed the reasoning early ("budget", "loop"), if it did. */
+    val reasoningStop: String? = null,
 )
 
 /**
@@ -495,7 +501,8 @@ class Agent(
                 text = acc.text.toString(),
                 reasoning = acc.reasoning.toString().ifEmpty { null },
                 toolCalls = calls,
-                usage = acc.usage,
+                usage = acc.finalUsage(),
+                reasoningStop = acc.reasoningStop,
                 model = acc.servedBy ?: callConfig.model,
                 fallback = acc.fallback,
             ),
@@ -558,6 +565,7 @@ class Agent(
                 reasoning = acc.reasoning.toString().ifEmpty { null },
                 model = model,
                 interrupted = true,
+                reasoningStop = acc.reasoningStop,
                 fallback = acc.fallback,
             ),
         )
@@ -594,6 +602,9 @@ class Agent(
         var servedBy: String? = null
         var fallback: String? = null
         var chunks = 0
+        var reasoningTokens: Int? = null
+        var reasoningDone = false
+        var reasoningStop: String? = null
         private var textSnapshot = ""
         private var reasoningSnapshot = ""
 
@@ -614,6 +625,11 @@ class Agent(
                     servedBy = chunk.model
                     fallback = chunk.fallback
                 }
+                is StreamChunk.ReasoningStatus -> {
+                    reasoningTokens = chunk.tokens
+                    reasoningDone = chunk.done
+                    if (chunk.stop != null) reasoningStop = chunk.stop
+                }
             }
         }
 
@@ -627,7 +643,14 @@ class Agent(
                 val tail = c.arguments.substring((n - PartialToolCall.LIVE_ARGUMENTS_TAIL).coerceAtLeast(0), n)
                 PartialToolCall(c.index, c.id, c.name, tail, n)
             }
-            return LiveStream(turn, step, textSnapshot, reasoningSnapshot, partial, startedAt, chunks)
+            return LiveStream(turn, step, textSnapshot, reasoningSnapshot, partial, startedAt, chunks, reasoningTokens, reasoningDone, reasoningStop)
+        }
+
+        /** The provider's usage, with the engine's reasoning count when the provider gave none. */
+        fun finalUsage(): TokenUsage? {
+            val counted = reasoningTokens ?: return usage
+            val u = usage ?: return TokenUsage(reasoningTokens = counted)
+            return if (u.reasoningTokens == null) u.copy(reasoningTokens = counted) else u
         }
 
         fun completedCalls(step: Int): List<ToolCallRecord> = ordered.map { c ->

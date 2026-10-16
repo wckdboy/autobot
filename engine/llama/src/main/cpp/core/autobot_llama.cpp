@@ -4,8 +4,14 @@
 // to an arbitrary position (hybrid/recurrent ones such as Qwen3.5) keep small checkpoints of
 // that state near the end of each prompt instead, as llama-server does. No JNI or platform
 // APIs in here.
+//
+// Thinking: the chat template's own switch (`enable_thinking`) turns reasoning on or off, and
+// llama.cpp's reasoning-budget sampler bounds the think span: when the budget, the answer reserve
+// or the loop guard (reasoning_guard.h) says stop, it forces a short wrap-up and the end tag, and
+// the model goes on to answer instead of thinking until the output limit.
 
 #include "autobot_llama.h"
+#include "reasoning_guard.h"
 
 #include <algorithm>
 #include <atomic>
@@ -21,6 +27,7 @@
 
 #include "chat.h"
 #include "common.h"
+#include "gguf.h"
 #include "json.h"
 #include "llama.h"
 #include "mtmd-helper.h"
@@ -32,6 +39,15 @@
 struct Checkpoint {
     size_t n_tokens = 0;
     std::vector<uint8_t> data;
+};
+
+// What the model's chat template does about reasoning (found once per load by rendering it).
+struct ThinkingCaps {
+    bool supported = false;  // the template has a think span (start and end tags)
+    bool toggle = false;     // enable_thinking changes the prompt (Qwen3, Qwen3.5, ...)
+    bool effort = false;     // the template reads reasoning_effort (gpt-oss)
+    std::string start;       // "<think>"
+    std::string end;         // "</think>"
 };
 
 struct autobot_llama_session {
@@ -47,10 +63,17 @@ struct autobot_llama_session {
     std::atomic<bool> prefilling{false};      // the abort callback may interrupt a decode
     int n_ctx = 0;
     int n_batch = 512;
-    std::string backend;  // "cpu", "gpu" or "npu": where the model actually loaded
+    std::string backend;  // "cpu", "gpu", "npu" or "npu+cpu"/"gpu+cpu": where the model actually runs
+    // Split placement ("npu+cpu"): prompts are decoded on the accelerator (`ctx`), generated
+    // tokens on this CPU copy of the model, which decodes single tokens faster. The prompt's
+    // memory is handed over before each reply (see hand_off); `ctx` stays the reference that
+    // `cached` and the checkpoints describe.
+    llama_model * dec_model = nullptr;
+    llama_context * dec_ctx = nullptr;
     mtmd_context * mtmd = nullptr;  // vision projector (mmproj), loaded on the first image
     std::string mmproj;
     bool kv_dirty = false;          // KV holds image embeddings that `cached` cannot describe
+    ThinkingCaps thinking;
     std::mutex lock;
 };
 
@@ -64,6 +87,13 @@ constexpr int PARSE_EVERY = 3;  // re-parse the partial output every N tokens
 // usually re-renders the end of this one (generation prompt, reasoning) a little differently.
 constexpr size_t CHECKPOINT_BACK = 4;
 constexpr size_t MAX_CHECKPOINTS = 3;
+
+// Closes a think span the engine ends early (budget, answer reserve, loop). Worded as the model's
+// own decision so it goes on to answer from what it has; tried on Qwen3 / Qwen3.5 (see the bench).
+constexpr const char * WRAP_UP = "\n\nI have thought about this enough; time to answer.\n";
+
+// Reasoning progress is streamed every this many reasoning tokens (and when the span closes).
+constexpr int STATUS_EVERY = 8;
 
 std::atomic<autobot_llama_log_fn> g_log{nullptr};
 std::atomic<void *> g_log_user{nullptr};
@@ -253,6 +283,23 @@ void save_checkpoint(Session & s) {
     s.checkpoints.push_back(std::move(c));
 }
 
+// Split placement: copies sequence 0 of the prompt context's memory (attention cache and
+// recurrent state, a few tens of MB) into the CPU decoder. Returns the context to generate on:
+// the decoder, or `ctx` itself when there is none or the copy failed.
+llama_context * hand_off(Session & s) {
+    if (!s.dec_ctx) return s.ctx;
+    llama_memory_clear(llama_get_memory(s.dec_ctx), true);
+    const size_t size = llama_state_seq_get_size(s.ctx, 0);
+    std::vector<uint8_t> state(size);
+    if (size > 0 && llama_state_seq_get_data(s.ctx, state.data(), size, 0) == size &&
+        llama_state_seq_set_data(s.dec_ctx, state.data(), size, 0) == size) {
+        return s.dec_ctx;
+    }
+    LOGE("could not hand the prompt over to the CPU decoder; generating on %s", s.backend.c_str());
+    llama_memory_clear(llama_get_memory(s.dec_ctx), true);
+    return s.ctx;
+}
+
 // Decodes tokens[cached.size(), end) in batches, keeping `cached` in step with the memory.
 int decode_range(Session & s, const std::vector<llama_token> & tokens, size_t end, bool last_logits) {
     common_batch batch(s.ctx);
@@ -327,6 +374,78 @@ size_t system_prefix(Session * s, const common_chat_templates_inputs & inputs, c
     }
 }
 
+ThinkingCaps thinking_caps(const common_chat_templates * templates) {
+    ThinkingCaps caps;
+    if (!templates) return caps;
+    try {
+        common_chat_templates_inputs in;
+        common_chat_msg m;
+        m.role = "user";
+        m.content = "Hi";
+        in.messages = {m};
+        in.use_jinja = true;
+        in.add_generation_prompt = true;
+        in.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+        in.enable_thinking = true;
+        const common_chat_params on = common_chat_templates_apply(templates, in);
+        in.enable_thinking = false;
+        const common_chat_params off = common_chat_templates_apply(templates, in);
+        caps.supported = on.supports_thinking && !on.thinking_start_tag.empty() && !on.thinking_end_tags.empty();
+        caps.toggle = caps.supported && on.prompt != off.prompt;
+        if (caps.supported) {
+            caps.start = on.thinking_start_tag;
+            caps.end = on.thinking_end_tags.front();
+        }
+    } catch (const std::exception & e) {
+        LOGE("cannot inspect the chat template: %s", e.what());
+    }
+    caps.effort = common_chat_templates_source(templates).find("reasoning_effort") != std::string::npos;
+    return caps;
+}
+
+// Follows the think span through the prompt's generation prefix and the generated tokens, and
+// counts the tokens inside it (the tags themselves excluded).
+struct ThinkSpan {
+    std::vector<llama_token> start;
+    std::vector<std::vector<llama_token>> ends;
+    std::vector<llama_token> recent;
+    bool inside = false;
+    bool closed = false;
+    int tokens = 0;
+
+    static bool ends_with(const std::vector<llama_token> & seq, const std::vector<llama_token> & tail) {
+        return !tail.empty() && seq.size() >= tail.size() && std::equal(tail.begin(), tail.end(), seq.end() - (long) tail.size());
+    }
+
+    // Returns true when this token closed the span.
+    bool accept(llama_token t) {
+        recent.push_back(t);
+        if (recent.size() > 32) recent.erase(recent.begin(), recent.begin() + 16);
+        if (!inside) {
+            if (ends_with(recent, start)) inside = true;
+            return false;
+        }
+        for (const auto & e : ends) {
+            if (ends_with(recent, e)) {
+                tokens = std::max(0, tokens - (int) e.size() + 1);  // the tag's own leading tokens were counted
+                inside = false;
+                closed = true;
+                return true;
+            }
+        }
+        ++tokens;
+        return false;
+    }
+};
+
+std::string reasoning_status(int tokens, bool done, const std::string & stop) {
+    auto st = common_json::object();
+    st["tokens"] = tokens;
+    st["done"] = done;
+    if (!stop.empty()) st["stop"] = stop;
+    return st.dump();
+}
+
 std::string chat(Session * s, const std::string & request_text, Sink & sink) {
     const llama_vocab * vocab = llama_model_get_vocab(s->model);
 
@@ -354,7 +473,10 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         inputs.use_jinja = true;
         inputs.add_generation_prompt = true;
         inputs.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-        inputs.enable_thinking = req.value("enable_thinking", true);
+        const bool thinking_on = req.value("enable_thinking", true);
+        inputs.enable_thinking = thinking_on;
+        const std::string effort = req.value("reasoning_effort", std::string());
+        if (!effort.empty() && s->thinking.effort) inputs.chat_template_kwargs["reasoning_effort"] = common_json(effort).dump();
 
         const common_chat_params chat = common_chat_templates_apply(s->templates.get(), inputs);
 
@@ -466,6 +588,41 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
             sp.grammar_triggers.push_back(trigger);
         }
         if (sp.grammar_lazy && sp.grammar_triggers.empty()) sp.grammar_lazy = false;
+
+        // ---- thinking: the budget sampler watches the think span (and closes it on request)
+        ThinkSpan span;
+        int budget = req.value("reasoning_budget", -1);
+        if (!thinking_on) budget = 0;  // a model that opens a span anyway gets it closed at once
+        int reserve = req.value("min_answer_tokens", std::max(32, std::min(512, max_tokens / 4)));
+        reserve = std::max(0, std::min(reserve, max_tokens / 2));
+        const bool loop_guard = req.value("loop_guard", true);
+        size_t forced_len = 0;
+        if (!chat.thinking_start_tag.empty() && !chat.thinking_end_tags.empty()) {
+            span.start = common_tokenize(vocab, chat.thinking_start_tag, false, true);
+            for (const auto & e : chat.thinking_end_tags) span.ends.push_back(common_tokenize(vocab, e, false, true));
+            llama_tokens forced;
+            if (thinking_on) forced = common_tokenize(vocab, req.value("reasoning_budget_message", std::string(WRAP_UP)), false, true);
+            forced.insert(forced.end(), span.ends.front().begin(), span.ends.front().end());
+            forced_len = forced.size();
+            sp.reasoning_budget_tokens = budget;
+            sp.reasoning_budget_start = span.start;
+            sp.reasoning_budget_end = span.ends;
+            sp.reasoning_budget_forced = std::move(forced);
+            sp.reasoning_control = true;  // lets the loop guard and the answer reserve close the span
+            for (const llama_token t : common_tokenize(vocab, chat.generation_prompt, false, true)) span.accept(t);
+            span.tokens = 0;
+            span.closed = false;
+        }
+        // Past this many generated tokens an open think span is closed, so the answer keeps `reserve`
+        // tokens of the output limit and of the context left after the prompt.
+        const int out_room = std::min(max_tokens, s->n_ctx - 1 - (int) pos);
+        const int think_cap = std::max(0, out_room - reserve - (int) forced_len);
+        ReasoningLoopGuard guard;
+        std::string reasoning_stop;   // why the engine closed the span early
+        bool closing = false;         // the end sequence is being forced
+        int reported = -1;
+        int64_t reasoning_us = 0;
+
         common_sampler * smpl = common_sampler_init(s->model, sp);
         if (!smpl) return error_json("SAMPLER_FAILED", "could not initialise sampler");
 
@@ -481,7 +638,11 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         std::string finish = "length";
         int n_gen = 0;
         const int64_t t_gen = ggml_time_us();
-        common_batch batch(s->ctx);
+        // The first token comes from the prompt's logits; the rest are decoded on `gen` (the CPU
+        // decoder with split placement, whose tokens `ctx` and `cached` then do not hold).
+        llama_context * logits_ctx = s->ctx;
+        llama_context * gen = hand_off(*s);
+        common_batch batch(gen);
         while (n_gen < max_tokens) {
             if (cancelled(*s)) {
                 finish = "cancelled";
@@ -491,14 +652,41 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                 finish = "length";
                 break;
             }
-            const llama_token tok = common_sampler_sample(smpl, s->ctx, -1);
+            const llama_token tok = common_sampler_sample(smpl, logits_ctx, -1);
             common_sampler_accept(smpl, tok, true);
+            const bool was_inside = span.inside;
+            const bool span_closed = span.accept(tok);
             if (llama_vocab_is_eog(vocab, tok)) {
                 finish = "stop";
                 break;
             }
             out += common_token_to_piece(s->ctx, tok);
             ++n_gen;
+
+            if (span.inside && !closing) {
+                if (budget >= 0 && span.tokens >= budget) {
+                    // The budget sampler starts forcing by itself at this count.
+                    closing = true;
+                    if (thinking_on) reasoning_stop = "budget";
+                } else if (n_gen >= think_cap && common_sampler_reasoning_budget_force(smpl)) {
+                    closing = true;
+                    reasoning_stop = "budget";
+                } else if (loop_guard && guard.push(tok) && common_sampler_reasoning_budget_force(smpl)) {
+                    closing = true;
+                    reasoning_stop = "loop";
+                    LOGI("reasoning loop (%s) after %d tokens: closing the think span", guard.reason(), span.tokens);
+                }
+            }
+            if (span_closed) {
+                reasoning_us = ggml_time_us() - t_gen;
+                closing = false;
+                guard.reset();
+            }
+            if ((was_inside || span.inside) && thinking_on &&
+                (span_closed || reported < 0 || span.tokens - reported >= STATUS_EVERY)) {
+                reported = span.tokens;
+                sink.delta(AUTOBOT_LLAMA_DELTA_REASONING_STATUS, reasoning_status(span.tokens, span_closed, span_closed ? reasoning_stop : ""));
+            }
 
             bool stopped = false;
             for (const auto & stop : chat.additional_stops) {
@@ -531,13 +719,14 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
 
             batch.clear();
             batch.add(tok, pos, 0, true);
-            if (llama_process(s->ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+            if (llama_process(gen, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
                 // The memory may hold part of this step: return to a consistent point.
-                if (!s->partial_rm) truncate_cache(*s, s->cached.size(), true);
+                if (gen == s->ctx && !s->partial_rm) truncate_cache(*s, s->cached.size(), true);
                 finish = "error";
                 break;
             }
-            s->cached.push_back(tok);
+            logits_ctx = gen;
+            if (gen == s->ctx) s->cached.push_back(tok);
             ++pos;
         }
         common_sampler_free(smpl);
@@ -568,10 +757,13 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         }
         result["tool_calls"] = calls;
         result["finish_reason"] = msg.tool_calls.empty() ? finish : std::string("tool_calls");
+        if (!reasoning_stop.empty() && span.closed) result["reasoning_stop"] = reasoning_stop;
         auto usage = common_json::object();
         usage["prompt_tokens"] = (int) prompt_tokens;
         usage["cached_tokens"] = (int) keep;
         usage["completion_tokens"] = n_gen;
+        usage["reasoning_tokens"] = span.tokens;
+        if (reasoning_us > 0) usage["reasoning_ms"] = (double) reasoning_us / 1000.0;
         usage["backend"] = s->backend;
         usage["prompt_ms"] = (double) prompt_us / 1000.0;
         usage["generation_ms"] = (double) (ggml_time_us() - t_gen) / 1000.0;
@@ -581,6 +773,62 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         LOGE("chat failed: %s", e.what());
         return error_json("BAD_REQUEST", e.what());
     }
+}
+
+// Bytes the system could still give this process without reclaiming much (0 = unknown).
+size_t available_memory() {
+#if defined(__linux__)
+    FILE * f = std::fopen("/proc/meminfo", "r");
+    if (!f) return 0;
+    char line[256];
+    size_t kb = 0;
+    while (std::fgets(line, sizeof(line), f)) {
+        if (std::sscanf(line, "MemAvailable: %zu kB", &kb) == 1) break;
+    }
+    std::fclose(f);
+    return kb * 1024;
+#else
+    return 0;
+#endif
+}
+
+// Split placement: a second, CPU-only copy of the model for generation. Its repacked weights
+// take about the model's size again, so it is skipped when memory is short; the session then
+// simply generates on the accelerator.
+void load_decoder(Session & s, const std::string & path, int n_threads, LoadAbort & abort) {
+    const size_t need = llama_model_size(s.model) + ((size_t) 512 << 20);
+    const size_t avail = available_memory();
+    if (avail != 0 && avail < 2 * need) {
+        LOGI("not enough free memory for a CPU decoder (%zu MB free); generating on %s", avail >> 20, s.backend.c_str());
+        return;
+    }
+    ggml_backend_dev_t cpu_only[] = {nullptr};
+    auto mparams = llama_model_default_params();
+    mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
+    mparams.devices = cpu_only;
+    mparams.n_gpu_layers = 0;
+    mparams.progress_callback = [](float, void * data) { return !static_cast<LoadAbort *>(data)->requested(); };
+    mparams.progress_callback_user_data = &abort;
+    llama_model * model = llama_model_load_from_file(path.c_str(), mparams);
+    if (!model) {
+        if (!abort.requested()) LOGE("could not load a CPU decoder; generating on %s", s.backend.c_str());
+        return;
+    }
+    auto cparams = llama_context_default_params();
+    cparams.n_ctx = (uint32_t) s.n_ctx;
+    cparams.n_batch = 512;
+    cparams.n_ubatch = 512;
+    cparams.n_threads = n_threads;
+    cparams.n_threads_batch = n_threads;
+    llama_context * ctx = llama_init_from_model(model, cparams);
+    if (!ctx) {
+        LOGE("could not create a CPU decoder context; generating on %s", s.backend.c_str());
+        llama_model_free(model);
+        return;
+    }
+    s.dec_model = model;
+    s.dec_ctx = ctx;
+    s.backend += "+cpu";
 }
 
 }  // namespace
@@ -631,7 +879,10 @@ autobot_llama_session * autobot_llama_load_abortable(const char * path_c, int n_
                                                      autobot_llama_abort_fn should_abort, void * user) {
     LoadAbort abort{should_abort, user};
     const std::string path = path_c ? path_c : "";
-    const std::string wanted = backend ? backend : "";
+    std::string wanted = backend ? backend : "";
+    // "npu+cpu" / "gpu+cpu": prompts on the accelerator, generation on the CPU.
+    const bool split = wanted == "npu+cpu" || wanted == "gpu+cpu";
+    if (split) wanted.resize(3);
     std::vector<std::string> order;
     if (wanted == "auto") order = {"npu", "gpu", "cpu"};
     else if (wanted == "gpu" || wanted == "npu") order = {wanted, "cpu"};
@@ -684,9 +935,18 @@ autobot_llama_session * autobot_llama_load_abortable(const char * path_c, int n_
         s->n_ctx = (int) llama_n_ctx(ctx);
         s->backend = kind;
         s->templates = common_chat_templates_init(model, "");
+        s->thinking = thinking_caps(s->templates.get());
         s->partial_rm = common_context_can_seq_rm(ctx) == COMMON_CONTEXT_SEQ_RM_TYPE_PART;
         llama_set_abort_callback(ctx, abort_requested, s);
-        LOGI("loaded %s on %s%s", path.c_str(), kind.c_str(), s->partial_rm ? "" : " (prompt cache via checkpoints)");
+        if (split && kind != "cpu") {
+            load_decoder(*s, path, n_threads, abort);
+            if (abort.requested()) {
+                LOGI("loading %s was cancelled", path.c_str());
+                autobot_llama_free(s);
+                return nullptr;
+            }
+        }
+        LOGI("loaded %s on %s%s", path.c_str(), s->backend.c_str(), s->partial_rm ? "" : " (prompt cache via checkpoints)");
         return s;
     }
     return nullptr;
@@ -703,6 +963,13 @@ char * autobot_llama_model_info(autobot_llama_session * s) {
     info["n_ctx_train"] = llama_model_n_ctx_train(s->model);
     info["chat_template"] = common_chat_templates_was_explicit(s->templates.get());
     info["backend"] = s->backend;
+    auto thinking = common_json::object();
+    thinking["supported"] = s->thinking.supported;
+    thinking["toggle"] = s->thinking.toggle;
+    thinking["effort"] = s->thinking.effort;
+    thinking["start"] = s->thinking.start;
+    thinking["end"] = s->thinking.end;
+    info["thinking"] = thinking;
     return dup(info.dump());
 }
 
@@ -738,12 +1005,26 @@ void autobot_llama_free(autobot_llama_session * s) {
         if (s->mtmd) mtmd_free(s->mtmd);
         llama_free(s->ctx);
         llama_model_free(s->model);
+        if (s->dec_ctx) llama_free(s->dec_ctx);
+        if (s->dec_model) llama_model_free(s->dec_model);
     }
     delete s;
 }
 
 void autobot_llama_string_free(char * str) {
     std::free(str);
+}
+
+char * autobot_llama_chat_template(const char * path) {
+    if (!path || !*path) return nullptr;
+    gguf_init_params params = {/*.no_alloc =*/ true, /*.ctx =*/ nullptr};
+    gguf_context * g = gguf_init_from_file(path, params);
+    if (!g) return nullptr;
+    char * out = nullptr;
+    const int64_t key = gguf_find_key(g, "tokenizer.chat_template");
+    if (key >= 0 && gguf_get_kv_type(g, key) == GGUF_TYPE_STRING) out = dup(gguf_get_val_str(g, key));
+    gguf_free(g);
+    return out;
 }
 
 // ---- embeddings (private vault)

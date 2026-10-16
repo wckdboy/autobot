@@ -79,12 +79,17 @@ enum class ModelSource(val label: String) { CATALOG("catalog"), HUGGING_FACE("hu
 
 enum class ModelStatus { QUEUED, DOWNLOADING, PAUSED, READY, FAILED }
 
-/** Where a model runs. [AUTO] lets the benchmark (or the engine: NPU → GPU → CPU) decide. */
+/**
+ * Where a model runs. [AUTO] lets the benchmark (or the engine: NPU → GPU → CPU) decide.
+ * [NPU_CPU] splits a chat model's work: prompts on the NPU, replies generated on the CPU (a second
+ * copy of the model), for phones whose CPU generates faster than the NPU.
+ */
 enum class Backend(val id: String, val label: String) {
     AUTO("auto", "auto"),
     CPU("cpu", "cpu"),
     GPU("gpu", "gpu"),
     NPU("npu", "npu"),
+    NPU_CPU("npu+cpu", "npu+cpu"),
     ;
 
     companion object {

@@ -38,7 +38,7 @@ struct AppleIntelligenceTests {
             model: AppleIntelligence.id,
             messages: [AutobotShared.ChatMessage(role: AutobotShared.ChatRole.system, content: "sys", toolCalls: [], toolCallId: nil, reasoning: nil, images: []),
                        AutobotShared.ChatMessage(role: AutobotShared.ChatRole.user, content: "hello", toolCalls: [], toolCallId: nil, reasoning: nil, images: [])],
-            temperature: nil, maxTokens: nil, tools: [], echoReasoning: false, sessionKey: nil,
+            temperature: nil, maxTokens: nil, tools: [], echoReasoning: false, sessionKey: nil, thinking: nil,
         )
         let kotlin = SystemPrompt.companion.from(request: request, contextTokens: 4096)
         // Same field names as the Swift mirror.

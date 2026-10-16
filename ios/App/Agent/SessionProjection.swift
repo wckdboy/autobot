@@ -15,7 +15,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
     case user(key: String, text: String, images: [String])
     /// [receipt]: the turn's privacy receipt, on the turn's last answer once the turn ended;
     /// [turnChanges]: the files the turn changed ("Undo turn"), likewise.
-    case assistant(key: String, text: String, reasoning: String?, interrupted: Bool, outputTokens: Int?, model: String?, receipt: Receipt? = nil, turnChanges: TurnChanges? = nil)
+    case assistant(key: String, text: String, reasoning: String?, interrupted: Bool, outputTokens: Int?, model: String?, receipt: Receipt? = nil, turnChanges: TurnChanges? = nil, thinking: ThinkingInfo? = nil)
     case tool(Tool)
     case notice(key: String, text: String, kind: NoticeKind)
 
@@ -48,12 +48,12 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
 
     var key: String {
         switch self {
-        case .user(let k, _, _), .assistant(let k, _, _, _, _, _, _, _), .notice(let k, _, _): k
+        case .user(let k, _, _), .assistant(let k, _, _, _, _, _, _, _, _), .notice(let k, _, _): k
         case .tool(let t): t.key
         }
     }
 
-    private enum K: String, CodingKey { case type, key, text, images, reasoning, interrupted, outputTokens, model, receipt, turnChanges, kind }
+    private enum K: String, CodingKey { case type, key, text, images, reasoning, interrupted, outputTokens, model, receipt, turnChanges, kind, reasoningTokens, reasoningStop }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -71,6 +71,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
                 model: try c.decodeIfPresent(String.self, forKey: .model),
                 receipt: try c.decodeIfPresent(Receipt.self, forKey: .receipt),
                 turnChanges: try c.decodeIfPresent(TurnChanges.self, forKey: .turnChanges),
+                thinking: ThinkingInfo(tokens: try c.decodeIfPresent(Int.self, forKey: .reasoningTokens), stop: try c.decodeIfPresent(String.self, forKey: .reasoningStop)).nonEmpty,
             )
         case "tool":
             self = .tool(try Tool(from: decoder))
@@ -87,7 +88,7 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
             try c.encode(key, forKey: .key)
             try c.encode(text, forKey: .text)
             try c.encode(images, forKey: .images)
-        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, let model, let receipt, let turnChanges):
+        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, let model, let receipt, let turnChanges, let thinking):
             try c.encode("assistant", forKey: .type)
             try c.encode(key, forKey: .key)
             try c.encode(text, forKey: .text)
@@ -97,6 +98,8 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
             try c.encodeIfPresent(model, forKey: .model)
             try c.encodeIfPresent(receipt, forKey: .receipt)
             try c.encodeIfPresent(turnChanges, forKey: .turnChanges)
+            try c.encodeIfPresent(thinking?.tokens, forKey: .reasoningTokens)
+            try c.encodeIfPresent(thinking?.stop, forKey: .reasoningStop)
         case .tool(let t):
             try c.encode("tool", forKey: .type)
             try t.encode(to: encoder)
@@ -339,6 +342,19 @@ struct LiveState: Codable, Equatable, Sendable {
     var reasoning: String
     var toolNames: [String]
     var tokensPerSecond: Double?
+    /// Reasoning tokens so far (on-device engines count them), whether the reasoning closed, and
+    /// why the engine ended it early ("budget", "loop").
+    var reasoningTokens: Int? = nil
+    var reasoningDone: Bool? = nil
+    var reasoningStop: String? = nil
+}
+
+/// What the engine said about a finished answer's reasoning: its token count and early stop.
+struct ThinkingInfo: Codable, Equatable, Hashable, Sendable {
+    var tokens: Int?
+    var stop: String?
+
+    var nonEmpty: ThinkingInfo? { tokens == nil && stop == nil ? nil : self }
 }
 
 struct ApprovalState: Codable, Equatable, Identifiable, Sendable {
@@ -371,6 +387,10 @@ struct ChatSessionState: Codable, Equatable, Sendable {
     var permission = PermissionPreset.workspace.label
     var provider = ""
     var model = ""
+    /// The Think switch (OFF, AUTO, ON + budget) and whether the model reasons (NONE hides the chip).
+    var thinking: String? = nil
+    var thinkingBudget: Int? = nil
+    var thinkingSupport: String? = nil
 
     init(sessionId: String) { self.sessionId = sessionId }
 
@@ -409,7 +429,7 @@ func projectSession(
         case .assistantMessage(let e):
             let blank = { (s: String?) in (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             if !blank(e.text) || !blank(e.reasoning) {
-                items.append(.assistant(key: key, text: e.text, reasoning: e.reasoning, interrupted: e.interrupted, outputTokens: e.usage?.outputTokens, model: e.model))
+                items.append(.assistant(key: key, text: e.text, reasoning: e.reasoning, interrupted: e.interrupted, outputTokens: e.usage?.outputTokens, model: e.model, thinking: ThinkingInfo(tokens: e.usage?.reasoningTokens, stop: e.reasoningStop).nonEmpty))
             }
             if let u = e.usage { usage = u }
             for (i, call) in e.toolCalls.enumerated() {

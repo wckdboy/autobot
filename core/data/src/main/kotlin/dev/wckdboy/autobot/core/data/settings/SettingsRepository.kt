@@ -71,6 +71,14 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setChatSort(sort: ChatSort) = edit { it[Keys.CHAT_SORT] = sort.name }
 
+    /** The Think default per model (`ThinkingDefaults` text): chats that never chose follow it. */
+    val thinkingDefaults: Flow<String> = dataStore.data
+        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+        .map { it[Keys.THINKING_DEFAULTS].orEmpty() }
+        .distinctUntilChanged()
+
+    suspend fun setThinkingDefaults(text: String) = edit { it[Keys.THINKING_DEFAULTS] = text }
+
     suspend fun setWebSearch(provider: SearchProvider, baseUrl: String, route: RouteOverride) = edit {
         it[Keys.SEARCH_PROVIDER] = provider.name
         it[Keys.SEARCH_BASE_URL] = baseUrl.trim()
@@ -100,5 +108,8 @@ class SettingsRepository @Inject constructor(
 
         /** Device-local view preference, not part of [AppSettings] (and not exported). */
         val CHAT_SORT = stringPreferencesKey("chat_sort")
+
+        /** Think defaults per model (device-local, not exported). */
+        val THINKING_DEFAULTS = stringPreferencesKey("thinking_defaults")
     }
 }

@@ -44,6 +44,36 @@ internal object GgufCheck {
         }
     }
 
+    /**
+     * The chat template in the header of the GGUF at [path] (`tokenizer.chat_template`), or null
+     * when there is none or the file cannot be read. Reads only the key/value header.
+     */
+    fun chatTemplate(path: String): String? {
+        val file = File(path)
+        if (!file.isFile) return null
+        return try {
+            file.inputStream().buffered(64 * 1024).use { input ->
+                val r = Reader(input, file.length())
+                if (file.length() < 24 || r.u32() != MAGIC) return null
+                if (r.u32() < 2) return null
+                r.u64()
+                val kvs = r.u64()
+                if (kvs !in 0..MAX_COUNT) return null
+                repeat(kvs.toInt()) {
+                    val key = r.string()
+                    val type = r.u32()
+                    if (key == CHAT_TEMPLATE && type == TYPE_STRING) return r.string()
+                    r.skip(type)
+                }
+                null
+            }
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    private const val CHAT_TEMPLATE = "tokenizer.chat_template"
+
     private fun truncated() = Problem("the model file is incomplete or corrupt: download it again in the Models tab")
 
     private fun read(r: Reader, size: Long): Pair<Header?, Problem?> {

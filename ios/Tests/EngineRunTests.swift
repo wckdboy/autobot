@@ -103,6 +103,7 @@ struct EngineRunTests {
         let failure = Mutex<String?>(nil)
         func onContent(text: String) {}
         func onReasoning(text: String) {}
+        func onReasoningStatus(json: String) {}
         func onResult(json: String) { result.withLock { $0 = json } }
         func onFailure(message: String) { failure.withLock { $0 = message } }
         var done: Bool { result.withLock { $0 != nil } || failure.withLock { $0 != nil } }

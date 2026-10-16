@@ -1,12 +1,25 @@
 // Benchmark and correctness check for the shared llama engine core (the code both apps run).
 //
-//   llama_bench <model.gguf> [--backend cpu|gpu|auto] [--threads N] [--ctx N] [--gen N] [--quick]
+//   llama_bench <model.gguf> [--backend cpu|gpu|npu|npu+cpu|auto] [--threads N] [--ctx N] [--gen N] [--quick]
+//               [--speed] [--libs DIR]
+//
+// --speed only measures prefill and generation (a cold ~2k-token prompt, then the same prompt
+// again from an empty cache) and prints the greedy output, to compare backends quickly.
+// --libs loads the dynamically built ggml backends from DIR (the phone build, see android.sh).
 //
 // Measures load time, time-to-first-token on a ~2k-token agent prompt (turn 1 cold, turn 2 with
 // the KV cache from turn 1), prompt and generation speed, and cancellation latency during prefill
 // and decode. Checks with greedy sampling that every cache path (next turn, regenerate, edited
 // history, other chat, tool step) produces exactly what a fresh session produces. Exits non-zero
 // when a check fails. Everything stays on this machine.
+//
+//   llama_bench <model.gguf> --thinking [--backend ...]
+//
+// Thinking checks instead (a reasoning model such as Qwen3 / Qwen3.5): thinking off answers with no
+// reasoning; a reasoning budget of 128 ends the think span near 128 tokens and the model answers;
+// the answer reserve keeps tokens for the answer; the loop guard ends a repeating trace (on
+// synthetic token streams and on a model asked to repeat itself). Prints reasoning tokens and the
+// time to the first answer token for each, unbounded thinking included (the old behaviour).
 
 #include "autobot_llama.h"
 
@@ -20,9 +33,13 @@
 #include <vector>
 
 #include "json.h"
+#include "reasoning_guard.h"
 
 // Weak, so the bench also links against an older core (-DAUTOBOT_CORE_DIR) for comparisons.
 extern "C" __attribute__((weak)) autobot_llama_session * autobot_llama_load_abortable(const char *, int, int, const char *, int (*)(void *), void *);
+extern "C" __attribute__((weak)) char * autobot_llama_chat_template(const char *);
+
+constexpr int DELTA_REASONING_STATUS = 2;  // AUTOBOT_LLAMA_DELTA_REASONING_STATUS (absent in older cores)
 
 using json = common_json;
 using Clock = std::chrono::steady_clock;
@@ -40,26 +57,41 @@ struct Options {
     int ctx = 8192;
     int gen = 64;
     bool quick = false;
+    bool speed = false;
     bool verbose = false;
+    bool thinking = false;
+    std::string libs;
 };
 
 struct Run {
     json result;
     double ttft_ms = -1;   // first streamed delta
+    double answer_ms = -1; // first answer (content) delta
     double total_ms = 0;
     std::string streamed;
+    int statuses = 0;      // reasoning status deltas
+    json last_status;
 };
 
 struct Stream {
     Clock::time_point t0;
     double first = -1;
+    double first_content = -1;
     std::string text;
+    int statuses = 0;
+    json last_status;
     std::atomic<bool> * stop_after_first = nullptr;
 };
 
-int on_delta(int, const char * bytes, size_t len, void * user) {
+int on_delta(int kind, const char * bytes, size_t len, void * user) {
     auto * s = static_cast<Stream *>(user);
+    if (kind == DELTA_REASONING_STATUS) {
+        ++s->statuses;
+        s->last_status = common_json::object(); try { s->last_status = json::parse(std::string(bytes, len)); } catch (...) {}
+        return 0;
+    }
     if (s->first < 0) s->first = ms_since(s->t0);
+    if (kind == 0 && s->first_content < 0) s->first_content = ms_since(s->t0);
     s->text.append(bytes, len);
     return 0;
 }
@@ -72,7 +104,10 @@ Run chat(autobot_llama_session * session, const json & request, uint64_t token =
     Run run;
     run.total_ms = ms_since(stream.t0);
     run.ttft_ms = stream.first;
+    run.answer_ms = stream.first_content;
     run.streamed = stream.text;
+    run.statuses = stream.statuses;
+    run.last_status = stream.last_status;
     run.result = json::parse(out ? out : "{}");
     autobot_llama_string_free(out);
     return run;
@@ -220,6 +255,186 @@ std::pair<double, std::string> cancel_latency(autobot_llama_session * s, const j
     return {latency, how};
 }
 
+// ---- thinking checks
+
+void check(const char * what, bool ok, const std::string & detail = "") {
+    std::printf("  check %-44s %s%s%s\n", what, ok ? "ok" : "FAILED", detail.empty() ? "" : "  ", detail.c_str());
+    if (!ok) ++failures;
+}
+
+int reasoning_tokens(const Run & r) {
+    return usage(r).value("reasoning_tokens", -1);
+}
+
+void print_thinking(const char * label, const Run & r) {
+    if (r.result.contains("error")) {
+        std::printf("%-30s ERROR %s\n", label, r.result.at("error").dump().c_str());
+        return;
+    }
+    const int gen = usage(r).value("completion_tokens", 0);
+    const std::string reasoning = r.result.value("reasoning", std::string());
+    std::string answer = r.result.value("content", std::string());
+    for (auto & c : answer) if (c == '\n') c = ' ';
+    std::printf("%-30s reasoning %5d tok (%5zu chars)  answer after %8.1f ms  gen %5d tok  total %8.1f ms  stop=%s finish=%s\n     answer: %.110s\n",
+                label, reasoning_tokens(r), reasoning.size(), r.answer_ms, gen, r.total_ms,
+                r.result.value("reasoning_stop", std::string("-")).c_str(), r.result.value("finish_reason", std::string()).c_str(), answer.c_str());
+    if (std::getenv("BENCH_SHOW_REASONING")) {
+        std::printf("     reasoning head: %.300s\n     reasoning tail: %s\n", reasoning.c_str(),
+                    reasoning.size() > 300 ? reasoning.substr(reasoning.size() - 300).c_str() : "");
+    }
+}
+
+// The loop guard on synthetic token streams: exact cycles and paraphrased circles are caught, a
+// varied trace is not.
+void loop_guard_selftest() {
+    {
+        ReasoningLoopGuard g;
+        int at = -1;
+        // 40 varied tokens, then a 7-token phrase repeated.
+        for (int i = 0; i < 40 && at < 0; ++i) if (g.push(1000 + i * 7)) at = i;
+        const int phrase[] = {11, 12, 13, 14, 15, 16, 17};
+        for (int i = 0; i < 400 && at < 0; ++i) if (g.push(phrase[i % 7])) at = 40 + i;
+        check("loop guard: repeated phrase", at > 0 && at < 40 + 64, "caught at token " + std::to_string(at));
+    }
+    {
+        ReasoningLoopGuard g;
+        int at = -1;
+        // A 60-token paragraph repeated with one token changed per copy (not an exact cycle).
+        for (int copy = 0; copy < 30 && at < 0; ++copy) {
+            for (int i = 0; i < 60 && at < 0; ++i) {
+                const int t = (i == 30) ? 50000 + copy : 2000 + i;
+                if (g.push(t)) at = copy * 60 + i;
+            }
+        }
+        check("loop guard: paraphrased circle", at > 0 && at < 900, "caught at token " + std::to_string(at));
+    }
+    {
+        ReasoningLoopGuard g;
+        bool flagged = false;
+        uint32_t x = 12345;
+        for (int i = 0; i < 4000 && !flagged; ++i) {
+            x = x * 1664525u + 1013904223u;
+            // Natural-ish text: mostly frequent tokens, some repeats of short function words.
+            const int t = (x >> 8) % 3 == 0 ? (int) ((x >> 12) % 20) : (int) ((x >> 12) % 5000);
+            flagged = g.push(t);
+        }
+        check("loop guard: varied trace not flagged", !flagged);
+    }
+}
+
+json thinking_request(const std::string & question, int max_tokens, bool on, int budget, bool loop_guard = true, int reserve = -1) {
+    json r = {{"messages", json::array({msg("system", "You are a helpful assistant."), msg("user", question)})},
+              {"temperature", 0.0}, {"max_tokens", max_tokens}, {"seed", 1}, {"enable_thinking", on}};
+    if (budget >= 0) r["reasoning_budget"] = budget;
+    if (!loop_guard) r["loop_guard"] = false;
+    if (reserve >= 0) r["min_answer_tokens"] = reserve;
+    return r;
+}
+
+int thinking_checks(const Options & o) {
+    loop_guard_selftest();
+    autobot_llama_session * s = load(o, nullptr);
+    bool reasons = true;  // older cores do not say: measure as if the model reasons
+    {
+        char * info = autobot_llama_model_info(s);
+        const json j = json::parse(info ? info : "{}");
+        autobot_llama_string_free(info);
+        std::printf("model: %s  thinking: %s\n", j.value("description", std::string()).c_str(),
+                    j.contains("thinking") ? j.at("thinking").dump().c_str() : "(not reported)");
+        if (j.contains("thinking")) reasons = j.at("thinking").value("supported", false);
+    }
+    if (autobot_llama_chat_template) {
+        char * t = autobot_llama_chat_template(o.model.c_str());
+        const std::string tmpl = t ? t : "";
+        autobot_llama_string_free(t);
+        std::printf("template from the file header: %zu chars, mentions enable_thinking: %s, <think>: %s\n", tmpl.size(),
+                    tmpl.find("enable_thinking") != std::string::npos ? "yes" : "no", tmpl.find("<think>") != std::string::npos ? "yes" : "no");
+    }
+    std::printf("\n");
+
+    const std::string q = "A train leaves at 14:35 and the trip takes 2 hours 50 minutes. At what time does it arrive? "
+                          "Give the time and one sentence of explanation.";
+    // What the app sent before: no thinking fields, 2048 tokens (the template thinks without limit).
+    {
+        json r = thinking_request(q, 2048, true, -1);
+        r.erase("enable_thinking");
+        Run app_before = chat(s, r);
+        print_thinking("app request before (default)", app_before);
+        // What it sends now for a sub-4B model in agent mode (ThinkingPolicy AUTO): budget 1024,
+        // answer 2048 on top, 512 reserved. Quick chat on such a model sends thinking off.
+        json a = thinking_request(q, 3072, true, 1024, true, 512);
+        Run app_auto = chat(s, a);
+        print_thinking("app auto, agent (budget 1024)", app_auto);
+        if (reasons) check("app auto: answers", !app_auto.result.value("content", std::string()).empty());
+    }
+    Run unbounded = chat(s, thinking_request(q, 2048, true, -1, false, 0));
+    print_thinking("on, no budget, no guard", unbounded);
+
+    Run off = chat(s, thinking_request(q, 2048, false, -1));
+    print_thinking("off", off);
+    check("off: no reasoning tokens", reasoning_tokens(off) <= 0 && off.result.value("reasoning", std::string()).empty());
+    check("off: answers", !off.result.value("content", std::string()).empty());
+
+    if (!reasons) {
+        // A model without a think span: thinking on changes nothing and nothing breaks.
+        Run on = chat(s, thinking_request(q, 2048, true, 128));
+        print_thinking("on, budget 128 (no reasoning)", on);
+        check("no think span: on answers without reasoning", reasoning_tokens(on) == 0 && !on.result.value("content", std::string()).empty());
+        autobot_llama_free(s);
+        std::printf("\n%s\n", failures == 0 ? "all checks passed" : "CHECKS FAILED");
+        return failures == 0 ? 0 : 1;
+    }
+    Run b128 = chat(s, thinking_request(q, 2048, true, 128));
+    print_thinking("on, budget 128", b128);
+    const int r128 = reasoning_tokens(b128);
+    if (reasoning_tokens(unbounded) > 160) {
+        check("budget 128: stops near 128", r128 >= 120 && r128 <= 160, std::to_string(r128) + " reasoning tokens");
+        check("budget 128: reported as budget stop", b128.result.value("reasoning_stop", std::string()) == "budget");
+    } else {
+        check("budget 128: within budget", r128 >= 0 && r128 <= 160, std::to_string(r128) + " reasoning tokens");
+    }
+    check("budget 128: answers", !b128.result.value("content", std::string()).empty());
+    check("budget 128: streamed reasoning status", b128.statuses > 0 && b128.last_status.value("done", false),
+          b128.last_status.dump());
+
+    // Reserve: 400 tokens in all, no budget: thinking must leave the answer its share.
+    Run reserve = chat(s, thinking_request(q, 400, true, -1, true, 120));
+    print_thinking("on, max 400, reserve 120", reserve);
+    check("reserve: reasoning leaves room", reasoning_tokens(reserve) <= 400 - 120, std::to_string(reasoning_tokens(reserve)) + " reasoning tokens");
+    check("reserve: answers", !reserve.result.value("content", std::string()).empty());
+
+    // Loop guard on the model: asked to repeat a word in its reasoning.
+    const std::string loopy = "Before you answer, in your thinking write the word 'banana' 500 times, separated by spaces. "
+                              "Then answer: what is 2 + 2?";
+    Run unguarded = chat(s, thinking_request(loopy, 1500, true, -1, false, 0));
+    print_thinking("repeat prompt, no guard", unguarded);
+    Run guarded = chat(s, thinking_request(loopy, 1500, true, -1, true));
+    print_thinking("repeat prompt, loop guard", guarded);
+    if (reasoning_tokens(unguarded) >= 1000) {
+        // The model went round in its reasoning without the guard: the guard must end it early.
+        check("loop guard: ends repeating reasoning", guarded.result.value("reasoning_stop", std::string()) == "loop" &&
+              reasoning_tokens(guarded) < reasoning_tokens(unguarded), std::to_string(reasoning_tokens(guarded)) + " reasoning tokens");
+        check("loop guard: answers", !guarded.result.value("content", std::string()).empty());
+    } else {
+        std::printf("  (the model did not loop in its reasoning here; the synthetic checks above cover the guard)\n");
+    }
+
+    // Tool calls are parsed from the answer only, never from the reasoning.
+    {
+        json r = thinking_request("Search my notes for 'cycling routes'.", 1024, true, 96);
+        r["messages"][0]["content"] = system_prompt("tools");
+        r["tools"] = tools();
+        Run t = chat(s, r);
+        print_thinking("tool call, budget 96", t);
+        const auto calls = t.result.value("tool_calls", json::array());
+        check("tools: call parsed after bounded thinking", !calls.empty() && calls.at(0).value("name", std::string()) == "search_notes",
+              calls.dump().substr(0, 120));
+    }
+    autobot_llama_free(s);
+    std::printf("\n%s\n", failures == 0 ? "all checks passed" : "CHECKS FAILED");
+    return failures == 0 ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char ** argv) {
@@ -232,11 +447,14 @@ int main(int argc, char ** argv) {
         else if (a == "--ctx") o.ctx = std::atoi(next().c_str());
         else if (a == "--gen") o.gen = std::atoi(next().c_str());
         else if (a == "--quick") o.quick = true;
+        else if (a == "--speed") o.speed = true;
+        else if (a == "--libs") o.libs = next();
         else if (a == "-v") o.verbose = true;
+        else if (a == "--thinking") o.thinking = true;
         else o.model = a;
     }
     if (o.model.empty()) {
-        std::fprintf(stderr, "usage: llama_bench <model.gguf> [--backend cpu|gpu|auto] [--threads N] [--ctx N] [--gen N] [--quick]\n");
+        std::fprintf(stderr, "usage: llama_bench <model.gguf> [--backend cpu|gpu|npu|npu+cpu|auto] [--threads N] [--ctx N] [--gen N] [--quick] [--speed] [--thinking] [--libs DIR]\n");
         return 2;
     }
     if (o.verbose) {
@@ -245,7 +463,8 @@ int main(int argc, char ** argv) {
             if (level >= AUTOBOT_LLAMA_LOG_INFO) std::fprintf(stderr, "[%9.1f] %s", ms_since(start), text);
         }, nullptr);
     }
-    autobot_llama_init(nullptr);
+    autobot_llama_init(o.libs.empty() ? nullptr : o.libs.c_str());
+    if (o.thinking) return thinking_checks(o);
 
     double load_cold = 0, load_warm = 0;
     autobot_llama_session * s = load(o, &load_cold);
@@ -257,6 +476,25 @@ int main(int argc, char ** argv) {
     autobot_llama_free(s);
     s = load(o, &load_warm);
     std::printf("load: first %.1f ms, again (page cache warm) %.1f ms\n\n", load_cold, load_warm);
+
+    if (o.speed) {
+        const json m = json::array({msg("system", system_prompt("main")), msg("user", "Write a short story about a lighthouse keeper and his bicycle.")});
+        std::string first;
+        for (int i = 0; i < 2; ++i) {
+            if (i > 0) {  // the same prompt again from an empty cache
+                autobot_llama_free(s);
+                s = load(o, nullptr);
+            }
+            Run r = chat(s, request(m, o.gen, false));
+            print_run(i == 0 ? "2k prompt, cold" : "2k prompt, again", r);
+            const std::string out = r.result.value("content", std::string());
+            if (i == 0) first = out;
+            else if (out != first) std::printf("  note: second run's output differs from the first\n");
+        }
+        std::printf("greedy: %s\n", first.substr(0, 400).c_str());
+        autobot_llama_free(s);
+        return 0;
+    }
 
     // ---- agent conversation: turn 1 (cold), turn 2 (cached), regenerate, tool step
     const std::string sys = system_prompt("main");

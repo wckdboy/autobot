@@ -82,16 +82,31 @@ class ComputeProfile @Inject constructor(private val rows: ModelRowRepository) {
         fun shownBackend(lastRan: Backend?, chosen: Backend, measured: Backend? = null): Backend? =
             lastRan ?: chosen.takeIf { it != Backend.AUTO } ?: measured
 
-        /** Fastest backend among the newest successful run per backend; null if nothing was measured. */
+        /**
+         * Fastest backend among the newest successful run per backend; null if nothing was measured.
+         * Text models: the shortest typical chat turn ([TURN_PROMPT_TOKENS] prompt tokens read,
+         * [TURN_REPLY_TOKENS] generated), so a backend that generates a little faster but reads
+         * prompts several times slower does not win; by generation speed alone when a run has no
+         * prompt speed. Image models: the shortest step.
+         */
         fun fastest(results: List<Benchmark>): Backend? {
             val latest = results.filter { it.ok && it.backend != Backend.AUTO }
                 .groupBy { it.backend }
                 .mapValues { (_, runs) -> runs.maxBy { it.createdAt } }
                 .values
-            val byGeneration = latest.filter { it.generationTps != null }.maxByOrNull { it.generationTps!! }
-            if (byGeneration != null) return byGeneration.backend
+            val text = latest.filter { it.generationTps != null && it.generationTps > 0 }
+            if (text.isNotEmpty()) {
+                if (text.any { it.promptTps == null || it.promptTps <= 0 }) return text.maxBy { it.generationTps!! }.backend
+                return text.minBy { TURN_PROMPT_TOKENS / it.promptTps!! + TURN_REPLY_TOKENS / it.generationTps!! }.backend
+            }
             return latest.filter { it.stepMs != null }.minByOrNull { it.stepMs!! }?.backend
         }
+
+        /** A typical turn for [fastest]: an agent step reads about this many new prompt tokens… */
+        const val TURN_PROMPT_TOKENS = 1000.0
+
+        /** …and generates about this many. */
+        const val TURN_REPLY_TOKENS = 200.0
 
         private fun BenchmarkRow.toBenchmark() = Benchmark(
             modelId = modelId,

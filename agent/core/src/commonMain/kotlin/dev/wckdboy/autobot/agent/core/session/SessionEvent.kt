@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.agent.core.session
 
+import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
@@ -80,6 +82,8 @@ sealed interface SessionEvent {
         val interrupted: Boolean = false,
         /** Why [model] answered instead of the requested model (on-device fallback), if it did. */
         val fallback: String? = null,
+        /** Why the engine ended the reasoning early: "budget" (budget or answer reserve) or "loop". */
+        val reasoningStop: String? = null,
     ) : SessionEvent
 
     /** A failed model request (after retries). Not model-visible. */
@@ -129,6 +133,13 @@ sealed interface SessionEvent {
     @Serializable
     @SerialName("agent/config")
     data class AgentSettingsChanged(val toolsEnabled: Boolean) : SessionEvent
+
+    /** The chat's Think switch (restored when the session is reopened). Not model-visible. */
+    @Serializable
+    @SerialName("agent/thinking")
+    data class ThinkingChanged(val mode: ThinkingMode, val budget: Int? = null) : SessionEvent {
+        val setting: ThinkingSetting get() = ThinkingSetting(mode, budget)
+    }
 
     @Serializable
     @SerialName("request/context")

@@ -20,6 +20,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -155,6 +157,7 @@ internal class CardField {
     private var xs = FloatArray(0)
     private var ys = FloatArray(0)
     private var base = DoubleArray(0)
+    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
 
     fun update(w: Float, h: Float, pitchPx: Float) {
         if (w == width && h == height) return
@@ -176,12 +179,20 @@ internal class CardField {
         }
     }
 
-    /** Draws the field at wave time [seconds] (dots never overlap: plain circles, one paint). */
+    /**
+     * Draws the field at wave time [seconds]. Dots never overlap, so each is a plain circle in one
+     * reused paint carrying the alpha (the same pixels as per-dot alpha, without a Compose paint
+     * set-up per dot).
+     */
     fun draw(scope: DrawScope, seconds: Float, color: Color, alpha: Float) {
+        val a = (alpha * color.alpha).coerceIn(0f, 1f)
+        if (count == 0 || a <= 0f) return
+        paint.color = color.copy(alpha = a).toArgb()
+        val canvas = scope.drawContext.canvas.nativeCanvas
         val t = seconds.toDouble()
         for (i in 0 until count) {
-            val r = DotGeometry.cardRadius(base[i], xs[i].toDouble(), ys[i].toDouble(), t, wavelength)
-            scope.inkDot(color, xs[i], ys[i], r.toFloat(), alpha)
+            val r = DotGeometry.cardRadius(base[i], xs[i].toDouble(), ys[i].toDouble(), t, wavelength).toFloat()
+            if (r > 0.3f) canvas.drawCircle(xs[i], ys[i], r, paint)
         }
     }
 }

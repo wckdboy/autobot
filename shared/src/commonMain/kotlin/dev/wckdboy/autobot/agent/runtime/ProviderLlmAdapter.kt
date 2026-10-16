@@ -83,6 +83,7 @@ class ProviderLlmAdapter(
                 tools = call.tools.map { ToolSpec(it.name, it.description, it.parameters.toString()) },
                 echoReasoning = echo,
                 sessionKey = call.sessionId?.let(ProviderSessions::key),
+                thinking = call.config.thinking,
             )
             chat.streamChat(request).collect { event ->
                 when (event) {
@@ -90,13 +91,14 @@ class ProviderLlmAdapter(
                     is ChatEvent.ReasoningDelta -> emit(StreamChunk.ReasoningDelta(event.text))
                     is ChatEvent.ToolCallDelta -> emit(StreamChunk.ToolCallDelta(event.index, event.id, event.name, event.argumentsDelta))
                     is ChatEvent.Usage -> emit(
-                        StreamChunk.Usage(TokenUsage(event.promptTokens, event.completionTokens, event.totalTokens)),
+                        StreamChunk.Usage(TokenUsage(event.promptTokens, event.completionTokens, event.totalTokens, reasoningTokens = event.reasoningTokens)),
                     )
                     is ChatEvent.Finish -> emit(StreamChunk.Finish(event.reason))
                     // A stopped engine stops the turn: what streamed so far is kept as interrupted.
                     is ChatEvent.Error ->
                         if (event.code == LocalLlmCodec.CANCELLED) throw CancellationException(event.message) else throw LlmException(event.toFailure())
                     is ChatEvent.ServedBy -> emit(StreamChunk.ServedBy(event.model, event.fallback))
+                    is ChatEvent.ReasoningStatus -> emit(StreamChunk.ReasoningStatus(event.tokens, event.done, event.stop))
                     ChatEvent.Done -> Unit
                 }
             }
@@ -115,9 +117,16 @@ class ProviderLlmAdapter(
             ChatRole.ASSISTANT,
             text,
             toolCalls = toolCalls.map { ToolCall(it.id, it.name, it.arguments) },
-            reasoning = reasoning.takeIf { echo && (withTools || inCurrentTurn) },
+            reasoning = reasoning.takeIf { if (kind == ProviderKind.LOCAL) echoesLocalReasoning() else echo && (withTools || inCurrentTurn) },
         )
     }
+
+    /**
+     * On this device the chat template decides what reasoning it renders: Qwen3 / Qwen3.5 keep the
+     * current turn's reasoning between tool calls and drop older ones. So only the reasoning of
+     * tool-call steps of the current turn is sent; final answers' reasoning never goes back.
+     */
+    private fun ModelMessage.echoesLocalReasoning(): Boolean = inCurrentTurn && toolCalls.isNotEmpty()
 
     companion object {
         /** On-device context (KV cache memory is the limit on a phone). */

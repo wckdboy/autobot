@@ -81,6 +81,41 @@ final class SharedAgentRuntime: AgentRuntime {
         }
         listeners.add(mcpListener)
         mcpHandle = bridge.observeMcpStatus(listener: mcpListener)
+        bridge.setThinkingDefaults(text: UserDefaults.standard.string(forKey: Self.thinkingDefaultsKey))
+    }
+
+    // MARK: Think switch
+
+    /// Per-model Think defaults (`ThinkingDefaults` text): a non-secret preference.
+    static let thinkingDefaultsKey = "thinking_defaults"
+
+    func setThinking(_ id: String, _ choice: ThinkingChoice) {
+        _ = session(id)
+        bridge.setThinking(sessionId: id, mode: choice.mode, budget: choice.budget.map { KotlinInt(int: Int32($0)) })
+    }
+
+    func thinkingDefault(provider: String, model: String) -> ThinkingChoice? {
+        let text = UserDefaults.standard.string(forKey: Self.thinkingDefaultsKey)
+        guard let s = ThinkingDefaults.shared.get(text: text, provider: provider, model: model) else { return nil }
+        return ThinkingChoice(mode: s.mode.name, budget: s.budget.map { Int(truncating: $0) })
+    }
+
+    func setThinkingDefault(provider: String, model: String, _ choice: ThinkingChoice?) {
+        let old = UserDefaults.standard.string(forKey: Self.thinkingDefaultsKey)
+        let setting = choice.map { c in
+            ThinkingSetting(mode: Self.mode(c.mode), budget: c.budget.map { KotlinInt(int: Int32($0)) })
+        }
+        let text = ThinkingDefaults.shared.with(text: old, provider: provider, model: model, setting: setting)
+        UserDefaults.standard.set(text, forKey: Self.thinkingDefaultsKey)
+        bridge.setThinkingDefaults(text: text)
+    }
+
+    private static func mode(_ name: String) -> ThinkingMode {
+        switch name {
+        case "OFF": .off
+        case "ON": .on
+        default: .auto_
+        }
     }
 
     func preview(_ id: String, state: ChatSessionState) {
@@ -357,6 +392,9 @@ final class SessionStreamDecoder {
         var reasoning: String
         var toolNames: [String]
         var tokensPerSecond: Double?
+        var reasoningTokens: Int?
+        var reasoningDone: Bool?
+        var reasoningStop: String?
     }
 
     /// The frame fields (lenient, so a frame from a newer or older bridge still renders).
@@ -369,8 +407,11 @@ final class SessionStreamDecoder {
         var permission = PermissionPreset.workspace.label
         var provider = ""
         var model = ""
+        var thinking = "AUTO"
+        var thinkingBudget: Int?
+        var thinkingSupport = "NONE"
 
-        private enum K: String, CodingKey { case live, running, approvals, question, toolsEnabled, permission, provider, model }
+        private enum K: String, CodingKey { case live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: K.self)
@@ -382,6 +423,9 @@ final class SessionStreamDecoder {
             permission = try c.decodeIfPresent(String.self, forKey: .permission) ?? PermissionPreset.workspace.label
             provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? ""
             model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+            thinking = try c.decodeIfPresent(String.self, forKey: .thinking) ?? "AUTO"
+            thinkingBudget = try c.decodeIfPresent(Int.self, forKey: .thinkingBudget)
+            thinkingSupport = try c.decodeIfPresent(String.self, forKey: .thinkingSupport) ?? "NONE"
         }
     }
 
@@ -408,14 +452,20 @@ final class SessionStreamDecoder {
             stream = (l.turn, l.step)
             resync = !Self.apply(l.text, from: l.textFrom, to: &text, length: &textLength)
             resync = !Self.apply(l.reasoning, from: l.reasoningFrom, to: &reasoning, length: &reasoningLength) || resync
-            live = LiveState(text: text, reasoning: reasoning, toolNames: l.toolNames, tokensPerSecond: l.tokensPerSecond)
+            live = LiveState(
+                text: text, reasoning: reasoning, toolNames: l.toolNames, tokensPerSecond: l.tokensPerSecond,
+                reasoningTokens: l.reasoningTokens, reasoningDone: l.reasoningDone ?? false, reasoningStop: l.reasoningStop,
+            )
         } else {
             stream = nil
             (text, textLength, reasoning, reasoningLength) = ("", 0, "", 0)
         }
         let update = SessionUpdate(
             transcript: nil, live: live, running: frame.running, approvals: frame.approvals, question: frame.question,
-            settings: SessionSettings(toolsEnabled: frame.toolsEnabled, permission: frame.permission, provider: frame.provider, model: frame.model),
+            settings: SessionSettings(
+                toolsEnabled: frame.toolsEnabled, permission: frame.permission, provider: frame.provider, model: frame.model,
+                thinking: ThinkingChoice(mode: frame.thinking, budget: frame.thinkingBudget), thinkingSupport: frame.thinkingSupport,
+            ),
         )
         return (update, resync)
     }

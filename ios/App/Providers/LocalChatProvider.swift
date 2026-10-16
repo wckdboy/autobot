@@ -47,6 +47,7 @@ struct LocalChatProvider: ChatProvider {
                         switch delta {
                         case .content(let t): emit(.contentDelta(t))
                         case .reasoning(let t): emit(.reasoningDelta(t))
+                        case .reasoningStatus: break
                         }
                     },
                 )

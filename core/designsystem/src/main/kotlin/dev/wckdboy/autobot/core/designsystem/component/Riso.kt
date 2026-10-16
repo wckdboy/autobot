@@ -34,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -63,6 +65,9 @@ enum class Route(val glyph: String, val label: String, val local: Boolean) {
     LOCAL_GPU("●", "local · gpu", true),
     LOCAL_CPU("●", "local · cpu", true),
 
+    /** Prompt on the NPU, reply generated on the CPU (no "local ·": the filled dot says it, and it fits a half-width card). */
+    LOCAL_NPU_CPU("●", "npu+cpu", true),
+
     /** On this phone, before the engine has said where the model loaded (llama.cpp's "auto"). */
     LOCAL("●", "local", true),
     PC_LAN("◐", "pc · lan", false),
@@ -70,9 +75,10 @@ enum class Route(val glyph: String, val label: String, val local: Boolean) {
     ;
 
     companion object {
-        /** On this phone on [accelerator] ("npu", "gpu", "cpu"); [LOCAL] when it is not known. */
+        /** On this phone on [accelerator] ("npu", "gpu", "cpu", "npu+cpu"); [LOCAL] when it is not known. */
         fun local(accelerator: String?): Route = when (accelerator) {
             "npu" -> LOCAL_NPU
+            "npu+cpu" -> LOCAL_NPU_CPU
             "gpu" -> LOCAL_GPU
             "cpu" -> LOCAL_CPU
             else -> LOCAL
@@ -228,9 +234,15 @@ fun ModeCard(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         val card = MaterialTheme.colorScheme.surfaceContainerHigh
-        Box(if (living && background == null) Modifier.inkCard() else Modifier) {
+        Box {
+            // The field and the art each get their own layer: an ambient tick re-records only the
+            // dots that move, not the cards' text or the other cards (a screen's cards share one
+            // list item). The art is rendered offscreen once and reused until it changes.
+            if (living && background == null) Spacer(Modifier.matchParentSize().graphicsLayer().inkCard())
+            if (background != null) {
+                Box(Modifier.matchParentSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) { background() }
+            }
             if (background != null || living) {
-                background?.invoke()
                 // Fade the art (or the living field) into the card colour so the title stays legible.
                 Box(
                     Modifier

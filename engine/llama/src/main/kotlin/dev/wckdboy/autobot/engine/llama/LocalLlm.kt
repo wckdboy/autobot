@@ -30,6 +30,9 @@ sealed interface LocalLlmEvent {
     data class Content(val text: String) : LocalLlmEvent
     data class Reasoning(val text: String) : LocalLlmEvent
 
+    /** Reasoning progress JSON (`{tokens, done, stop?}`), see AUTOBOT_LLAMA_DELTA_REASONING_STATUS. */
+    data class ReasoningStatus(val json: String) : LocalLlmEvent
+
     /** Raw final JSON from the engine (content, reasoning, tool_calls, usage | error). */
     data class Result(val json: String) : LocalLlmEvent
 }
@@ -186,7 +189,13 @@ class LocalLlm(
             }
 
             override fun onDelta(kind: Int, text: String) {
-                trySend(if (kind == 1) LocalLlmEvent.Reasoning(text) else LocalLlmEvent.Content(text))
+                trySend(
+                    when (kind) {
+                        1 -> LocalLlmEvent.Reasoning(text)
+                        2 -> LocalLlmEvent.ReasoningStatus(text)
+                        else -> LocalLlmEvent.Content(text)
+                    },
+                )
             }
 
             override fun onResult(json: String) {

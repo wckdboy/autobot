@@ -22,8 +22,9 @@ import okio.Path.Companion.toPath
  * Native rather than the OpenAI SDK compatibility layer, which Anthropic describes as meant for
  * testing and comparing models, not for production, and which ignores prompt caching. Here the
  * tool definitions, the system prompt and the newest turn carry `cache_control` breakpoints, so an
- * agent loop that resends the same prefix on every step reads it from the cache. Thinking is left
- * at the model's default (on for Claude 5, with the text omitted); the signed thinking blocks of a
+ * agent loop that resends the same prefix on every step reads it from the cache. Thinking follows
+ * the chat's Think switch ([RemoteThinking.anthropic]); on auto it is left at the model's default
+ * (on for Claude 5, with the text omitted); the signed thinking blocks of a
  * tool-use turn are replayed unmodified, as the API requires, via [ToolCallIds].
  */
 object AnthropicWire : ChatWire {
@@ -91,19 +92,27 @@ object AnthropicCodec {
                 put("input_schema", schema)
             }
         }
+        val maxTokens = request.maxTokens ?: defaultMaxTokens(request.model)
+        val thinking = RemoteThinking.anthropic(request, maxTokens)
         return WireJson.encodeToString(
             JsonObject.serializer(),
             buildJsonObject {
                 put("model", request.model)
-                put("max_tokens", request.maxTokens ?: defaultMaxTokens(request.model))
+                put("max_tokens", thinking.maxTokens ?: maxTokens)
                 put("stream", true)
+                thinking.thinking?.let { put("thinking", it) }
+                thinking.effort?.let { effort -> put("output_config", buildJsonObject { put("effort", effort) }) }
                 if (system.isNotEmpty()) {
                     put("system", buildJsonArray { add(text(system.joinToString("\n\n"))!!.cached()) })
                 }
                 put("messages", buildJsonArray { turns.forEach { t -> add(buildJsonObject { put("role", t.role); put("content", JsonArray(t.blocks)) }) } })
                 if (tools.isNotEmpty()) put("tools", JsonArray(tools.dropLast(1) + tools.last().cached()))
                 // Anthropic's range is 0–1 (OpenAI's is 0–2).
-                request.temperature?.let { put("temperature", it.coerceIn(0.0, 1.0)) }
+                // Newer models refuse sampling parameters, and thinking requires the default temperature.
+                val thinkingOn = thinking.thinking?.get("type")?.toString()?.trim('"') in setOf("enabled", "adaptive")
+                if (!thinkingOn && !AnthropicFamily.refusesTemperature(request.model)) {
+                    request.temperature?.let { put("temperature", it.coerceIn(0.0, 1.0)) }
+                }
             },
         )
     }

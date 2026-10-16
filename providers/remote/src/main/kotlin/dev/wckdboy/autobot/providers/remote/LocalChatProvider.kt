@@ -61,10 +61,11 @@ class LocalChatProvider(
             return@flow
         }
         val backend = compute.resolve(model).id
-        engine.chat(path, contextOf(model), backend, encode(request, model.paths[FileRole.MMPROJ]).toString()).collect { event ->
+        engine.chat(path, contextOf(model), backend, encode(request, model.paths[FileRole.MMPROJ], paramsOf(model)).toString()).collect { event ->
             when (event) {
                 is LocalLlmEvent.Content -> emit(ChatEvent.ContentDelta(event.text))
                 is LocalLlmEvent.Reasoning -> emit(ChatEvent.ReasoningDelta(event.text))
+                is LocalLlmEvent.ReasoningStatus -> LocalLlmCodec.decodeStatus(event.json)?.let { emit(it) }
                 is LocalLlmEvent.Status -> Unit
                 is LocalLlmEvent.Result -> {
                     // Where the model actually loaded (an "auto" or failed accelerator falls back): the route tags show it.
@@ -117,7 +118,12 @@ class LocalChatProvider(
         const val DEFAULT_CONTEXT = 8192
         private const val MAX_CONTEXT = 32768
 
-        internal fun encode(request: ChatRequest, mmproj: String? = null): JsonObject = LocalLlmCodec.encode(request, mmproj)
+        internal fun encode(request: ChatRequest, mmproj: String? = null, paramsB: Double? = null): JsonObject =
+            LocalLlmCodec.encode(request, mmproj, paramsB)
+
+        /** The model's size for the reasoning budget: from its id or title, else its weights' size. */
+        internal fun paramsOf(model: InstalledModel): Double? =
+            LocalModelSize.paramsB(model.title, model.id, model.paths[FileRole.MODEL]?.let { File(it).name }, fileBytes = model.paths[FileRole.MODEL]?.let { File(it).length() })
 
         internal fun decodeResult(json: String): List<ChatEvent> = LocalLlmCodec.decodeResult(json)
 

@@ -47,6 +47,18 @@ enum Engines {
 enum LocalDelta: Sendable {
     case content(String)
     case reasoning(String)
+    /// Reasoning progress JSON from the engine (`{tokens, done, stop?}`).
+    case reasoningStatus(String)
+
+    #if canImport(AutobotEngines)
+    init(_ kind: DeltaKind, _ text: String) {
+        switch kind {
+        case .content: self = .content(text)
+        case .reasoning: self = .reasoning(text)
+        case .reasoningStatus: self = .reasoningStatus(text)
+        }
+    }
+    #endif
 }
 
 /// Final result of one on-device completion (mirrors the engine core's JSON).
@@ -90,6 +102,15 @@ enum EngineErrors {
 
 /// llama.cpp on this device (Metal GPU or CPU); one resident model, requests run serially.
 final class LocalLlm: Sendable {
+    /// The chat template in the GGUF at [path] (header only, the model is not loaded); nil without one.
+    static func chatTemplate(path: String) -> String? {
+        #if canImport(AutobotEngines)
+        LlamaEngine.chatTemplate(path: path)
+        #else
+        nil
+        #endif
+    }
+
     func chat(
         modelPath: String,
         mmprojPath: String?,
@@ -107,7 +128,7 @@ final class LocalLlm: Sendable {
                     contextLength: contextLength,
                     backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto,
                     requestJSON: requestJSON,
-                    onDelta: { kind, text in onDelta(kind == .reasoning ? .reasoning(text) : .content(text)) },
+                    onDelta: { kind, text in onDelta(LocalDelta(kind, text)) },
                 )
             }
             return LocalLlmResult(
@@ -149,7 +170,7 @@ final class LocalLlm: Sendable {
                     contextLength: contextLength,
                     backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto,
                     requestJSON: requestJSON,
-                    onDelta: { kind, text in onDelta(kind == .reasoning ? .reasoning(text) : .content(text)) },
+                    onDelta: { kind, text in onDelta(LocalDelta(kind, text)) },
                 ).json
             }
         } catch {
