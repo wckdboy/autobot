@@ -55,7 +55,7 @@ struct RunState {
         agent = remote.first.map { target($0) } ?? chat
         code = (local != nil && codeModel != nil) ? target(local!, codeModel!.id) : (remote.first.map { target($0) } ?? chat)
 
-        let backend = app.backends.defaultBackend
+        let backend = app.backends.startingBackend(offline: app.settings.settings.mode == .offline)
         let imageModel = models.first { $0.isReady && $0.kind == .image && $0.engine == .coreML }
         imageLabel = backend == nil ? "no backend" : backend!.kind == .onDevice ? (imageModel?.title ?? "This phone") : backend!.name
         imageRoute = backend.map { $0.kind == .onDevice ? .localNpu : $0.isLoopback ? .localCpu : .pcLan }
@@ -66,7 +66,7 @@ struct RunState {
             RecentRun(
                 id: "c-\(c.id)",
                 title: c.title,
-                subtitle: "session · \(c.model.map { titles[$0] ?? $0 } ?? "—")",
+                subtitle: c.model.map { titles[$0] ?? $0 } ?? "—",
                 route: c.providerId.flatMap { byId[$0] }.map(routeOf) ?? .cloudApi,
                 time: c.updatedAt,
                 conversationId: c.id,
@@ -76,7 +76,7 @@ struct RunState {
             RecentRun(
                 id: "g-\(g.id)",
                 title: g.prompt.isEmpty ? "image" : g.prompt,
-                subtitle: "image · \(g.width)×\(g.height) · \(g.durationMs / 1000) s",
+                subtitle: "\(g.width)×\(g.height)",
                 route: g.engine == "This phone" ? .localNpu : .pcLan,
                 time: g.createdAt,
                 galleryId: g.id,
@@ -88,16 +88,19 @@ struct RunState {
         let running = app.agent.running
         let genRunning = app.generator.isBusy
         let localBusy = genRunning || running.contains { id in app.conversations.get(id)?.providerId == local?.id }
-        var parts = ["this phone"]
-        if let chip = device?.chip { parts.append(chip) }
-        parts.append(localBusy ? "busy" : "idle")
-        if let device { parts.append(device.thermalLabel) }
-        if let device { parts.append("\(formatBytes(device.freeStorageBytes)) free") }
+        // State only: busy or idle, and heat or low space when they matter.
+        var parts = [device?.chip ?? "this phone", localBusy ? "busy" : "idle"]
+        if let device, device.thermal != .nominal { parts.append(device.thermalLabel) }
+        if let device, device.freeStorageBytes < 5_000_000_000 { parts.append("\(formatBytes(device.freeStorageBytes)) free") }
         status = parts.joined(separator: " · ")
         live = running.count + (genRunning ? 1 : 0) + app.studio.jobs.filter { $0.state == .running }.count
         hasAnything = !providers.isEmpty || !models.isEmpty
         let queued = app.studio.activeJobs.count
-        if queued > 0 { studioLabel = "\(queued) in the queue" } else if let p = app.studio.project { studioLabel = p.name.lowercased() }
+        if queued > 0 {
+            studioLabel = "\(queued) queued"
+        } else if let p = app.studio.project, p.name.lowercased() != "studio" {
+            studioLabel = p.name.lowercased()
+        }
     }
 }
 
@@ -124,14 +127,13 @@ struct RunScreen: View {
                     cards(state)
                     Spacer().frame(height: 22)
                     if !state.hasAnything {
-                        MicroLabel("no models yet — download one to run on this phone, or add a provider under remote", lines: 3)
-                        Spacer().frame(height: 10)
                         PrimaryButton("Get a model") { nav.switchTo(.models) }
-                        Spacer().frame(height: 22)
+                        Spacer().frame(height: 24)
                     }
                     HStack(alignment: .center) {
-                        MicroLabel("recent runs").frame(maxWidth: .infinity, alignment: .leading)
+                        MicroLabel("recent").frame(maxWidth: .infinity, alignment: .leading)
                         TextAction("All →", color: c.primary) { nav.push(.chatList) }
+                            .accessibilityLabel("All sessions")
                     }
                     ForEach(state.recent) { run in
                         RunRow(title: run.title, subtitle: run.subtitle, action: {

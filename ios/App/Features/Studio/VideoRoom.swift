@@ -110,7 +110,6 @@ struct VideoRoom: View {
                 } else {
                     ZStack(alignment: .bottomLeading) {
                         Color.clear.inkCard(seed: 2.4, fade: .bottomLeading, cornerRadius: 0)
-                        MicroLabel("takes print here · runs on \(model.server?.name ?? "your pc")").padding(10)
                     }
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .background(c.surfaceContainerLowest)

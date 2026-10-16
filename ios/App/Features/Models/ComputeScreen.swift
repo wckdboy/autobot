@@ -45,7 +45,7 @@ struct ComputeScreen: View {
                             Text(system.map { "unavailable · \($0.detail)" } ?? "available")
                                 .textStyle(.bodySmall)
                                 .foregroundStyle(system == nil ? c.onSurface : c.onSurfaceVariant)
-                            MicroLabel("fallback when no downloaded model can run · ~4k tokens, no tools", lines: 2)
+                            MicroLabel("fallback · ~4k tokens, no tools")
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -55,7 +55,7 @@ struct ComputeScreen: View {
                             InkProgressBar(fraction: Double(benchStep.done) / Double(max(benchStep.total, 1)), height: 2, running: true)
                         }
                     }
-                    SectionLabel("models · auto picks the fastest measured backend", color: c.onSurfaceVariant)
+                    SectionLabel("models", color: c.onSurfaceVariant)
                     ForEach(models) { m in
                         ModelCompute(model: m, running: running != nil, benchmarking: benchModel == m.id) { benchmark(m) }
                     }

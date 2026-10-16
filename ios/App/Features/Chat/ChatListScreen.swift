@@ -184,12 +184,11 @@ struct ChatListScreen: View {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(incognito ? AutobotColors.uv : c.outline)
-                VStack(alignment: .leading, spacing: 0) {
-                    MicroLabel("incognito", color: incognito ? AutobotColors.uv : c.onSurfaceVariant)
-                    MicroLabel("memory only · never written to disk", color: c.outline)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                MicroLabel("incognito", color: incognito ? AutobotColors.uv : c.onSurfaceVariant)
+                InfoButton(title: "Incognito", text: "New sessions are kept in memory only, never written to disk.")
+                Spacer(minLength: 0)
                 RisoToggle(isOn: Binding(get: { incognito }, set: { incognitoOverride = $0 }))
+                    .accessibilityLabel("Incognito")
                 Button(action: newChat) {
                     HStack(spacing: 8) {
                         AutobotIconView(icon: .terminal, size: 16, color: incognito ? AutobotColors.paperInk : c.onPrimary)
@@ -197,7 +196,7 @@ struct ChatListScreen: View {
                     }
                     .foregroundStyle(incognito ? AutobotColors.paperInk : c.onPrimary)
                     .padding(.horizontal, 14)
-                    .frame(height: 40)
+                    .frame(height: 44)
                     .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(incognito ? AutobotColors.uv : c.primary))
                 }
                 .buttonStyle(PressStyle())
@@ -246,7 +245,7 @@ struct ChatListScreen: View {
 
     private var searchRow: some View {
         HStack(spacing: 8) {
-            ConsoleTextField(text: $query, placeholder: "Search titles and messages")
+            ConsoleTextField(text: $query, placeholder: "Search")
                 .overlay(alignment: .trailing) {
                     if !query.isEmpty {
                         IconAction(symbol: "xmark.circle.fill", label: "Clear search", tint: c.outline, size: 16) { query = "" }
@@ -522,7 +521,8 @@ struct LiveCountLabel: View {
     let active: Set<String>
     @Environment(AppContainer.self) private var app
 
-    static func text(total: Int, live: Int) -> String { "\(counted(total, "session")) · \(live) live" }
+    /// "0 live" is not news: the live count only shows while something runs.
+    static func text(total: Int, live: Int) -> String { live > 0 ? "\(counted(total, "session")) · \(live) live" : counted(total, "session") }
 
     var body: some View {
         MicroLabel(Self.text(total: total, live: app.agent.running.intersection(active).count))

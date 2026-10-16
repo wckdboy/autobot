@@ -25,11 +25,9 @@ struct MemoryScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     SwitchRow(
-                        title: "Use memory in chats",
-                        subtitle: settings.memoryEnabled
-                            ? "The agent recalls relevant notes and can save new ones. Notes stay encrypted on this phone."
-                            : "Off: the agent neither sees nor saves notes.",
+                        title: "Use in chats",
                         isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
+                        info: "The agent recalls relevant notes and can save new ones. Notes stay encrypted on this phone.",
                     )
                     ConsoleTextField(text: $query, placeholder: "search notes or #tag", kind: .mono)
                         .padding(.horizontal, Tokens.Spacing.gutter)
@@ -38,7 +36,7 @@ struct MemoryScreen: View {
                         .padding(.horizontal, Tokens.Spacing.gutter)
                         .padding(.vertical, 8)
                     if notes.isEmpty {
-                        Text(total == 0 ? "No notes yet. Tap + to write one, or ask the agent to remember something." : "No notes match.")
+                        Text(total == 0 ? "No notes yet" : "No matches")
                             .textStyle(.bodyMedium)
                             .foregroundStyle(c.onSurfaceVariant)
                             .multilineTextAlignment(.center)

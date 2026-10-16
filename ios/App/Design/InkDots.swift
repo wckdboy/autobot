@@ -16,14 +16,15 @@ extension InkMath {
     /// Slots at the head that ease in as progress advances (growth is continuous, never pops).
     static let barHeadSlots = 2.0
 
-    /// A bar of [width] × [diameter]: how many dot slots fit (the outer dots touch the ends), their
-    /// pitch and the first centre.
-    static func barLayout(width: Double, diameter: Double) -> (count: Int, pitch: Double, first: Double) {
-        let pitch = diameter * barPitch
-        guard width >= diameter, diameter > 0 else { return (0, pitch, 0) }
-        let count = Int(((width - diameter) / pitch).rounded(.down)) + 1
-        let span = Double(count - 1) * pitch + diameter
-        return (count, pitch, (width - span) / 2 + diameter / 2)
+    /// A bar of [width] × [diameter] (points) at [scale]: how many dot slots fit (the outer dots
+    /// touch the ends), their pitch and the first centre, all in points and pixel-snapped
+    /// ([InkGrid.bar]).
+    static func barLayout(width: Double, diameter: Double, scale: Double = 1) -> (count: Int, pitch: Double, first: Double) {
+        guard width >= diameter, diameter > 0 else { return (0, diameter * barPitch, 0) }
+        let d = InkGrid.pixels(diameter, scale: scale)
+        let pitch = max(d + 1, Int((Double(d) * barPitch).rounded()))
+        let axis = InkGrid.axis(lengthPx: width * scale, pitchPx: pitch, marginPx: Double(d) / 2, oddDiameter: d % 2 == 1)
+        return (axis.count, Double(pitch) / scale, axis.firstPx / scale)
     }
 
     /// Where the fill's head is (in slots) at [fraction] of a [count]-slot bar: 0 shows nothing,
@@ -73,9 +74,15 @@ extension InkMath {
     // MARK: Living cards
 
     /// Living card dots: radius multiplier (0.1…1) of a dot whose wave phase is [phase] (radians)
-    /// at [seconds], one cycle per [period] s.
+    /// at [seconds], one cycle per [period] s. The time is reduced to the cycle first, so the
+    /// period is exact whatever the size of [seconds].
     static func cardWave(phase: Double, seconds: Double, period: Double) -> Double {
-        0.55 + 0.45 * sin(phase - 2 * .pi * seconds / period)
+        cardWave(phase: phase, cycle: cycle(seconds / period))
+    }
+
+    /// The same at a [cycle] position (0…1).
+    static func cardWave(phase: Double, cycle: Double) -> Double {
+        0.55 + 0.45 * sin(phase - 2 * .pi * cycle)
     }
 }
 
@@ -149,15 +156,20 @@ struct InkProgressBar: View {
         self.ink = ink
     }
 
-    /// Dot diameter for a bar of [height]: dots under 4pt read as a dotted hairline.
-    static func diameter(_ height: CGFloat) -> CGFloat { max(height * 1.5, 4) }
+    /// The bar's height (= its dot diameter) for a nominal [height] at [scale]: max(1.5·h, 4) pt,
+    /// rounded to whole pixels (dots under 4pt read as a dotted hairline).
+    static func diameter(_ height: CGFloat, scale: CGFloat = 3) -> CGFloat {
+        CGFloat(InkGrid.bar(widthPt: 0, height: Double(height), scale: Double(scale)).heightPt)
+    }
+
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let reduced = reduceMotion || still
         let colors = InkBarColors(ink: state.isError ? c.error : ink ?? c.primary, pin: track ?? c.outlineVariant, mark: c.onSurfaceVariant)
         InkBarCanvas(state: state, fraction: state.value, colors: colors, live: state.isLive && !reduced)
             .animation(reduced ? .inkReduced : .inkProgress, value: state.value)
-            .frame(height: Self.diameter(height))
+            .frame(height: Self.diameter(height, scale: displayScale))
             .accessibilityElement()
             .accessibilityLabel(state.label)
             .accessibilityValue(state == .indeterminate ? "" : "\(Int(state.value * 100)) percent")
@@ -195,43 +207,62 @@ private struct InkBarCanvas: View, Animatable {
 
 /// Bar drawing, shared by the view and the frame tests.
 enum InkBar {
-    static func draw(_ context: inout GraphicsContext, size: CGSize, state: InkBarState, fraction: Double, seconds: Double, colors: InkBarColors) {
-        let d = Double(size.height)
-        let (count, pitch, first) = InkMath.barLayout(width: Double(size.width), diameter: d)
-        guard count > 0 else { return }
-        let full = d / 2, pin = full * InkMath.barEmptyScale
-        var pins = Path(), dots = Path()
-        let cy = d / 2
-        func add(_ path: inout Path, _ i: Int, _ r: Double) {
-            let cx = first + Double(i) * pitch
-            path.addEllipse(in: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
-        }
-        var markSlot: Int? = nil
+    /// The dots' radii (pixels) slot by slot for [count] slots: `nil` marks the paused `‖` slot.
+    /// Pins are `barEmptyDotScale` of the full radius, the fill ramps from `barFillStartScale`
+    /// (eased in at the head, whose position is linear in [fraction]), running adds the wave.
+    static func radii(count: Int, fullRadius full: Double, state: InkBarState, fraction: Double, seconds: Double) -> [(radius: Double, filled: Bool)?] {
+        let pin = full * InkMath.barEmptyScale
         switch state {
         case .indeterminate:
-            for i in 0 ..< count { add(&dots, i, full * InkMath.barLoadingScale(slot: Double(i) + 0.5, seconds: seconds)) }
+            return (0 ..< count).map { (full * InkMath.barLoadingScale(slot: Double($0) + 0.5, seconds: seconds), true) }
         default:
             let head = InkMath.barHead(fraction: fraction, count: count)
             let running = state.isLive
-            for i in 0 ..< count {
+            var marked = false
+            return (0 ..< count).map { i in
                 let c = Double(i) + 0.5
                 var scale = InkMath.barFillScale(slot: c, head: head)
                 if running && scale > 0 { scale *= InkMath.barRunningScale(slot: c, seconds: seconds) }
                 let r = full * scale
-                if r > pin {
-                    add(&dots, i, r)
-                } else if state.isPaused && markSlot == nil {
-                    markSlot = i
-                } else {
-                    add(&pins, i, pin)
+                if r > pin { return (r, true) }
+                if state.isPaused && !marked {
+                    marked = true
+                    return nil
                 }
+                return (pin, false)
             }
+        }
+    }
+
+    /**
+     Draws the bar in [size] (points) at [scale] (the context's display scale by default): the
+     geometry is laid out in whole pixels ([InkGrid.bar]), so the pitch is exact, the row is
+     centred with no clipped dots and every centre sits on the bar's pixel-snapped mid-line.
+     */
+    static func draw(_ context: inout GraphicsContext, size: CGSize, state: InkBarState, fraction: Double, seconds: Double, colors: InkBarColors, scale: Double? = nil) {
+        let s = scale ?? Double(context.environment.displayScale)
+        let d = InkGrid.pixels(Double(size.height), scale: s)
+        let pitch = max(d + 1, Int((Double(d) * InkMath.barPitch).rounded()))
+        let axis = InkGrid.axis(lengthPx: Double(size.width) * s, pitchPx: pitch, marginPx: Double(d) / 2, oddDiameter: d % 2 == 1)
+        guard axis.count > 0 else { return }
+        let cy = InkGrid.centred(count: 1, pitchPx: 1, lengthPx: Double(size.height) * s, oddDiameter: d % 2 == 1).firstPx / s
+        let full = Double(d) / 2 / s
+        var pins = Path(), dots = Path()
+        var markSlot: Int? = nil
+        for (i, slot) in radii(count: axis.count, fullRadius: full, state: state, fraction: fraction, seconds: seconds).enumerated() {
+            guard let slot else {
+                markSlot = i
+                continue
+            }
+            let cx = axis.center(i, scale: s), r = slot.radius
+            let rect = CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)
+            if slot.filled { dots.addEllipse(in: rect) } else { pins.addEllipse(in: rect) }
         }
         context.fill(pins, with: .color(colors.pin))
         context.fill(dots, with: .color(colors.ink.opacity(state.isPaused ? 0.45 : 1)))
         if let markSlot {
             // `‖` in place of the first empty slot: two short rules.
-            let cx = first + Double(markSlot) * pitch
+            let cx = axis.center(markSlot, scale: s), d = Double(d) / s
             let w = max(d * 0.18, 0.75), gap = d * 0.22
             var mark = Path()
             mark.addRect(CGRect(x: cx - gap - w / 2, y: 0, width: w, height: d))
@@ -245,18 +276,25 @@ enum InkBar {
 
 /**
  Cached dot geometry for a living surface of one size (motion spec v3 §2): centres on a
- `cardDotPitch` grid (grown so there are at most [maxDots]), each dot's wave phase (a long
- travelling wave, about one card width per cycle, along a shallow diagonal) and its weight (dots
- thin out around a fade point, so text over the field stays clean). Built once per size; a frame
- only computes radii.
+ whole-pixel `cardDotPitch` grid (grown, still in whole pixels, so there are at most [maxDots]),
+ centred with half a pitch of margin and snapped to the pixel grid ([InkGrid.field]); each dot's
+ wave phase kx·x + ky·y (a fixed wave vector, so phases do not depend on the surface's size) and
+ its weight (dots thin out around a fade point, so text over the field stays clean). Built once
+ per size; a frame only computes radii.
  */
 final class InkDotGrid {
     private(set) var size = CGSize.zero
+    /// The pitch in points (a whole number of pixels at [scale]).
     private(set) var pitch: Double = 0
+    private(set) var scale: Double = 1
+    private(set) var columns: InkGrid.Axis?
+    private(set) var rows: InkGrid.Axis?
     private(set) var xs: [Double] = []
     private(set) var ys: [Double] = []
     private(set) var phases: [Double] = []
     private(set) var weights: [Double] = []
+    /// The wave's own clock: continuous across pauses and size changes.
+    let clock = InkWaveClock()
     private var key: Key?
 
     private struct Key: Equatable {
@@ -264,30 +302,31 @@ final class InkDotGrid {
         let base: Double
         let maxDots: Int
         let fade: UnitPoint?
+        let scale: Double
     }
 
     var count: Int { xs.count }
 
-    func layout(_ size: CGSize, base: Double, maxDots: Int, fade: UnitPoint?) {
-        let key = Key(size: size, base: base, maxDots: maxDots, fade: fade)
+    func layout(_ size: CGSize, base: Double, maxDots: Int, fade: UnitPoint?, scale: Double = 1) {
+        let key = Key(size: size, base: base, maxDots: maxDots, fade: fade, scale: scale)
         guard key != self.key else { return }
         self.key = key
         self.size = size
+        self.scale = scale
         let w = Double(size.width), h = Double(size.height)
-        pitch = InkMath.dotCell(width: w, height: h, base: base, maxDots: maxDots)
-        let cols = max(0, Int(w / pitch)), rows = max(0, Int(h / pitch))
-        let ox = (w - Double(cols) * pitch) / 2, oy = (h - Double(rows) * pitch) / 2
-        // One cycle across ~the longer side, along a shallow diagonal (down-right).
-        let wavelength = max(max(w, h), 1)
-        let kx = 2 * .pi / wavelength * cos(0.45), ky = 2 * .pi / wavelength * sin(0.45)
+        let (cols, rows) = InkGrid.field(width: w, height: h, base: base, maxDots: maxDots, scale: scale)
+        columns = cols
+        self.rows = rows
+        pitch = Double(cols.pitchPx) / scale
+        let kx = InkGrid.cardKx, ky = InkGrid.cardKy
         xs.removeAll(keepingCapacity: true)
         ys.removeAll(keepingCapacity: true)
         phases.removeAll(keepingCapacity: true)
         weights.removeAll(keepingCapacity: true)
-        for r in 0 ..< rows {
-            let y = oy + (Double(r) + 0.5) * pitch
-            for col in 0 ..< cols {
-                let x = ox + (Double(col) + 0.5) * pitch
+        for r in 0 ..< rows.count {
+            let y = rows.center(r, scale: scale)
+            for col in 0 ..< cols.count {
+                let x = cols.center(col, scale: scale)
                 var weight = 1.0
                 if let fade {
                     let dx = (x / max(w, 1) - fade.x) * (w / max(h, 1)).squareRoot(), dy = (y / max(h, 1) - fade.y)
@@ -306,15 +345,26 @@ final class InkDotGrid {
 enum InkField {
     /// One frame of the field at [seconds] (one wave cycle per [period] s), radii up to [scale]
     /// of the pitch, multiplied by [fill] (print-away swells them).
-    static func path(_ grid: InkDotGrid, seconds: Double, period: Double, seed: Double = 0, scale: Double = 0.36, fill: Double = 1) -> Path {
+    static func path(_ grid: InkDotGrid, seconds: Double, period: Double, seed: Double = 0, scale: Double = InkGrid.cardRadiusShare, fill: Double = 1) -> Path {
+        path(grid, cycle: InkMath.cycle(seconds / period), seed: seed, scale: scale, fill: fill)
+    }
+
+    /// One frame at wave position [cycle] (0…1): r = base·w·(0.55 + 0.45·sin(kx·x + ky·y − 2π·cycle)).
+    static func path(_ grid: InkDotGrid, cycle: Double, seed: Double = 0, scale: Double = InkGrid.cardRadiusShare, fill: Double = 1) -> Path {
         var path = Path()
-        let base = grid.pitch * scale * fill
-        for i in 0 ..< grid.count {
-            let r = base * grid.weights[i] * InkMath.cardWave(phase: grid.phases[i] + seed, seconds: seconds, period: period)
+        for (i, r) in radii(grid, cycle: cycle, seed: seed, scale: scale, fill: fill).enumerated() {
             guard r > 0.2 else { continue }
             path.addEllipse(in: CGRect(x: grid.xs[i] - r, y: grid.ys[i] - r, width: r * 2, height: r * 2))
         }
         return path
+    }
+
+    /// Every dot's radius (points) at [cycle].
+    static func radii(_ grid: InkDotGrid, cycle: Double, seed: Double = 0, scale: Double = InkGrid.cardRadiusShare, fill: Double = 1) -> [Double] {
+        let base = grid.pitch * scale * fill
+        return (0 ..< grid.count).map { i in
+            base * grid.weights[i] * InkMath.cardWave(phase: grid.phases[i] + seed, cycle: cycle)
+        }
     }
 }
 
@@ -322,7 +372,8 @@ enum InkField {
  A living card background (motion spec v3 §2): a halftone dot grid in a low-contrast tone whose
  radii follow a slow 2-D travelling wave (`cardWavePeriodSeconds` per cycle), on the shared
  ambient clock (≤10 fps, asleep after a minute without a touch, off in Low Power Mode, with
- Reduce Motion, off screen and while heavy work runs). ≤ `cardMaxDots` dots.
+ Reduce Motion, off screen and while heavy work runs). ≤ `cardMaxDots` dots. The wave keeps its
+ place across pauses and resizes ([InkWaveClock]).
  */
 struct InkCardField: View {
     /// Phase offset, so neighbouring cards do not breathe in lockstep.
@@ -340,8 +391,10 @@ struct InkCardField: View {
         InkTimeline(active: !heavy, tier: .ambient) { date in
             Canvas { context, size in
                 InkProbe.hit("ink.draw")
-                grid.layout(size, base: Double(Tokens.Motion.cardDotPitch), maxDots: Int(Tokens.Motion.cardMaxDots), fade: fade)
-                context.fill(InkField.path(grid, seconds: date.timeIntervalSinceReferenceDate, period: Double(Tokens.Motion.cardWavePeriodSeconds), seed: seed), with: .color(ink))
+                grid.layout(size, base: Double(Tokens.Motion.cardDotPitch), maxDots: Int(Tokens.Motion.cardMaxDots), fade: fade,
+                            scale: Double(context.environment.displayScale))
+                let cycle = grid.clock.advance(to: date, period: Double(Tokens.Motion.cardWavePeriodSeconds))
+                context.fill(InkField.path(grid, cycle: cycle, seed: seed), with: .color(ink))
             }
         }
         .background(InkTouchWatcher())

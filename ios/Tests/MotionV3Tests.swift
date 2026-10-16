@@ -10,13 +10,15 @@ struct MotionV3Tests {
     // MARK: Math
 
     @Test func barLayoutFillsTheWidth() {
-        let (count, pitch, first) = InkMath.barLayout(width: 360, diameter: 4)
-        #expect(abs(pitch - 4 * Double(Tokens.Motion.barDotPitch)) < 1e-9)
+        // At 3×: a 12 px dot, pitch round(1.6 · 12) = 19 px (whole pixels).
+        let (count, pitch, first) = InkMath.barLayout(width: 360, diameter: 4, scale: 3)
+        #expect(abs(pitch - (12 * Double(Tokens.Motion.barDotPitch)).rounded() / 3) < 1e-9)
         #expect(count == Int((356 / pitch).rounded(.down)) + 1)
         // The outer dots sit inside the bar, centred.
         let last = first + Double(count - 1) * pitch
         #expect(first >= 2 && last <= 358)
-        #expect(abs((first - 2) - (358 - last)) < 1e-9)
+        // Centred to the pixel: the two margins differ by at most one device pixel.
+        #expect(abs((first - 2) - (358 - last)) <= 1.0 / 3 + 1e-9)
         #expect(InkMath.barLayout(width: 2, diameter: 4).count == 0)
     }
 
@@ -222,9 +224,9 @@ struct MotionV3Tests {
                     HStack(spacing: 18) {
                         ForEach(0 ..< 6, id: \.self) { i in
                             Canvas { context, s in
-                                context.fill(InkLoader.dots(size, in: s, seconds: cycle * Double(i) / 6), with: .color(c.primary))
+                                context.fill(InkLoader.dots(size, in: s, seconds: cycle * Double(i) / 6, scale: 4), with: .color(c.primary))
                             }
-                            .frame(width: size.width, height: size.height)
+                            .frame(width: InkLoader.frame(size, scale: 4).width, height: InkLoader.frame(size, scale: 4).height)
                         }
                     }
                 }

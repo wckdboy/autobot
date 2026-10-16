@@ -333,7 +333,7 @@ struct RunsOnTag: View {
     var body: some View {
         HStack(spacing: 6) {
             RouteTag(route: route)
-            MicroLabel("runs on \(label)")
+            MicroLabel(label)
         }
     }
 }

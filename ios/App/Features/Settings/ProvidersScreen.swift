@@ -111,7 +111,7 @@ struct ProvidersScreen: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        SectionLabel("chat endpoints · \(providers.count)").padding(.vertical, 8)
+                        SectionLabel("\(providers.count) providers").padding(.vertical, 8)
                         ForEach(providers) { p in row(p).transition(.inkDissolve) }
                     }
                     .animation(.inkDissolve, value: providers.map(\.id))
@@ -164,7 +164,7 @@ struct ProvidersScreen: View {
                         MicroLabel(p.baseUrl)
                         Text(p.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
                         HStack(spacing: 0) {
-                            Text("\(preset.displayName) · \(p.defaultModel.isEmpty ? "—" : p.defaultModel) · \(p.routing.label)" + (p.apiKeyRef != nil ? " · key ✓" : ""))
+                            Text(p.defaultModel.isEmpty ? "—" : p.defaultModel)
                                 .foregroundStyle(c.onSurfaceVariant)
                                 .lineLimit(1)
                             if preset.requiresApiKey && p.apiKeyRef == nil {
