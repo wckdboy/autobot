@@ -74,6 +74,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -871,7 +873,7 @@ private fun InputBar(
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.primary),
                         shape = MaterialTheme.shapes.extraSmall,
                         modifier = Modifier.size(52.dp),
-                    ) { Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary)) }
+                    ) { Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary).semantics { contentDescription = "Stop the reply" }) }
                 } else {
                     FilledIconButton(
                         onClick = {

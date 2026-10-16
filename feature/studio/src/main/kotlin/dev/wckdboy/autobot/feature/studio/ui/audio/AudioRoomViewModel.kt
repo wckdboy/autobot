@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.ModelKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
@@ -22,6 +24,7 @@ import dev.wckdboy.autobot.shared.studio.StudioJob
 import dev.wckdboy.autobot.shared.studio.StudioWorkflow
 import dev.wckdboy.autobot.shared.tts.KokoroFrontend
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,7 +32,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class AudioTab(val label: String) { SOUND("sound"), VOICEOVER("voiceover") }
@@ -91,6 +93,10 @@ class AudioRoomViewModel @Inject constructor(
 ) : ViewModel(), AudioActions {
     private val local = MutableStateFlow(AudioRoomState())
 
+    /** Work on storage or an engine: a failure ("Storage is full") is shown, never a crash. */
+    private fun safely(block: suspend CoroutineScope.() -> Unit) =
+        viewModelScope.launchSafely({ e -> local.update { it.copy(error = userMessage(e)) } }, block)
+
     val state: StateFlow<AudioRoomState> = combine(local, library.models, host.store.observeWorkflows()) { l, models, workflows ->
         val audio = models.any { it.isReady && it.kind == ModelKind.AUDIO && it.engine == EngineKind.ONNX }
         val voice = models.firstOrNull { it.isReady && it.kind == ModelKind.VOICE && it.engine == EngineKind.ONNX }
@@ -113,7 +119,7 @@ class AudioRoomViewModel @Inject constructor(
     override fun generate() {
         val s = state.value
         if (!s.canGenerate) return
-        viewModelScope.launch {
+        safely {
             val base = StudioRecipes.audioRecipe(s.prompt.trim(), s.seconds.toDouble(), s.steps, s.cfg, if (s.seedMode == SeedMode.RANDOM) null else s.seed)
             val jobs = host.queue.submitAll(host.currentProject(), BatchPlanner.plan(base, s.batch, s.seedMode))
             local.update { it.copy(jobIds = (it.jobIds + jobs.map(StudioJob::id)).takeLast(32)) }
@@ -123,19 +129,19 @@ class AudioRoomViewModel @Inject constructor(
     override fun speak() {
         val s = state.value
         if (!s.canSpeak) return
-        viewModelScope.launch {
+        safely {
             val job = host.queue.submit(host.currentProject(), StudioRecipes.speechRecipe(s.text.trim(), s.voice, s.speed), "Voiceover · ${s.voice}")
             local.update { it.copy(jobIds = (it.jobIds + job.id).takeLast(32)) }
         }
     }
 
     override fun trim(asset: StudioAsset, startMs: Long, endMs: Long) {
-        viewModelScope.launch {
-            val bytes = host.store.bytes(asset.id) ?: return@launch
+        safely {
+            val bytes = host.store.bytes(asset.id) ?: return@safely
             val wav = withContext(Dispatchers.Default) { WavFile.decode(bytes)?.let { WavFile.trim(it, startMs, endMs) } }
             if (wav == null) {
                 local.update { it.copy(error = "Only WAV clips can be trimmed") }
-                return@launch
+                return@safely
             }
             val recipe = asset.recipe.copy(params = asset.recipe.params + ("trim" to ParamValue.of("$startMs-$endMs")))
             host.addAsset(asset.projectId, AssetType.AUDIO, "audio/wav", wav, recipe, parentId = asset.id, label = "trim ${startMs / 1000.0}–${endMs / 1000.0} s")

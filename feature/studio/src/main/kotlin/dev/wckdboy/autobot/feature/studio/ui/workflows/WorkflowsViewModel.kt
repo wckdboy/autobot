@@ -6,6 +6,9 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.feature.studio.StudioInbox
 import dev.wckdboy.autobot.feature.studio.WorkflowShare
@@ -28,6 +31,7 @@ import dev.wckdboy.autobot.shared.studio.WorkflowValidator
 import dev.wckdboy.autobot.shared.studio.comfy.ObjectInfo
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,7 +39,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** A workflow being imported: reviewed (params renamed / exposed / removed) before it is saved. */
@@ -103,6 +106,11 @@ class WorkflowsViewModel @Inject constructor(
     private val inbox: StudioInbox,
 ) : AndroidViewModel(application), WorkflowsActions {
     private val local = MutableStateFlow(WorkflowsState())
+
+    /** Work on storage or an engine: a failure ("Storage is full") is shown, never a crash. */
+    private fun safely(block: suspend CoroutineScope.() -> Unit) =
+        viewModelScope.launchSafely({ e -> local.update { it.copy(message = userMessage(e)) } }, block)
+
     private val objectInfo = HashMap<String, ObjectInfo>()
 
     val state: StateFlow<WorkflowsState> = combine(local, host.settings.comfyBackends, host.store.observeWorkflows(), host.pipelineRuns) { l, b, w, runs ->
@@ -110,7 +118,7 @@ class WorkflowsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowsState())
 
     init {
-        viewModelScope.launch {
+        safely {
             inbox.pending.collect { share ->
                 if (share != null) takeShare()
             }
@@ -129,7 +137,7 @@ class WorkflowsViewModel @Inject constructor(
     // Backends
 
     override fun saveBackend(config: ComfyBackendConfig, auth: AuthUpdate) {
-        viewModelScope.launch {
+        viewModelScope.launchSafely({ e -> local.update { it.copy(message = "Couldn't save ${config.name}: ${userMessage(e)}") } }) {
             val saved = host.settings.saveComfy(config, auth)
             objectInfo.remove(saved.id)
             local.update { it.copy(backendId = saved.id) }
@@ -137,13 +145,13 @@ class WorkflowsViewModel @Inject constructor(
     }
 
     override fun deleteBackend(id: String) {
-        viewModelScope.launch { host.settings.deleteComfy(id) }
+        viewModelScope.launchSafely({ e -> local.update { it.copy(message = "Couldn't delete the server: ${userMessage(e)}") } }) { host.settings.deleteComfy(id) }
     }
 
     /** Asks the server for its version, GPU and node count — through the network policy. */
     override fun testBackend(config: ComfyBackendConfig) {
         local.update { it.copy(testing = config.id) }
-        viewModelScope.launch {
+        safely {
             val result = try {
                 val client = host.handle(config).client
                 val stats = client.systemStats()
@@ -152,12 +160,12 @@ class WorkflowsViewModel @Inject constructor(
                     "ok",
                     stats.comfyVersion?.let { "comfyui $it" },
                     stats.devices.firstOrNull()?.let { d -> d.name.substringBefore(" :").take(28) + if (d.vramTotal > 0) " · ${d.vramTotal / (1 shl 30)} GB" else "" },
-                    "${info.nodes.size} nodes",
+                    counted(info.nodes.size, "node"),
                 ).joinToString(" · ")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                "fail · ${e.message ?: e.javaClass.simpleName}"
+                "fail · ${userMessage(e)}"
             }
             local.update { it.copy(testing = null, tests = it.tests + (config.id to result)) }
         }
@@ -165,14 +173,26 @@ class WorkflowsViewModel @Inject constructor(
 
     override fun selectBackend(id: String) {
         local.update { it.copy(backendId = id) }
-        local.value.draft?.let { d -> viewModelScope.launch { validate(d.workflow) } }
+        local.value.draft?.let { d -> safely { validate(d.workflow) } }
     }
+
+    /** Why the selected server's node list could not be read (unreachable, blocked by the kill switch). */
+    private var infoFailure: String? = null
 
     private suspend fun info(): ObjectInfo? {
         val backend = state.value.backend ?: return null
         objectInfo[backend.id]?.let { return it }
-        return runCatching { host.comfy.value[backend.id]?.client?.objectInfo() ?: host.handle(backend).client.objectInfo() }
-            .getOrNull()?.also { objectInfo[backend.id] = it }
+        return try {
+            (host.comfy.value[backend.id]?.client?.objectInfo() ?: host.handle(backend).client.objectInfo()).also {
+                objectInfo[backend.id] = it
+                infoFailure = null
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            infoFailure = userMessage(e)
+            null
+        }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -182,7 +202,7 @@ class WorkflowsViewModel @Inject constructor(
     override fun setImportName(name: String) = local.update { it.copy(importName = name) }
 
     override fun importFile(uri: Uri) {
-        viewModelScope.launch {
+        safely {
             val text = withContext(Dispatchers.IO) {
                 runCatching {
                     getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
@@ -193,7 +213,7 @@ class WorkflowsViewModel @Inject constructor(
             }
             if (text == null) {
                 local.update { it.copy(importError = "Couldn't read that file (workflows are JSON, at most 8 MB)") }
-                return@launch
+                return@safely
             }
             val name = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.').orEmpty()
             local.update { it.copy(importText = text, importName = it.importName.ifBlank { name }, importError = null) }
@@ -203,7 +223,7 @@ class WorkflowsViewModel @Inject constructor(
 
     override fun review() {
         val s = local.value
-        viewModelScope.launch {
+        safely {
             val info = info()
             try {
                 val workflow = WorkflowImport.create(
@@ -225,7 +245,11 @@ class WorkflowsViewModel @Inject constructor(
         return WorkflowDraft(
             refreshed,
             WorkflowSchema.exposable(refreshed, info),
-            info?.let { WorkflowValidator.validate(refreshed.graph, it).message } ?: if (state.value.backends.isEmpty()) null else "Not checked: ${state.value.backend?.name} didn't answer",
+            info?.let { WorkflowValidator.validate(refreshed.graph, it).message } ?: if (state.value.backends.isEmpty()) {
+                null
+            } else {
+                "Not checked: ${state.value.backend?.name} didn't answer" + (infoFailure?.let { " ($it)" } ?: "")
+            },
             saved,
         )
     }
@@ -237,7 +261,7 @@ class WorkflowsViewModel @Inject constructor(
 
     override fun open(workflow: StudioWorkflow) {
         local.update { it.copy(draft = WorkflowDraft(workflow, emptyList(), null, saved = true), values = emptyMap()) }
-        viewModelScope.launch { validate(workflow) }
+        safely { validate(workflow) }
     }
 
     override fun close() = local.update { it.copy(draft = null, values = emptyMap()) }
@@ -252,7 +276,7 @@ class WorkflowsViewModel @Inject constructor(
             return
         }
         local.update { it.copy(draft = draft.copy(workflow = next, exposable = WorkflowSchema.exposable(next, objectInfo[it.backend?.id]))) }
-        if (draft.saved) viewModelScope.launch { host.store.putWorkflow(next) }
+        if (draft.saved) safely { host.store.putWorkflow(next) }
     }
 
     override fun rename(name: String, label: String) = editDraft { WorkflowSchema.rename(it, name, label) }
@@ -263,14 +287,14 @@ class WorkflowsViewModel @Inject constructor(
 
     override fun saveDraft() {
         val draft = local.value.draft ?: return
-        viewModelScope.launch {
+        safely {
             host.store.putWorkflow(draft.workflow)
             local.update { it.copy(draft = draft.copy(saved = true), importText = "", importName = "", message = "Saved \"${draft.workflow.name}\"") }
         }
     }
 
     override fun deleteWorkflow(id: String) {
-        viewModelScope.launch {
+        safely {
             host.store.deleteWorkflow(id)
             local.update { s -> if (s.draft?.workflow?.id == id) s.copy(draft = null) else s }
         }
@@ -289,7 +313,7 @@ class WorkflowsViewModel @Inject constructor(
             local.update { it.copy(message = "Add a ComfyUI backend first") }
             return
         }
-        viewModelScope.launch {
+        safely {
             try {
                 if (!draft.saved) host.store.putWorkflow(draft.workflow)
                 val job = host.submitWorkflow(draft.workflow, s.values, backend.id, s.randomizeSeed)

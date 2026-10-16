@@ -51,9 +51,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.Notice
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.models.formatBytes
 import dev.wckdboy.autobot.providers.remote.vault.IndexState
 import dev.wckdboy.autobot.providers.remote.vault.OnDeviceVault
@@ -66,7 +71,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** One search result as the screen shows it. */
@@ -84,6 +91,8 @@ data class VaultUiState(
     val query: String = "",
     val searching: Boolean = false,
     val results: List<VaultResult>? = null,
+    /** Why the last search failed (the embedding model would not load, …), instead of "no match". */
+    val searchError: String? = null,
 ) {
     /** Documents indexed with another embedding model (not searched until re-indexed). */
     val stale: Int get() = if (modelId == null) 0 else documents.count { it.model != modelId }
@@ -94,26 +103,35 @@ class VaultViewModel @Inject constructor(
     private val onDevice: OnDeviceVault,
     private val settings: SettingsRepository,
 ) : ViewModel() {
-    private val search = MutableStateFlow(Triple("", false, null as List<VaultResult>?))
+    private data class Search(val query: String = "", val searching: Boolean = false, val results: List<VaultResult>? = null, val error: String? = null)
+
+    private val search = MutableStateFlow(Search())
 
     val uiState: StateFlow<VaultUiState> = combine(
         settings.settings, onDevice.model, onDevice.repository.observeDocuments(), onDevice.state, search,
-    ) { s, model, docs, index, (query, searching, results) ->
-        VaultUiState(s.vaultEnabled, model?.title, model?.id, docs, index, query, searching, results)
+    ) { s, model, docs, index, q ->
+        VaultUiState(s.vaultEnabled, model?.title, model?.id, docs, index, q.query, q.searching, q.results, q.error)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VaultUiState())
 
     fun setEnabled(enabled: Boolean) = viewModelScope.launch { settings.setVaultEnabled(enabled) }
 
-    fun setQuery(value: String) = search.value.let { search.value = Triple(value, it.second, if (value.isBlank()) null else it.third) }
+    fun setQuery(value: String) = search.update { it.copy(query = value, results = if (value.isBlank()) null else it.results, error = null) }
 
     fun runSearch() {
-        val query = search.value.first.trim()
+        val query = search.value.query.trim()
         if (query.isEmpty()) return
-        search.value = Triple(query, true, search.value.third)
+        search.update { it.copy(query = query, searching = true, error = null) }
         viewModelScope.launch {
-            val hits = runCatching { onDevice.vault.search(query, Vault.SEARCH_MAX) }.getOrDefault(emptyList())
-            val results = hits.map { VaultResult(Vault.position(it), VaultRules.snippet(it.chunk.text, 400), it.score) }
-            search.value = Triple(search.value.first, false, results)
+            val found = try {
+                onDevice.vault.search(query, Vault.SEARCH_MAX)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                search.update { it.copy(searching = false, results = null, error = "Search failed: ${userMessage(e)}") }
+                return@launch
+            }
+            val results = found.map { VaultResult(Vault.position(it), VaultRules.snippet(it.chunk.text, 400), it.score) }
+            search.update { it.copy(searching = false, results = results) }
         }
     }
 
@@ -125,9 +143,9 @@ class VaultViewModel @Inject constructor(
 
     fun dismissProblems() = onDevice.dismissProblems()
 
-    fun delete(id: String) = viewModelScope.launch { onDevice.vault.remove(id) }
+    fun delete(id: String) = viewModelScope.launchSafely({ e -> search.update { it.copy(error = "Couldn't delete: ${userMessage(e)}") } }) { onDevice.vault.remove(id) }
 
-    fun deleteAll() = viewModelScope.launch { onDevice.vault.clear() }
+    fun deleteAll() = viewModelScope.launchSafely({ e -> search.update { it.copy(error = "Couldn't delete: ${userMessage(e)}") } }) { onDevice.vault.clear() }
 }
 
 @Composable
@@ -262,6 +280,11 @@ fun VaultScreen(
                     InkProgressBar(0.3f, Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(2.dp))
                 }
             }
+            state.searchError?.let { error ->
+                item(key = "searcherror") {
+                    Notice(error, Modifier.padding(16.dp), tone = NoticeTone.ERROR, action = "retry", onAction = onSearch)
+                }
+            }
             state.results?.let { results ->
                 if (results.isEmpty() && !state.searching) {
                     item(key = "noresults") { Text("No passages match.", Modifier.padding(16.dp), color = muted) }
@@ -275,7 +298,7 @@ fun VaultScreen(
             }
             item(key = "docs-h") {
                 Text(
-                    "${state.documents.size} documents · ${state.documents.sumOf { it.chunks }} / ${VaultRules.MAX_CHUNKS} passages",
+                    "${counted(state.documents.size, "document")} · ${state.documents.sumOf { it.chunks }} / ${VaultRules.MAX_CHUNKS} passages",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.labelSmall,
                     color = muted,
@@ -316,7 +339,7 @@ fun VaultScreen(
         AlertDialog(
             onDismissRequest = { confirmDeleteAll = false },
             title = { Text("Empty the vault?") },
-            text = { Text("All ${state.documents.size} documents and their index are deleted from this phone. Your original files are not touched.") },
+            text = { Text("${if (state.documents.size == 1) "The document and its index are" else "All ${state.documents.size} documents and their index are"} deleted from this phone. Your original files are not touched.") },
             confirmButton = {
                 TextButton(onClick = {
                     onDeleteAll()

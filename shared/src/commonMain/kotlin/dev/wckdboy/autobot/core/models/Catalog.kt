@@ -161,9 +161,9 @@ object Catalog {
 
     /** Dictation (whisper.cpp). Multilingual; the smaller ones are fast enough for live use. */
     val speechModels: List<ModelPlan> = listOf(
-        speech("whisper-base-q5_1", "Whisper base", "57 MB · fast dictation · 99 languages", "ggml-base-q5_1.bin", 57),
-        speech("whisper-small-q5_1", "Whisper small", "181 MB · better accuracy", "ggml-small-q5_1.bin", 181),
-        speech("whisper-large-v3-turbo-q8_0", "Whisper large-v3 turbo", "834 MB · best accuracy · slower", "ggml-large-v3-turbo-q8_0.bin", 834),
+        speech("whisper-base-q5_1", "Whisper base", "fast dictation · 99 languages", "ggml-base-q5_1.bin", 57),
+        speech("whisper-small-q5_1", "Whisper small", "better accuracy", "ggml-small-q5_1.bin", 181),
+        speech("whisper-large-v3-turbo-q8_0", "Whisper large-v3 turbo", "best accuracy · slower", "ggml-large-v3-turbo-q8_0.bin", 834),
     )
 
     /** Text to audio (Android: Stable Audio Open Small on ONNX Runtime; iOS's is [CoreMLCatalog.audio]). */

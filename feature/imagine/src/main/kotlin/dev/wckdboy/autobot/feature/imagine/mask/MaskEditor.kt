@@ -59,6 +59,7 @@ import androidx.compose.ui.window.DialogProperties
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import kotlin.math.min
@@ -93,7 +94,7 @@ fun MaskEditorDialog(
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 MicroLabel("// Mask", Modifier.padding(start = 8.dp).weight(1f), color = MaterialTheme.colorScheme.primary)
                 MicroLabel(
-                    if (mask.inverted) "inverted · ${mask.strokes.size} strokes" else "${mask.strokes.size} strokes",
+                    if (mask.inverted) "inverted · ${counted(mask.strokes.size, "stroke")}" else counted(mask.strokes.size, "stroke"),
                     Modifier.padding(end = 8.dp),
                 )
                 TextButton(onClick = { scale = 1f; offset = Offset.Zero }) { Text("FIT") }

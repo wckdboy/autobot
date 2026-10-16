@@ -13,6 +13,7 @@ import dev.wckdboy.autobot.shared.vault.Embedder
 import dev.wckdboy.autobot.shared.vault.Vault
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -116,6 +117,11 @@ class OnDeviceVault @Inject constructor(
             _state.value = IndexState(running = true)
             try {
                 block(problems)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The embedding model failed to load or the disk is full: say so, don't crash the app.
+                problems += "Indexing stopped: ${e.message ?: e.javaClass.simpleName}"
             } finally {
                 _state.value = IndexState(problems = problems)
             }

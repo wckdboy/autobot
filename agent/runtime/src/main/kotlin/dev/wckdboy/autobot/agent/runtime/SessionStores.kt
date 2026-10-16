@@ -15,9 +15,11 @@ import javax.inject.Singleton
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 
 /**
@@ -127,16 +129,20 @@ class EncryptedSessionStore @Inject constructor(
 
     override suspend fun loadLog(sessionId: String): StoredLog {
         val stored = rows.load(sessionId)
-        val entries = stored.mapNotNull { row ->
-            try {
-                SessionJson.decodeFromString(LogEntry.serializer(), row.json)
-            } catch (_: SerializationException) {
-                null
-            } catch (_: IllegalArgumentException) {
-                null
+        // A long chat is thousands of rows: decode them on a worker, not on the caller's thread
+        // (opening a chat calls this from the screen's main-thread scope).
+        return withContext(Dispatchers.Default) {
+            val entries = stored.mapNotNull { row ->
+                try {
+                    SessionJson.decodeFromString(LogEntry.serializer(), row.json)
+                } catch (_: SerializationException) {
+                    null
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
             }
+            StoredLog(entries, stored.maxOfOrNull { it.seq } ?: 0L)
         }
-        return StoredLog(entries, stored.maxOfOrNull { it.seq } ?: 0L)
     }
 
     override suspend fun append(sessionId: String, entries: List<LogEntry>) {

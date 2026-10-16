@@ -68,6 +68,7 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
@@ -174,6 +175,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
                                     if (row.requiresKey && !row.hasKey) Text(" · no key", color = MaterialTheme.colorScheme.error, maxLines = 1)
                                 }
                                 row.models?.let { MicroLabel(it) }
+                                row.problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                             }
                         },
                         overlineContent = { Text(row.baseUrl, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -302,11 +304,13 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                         label = "Base URL", singleLine = true, mono = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                     )
-                    val urlProblem = if (draft.baseUrl.isNotBlank() && !draft.baseUrlValid) "invalid url" else draft.cleartextProblem
-                    MicroLabel(
-                        urlProblem ?: "cleartext http only for 127.0.0.1 / localhost",
-                        color = if (urlProblem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    val urlProblem = if (draft.baseUrl.isNotBlank() && !draft.baseUrlValid) "Not a valid URL — start with https://" else draft.cleartextProblem
+                    // A problem wraps (a one-line label would cut the fix off); the hint stays a label.
+                    if (urlProblem != null) {
+                        Text(urlProblem, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    } else {
+                        MicroLabel("cleartext http only for 127.0.0.1 / localhost")
+                    }
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -319,6 +323,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                         visualTransformation = PasswordVisualTransformation(),
                     )
                     if (draft.missingKey) MicroLabel("This provider needs an API key", color = MaterialTheme.colorScheme.error)
+                    draft.keyProblem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                     MicroLabel("encrypted with android keystore · sent only to ${preset.host.ifBlank { "this host" }}")
                     if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
                         TextButton(onClick = { actions.change { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
@@ -354,6 +359,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
 
                 TestResult(test)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (!state.saving) draft.saveProblem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
 
                 var confirmNoKey by remember { mutableStateOf(false) }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -394,7 +400,7 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
             val status = when {
                 models.loading -> "fetching models"
                 models.error != null -> models.error
-                models.fetchedAt != null -> "${models.models.size} models · " + ModelCache(models.fetchedAt, emptyList()).ageLabel(now)
+                models.fetchedAt != null -> "${counted(models.models.size, "model")} · " + ModelCache(models.fetchedAt, emptyList()).ageLabel(now)
                 canFetch -> "offline list · refresh to fetch"
                 else -> "no models endpoint · documented list"
             }

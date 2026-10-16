@@ -49,6 +49,7 @@ import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
@@ -196,7 +197,7 @@ fun MemoryScreen(
                 )
             }
             Text(
-                "${state.total} / ${MemoryRules.MAX_NOTES} notes",
+                "${state.total} / ${counted(MemoryRules.MAX_NOTES, "note")}",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -264,7 +265,7 @@ fun MemoryScreen(
         AlertDialog(
             onDismissRequest = { confirmDeleteAll = false },
             title = { Text("Delete all notes?") },
-            text = { Text("All ${state.total} memory notes are deleted from this phone. This cannot be undone.") },
+            text = { Text("${if (state.total == 1) "The memory note is" else "All ${state.total} memory notes are"} deleted from this phone. This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     onDeleteAll()

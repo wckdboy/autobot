@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackendRepository
 import dev.wckdboy.autobot.core.diffusion.DiffusionMode
@@ -49,6 +51,7 @@ import dev.wckdboy.autobot.shared.studio.StudioAsset
 import dev.wckdboy.autobot.shared.studio.StudioIds
 import dev.wckdboy.autobot.shared.studio.StudioJob
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,7 +61,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** An image backend as the room lists it. [id] is the diffusion backend's id. */
@@ -188,6 +190,11 @@ class ImageRoomViewModel @Inject constructor(
 ) : AndroidViewModel(application), ImageActions {
 
     private val local = MutableStateFlow(ImageRoomState())
+
+    /** Work on storage or an engine: a failure ("Storage is full") is shown, never a crash. */
+    private fun safely(block: suspend CoroutineScope.() -> Unit) =
+        viewModelScope.launchSafely({ e -> local.update { it.copy(error = userMessage(e)) } }, block)
+
     private val catalogs = MutableStateFlow<Map<String, EngineCatalog>>(emptyMap())
     private var catalogJob: Job? = null
 
@@ -205,7 +212,7 @@ class ImageRoomViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImageRoomState())
 
     init {
-        viewModelScope.launch {
+        safely {
             val stored = backendsRepo.lastRequest.first()
             val default = backendsRepo.defaultBackendId.first()
             local.update { it.copy(request = stored.copy(batchCount = 1), backendId = it.backendId ?: default) }
@@ -225,8 +232,8 @@ class ImageRoomViewModel @Inject constructor(
         edit { it.copy(model = id) }
         val s = state.value
         if (s.backend?.onDevice == true && id != null) {
-            viewModelScope.launch {
-                val rec = library.get(id)?.manifest?.recommended ?: return@launch
+            safely {
+                val rec = library.get(id)?.manifest?.recommended ?: return@safely
                 edit { r ->
                     r.copy(
                         steps = rec.steps ?: r.steps,
@@ -244,11 +251,11 @@ class ImageRoomViewModel @Inject constructor(
 
     override fun refreshCatalog() {
         catalogJob?.cancel()
-        catalogJob = viewModelScope.launch {
+        catalogJob = safely {
             val engines = host.diffusion.value
-            val id = local.value.backendId ?: engines.firstOrNull()?.first?.id ?: return@launch
-            val (backend, _) = engines.firstOrNull { it.first.id == id } ?: engines.firstOrNull() ?: return@launch
-            if (backend.kind == BackendKind.ON_DEVICE) return@launch
+            val id = local.value.backendId ?: engines.firstOrNull()?.first?.id ?: return@safely
+            val (backend, _) = engines.firstOrNull { it.first.id == id } ?: engines.firstOrNull() ?: return@safely
+            if (backend.kind == BackendKind.ON_DEVICE) return@safely
             try {
                 val catalog = host.diffusionCatalog(backend)
                 catalogs.update { it + (backend.id to catalog) }
@@ -290,18 +297,18 @@ class ImageRoomViewModel @Inject constructor(
     // Inputs
 
     override fun useAsInput(assetId: String) {
-        viewModelScope.launch {
-            val asset = host.store.asset(assetId)?.takeIf { it.type == AssetType.IMAGE } ?: return@launch
+        safely {
+            val asset = host.store.asset(assetId)?.takeIf { it.type == AssetType.IMAGE } ?: return@safely
             setInput(asset)
         }
     }
 
     override fun pickInput(uri: Uri) {
-        viewModelScope.launch {
+        safely {
             val bytes = withContext(Dispatchers.IO) { ImageCodec.read(getApplication<Application>().contentResolver, uri) }
             if (bytes == null || ImageCodec.decode(bytes, 64) == null) {
                 local.update { it.copy(error = "Could not read that image") }
-                return@launch
+                return@safely
             }
             val asset = host.addAsset(
                 host.currentProject(), AssetType.IMAGE, ImageSniff.mimeType(bytes), bytes,
@@ -353,18 +360,18 @@ class ImageRoomViewModel @Inject constructor(
     override fun saveSnippet(name: String, kind: String) {
         val r = local.value.request
         val text = if (kind == PromptSnippet.STYLE && "{prompt}" !in r.prompt) "{prompt}, ${r.prompt}" else r.prompt
-        viewModelScope.launch {
+        safely {
             host.store.putSnippet(PromptSnippet(StudioIds.new("s"), name.trim(), text, kind, if (kind == PromptSnippet.STYLE) r.negativePrompt else ""))
         }
     }
 
     override fun deleteSnippet(snippet: PromptSnippet) {
-        viewModelScope.launch { host.store.deleteSnippet(snippet.id) }
+        safely { host.store.deleteSnippet(snippet.id) }
     }
 
     /** "Reuse recipe": every parameter of [asset] into the controls (inputs too, when still there). */
     fun loadRecipe(asset: StudioAsset) {
-        viewModelScope.launch {
+        safely {
             val recipe = asset.recipe
             val request = StudioRecipes.diffusionRequest(recipe)
             val backendId = recipe.backendId ?: host.diffusion.value.firstOrNull { it.first.kind == BackendKind.ON_DEVICE }?.first?.id
@@ -419,8 +426,8 @@ class ImageRoomViewModel @Inject constructor(
     override fun generate() {
         val s = state.value
         if (!s.canRun) return
-        viewModelScope.launch {
-            val base = baseRecipe(s) ?: return@launch
+        safely {
+            val base = baseRecipe(s) ?: return@safely
             val planned = BatchPlanner.plan(base, s.batch, s.seedMode)
             val jobs = host.queue.submitAll(host.currentProject(), planned, s.input?.id)
             local.update { it.copy(jobIds = (it.jobIds + jobs.map(StudioJob::id)).takeLast(MAX_TRACKED), grid = null) }
@@ -431,12 +438,12 @@ class ImageRoomViewModel @Inject constructor(
     override fun queueGrid(x: GridAxis, y: GridAxis?) {
         val s = state.value
         if (!s.canRun) return
-        viewModelScope.launch {
-            val base = baseRecipe(s) ?: return@launch
+        safely {
+            val base = baseRecipe(s) ?: return@safely
             val recipe = if (base.seed == null) base.copy(seed = Seeds.random()) else base
             val plan = runCatching { GridPlanner.plan(recipe, x, y) }.getOrElse {
                 local.update { st -> st.copy(error = it.message) }
-                return@launch
+                return@safely
             }
             val jobs = host.queue.submitAll(host.currentProject(), plan.jobs, s.input?.id)
             val cells = plan.jobs.zip(jobs).associate { (p, j) -> (p.row to p.column) to j.id }
@@ -451,7 +458,7 @@ class ImageRoomViewModel @Inject constructor(
     }
 
     override fun upscale(assetId: String) {
-        viewModelScope.launch {
+        safely {
             val recipe = Recipe(dev.wckdboy.autobot.shared.studio.EngineKinds.UPSCALE, params = mapOf(StudioRecipes.SCALE to dev.wckdboy.autobot.shared.studio.ParamValue.of(2)), inputs = listOf(AssetRef(assetId, StudioRecipes.ROLE_IMAGE)))
             val job = host.queue.submit(host.currentProject(), recipe, "Upscale ×2", assetId)
             local.update { it.copy(jobIds = (it.jobIds + job.id).takeLast(MAX_TRACKED)) }

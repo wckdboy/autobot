@@ -35,6 +35,7 @@ import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.feature.studio.ui.AssetThumb
 import dev.wckdboy.autobot.feature.studio.ui.ChipRow
 import dev.wckdboy.autobot.feature.studio.ui.ControlSheet
@@ -98,7 +99,7 @@ fun VideoRoom(state: VideoRoomState, shell: StudioShellState, actions: VideoActi
         }
         val workflow = state.workflow
         if (workflow != null && state.backends.isNotEmpty()) {
-            ControlSheet(expanded = controls, onToggle = { controls = !controls }, summary = "${workflow.name} · ${workflow.params.size} params") {
+            ControlSheet(expanded = controls, onToggle = { controls = !controls }, summary = "${workflow.name} · ${counted(workflow.params.size, "param")}") {
                 if (state.workflows.size > 1) ChipRow(state.workflows, workflow, { actions.selectWorkflow(it.id) }, { it.name })
                 if (state.backends.size > 1) ChipRow(state.backends, state.backend, { actions.selectBackend(it.id) }, { it.name })
                 ParamControls(workflow.params, state.values, actions::setValue, shell.assets)
