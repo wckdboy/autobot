@@ -5,7 +5,11 @@ import dev.wckdboy.autobot.core.data.model.BenchmarkRow
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 
 /** One measured run of a model on a backend. */
 data class Benchmark(
@@ -53,7 +57,24 @@ class ComputeProfile @Inject constructor(private val rows: ModelRowRepository) {
         return fastest(rows.benchmarks(model.id).map { it.toBenchmark() }) ?: Backend.AUTO
     }
 
+    private val ran = MutableStateFlow<Map<String, Backend>>(emptyMap())
+
+    /** Where each model last actually ran in this process, as the engine reported after a reply. */
+    val lastRan: StateFlow<Map<String, Backend>> = ran.asStateFlow()
+
+    /** Records where [modelId] ran ([Backend.AUTO] = not reported, ignored). */
+    fun noteRan(modelId: String, backend: Backend) {
+        if (backend == Backend.AUTO || ran.value[modelId] == backend) return
+        ran.update { it + (modelId to backend) }
+    }
+
     companion object {
+        /**
+         * The backend a model's route tag names: where it last ran, else the user's pick; null while
+         * "auto" has not run yet (the engine tries NPU → GPU → CPU, so it is not known before).
+         */
+        fun shownBackend(lastRan: Backend?, chosen: Backend): Backend? = lastRan ?: chosen.takeIf { it != Backend.AUTO }
+
         /** Fastest backend among the newest successful run per backend; null if nothing was measured. */
         fun fastest(results: List<Benchmark>): Backend? {
             val latest = results.filter { it.ok && it.backend != Backend.AUTO }

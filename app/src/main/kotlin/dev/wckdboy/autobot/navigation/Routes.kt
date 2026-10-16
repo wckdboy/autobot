@@ -55,8 +55,13 @@ data object ImageBackends : NavKey
 @Serializable
 data object Accounts : NavKey
 
+/** Compute; [report]: open its diagnostics report at once (About → Copy diagnostics). */
 @Serializable
-data object Compute : NavKey
+data class Compute(val report: Boolean = false) : NavKey
+
+/** Version, release notes, links, licenses and the signing key. */
+@Serializable
+data object About : NavKey
 
 @Serializable
 data object Memory : NavKey

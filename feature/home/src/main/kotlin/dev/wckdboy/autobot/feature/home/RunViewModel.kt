@@ -21,6 +21,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackend
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackendRepository
+import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.DeviceProfile
 import dev.wckdboy.autobot.core.models.DeviceProfiler
 import dev.wckdboy.autobot.core.models.EngineKind
@@ -31,6 +32,9 @@ import dev.wckdboy.autobot.core.models.formatBytes
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.feature.imagine.generate.GenerationState
 import dev.wckdboy.autobot.feature.imagine.generate.ImageGenerator
+import dev.wckdboy.autobot.feature.imagine.generate.imageAccelerator
+import dev.wckdboy.autobot.feature.imagine.generate.imageRoute
+import dev.wckdboy.autobot.feature.imagine.generate.onDeviceImageModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -109,6 +113,7 @@ class RunViewModel @Inject constructor(
     private val gallery: GalleryRepository,
     private val generator: ImageGenerator,
     private val settings: SettingsRepository,
+    private val compute: ComputeProfile,
     profiler: DeviceProfiler,
 ) : ViewModel() {
 
@@ -120,11 +125,24 @@ class RunViewModel @Inject constructor(
         viewModelScope.launch { device.value = withContext(Dispatchers.IO) { runCatching { profiler.profile() }.getOrNull() } }
     }
 
-    private val inputs = combine(providers.observeProviders(), library.models, backends.backends, backends.defaultBackendId) { p, m, b, d ->
-        Inputs(p, m, b, d)
+    private val inputs = combine(
+        providers.observeProviders(),
+        library.models,
+        backends.backends,
+        backends.defaultBackendId,
+        backends.lastRequest.map { it.model }.distinctUntilChanged(),
+    ) { p, m, b, d, imageModel ->
+        Inputs(p, m, b, d, imageModel)
     }
 
-    private data class Inputs(val providers: List<Provider>, val models: List<InstalledModel>, val backends: List<DiffusionBackend>, val defaultBackend: String?)
+    private data class Inputs(
+        val providers: List<Provider>,
+        val models: List<InstalledModel>,
+        val backends: List<DiffusionBackend>,
+        val defaultBackend: String?,
+        /** The image studio's selected model (its stored request). */
+        val imageModel: String?,
+    )
 
     /** Whether an image job runs: not every step (or preview) of it. */
     private val generating = generator.state.map { it is GenerationState.Running }.distinctUntilChanged()
@@ -140,24 +158,34 @@ class RunViewModel @Inject constructor(
         combine(conversations.observeRecentConversations(RECENT), gallery.observeRecent(RECENT)) { c, g -> c to g },
         runningProviders,
         generating,
-        device,
-    ) { input, (convs, images), (runningCount, busyProviders), genRunning, profile ->
+        combine(device, compute.lastRan) { d, ran -> d to ran },
+    ) { input, (convs, images), (runningCount, busyProviders), genRunning, (profile, ran) ->
         val models = input.models
         val titles = models.associate { it.id to it.title }
+        val chosen = models.associate { it.id to it.backend }
+
+        /** On this phone: the engine [model] runs on, once known (picked, or reported after a reply). */
+        fun routeOf(p: Provider, model: String? = null): Route =
+            if (p.kind == ProviderKind.LOCAL) {
+                Route.local(model?.let { m -> chosen[m]?.let { ComputeProfile.shownBackend(ran[m], it) } }?.id)
+            } else {
+                routeOf(p)
+            }
         val local = input.providers.firstOrNull { it.kind == ProviderKind.LOCAL }
         val remote = input.providers.filter { it.kind != ProviderKind.LOCAL }
         val readyChat = models.filter { it.isLocalChat }
         val codeModel = readyChat.firstOrNull { it.kind == ModelKind.CODE }
 
         fun target(p: Provider, model: String = p.defaultModel) =
-            RunTarget(p.id, model, titles[model] ?: model.ifBlank { p.displayName }, routeOf(p))
+            RunTarget(p.id, model, titles[model] ?: model.ifBlank { p.displayName }, routeOf(p, model))
 
         val chat = defaultChatTarget(input.providers, models)?.let { (p, m) -> target(p, m) }
         val agent = remote.firstOrNull()?.let(::target) ?: chat
         val code = if (local != null && codeModel != null) target(local, codeModel.id) else remote.firstOrNull()?.let(::target) ?: chat
 
         val backend = input.backends.firstOrNull { it.id == input.defaultBackend } ?: input.backends.firstOrNull()
-        val imageModel = models.firstOrNull { it.isReady && it.kind == ModelKind.IMAGE && it.engine == EngineKind.DIFFUSION }
+        // The model the studio will use (NPU and GPU packages too), so the card's route names its engine.
+        val imageModel = onDeviceImageModel(models, input.imageModel)
         val imageLabel = when {
             backend == null -> "no backend"
             backend.kind == BackendKind.ON_DEVICE -> imageModel?.title ?: "This phone"
@@ -165,13 +193,14 @@ class RunViewModel @Inject constructor(
         }
 
         val providerById = input.providers.associateBy { it.id }
+        val byId = models.associateBy { it.id }
         val recent = (
             convs.map { c ->
                 RecentRun(
                     key = "c-${c.id}",
                     title = c.title,
                     subtitle = "session · ${titles[c.model] ?: c.model ?: "—"}",
-                    route = providerById[c.providerId]?.let(::routeOf) ?: Route.CLOUD_API,
+                    route = providerById[c.providerId]?.let { routeOf(it, c.model) } ?: Route.CLOUD_API,
                     time = c.updatedAt,
                     conversationId = c.id,
                 )
@@ -180,7 +209,7 @@ class RunViewModel @Inject constructor(
                     key = "g-${g.id}",
                     title = g.prompt.ifBlank { "image" },
                     subtitle = "image · ${g.width}×${g.height} · ${g.durationMs / 1000} s",
-                    route = if (g.engine == "This phone") Route.LOCAL_CPU else Route.PC_LAN,
+                    route = galleryRoute(g.engine, g.model?.let(byId::get)),
                     time = g.createdAt,
                     galleryId = g.id,
                 )
@@ -189,19 +218,14 @@ class RunViewModel @Inject constructor(
 
         val localBusy = genRunning || (local != null && local.id in busyProviders)
         RunUiState(
-            status = buildString {
-                append("this phone")
-                profile?.let { p -> if (p.socModel.isNotBlank()) append(" · ").append(p.socModel) }
-                append(if (localBusy) " · cpu busy" else " · cpu idle")
-                profile?.let { p -> append(" · ").append(formatBytes(p.freeStorageBytes)).append(" free") }
-            },
+            status = runStatus(profile?.socModel, localBusy, profile?.freeStorageBytes),
             busy = localBusy,
             live = runningCount + if (genRunning) 1 else 0,
             chat = chat,
             agent = agent,
             code = code,
             imageLabel = imageLabel,
-            imageRoute = backend?.let { if (it.kind == BackendKind.ON_DEVICE || it.isLoopback) Route.LOCAL_CPU else Route.PC_LAN },
+            imageRoute = imageRoute(backend, imageModel),
             lastImageId = images.firstOrNull()?.id,
             recent = recent,
             hasAnything = input.providers.isNotEmpty() || models.isNotEmpty(),
@@ -244,9 +268,10 @@ class RunViewModel @Inject constructor(
         return withContext(Dispatchers.Default) { decodeSampled(bytes, THUMB_PX)?.asImageBitmap() }?.also { thumbs.put(galleryId, it) }
     }
 
+    /** A provider's route; on this phone the engine is not known here (see the per-model one in [uiState]). */
     private fun routeOf(p: Provider): Route = when {
-        p.kind == ProviderKind.LOCAL -> Route.LOCAL_CPU
-        Loopback.isLoopbackUrl(p.baseUrl) -> Route.LOCAL_CPU
+        p.kind == ProviderKind.LOCAL -> Route.LOCAL
+        Loopback.isLoopbackUrl(p.baseUrl) -> Route.LOCAL
         isPrivateHost(p.baseUrl) -> Route.PC_LAN
         else -> Route.CLOUD_API
     }
@@ -257,6 +282,31 @@ class RunViewModel @Inject constructor(
         private const val THUMB_CACHE = 16
         private const val THUMB_PX = 256
         private val PRIVATE_172 = Regex("^172\\.(1[6-9]|2\\d|3[01])\\.")
+
+        /**
+         * The header line, short enough for one line on a phone: `SM8850 · idle · 143 GB free`
+         * (whole gigabytes from 10 GB up). Busy while a local model or an image job runs (CPU, GPU or NPU).
+         */
+        fun runStatus(soc: String?, busy: Boolean, freeBytes: Long?): String = listOfNotNull(
+            soc?.takeIf { it.isNotBlank() },
+            if (busy) "busy" else "idle",
+            freeBytes?.let { "${compactBytes(it)} free" },
+        ).joinToString(" · ")
+
+        /** `143 GB` from 10 GB up (a decimal adds nothing there), else [formatBytes]. */
+        fun compactBytes(bytes: Long): String =
+            if (bytes >= 10_000_000_000L) "${(bytes + 500_000_000L) / 1_000_000_000L} GB" else formatBytes(bytes)
+
+        /** A recent image's route: made on this phone (by its model's engine) or on a PC. */
+        fun galleryRoute(engine: String, model: InstalledModel?): Route =
+            if (engine.startsWith(ON_DEVICE_ENGINE)) {
+                Route.local(model?.let(::imageAccelerator) ?: "cpu")
+            } else {
+                Route.PC_LAN
+            }
+
+        /** The gallery's engine name for images made on this phone (the on-device backend's name). */
+        private const val ON_DEVICE_ENGINE = "This phone"
 
         fun isPrivateHost(url: String): Boolean {
             val host = url.substringAfter("://").substringBefore('/').substringBefore(':')

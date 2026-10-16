@@ -48,6 +48,9 @@ import dev.wckdboy.autobot.feature.models.AccountsRoute
 import dev.wckdboy.autobot.feature.models.ComputeRoute
 import dev.wckdboy.autobot.feature.models.ModelsRoute
 import dev.wckdboy.autobot.feature.settings.SettingsRoute
+import dev.wckdboy.autobot.feature.settings.about.AboutInfo
+import dev.wckdboy.autobot.feature.settings.about.AboutRoute
+import dev.wckdboy.autobot.feature.settings.aboutRowTitle
 import dev.wckdboy.autobot.feature.settings.mcp.McpServersRoute
 import dev.wckdboy.autobot.feature.settings.memory.MemoryRoute
 import dev.wckdboy.autobot.feature.settings.vault.VaultRoute
@@ -160,7 +163,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     entry<Models> {
                         ModelsRoute(
                             onOpenAccounts = { navigate(Accounts) },
-                            onOpenCompute = { navigate(Compute) },
+                            onOpenCompute = { navigate(Compute()) },
                             onOpenSession = { navigate(Chat(it)) },
                             onOpenImagine = { navigate(Imagine(modelId = it)) },
                             onOpenGallery = { navigate(Gallery()) },
@@ -180,13 +183,12 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     entry<Settings> {
                         SettingsRoute(
                             onBack = null,
-                            onOpenProviders = { navigate(Providers) },
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                             onOpenMemory = { navigate(Memory) },
                             onOpenVault = { navigate(Vault) },
-                            onOpenImageBackends = { navigate(ImageBackends) },
                             onOpenMcpServers = { navigate(McpServers) },
-                            version = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                            onOpenAbout = { navigate(About) },
+                            about = aboutRowTitle(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()),
                         )
                     }
                     entry<ChatList> {
@@ -241,7 +243,14 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     entry<PrivacyCenter> { PrivacyCenterRoute(onBack = ::back) }
                     entry<ImageBackends> { BackendsRoute(onBack = ::back) }
                     entry<Accounts> { AccountsRoute(onBack = ::back) }
-                    entry<Compute> { ComputeRoute(onBack = ::back) }
+                    entry<Compute> { key -> ComputeRoute(onBack = ::back, openReport = key.report) }
+                    entry<About> {
+                        AboutRoute(
+                            info = AboutInfo(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.BUILD_DATE, BuildConfig.DEBUG),
+                            onBack = ::back,
+                            onOpenDiagnostics = { navigate(Compute(report = true)) },
+                        )
+                    }
                     entry<Memory> { MemoryRoute(onBack = ::back) }
                     entry<Vault> { VaultRoute(onBack = ::back, onOpenModels = { switchTo(Models) }) }
                 },

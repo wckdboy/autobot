@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.R
 import dev.wckdboy.autobot.core.designsystem.motion.FlowPhase
+import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
 import dev.wckdboy.autobot.core.designsystem.motion.InkMath
 import dev.wckdboy.autobot.core.designsystem.motion.InkTween
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
@@ -61,8 +62,22 @@ enum class Route(val glyph: String, val label: String, val local: Boolean) {
     LOCAL_NPU("●", "local · npu", true),
     LOCAL_GPU("●", "local · gpu", true),
     LOCAL_CPU("●", "local · cpu", true),
+
+    /** On this phone, before the engine has said where the model loaded (llama.cpp's "auto"). */
+    LOCAL("●", "local", true),
     PC_LAN("◐", "pc · lan", false),
     CLOUD_API("○", "cloud · api", false),
+    ;
+
+    companion object {
+        /** On this phone on [accelerator] ("npu", "gpu", "cpu"); [LOCAL] when it is not known. */
+        fun local(accelerator: String?): Route = when (accelerator) {
+            "npu" -> LOCAL_NPU
+            "gpu" -> LOCAL_GPU
+            "cpu" -> LOCAL_CPU
+            else -> LOCAL
+        }
+    }
 }
 
 /** `● LOCAL · CPU` (filled red) / `◐ PC · LAN` / `○ CLOUD · API` (outlined). */
@@ -220,14 +235,20 @@ fun ModeCard(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Brush.verticalGradient(0.45f to Color.Transparent, 0.78f to card.copy(alpha = 0.92f), 1f to card)),
+                        .background(
+                            if (background != null) {
+                                // Art also fades under the index and route tag at the top: no plate cutting a hole in the dots.
+                                Brush.verticalGradient(0f to card.copy(alpha = 0.85f), 0.2f to Color.Transparent, 0.45f to Color.Transparent, 0.78f to card.copy(alpha = 0.92f), 1f to card)
+                            } else {
+                                Brush.verticalGradient(0.45f to Color.Transparent, 0.78f to card.copy(alpha = 0.92f), 1f to card)
+                            },
+                        ),
                 )
             }
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         index,
-                        modifier = if (background != null) Modifier.background(card).padding(horizontal = 4.dp, vertical = 2.dp) else Modifier,
                         style = AutobotTheme.styles.micro,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -281,6 +302,9 @@ fun RunRow(
     }
 }
 
+/** [HalftoneField] dots at full value fill this fraction of their pitch (as a radius). */
+private const val HALFTONE_DOT = 0.6f
+
 /** `STEPS` over a big condensed number. */
 @Composable
 fun BigReadout(label: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
@@ -313,10 +337,13 @@ fun HalftoneImage(
         val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
         val cols = max(1, (size.width / c).toInt())
         val rows = max(1, (size.height / c).toInt())
+        // Centred: the leftover fraction of a cell is split between both edges.
+        val x0 = (size.width - cols * c) / 2f
+        val y0 = (size.height - rows * c) / 2f
         batch.reset()
         for (r in 0 until rows) for (col in 0 until cols) {
             val l = grid.sample((col + 0.5f) / cols, (r + 0.5f) / rows)
-            batch.dot((col + 0.5f) * c, (r + 0.5f) * c, (1f - l) * c * 0.62f)
+            batch.dot(x0 + (col + 0.5f) * c, y0 + (r + 0.5f) * c, (1f - l) * c * 0.62f)
         }
         drawPath(batch.path, dot)
     }
@@ -352,13 +379,16 @@ fun HalftoneField(
         val t = clock.time
         val p = phase + flow.at(t, speed) + (ambient?.let { InkMath.ambientPhase(it.time) } ?: 0f)
         val f = if (flowing) fillTween.value(t) else fill
-        val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
-        val cols = (size.width / c).toInt() + 1
-        val rows = (size.height / c).toInt() + 1
+        // A centred grid with whole dots half a pitch from every edge: no half-clipped column or row
+        // along an edge (a hard seam where the art meets the card).
+        val grid = DotGeometry.ground(size.width, size.height, InkMath.cappedCell(size.width, size.height, cell.toPx()), HALFTONE_DOT)
+        val c = grid.x.pitch
+        val cols = grid.x.count
+        val rows = grid.y.count
         batch.reset()
         for (r in 0 until rows) for (col in 0 until cols) {
             val v = InkMath.field(col / cols.toFloat(), r / rows.toFloat(), p)
-            batch.dot(col * c, r * c, v * c * 0.6f * f)
+            batch.dot(grid.x.at(col), grid.y.at(r), v * c * HALFTONE_DOT * f)
         }
         drawPath(batch.path, dot)
     }

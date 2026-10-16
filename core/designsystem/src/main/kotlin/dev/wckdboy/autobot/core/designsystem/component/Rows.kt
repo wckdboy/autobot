@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -43,6 +44,9 @@ val RowGutter = 16.dp
 /** Rows are at least this tall: a 48 dp touch target plus breathing room. */
 val RowMinHeight = 56.dp
 
+/** The ⓘ glyph's visual size (its touch target stays 48 dp). */
+val InfoIconSize = 18.dp
+
 /**
  * ⓘ: the explanation behind a setting or a screen, shown on demand in a small popover instead of
  * as a subtitle. A 48 dp target, described for screen readers as "About [title]".
@@ -51,8 +55,9 @@ val RowMinHeight = 56.dp
 fun InfoButton(title: String, text: String, modifier: Modifier = Modifier) {
     var shown by rememberSaveable { mutableStateOf(false) }
     Box(modifier) {
+        // A 48 dp target around an 18 dp glyph: the icon reads as a footnote to the title, not a button.
         IconButton(onClick = { shown = true }) {
-            Icon(Icons.Outlined.Info, contentDescription = "About $title", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Outlined.Info, contentDescription = "About $title", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(InfoIconSize))
         }
         if (shown) {
             Popup(
@@ -143,18 +148,20 @@ fun SwitchRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f, fill = false)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Column(Modifier.weight(1f)) {
+            // ⓘ right after the title and centred on it (not on the title + state block).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (info != null) InfoButton(title, info)
+            }
             if (state != null) Text(state, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-        }
-        if (info != null) InfoButton(title, info)
         }
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }

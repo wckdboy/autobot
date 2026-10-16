@@ -26,7 +26,6 @@ import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
-import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.diffusion.BackendKind
@@ -84,7 +83,15 @@ fun RemoteRoute(
     viewModel: RemoteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    Scaffold(topBar = { AutobotTopBar(title = "Remote", actions = { PrivacyStatusPill(state.network, onClick = onOpenPrivacy) }) }) { padding ->
+    Scaffold(
+        topBar = {
+            AutobotTopBar(
+                title = "Remote",
+                // The network route, and the way into Privacy Center. 8 dp here + the bar's 8 dp = a 16 dp edge margin.
+                actions = { PrivacyStatusPill(state.network, Modifier.padding(end = 8.dp), onClick = onOpenPrivacy) },
+            )
+        },
+    ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
             item { SectionLabel("models · api & lan") }
             items(state.providers, key = { "p-${it.id}" }) { p ->
@@ -99,7 +106,7 @@ fun RemoteRoute(
             }
             items(state.backends, key = { "b-${it.id}" }) { b ->
                 RunRow(b.name, "${b.kind.label} · ${b.baseUrl.substringAfter("://")}", onClick = onOpenBackends) {
-                    RouteTag(if (b.isLoopback) Route.LOCAL_CPU else Route.PC_LAN)
+                    RouteTag(if (b.isLoopback) Route.LOCAL else Route.PC_LAN)
                 }
             }
             item {
@@ -108,12 +115,6 @@ fun RemoteRoute(
                 SectionLabel("accounts · model hubs")
                 RunRow("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts) { Tag("open") }
                 RunRow("Civitai", (state.accounts.civitaiUser?.let { "key · $it" } ?: "no api key") + " · ${state.accounts.civitaiHost.host}", onClick = onOpenAccounts) { Tag("open") }
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("privacy")
-                RunRow("Privacy Center", "", onClick = onOpenPrivacy) {
-                    InfoButton("Remote", "On-device models never use the network. Everything on this tab goes through the kill switch.")
-                    Tag("open")
-                }
             }
         }
     }

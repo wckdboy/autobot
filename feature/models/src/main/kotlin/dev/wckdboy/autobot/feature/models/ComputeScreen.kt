@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -251,11 +252,19 @@ class ComputeViewModel @Inject constructor(
 }
 
 @Composable
-fun ComputeRoute(onBack: () -> Unit, viewModel: ComputeViewModel = hiltViewModel()) {
+fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: ComputeViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val system by viewModel.system.collectAsStateWithLifecycle()
     var report by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    // Opened for its report (About → Copy diagnostics): build it once, not again on coming back.
+    var reportRequested by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+        if (openReport && !reportRequested) {
+            reportRequested = true
+            viewModel.report { report = it }
+        }
+    }
     report?.let { text -> ReportDialog(text, onDismiss = { report = null }) }
     Scaffold(
         topBar = {

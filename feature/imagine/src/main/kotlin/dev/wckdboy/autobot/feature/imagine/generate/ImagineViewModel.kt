@@ -21,9 +21,7 @@ import dev.wckdboy.autobot.core.diffusion.EngineCapabilities
 import dev.wckdboy.autobot.core.diffusion.EngineCatalog
 import dev.wckdboy.autobot.core.diffusion.LoraRef
 import dev.wckdboy.autobot.core.diffusion.PromptSyntax
-import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.InstalledModel
-import dev.wckdboy.autobot.core.models.ModelKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.feature.imagine.mask.MaskRasterizer
 import dev.wckdboy.autobot.feature.imagine.mask.MaskState
@@ -207,20 +205,25 @@ class ImagineViewModel @Inject constructor(
         setModel(chip.model)
         if (chip.onDevice && chip.model != null) {
             viewModelScope.launch {
-                val rec = library.get(chip.model)?.manifest?.recommended ?: return@launch
-                edit { r ->
-                    r.copy(
-                        steps = rec.steps ?: r.steps,
-                        cfgScale = rec.cfg ?: r.cfgScale,
-                        sampler = rec.sampler ?: r.sampler,
-                        scheduler = rec.scheduler ?: if (rec.sampler != null) null else r.scheduler,
-                        width = rec.width ?: r.width,
-                        height = rec.height ?: r.height,
-                        negativePrompt = if (r.negativePrompt.isBlank()) rec.negativePrompt.orEmpty() else r.negativePrompt,
-                    )
-                }
+                val rec = library.get(chip.model)?.let(::recommendedFor) ?: return@launch
+                edit { r -> r.withRecommended(chip.model, rec) }
             }
         }
+    }
+
+    /**
+     * Opening the studio on an on-device model it was never set up for (the shown chip is only
+     * the first one, or the settings are untouched defaults) applies that model's recommended
+     * settings, e.g. 8 steps at 1024² for an SDXL DMD2 package. Settings the user changed stay.
+     */
+    private suspend fun applyRecommendedOnOpen() {
+        local.first { it.request != null }
+        val state = uiState.first { it.loaded && it.chips.isNotEmpty() }
+        val chip = state.selectedChip?.takeIf { it.onDevice } ?: return
+        val id = chip.model ?: return
+        if (!needsRecommended(state.request, id)) return
+        val rec = library.get(id)?.let(::recommendedFor)
+        edit { r -> if (needsRecommended(r, id)) r.withRecommended(id, rec) else r }
     }
 
     /** Selects an installed on-device model (tapped on the Models screen) with its recommended settings. */
@@ -248,6 +251,7 @@ class ImagineViewModel @Inject constructor(
     }
 
     init {
+        viewModelScope.launch { applyRecommendedOnOpen() }
         viewModelScope.launch {
             local.update { it.copy(request = backendsRepo.lastRequest.first()) }
             local.map { it.request }.distinctUntilChanged().drop(1).debounce(400).collect { r -> r?.let { backendsRepo.saveLastRequest(it) } }
@@ -423,12 +427,12 @@ class ImagineViewModel @Inject constructor(
 
 /** The studio's chip row: on-device image models, else each remote backend's first catalog models (or the backend itself). */
 internal fun buildChips(backends: List<DiffusionBackend>, models: List<InstalledModel>, catalog: Map<String, EngineCatalog>): List<ModelChip> {
-    val onDeviceModels = models.filter { it.isReady && it.kind == ModelKind.IMAGE && (it.engine == EngineKind.DIFFUSION || it.engine == EngineKind.NPU) }
+    val onDeviceModels = models.filter(::isOnDeviceImageModel)
     return backends.flatMap { b ->
         val listed = catalog[b.id]?.models
         when {
             b.kind == BackendKind.ON_DEVICE -> onDeviceModels.map { m ->
-                val accel = when (m.manifest.npu?.runtime) { "qnn" -> "npu"; "mnn" -> "gpu"; else -> null }
+                val accel = imageAccelerator(m)
                 ModelChip(b.id, m.id, m.title + (accel?.let { " · $it" } ?: ""), onDevice = true, accelerator = accel)
             }
             listed.isNullOrEmpty() -> listOf(ModelChip(b.id, null, b.name, onDevice = false))

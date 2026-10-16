@@ -15,6 +15,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+/** `2026-10-16`: the committer date of HEAD, or blank without git. */
+val commitDate: String = runCatching {
+    providers.exec {
+        commandLine("git", "log", "-1", "--format=%cs")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+}.getOrDefault("").takeIf { Regex("\\d{4}-\\d{2}-\\d{2}").matches(it) }.orEmpty()
+
 android {
     namespace = "dev.wckdboy.autobot"
     // Same NDK as the engines, so packaging can strip their debug symbols.
@@ -24,7 +32,14 @@ android {
         applicationId = "ai.wckd.autobot"
         versionCode = 16
         versionName = "1.6.4"
+        // About shows the build date: the date of the commit it was built from, so the same source
+        // always builds the same APK (reproducible builds); blank when built outside git.
+        buildConfigField("String", "BUILD_DATE", "\"$commitDate\"")
     }
+
+    // About shows this release's notes: shared/release/whats-new.md (updated by scripts/release.sh)
+    // is packaged as the asset `whats-new.md`.
+    sourceSets.getByName("main").assets.srcDir(rootProject.file("shared/release"))
 
     // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the
     // repository root, release builds are signed with it; otherwise they stay unsigned for the

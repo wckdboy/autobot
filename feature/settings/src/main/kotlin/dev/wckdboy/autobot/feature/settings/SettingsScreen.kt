@@ -1,34 +1,28 @@
 package dev.wckdboy.autobot.feature.settings
 
 import android.util.Log
-import dev.wckdboy.autobot.agent.runtime.ChatLibrary
-import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.AlertDialog
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -43,13 +37,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.wckdboy.autobot.core.data.ProviderRepository
+import dev.wckdboy.autobot.agent.runtime.ChatLibrary
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
+import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.NavRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
@@ -58,14 +52,15 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.feature.settings.backup.BackupDialog
+import dev.wckdboy.autobot.feature.settings.privacy.PanicWipeDialog
+import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterViewModel
 import dev.wckdboy.autobot.feature.settings.search.WebSearchDialog
 import dev.wckdboy.autobot.shared.search.SearchProvider
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 @Immutable
 data class SettingsUiState(
@@ -83,7 +78,6 @@ data class SettingsUiState(
     val offline: Boolean = false,
     /** "Offline", "Direct", "Tor", "SOCKS5": the Privacy Center row's value. */
     val networkLabel: String = "Direct",
-    val providerCount: Int = 0,
 )
 
 /** The network mode as one word, as on iOS. */
@@ -94,16 +88,24 @@ fun networkLabel(mode: NetworkMode): String = when (mode) {
     is NetworkMode.Socks5 -> "SOCKS5"
 }
 
+/**
+ * The Settings tab's sections, in order. Providers, image backends and hub accounts live on the
+ * Remote tab (one home per thing), so there is no "Connections" section here.
+ */
+val SettingsSections: List<String> = listOf("Privacy & security", "Agent", "Appearance", "Data", "About")
+
+/** The About row: `Autobot 1.6.4 (16)`. */
+fun aboutRowTitle(versionName: String, versionCode: Long): String = "Autobot $versionName ($versionCode)"
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val chats: ChatLibrary,
-    providers: ProviderRepository,
     appLockManager: AppLockManager,
 ) : ViewModel() {
     private val lockAvailable = appLockManager.canAuthenticate()
 
-    val uiState: StateFlow<SettingsUiState> = combine(settings.settings, providers.observeProviders()) { it, list ->
+    val uiState: StateFlow<SettingsUiState> = settings.settings.map {
         SettingsUiState(
             themeMode = it.themeMode,
             amoled = it.amoled,
@@ -118,7 +120,6 @@ class SettingsViewModel @Inject constructor(
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
             networkLabel = networkLabel(it.networkMode),
-            providerCount = list.size,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState(appLockAvailable = lockAvailable))
 
@@ -143,21 +144,24 @@ class SettingsViewModel @Inject constructor(
 val LockTimeoutOptions: List<Pair<Long, String>> =
     SettingsSchema.LOCK_TIMEOUTS_MILLIS.zip(listOf("Immediately", "30 s", "1 min", "5 min", "15 min"))
 
+/**
+ * @param about the About row's title, e.g. `Autobot 1.6.4 (16)` ([aboutRowTitle]).
+ */
 @Composable
 fun SettingsRoute(
     onBack: (() -> Unit)?,
-    onOpenProviders: () -> Unit,
     onOpenPrivacyCenter: () -> Unit,
-    onOpenImageBackends: () -> Unit = {},
     onOpenMcpServers: () -> Unit = {},
     onOpenMemory: () -> Unit = {},
     onOpenVault: () -> Unit = {},
-    version: String = "",
+    onOpenAbout: () -> Unit = {},
+    about: String = "About",
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showBackup by rememberSaveable { mutableStateOf(false) }
     var showSearch by rememberSaveable { mutableStateOf(false) }
+    var showWipe by rememberSaveable { mutableStateOf(false) }
     var confirmDeleteChats by rememberSaveable { mutableStateOf(false) }
     if (confirmDeleteChats) {
         AlertDialog(
@@ -173,14 +177,23 @@ fun SettingsRoute(
             dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { Text("CANCEL") } },
         )
     }
+    if (showWipe) {
+        // Created only when asked for: the wipe itself lives with the Privacy Center.
+        val privacy: PrivacyCenterViewModel = hiltViewModel()
+        PanicWipeDialog(
+            onDismiss = { showWipe = false },
+            onConfirm = { typed ->
+                showWipe = false
+                privacy.panicWipe(typed)
+            },
+        )
+    }
     if (showBackup) BackupDialog(onDismiss = { showBackup = false })
     if (showSearch) WebSearchDialog(onDismiss = { showSearch = false })
     SettingsScreen(
         state = state,
         onBack = onBack,
-        onOpenProviders = onOpenProviders,
         onOpenPrivacyCenter = onOpenPrivacyCenter,
-        onOpenImageBackends = onOpenImageBackends,
         onOpenMcpServers = onOpenMcpServers,
         onThemeMode = viewModel::setThemeMode,
         onAmoled = viewModel::setAmoled,
@@ -188,6 +201,7 @@ fun SettingsRoute(
         onAppLock = viewModel::setAppLock,
         onLockTimeout = viewModel::setLockTimeout,
         onIncognitoByDefault = viewModel::setIncognitoByDefault,
+        onPanicWipe = { showWipe = true },
         onOpenBackup = { showBackup = true },
         onMemoryEnabled = viewModel::setMemoryEnabled,
         onOpenMemory = onOpenMemory,
@@ -195,24 +209,25 @@ fun SettingsRoute(
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
         onDeleteAllChats = { confirmDeleteChats = true },
-        version = version,
+        onOpenAbout = onOpenAbout,
+        about = about,
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/** Settings: the same header as Models and Remote, sections in [SettingsSections] order. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
     onBack: (() -> Unit)?,
-    onOpenProviders: () -> Unit,
     onOpenPrivacyCenter: () -> Unit,
-    onOpenImageBackends: () -> Unit,
     onThemeMode: (ThemeMode) -> Unit,
     onAmoled: (Boolean) -> Unit,
     onDynamicColor: (Boolean) -> Unit,
     onAppLock: (Boolean) -> Unit,
     onLockTimeout: (Long) -> Unit,
     onIncognitoByDefault: (Boolean) -> Unit,
+    onPanicWipe: () -> Unit = {},
     onOpenBackup: () -> Unit = {},
     onOpenMcpServers: () -> Unit = {},
     onMemoryEnabled: (Boolean) -> Unit = {},
@@ -221,17 +236,15 @@ fun SettingsScreen(
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
     onDeleteAllChats: () -> Unit = {},
-    version: String = "",
+    onOpenAbout: () -> Unit = {},
+    about: String = "About",
 ) {
+    val (privacy, agent, appearance, data, aboutSection) = SettingsSections
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("SYSTEM", style = MaterialTheme.typography.titleMedium) },
-                navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    }
-                },
+            AutobotTopBar(
+                title = "Settings",
+                navigation = onBack?.let { back -> { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } } },
             )
         },
     ) { padding ->
@@ -241,46 +254,8 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-            SectionHeader("Connections")
-            NavRow("Model providers", onOpenProviders, value = state.providerCount.takeIf { it > 0 }?.toString())
-            NavRow("MCP servers", onOpenMcpServers)
-            NavRow("Image backends", onOpenImageBackends)
-            NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
-            Divider()
-
-            SectionHeader("Agent")
-            SwitchRow("Memory", state.memoryEnabled, onMemoryEnabled, info = "The agent recalls and saves notes, kept encrypted on this phone.")
-            NavRow("Memory notes", onOpenMemory)
-            NavRow("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
-            SwitchRow(
-                "Fallback on limit",
-                state.quotaFallback,
-                onQuotaFallback,
-                info = "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
-            )
-            NavRow(
-                "Web search",
-                onOpenWebSearch,
-                value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
-                info = "Used by sessions with agent tools on. Only the query is sent, through your network route.",
-            )
-            if (state.searchProvider != SearchProvider.NONE && state.offline) Note("Offline mode blocks searches", MaterialTheme.colorScheme.error)
-            Divider()
-
-            SectionHeader("Appearance")
-            // The ink segmented control: its selection block slides and leaves a registration ghost.
-            Segmented(
-                ThemeMode.entries,
-                state.themeMode,
-                onThemeMode,
-                { it.name.lowercase() },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            SwitchRow("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
-            SwitchRow("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the ink palette.")
-            Divider()
-
-            SectionHeader("Security")
+            SectionHeader(privacy)
+            NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel, info = "Network mode, the kill switch and the log of every request.")
             SwitchRow(
                 "App lock",
                 state.appLockEnabled && state.appLockAvailable,
@@ -310,18 +285,56 @@ fun SettingsScreen(
                 }
             }
             SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = "New chats are kept in memory only, never written to disk.")
+            NavRow(
+                "Panic wipe",
+                onPanicWipe,
+                titleColor = MaterialTheme.colorScheme.error,
+                info = "Erases keys, chats, providers and settings, then closes the app.",
+                chevron = false,
+            )
             Divider()
 
-            SectionHeader("Data")
+            SectionHeader(agent)
+            SwitchRow("Memory", state.memoryEnabled, onMemoryEnabled, info = "The agent recalls and saves notes, kept encrypted on this phone.")
+            NavRow("Memory notes", onOpenMemory)
+            NavRow("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
+            NavRow(
+                "Web search",
+                onOpenWebSearch,
+                value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
+                info = "Used by sessions with agent tools on. Only the query is sent, through your network route.",
+            )
+            if (state.searchProvider != SearchProvider.NONE && state.offline) Note("Offline mode blocks searches", MaterialTheme.colorScheme.error)
+            SwitchRow(
+                "Fallback on limit",
+                state.quotaFallback,
+                onQuotaFallback,
+                info = "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
+            )
+            NavRow("MCP servers", onOpenMcpServers)
+            Divider()
+
+            SectionHeader(appearance)
+            // The ink segmented control: its selection block slides and leaves a registration ghost.
+            Segmented(
+                ThemeMode.entries,
+                state.themeMode,
+                onThemeMode,
+                { it.name.lowercase() },
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            SwitchRow("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
+            SwitchRow("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the ink palette.")
+            Divider()
+
+            SectionHeader(data)
             NavRow("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
             NavRow("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
             Divider()
 
-            SectionHeader("About")
-            MicroLabel(
-                if (version.isBlank()) "autobot · no analytics" else "autobot $version · no analytics",
-                Modifier.padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 24.dp),
-            )
+            SectionHeader(aboutSection)
+            NavRow(about, onOpenAbout)
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
@@ -333,7 +346,7 @@ private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
 private fun Note(text: String, color: androidx.compose.ui.graphics.Color) =
     Text(text, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = color)
 
-/** `// CONNECTIONS`: the app's section label (as on iOS). */
+/** `// PRIVACY & SECURITY`: the app's section label (as on iOS). */
 @Composable
 internal fun SectionHeader(text: String) {
     SectionLabel(text, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp))
@@ -345,8 +358,9 @@ private fun SettingsScreenPreview() {
     AutobotTheme {
         SettingsScreen(
             state = SettingsUiState(),
-            onBack = null, onOpenProviders = {}, onOpenPrivacyCenter = {}, onOpenImageBackends = {}, onThemeMode = {}, onAmoled = {},
+            onBack = null, onOpenPrivacyCenter = {}, onThemeMode = {}, onAmoled = {},
             onDynamicColor = {}, onAppLock = {}, onLockTimeout = {}, onIncognitoByDefault = {},
+            about = aboutRowTitle("1.6.4", 16),
         )
     }
 }

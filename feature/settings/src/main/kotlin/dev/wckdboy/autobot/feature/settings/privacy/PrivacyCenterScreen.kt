@@ -337,8 +337,9 @@ private fun AuditRowView(row: AuditRow) {
     }
 }
 
+/** Type WIPE to confirm (Privacy Center and the Settings row both open it). */
 @Composable
-private fun PanicWipeDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+internal fun PanicWipeDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var typed by rememberSaveable { mutableStateOf("") }
     val matches = typed == PrivacyCenterViewModel.WIPE_CONFIRMATION
     AlertDialog(

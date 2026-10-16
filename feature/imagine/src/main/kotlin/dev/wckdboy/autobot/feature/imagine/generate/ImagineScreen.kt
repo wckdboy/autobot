@@ -81,7 +81,6 @@ import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
-import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
@@ -160,16 +159,8 @@ fun ImagineScreen(
     // An empty studio is living paper; it holds still while an image is being made.
     val ambient = rememberInkAmbient(heavyWork = state.running != null)
     val empty = state.running == null && state.results.isEmpty()
-    val onDevice = state.backend?.kind == BackendKind.ON_DEVICE
-    val accelerator = state.chips.firstOrNull { it.onDevice && it.model == request.model }?.accelerator
-    val route = state.backend?.let {
-        when {
-            onDevice && accelerator == "npu" -> Route.LOCAL_NPU
-            onDevice && accelerator == "gpu" -> Route.LOCAL_GPU
-            onDevice || it.isLoopback -> Route.LOCAL_CPU
-            else -> Route.PC_LAN
-        }
-    }
+    // The engine the selected model actually runs on (the shown chip, also before one is tapped).
+    val route = imageRoute(state.backend, state.selectedChip?.takeIf { it.onDevice }?.accelerator)
 
     Scaffold(
         topBar = {
@@ -237,7 +228,13 @@ fun ImagineScreen(
             }
 
             Hairline(color = MaterialTheme.colorScheme.onBackground)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            // The paper's living dots stop at the readouts: the band between the hairlines is plain paper.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (empty) Modifier.background(MaterialTheme.colorScheme.background) else Modifier),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
                 BigReadout("Steps", request.steps.toString(), onClick = { showTune = true })
                 BigReadout("Seed", if (request.seed < 0) "rnd" else request.seed.toString().takeLast(6), onClick = { showTune = true })
                 BigReadout("Size", sizeLabel(request.width, request.height), onClick = { showTune = true })

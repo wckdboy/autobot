@@ -66,7 +66,9 @@ import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.models.CivitaiModel
+import dev.wckdboy.autobot.core.models.Backend
 import dev.wckdboy.autobot.core.models.EngineKind
+import java.util.Locale
 import dev.wckdboy.autobot.core.models.Fit
 import dev.wckdboy.autobot.core.models.HfRepo
 import dev.wckdboy.autobot.core.models.InstalledModel
@@ -150,9 +152,12 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
         ) {
             item {
                 state.device?.let { d ->
-                    SectionLabel("this phone · ${d.label}")
+                    // Two short lines under the label instead of one that runs off the screen.
+                    val (chip, specs) = deviceLines(d.socModel, d.socName, d.cores, d.supportsI8mm, d.totalRamBytes, d.freeStorageBytes)
+                    SectionLabel(chip)
                     Spacer(Modifier.height(4.dp))
-                    MicroLabel("${formatBytes(d.totalRamBytes)} ram · ${formatBytes(d.freeStorageBytes)} free · ${d.cores} cores${if (d.supportsI8mm) " · i8mm" else ""}")
+                    MicroLabel(specs.first)
+                    MicroLabel(specs.second)
                 }
                 Spacer(Modifier.height(14.dp))
             }
@@ -296,8 +301,50 @@ private fun SearchEmpty(
     }
 }
 
-/** Size readout for an installed row: its size only (progress is in the downloads panel, once). */
+/**
+ * The Models header: `this phone · SM8850`, then `Snapdragon 8 Elite Gen 5 · 8 cores · i8mm` and
+ * `15.8 GB ram · 143 GB free`, each short enough for one line.
+ */
+internal fun deviceLines(
+    socModel: String,
+    socName: String?,
+    cores: Int,
+    i8mm: Boolean,
+    ramBytes: Long,
+    freeBytes: Long,
+): Pair<String, Pair<String, String>> {
+    val label = listOfNotNull("this phone", socModel.takeIf { it.isNotBlank() }).joinToString(" · ")
+    val chip = listOfNotNull(socName?.takeIf { it.isNotBlank() }, "$cores cores", if (i8mm) "i8mm" else null).joinToString(" · ")
+    val memory = "${formatBytes(ramBytes)} ram · ${compactGb(freeBytes)} free"
+    return label to (chip to memory)
+}
+
+/** `143 GB` from 10 GB up, else [formatBytes]. */
+internal fun compactGb(bytes: Long): String =
+    if (bytes >= 10_000_000_000L) "${(bytes + 500_000_000L) / 1_000_000_000L} GB" else formatBytes(bytes)
+
+/** Size readout for an installed row: its size on disk (progress is in the downloads panel, once). */
 internal fun installedSize(model: InstalledModel): String? = model.totalBytes.takeIf { it > 0 }?.let(::formatBytes)
+
+/**
+ * Where an installed model runs, in one word: NPU or GPU for image packages (QNN / MNN), CPU for
+ * stable-diffusion.cpp, the user's pick (or "auto") for llama.cpp models, the engine otherwise.
+ */
+internal fun installedEngine(model: InstalledModel): String = when (model.engine) {
+    EngineKind.NPU -> when (model.manifest.npu?.runtime) {
+        "qnn" -> "NPU"
+        "mnn" -> "GPU"
+        else -> "NPU"
+    }
+    EngineKind.DIFFUSION -> "CPU"
+    EngineKind.LLAMA -> if (model.backend == Backend.AUTO) model.format.label else model.backend.label.uppercase(Locale.ROOT)
+    EngineKind.NONE -> "not runnable here"
+    else -> model.engine.label
+}
+
+/** One clean line for an installed row: `image · NPU · 4.5 GB`. */
+internal fun installedSubtitle(model: InstalledModel): String =
+    listOfNotNull(model.kind.label, installedEngine(model), installedSize(model)).joinToString(" · ")
 
 @Composable
 private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove: () -> Unit = { actions.remove(model.id) }) {
@@ -306,12 +353,7 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove
     val task = remember(model.kind, model.engine, model.isReady) { launchOf(model.kind, model.engine, model.isReady).task }
     RunRow(
         title = model.title,
-        subtitle = listOfNotNull(
-            model.kind.label,
-            model.format.label,
-            installedSize(model),
-            model.engine.label.takeIf { model.engine != EngineKind.NONE } ?: "not runnable here",
-        ).joinToString(" · "),
+        subtitle = installedSubtitle(model),
         onClick = if (task != ModelTask.NONE) ({ actions.use(model) }) else null,
     ) {
         // "ready" is stamped in when a download finishes while you watch.

@@ -10,7 +10,9 @@ import androidx.compose.ui.test.performClick
 import dev.wckdboy.autobot.core.designsystem.motion.InkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.models.Backend
 import dev.wckdboy.autobot.core.models.DownloadBlock
+import dev.wckdboy.autobot.core.models.NpuPackage
 import dev.wckdboy.autobot.core.models.DownloadProgress
 import dev.wckdboy.autobot.core.models.DownloadQueue
 import dev.wckdboy.autobot.core.models.DownloadsState
@@ -138,7 +140,7 @@ class ModelsScreenTest {
         assertTrue(calls.toString(), "resume(p)" in calls && "resume(f)" in calls)
         // Installed rows: their size only, never the progress again (the panel shows it once).
         compose.onAllNodesWithText("250 MB / 500 MB", substring = true).assertCountEquals(1)
-        compose.onAllNodesWithText("chat · gguf · 500 MB · llama.cpp", substring = true, ignoreCase = true).assertCountEquals(5)
+        compose.onAllNodesWithText("chat · gguf · 500 MB", substring = true, ignoreCase = true).assertCountEquals(5)
         compose.onNodeWithText("READY").assertIsDisplayed()
         compose.onAllNodesWithText("50%").assertCountEquals(0)
     }
@@ -158,6 +160,33 @@ class ModelsScreenTest {
         assertEquals("500 MB", installedSize(model("d", "Done", ModelStatus.READY, downloaded = 500_000_000)))
         assertEquals("progress is in the downloads panel only", "500 MB", installedSize(model("p", "Paused", ModelStatus.PAUSED, downloaded = 100_000_000)))
         assertEquals("500 MB", installedSize(model("q", "Queued", ModelStatus.QUEUED, downloaded = 0)))
+    }
+
+    @Test
+    fun installedRowIsOneCleanLine() {
+        val npu = model("n", "Illustrious", ModelStatus.READY, downloaded = 500_000_000).copy(
+            kind = ModelKind.IMAGE,
+            format = ModelFormat.QNN,
+            engine = EngineKind.NPU,
+            totalBytes = 4_500_000_000,
+            manifest = ModelManifest(emptyList(), npu = NpuPackage("sdxl", "qnn")),
+        )
+        // Was "image · QNN · 4.5 GB · qnn · mnn".
+        assertEquals("image · NPU · 4.5 GB", installedSubtitle(npu))
+        assertEquals("image · GPU · 4.5 GB", installedSubtitle(npu.copy(manifest = ModelManifest(emptyList(), npu = NpuPackage("sd15", "mnn")))))
+        assertEquals("image · CPU · 4.5 GB", installedSubtitle(npu.copy(engine = EngineKind.DIFFUSION, manifest = ModelManifest(emptyList()))))
+        val chat = model("c", "Qwen", ModelStatus.READY, downloaded = 500_000_000)
+        assertEquals("chat · GGUF · 500 MB", installedSubtitle(chat))
+        assertEquals("a picked backend", "chat · GPU · 500 MB", installedSubtitle(chat.copy(backend = Backend.GPU)))
+    }
+
+    @Test
+    fun deviceHeaderFitsOnTwoShortLines() {
+        val (label, lines) = deviceLines("SM8850", "Snapdragon 8 Elite Gen 5", 8, true, 15_800_000_000, 142_800_000_000)
+        assertEquals("this phone · SM8850", label)
+        assertEquals("Snapdragon 8 Elite Gen 5 · 8 cores · i8mm", lines.first)
+        assertEquals("15.8 GB ram · 143 GB free", lines.second)
+        assertEquals("this phone", deviceLines("", null, 4, false, 4_000_000_000, 5_000_000_000).first)
     }
 
     private fun model(id: String, title: String, status: ModelStatus, downloaded: Long, error: String? = null) = InstalledModel(

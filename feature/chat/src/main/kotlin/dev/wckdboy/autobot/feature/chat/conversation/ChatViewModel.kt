@@ -40,6 +40,8 @@ import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.markdown.LiteMarkdown
+import dev.wckdboy.autobot.core.models.Backend
+import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.ModelLibrary
@@ -86,6 +88,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -214,6 +217,7 @@ class ChatViewModel @AssistedInject constructor(
     private val library: ModelLibrary,
     private val chats: ChatLibrary,
     private val systemModel: SystemModel,
+    private val compute: ComputeProfile,
     handoff: ChatHandoff,
     @ApplicationContext private val appContext: Context,
     networkPolicy: NetworkPolicy,
@@ -262,7 +266,16 @@ class ChatViewModel @AssistedInject constructor(
     }.flowOn(Dispatchers.Default)
     private val refreshing = MutableStateFlow(false)
 
-    private val routing = combine(conversations.observeConversation(conversationId), providerModels, policy) { c, list, p -> Triple(c, list, p) }
+    /** Where each downloaded model runs, for the route tag (known once the engine has answered, or picked). */
+    private val localBackends = combine(library.models, compute.lastRan) { models, ran ->
+        models.associate { it.id to ComputeProfile.shownBackend(ran[it.id], it.backend) }
+    }.distinctUntilChanged()
+
+    private val routing = combine(conversations.observeConversation(conversationId), providerModels, policy, localBackends) { c, list, p, b ->
+        Routing(c, list, p, b)
+    }
+
+    private data class Routing<C, L, P>(val conversation: C, val withModels: L, val policy: P, val backends: Map<String, Backend?>)
 
     /** Tool descriptions by call (name + arguments): projections repeat them on every log change. */
     private val described = ConcurrentHashMap<String, String>()
@@ -330,7 +343,7 @@ class ChatViewModel @AssistedInject constructor(
 
     private val voice = combine(dictation, dictated, speakingKey, voiceMode, ::VoiceSnapshot)
 
-    private val baseState: Flow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, withModels, p), n, images, v ->
+    private val baseState: Flow<ChatUiState> = combine(agentState, routing, notice, pending, voice) { snap, (conversation, withModels, p, localBackend), n, images, v ->
         val (providerList, options) = withModels
         val (mode, allowLoopback, socks) = p
         val provider = providerList.firstOrNull { it.id == conversation?.providerId } ?: providerList.firstOrNull()
@@ -358,8 +371,10 @@ class ChatViewModel @AssistedInject constructor(
             contextWindow = snap.projection.contextWindow,
             privacyStatus = if (loopback || isLocal) PrivacyStatus.OFFLINE else effective.toPrivacyStatus(),
             showOfflineBanner = provider != null && !isLocal && mode == NetworkMode.Offline && !(loopback && allowLoopback),
+            // On this phone: the engine the model actually runs on (NPU / GPU / CPU) once known.
             route = when {
-                isLocal || loopback -> Route.LOCAL_CPU
+                isLocal -> Route.local((conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel)?.let { localBackend[it] }?.id)
+                loopback -> Route.LOCAL
                 else -> Route.CLOUD_API
             },
             modelLabel = conversation?.model?.let { m ->

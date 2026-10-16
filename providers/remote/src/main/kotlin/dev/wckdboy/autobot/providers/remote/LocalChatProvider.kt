@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.providers.remote
 
+import dev.wckdboy.autobot.core.models.Backend
 import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.Fit
@@ -12,7 +13,11 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Chat on this phone through the llama.cpp engine (isolated `:llm` process, Binder IPC).
@@ -61,7 +66,11 @@ class LocalChatProvider(
                 is LocalLlmEvent.Content -> emit(ChatEvent.ContentDelta(event.text))
                 is LocalLlmEvent.Reasoning -> emit(ChatEvent.ReasoningDelta(event.text))
                 is LocalLlmEvent.Status -> Unit
-                is LocalLlmEvent.Result -> decodeResult(event.json).forEach { emit(it) }
+                is LocalLlmEvent.Result -> {
+                    // Where the model actually loaded (an "auto" or failed accelerator falls back): the route tags show it.
+                    backendOf(event.json)?.let { compute.noteRan(model.id, it) }
+                    decodeResult(event.json).forEach { emit(it) }
+                }
             }
         }
     }.catch { e ->
@@ -111,6 +120,11 @@ class LocalChatProvider(
         internal fun encode(request: ChatRequest, mmproj: String? = null): JsonObject = LocalLlmCodec.encode(request, mmproj)
 
         internal fun decodeResult(json: String): List<ChatEvent> = LocalLlmCodec.decodeResult(json)
+
+        /** The engine's `usage.backend` ("cpu", "gpu", "npu") in a result, or null. */
+        internal fun backendOf(json: String): Backend? = runCatching {
+            Json.parseToJsonElement(json).jsonObject["usage"]?.jsonObject?.get("backend")?.jsonPrimitive?.contentOrNull
+        }.getOrNull()?.let(Backend::of)?.takeIf { it != Backend.AUTO }
 
         /** Whether an installed model can run here, by the shared fit rules. */
         internal fun modelState(model: InstalledModel?, fit: (InstalledModel) -> Fit): LocalModelState = when {

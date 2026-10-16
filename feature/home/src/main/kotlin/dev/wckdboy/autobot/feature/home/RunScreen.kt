@@ -82,8 +82,9 @@ fun RunScreen(
                     Text("Run\nanything.", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
                     Spacer(Modifier.height(18.dp))
                 }
+                // One 2-column grid: every row splits at the same x with the same gutter.
                 item {
-                    Row(Modifier.fillMaxWidth().height(268.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth().height(268.dp), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
                         val last by produceState<ImageBitmap?>(null, state.lastImageId) { value = state.lastImageId?.let { actions.thumbnail(it) } }
                         ModeCard(
                             index = "01",
@@ -91,7 +92,7 @@ fun RunScreen(
                             subtitle = state.imageLabel,
                             route = state.imageRoute,
                             onClick = onOpenImagine,
-                            modifier = Modifier.weight(1.1f).fillMaxSize(),
+                            modifier = Modifier.weight(1f).fillMaxSize(),
                             background = {
                                 val image = last
                                 if (image != null) {
@@ -101,16 +102,17 @@ fun RunScreen(
                                 }
                             },
                         )
-                        Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
                             ModeCard("02", "Chat", state.chat?.label ?: "add a model", state.chat?.route, { if (state.chat != null) actions.start(RunMode.CHAT) else onOpenModels() }, Modifier.weight(1f).fillMaxWidth(), living = true)
                             ModeCard("03", "Agent", state.agent?.label ?: "add a model", state.agent?.route, { if (state.agent != null) actions.start(RunMode.AGENT) else onOpenModels() }, Modifier.weight(1f).fillMaxWidth(), living = true)
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.height(GRID_GUTTER))
+                    Row(Modifier.fillMaxWidth().height(100.dp), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
                         ModeCard("04", "Code", state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, Modifier.weight(1f).fillMaxSize(), living = true)
-                        // Studio mode: image, audio, video, workflows and the library behind its own bar.
-                        ModeCard("05", "Studio", "image · audio · video", null, onOpenStudio, Modifier.weight(1f).fillMaxSize(), living = true)
+                        // Studio mode: image, audio, video, workflows and the library behind its own bar
+                        // (images have their own card, so the line names what else is there and fits one line).
+                        ModeCard("05", "Studio", "audio · video", null, onOpenStudio, Modifier.weight(1f).fillMaxSize(), living = true)
                     }
                     Spacer(Modifier.height(22.dp))
                 }
@@ -120,10 +122,13 @@ fun RunScreen(
                         Spacer(Modifier.height(22.dp))
                     }
                 }
-                item {
-                    Row {
-                        MicroLabel("recent runs", Modifier.weight(1f).padding(top = 14.dp))
-                        TextButton(onClick = onOpenAllRuns) { Text("ALL →", style = MaterialTheme.typography.labelMedium) }
+                // Nothing run yet: no empty section (the cards above are the way in).
+                if (state.recent.isNotEmpty()) {
+                    item {
+                        Row {
+                            MicroLabel("recent runs", Modifier.weight(1f).padding(top = 14.dp))
+                            TextButton(onClick = onOpenAllRuns) { Text("ALL →", style = MaterialTheme.typography.labelMedium) }
+                        }
                     }
                 }
                 items(state.recent, key = { it.key }) { run ->
@@ -136,11 +141,11 @@ fun RunScreen(
                         },
                     ) { RouteTag(run.route) }
                 }
-                if (state.recent.isEmpty()) {
-                    item { MicroLabel("nothing yet", Modifier.padding(vertical = 12.dp)) }
-                }
                 item { Box(Modifier.height(16.dp)) }
             }
         }
     }
 }
+
+/** The gutter between the mode cards, both across and down. */
+private val GRID_GUTTER = 8.dp

@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.providers.remote
 
+import dev.wckdboy.autobot.core.models.Backend
+import dev.wckdboy.autobot.core.models.ComputeProfile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -8,6 +10,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalChatProviderTest {
+
+    @Test
+    fun readsWhereTheModelActuallyRan() {
+        assertEquals(Backend.GPU, LocalChatProvider.backendOf("""{"content":"hi","usage":{"prompt_tokens":3,"backend":"gpu"}}"""))
+        assertEquals(Backend.NPU, LocalChatProvider.backendOf("""{"usage":{"backend":"npu"}}"""))
+        assertEquals(null, LocalChatProvider.backendOf("""{"usage":{"prompt_tokens":3}}"""))
+        assertEquals(null, LocalChatProvider.backendOf("""{"error":{"code":"CANCELLED"}}"""))
+        assertEquals(null, LocalChatProvider.backendOf("not json"))
+    }
+
+    @Test
+    fun theRouteTagNamesWhereItRanElseThePick() {
+        assertEquals(Backend.NPU, ComputeProfile.shownBackend(Backend.NPU, Backend.AUTO))
+        assertEquals("an accelerator that failed falls back", Backend.CPU, ComputeProfile.shownBackend(Backend.CPU, Backend.GPU))
+        assertEquals(Backend.GPU, ComputeProfile.shownBackend(null, Backend.GPU))
+        assertEquals("auto, not run yet: unknown", null, ComputeProfile.shownBackend(null, Backend.AUTO))
+    }
 
     @Test
     fun encodesOpenAiShapeWithToolsAndToolMessages() {
