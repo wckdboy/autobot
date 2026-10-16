@@ -52,6 +52,8 @@ import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
+import dev.wckdboy.autobot.core.designsystem.component.Notice
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
@@ -85,6 +87,7 @@ fun ModelsRoute(
     onOpenSession: (String) -> Unit,
     onOpenImagine: (modelId: String) -> Unit,
     onOpenGallery: () -> Unit,
+    onOpenNetwork: () -> Unit,
     viewModel: ModelsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -97,12 +100,12 @@ fun ModelsRoute(
             }
         }
     }
-    ModelsScreen(state, viewModel, onOpenAccounts, onOpenCompute)
+    ModelsScreen(state, viewModel, onOpenAccounts, onOpenCompute, onOpenNetwork)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts: () -> Unit, onOpenCompute: () -> Unit) {
+fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: () -> Unit, onOpenCompute: () -> Unit, onOpenNetwork: () -> Unit = {}) {
     val snackbar = remember { SnackbarHostState() }
     val dissolve = rememberInkDissolve()
     // An empty search tab is a large empty area: living paper behind it (downloads may run).
@@ -213,6 +216,11 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                 }
                 ModelsTab.HUGGING_FACE -> {
                     item { HfSearch(state, actions, onOpenAccounts) }
+                    if (state.hf.results.isEmpty() && !state.hf.loading) {
+                        item(key = "hf-empty") {
+                            SearchEmpty("Hugging Face", state.offline, state.hf.searched, state.hf.failure, state.hf.query, onOpenNetwork, actions::searchHf)
+                        }
+                    }
                     items(state.hf.results, key = { "hf-${it.id}" }) { m ->
                         RunRow(
                             title = m.id.substringAfter('/'),
@@ -223,7 +231,18 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
                 }
                 ModelsTab.CIVITAI -> {
                     item { CivitaiSearch(state, actions, onOpenAccounts) }
+                    if (state.civitai.results.isEmpty() && !state.civitai.loading) {
+                        item(key = "cv-empty") {
+                            SearchEmpty("Civitai", state.offline, state.civitai.searched, state.civitai.failure, state.civitai.query, onOpenNetwork) { actions.searchCivitai(reset = true) }
+                        }
+                    }
                     items(state.civitai.results, key = { "cv-${it.id}" }) { m -> CivitaiRow(m, actions, state.installedIds()) { actions.installCivitai(m) } }
+                    // A failed "more" says so under the results it could not extend.
+                    if (state.civitai.results.isNotEmpty() && state.civitai.failure != null) {
+                        item(key = "cv-more-failed") {
+                            SearchEmpty("Civitai", state.offline, true, state.civitai.failure, state.civitai.query, onOpenNetwork) { actions.searchCivitai(reset = false) }
+                        }
+                    }
                     if (state.civitai.nextCursor != null) {
                         item { TextButton(onClick = { actions.searchCivitai(reset = false) }) { Text("MORE") } }
                     }
@@ -239,8 +258,54 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts:
     }
 }
 
+/**
+ * What an empty hub tab means: offline mode or the kill switch (one tap to the network setting),
+ * a failed request (retry), no matches, or nothing searched yet.
+ */
 @Composable
-private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel, onRemove: () -> Unit = { actions.remove(model.id) }) {
+private fun SearchEmpty(
+    hub: String,
+    offline: Boolean,
+    searched: Boolean,
+    failure: SearchFailure?,
+    query: String,
+    onOpenNetwork: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val modifier = Modifier.padding(vertical = 12.dp)
+    when {
+        offline -> Notice(
+            "Offline mode is on, so the kill switch blocks $hub. Choose a network mode to search and download models.",
+            modifier,
+            tone = NoticeTone.WARNING,
+            action = "network",
+            onAction = onOpenNetwork,
+        )
+        failure?.blocked == true -> Notice(
+            "The kill switch blocked $hub: ${failure.message}",
+            modifier,
+            tone = NoticeTone.WARNING,
+            action = "network",
+            onAction = onOpenNetwork,
+        )
+        failure != null -> Notice("$hub search failed: ${failure.message}", modifier, tone = NoticeTone.ERROR, action = "retry", onAction = onRetry)
+        searched -> Notice(
+            if (query.isBlank()) "$hub returned no models for this filter." else "No models on $hub match “${query.trim()}”. Try another name or filter.",
+            modifier,
+        )
+        else -> Notice("Search $hub above, or tap search to list popular models.", modifier, action = "search", onAction = onRetry)
+    }
+}
+
+/** Size readout for an installed row: progress while it downloads, the size once it is done. */
+internal fun installedSize(model: InstalledModel): String? = when {
+    model.totalBytes <= 0 -> null
+    model.status != ModelStatus.READY && model.downloadedBytes > 0 -> "${formatBytes(model.downloadedBytes)} / ${formatBytes(model.totalBytes)}"
+    else -> formatBytes(model.totalBytes)
+}
+
+@Composable
+private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove: () -> Unit = { actions.remove(model.id) }) {
     var confirm by remember { mutableStateOf(false) }
     // Tapping a ready model opens the task it runs (the × tag still removes it).
     val task = remember(model.kind, model.engine, model.isReady) { launchOf(model.kind, model.engine, model.isReady).task }
@@ -249,7 +314,7 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsViewModel, onRemo
         subtitle = listOfNotNull(
             model.kind.label,
             model.format.label,
-            formatBytes(model.totalBytes).takeIf { model.totalBytes > 0 },
+            installedSize(model),
             model.engine.label.takeIf { model.engine != EngineKind.NONE } ?: "not runnable here",
         ).joinToString(" · "),
         onClick = if (task != ModelTask.NONE) ({ actions.use(model) }) else null,
@@ -296,7 +361,7 @@ private fun CatalogRow(plan: ModelPlan, fit: Fit?, installed: Boolean, onGet: ()
 }
 
 @Composable
-private fun HfSearch(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts: () -> Unit) {
+private fun HfSearch(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MicroLabel(state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "anonymous · gated models need a token", Modifier.weight(1f))
@@ -319,7 +384,7 @@ private fun HfSearch(state: ModelsUiState, actions: ModelsViewModel, onOpenAccou
 }
 
 @Composable
-private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsViewModel) {
+private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsActions) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(repo.id)
         Text(
@@ -349,7 +414,7 @@ private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsViewMod
 }
 
 @Composable
-private fun CivitaiSearch(state: ModelsUiState, actions: ModelsViewModel, onOpenAccounts: () -> Unit) {
+private fun CivitaiSearch(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MicroLabel(
@@ -379,7 +444,7 @@ private fun CivitaiSearch(state: ModelsUiState, actions: ModelsViewModel, onOpen
 }
 
 @Composable
-private fun CivitaiRow(model: CivitaiModel, actions: ModelsViewModel, installed: Set<String>, onGet: () -> Unit) {
+private fun CivitaiRow(model: CivitaiModel, actions: ModelsActions, installed: Set<String>, onGet: () -> Unit) {
     val version = model.versions.firstOrNull()
     val file = version?.files?.firstOrNull { it.primary } ?: version?.files?.firstOrNull()
     val preview by produceState<ImageBitmap?>(null, version?.previewUrl) { value = version?.previewUrl?.let { actions.preview(it) } }

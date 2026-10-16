@@ -43,6 +43,7 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -215,7 +216,7 @@ private fun Saved(state: WorkflowsState, actions: WorkflowsActions) {
         Row(Modifier.fillMaxWidth().clickable { actions.open(w) }.padding(vertical = 8.dp).inkStagger(i), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(w.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                MicroLabel("${w.params.size} params · v${w.version}")
+                MicroLabel("${counted(w.params.size, "param")} · v${w.version}")
             }
             Tag(w.output.name.lowercase(), accent = MaterialTheme.colorScheme.primary)
         }

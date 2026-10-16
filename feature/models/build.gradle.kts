@@ -6,6 +6,8 @@ plugins {
 
 android {
     namespace = "dev.wckdboy.autobot.feature.models"
+    // Compose UI tests render the screen with Robolectric.
+    testOptions.unitTests.isIncludeAndroidResources = true
 }
 
 dependencies {
@@ -23,4 +25,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.robolectric)
 }

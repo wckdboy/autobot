@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.feature.imagine.generate.ImageCodec
 import dev.wckdboy.autobot.feature.studio.engine.ComfyBackendConfig
 import dev.wckdboy.autobot.feature.studio.engine.StudioHost
@@ -17,6 +19,7 @@ import dev.wckdboy.autobot.shared.studio.StudioJob
 import dev.wckdboy.autobot.shared.studio.StudioWorkflow
 import dev.wckdboy.autobot.shared.studio.WorkflowException
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,7 +27,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Immutable
@@ -62,6 +64,10 @@ interface VideoActions {
 class VideoRoomViewModel @Inject constructor(private val host: StudioHost) : ViewModel(), VideoActions {
     private val local = MutableStateFlow(VideoRoomState())
 
+    /** Work on storage or an engine: a failure ("Storage is full") is shown, never a crash. */
+    private fun safely(block: suspend CoroutineScope.() -> Unit) =
+        viewModelScope.launchSafely({ e -> local.update { it.copy(message = userMessage(e)) } }, block)
+
     val state: StateFlow<VideoRoomState> = combine(local, host.settings.comfyBackends, host.store.observeWorkflows()) { l, b, w ->
         l.copy(loaded = true, backends = b, workflows = w.filter { it.output == AssetType.VIDEO })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VideoRoomState())
@@ -75,7 +81,7 @@ class VideoRoomViewModel @Inject constructor(private val host: StudioHost) : Vie
         val s = state.value
         val workflow = s.workflow ?: return
         val backend = s.backend ?: return
-        viewModelScope.launch {
+        safely {
             try {
                 val job: StudioJob = host.submitWorkflow(workflow, s.values, backend.id, s.randomizeSeed)
                 local.update { it.copy(jobIds = (it.jobIds + job.id).takeLast(32), message = null) }
@@ -86,14 +92,14 @@ class VideoRoomViewModel @Inject constructor(private val host: StudioHost) : Vie
     }
 
     override fun exportFrame(asset: StudioAsset, timeMs: Long) {
-        viewModelScope.launch {
-            val bytes = host.store.bytes(asset.id) ?: return@launch
+        safely {
+            val bytes = host.store.bytes(asset.id) ?: return@safely
             val png = withContext(Dispatchers.Default) {
                 if (asset.mimeType.startsWith("image/")) ImageCodec.decode(bytes)?.let(ImageCodec::png) else MediaInfo.frame(bytes, timeMs)?.let(ImageCodec::png)
             }
             if (png == null) {
                 local.update { it.copy(message = "Couldn't read a frame there") }
-                return@launch
+                return@safely
             }
             val recipe = Recipe(StudioRecipes.IMPORT_ENGINE, params = mapOf("frame_ms" to ParamValue.of(timeMs)), output = AssetType.IMAGE)
             host.addAsset(asset.projectId, AssetType.IMAGE, "image/png", png, recipe, parentId = asset.id, label = "frame ${timeMs / 1000.0} s")

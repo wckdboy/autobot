@@ -8,6 +8,7 @@ import dev.wckdboy.autobot.shared.studio.comfy.ComfyFile
 import dev.wckdboy.autobot.shared.studio.comfy.ComfyRun
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceTimeBy
@@ -96,6 +97,17 @@ class ComfyClientTest {
         assertEquals(4, run.outputs.size)
         assertEquals("one status per change", listOf("Waiting in Studio PC's queue (1 ahead)"), events.filterIsInstance<EngineEvent.Status>().map { it.text })
         assertTrue("the failed socket was tried first", server.sockets.size == 1)
+    }
+
+    @Test
+    fun aJobTheServerForgotFailsInsteadOfPollingForever() = runTest(timeout = 10.seconds) {
+        val server = server()
+        server.json["GET /history/PROMPT"] = { 200 to "{}" }
+        server.json["GET /queue"] = { 200 to """{"queue_running":[],"queue_pending":[]}""" }
+        val result = async { runCatching { client(server, sockets = false).execute(graph) } }
+        advanceTimeBy(60_000)
+        val error = result.await().exceptionOrNull()
+        assertTrue(error.toString(), error is ComfyException && "lost this job" in error.message!!)
     }
 
     @Test

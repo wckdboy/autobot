@@ -13,6 +13,9 @@ android {
     namespace = "dev.wckdboy.autobot.feature.studio"
     // StudioSnapshotTest renders the rooms to PNG with Robolectric's native graphics.
     testOptions.unitTests.isIncludeAndroidResources = true
+    // Compose binds its frame clock and window recomposer to the first Robolectric test in a JVM:
+    // each test class that renders gets its own JVM.
+    testOptions.unitTests.all { it.forkEvery = 1 }
 }
 
 dependencies {

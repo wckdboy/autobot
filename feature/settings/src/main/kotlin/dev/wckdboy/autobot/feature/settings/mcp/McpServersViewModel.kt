@@ -6,9 +6,13 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.ApiKeyUpdate
 import dev.wckdboy.autobot.core.data.McpServerRepository
+import dev.wckdboy.autobot.agent.runtime.AgentHost
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.model.McpServer
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
 import dev.wckdboy.autobot.core.data.toSpec
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.core.security.Secret
@@ -16,6 +20,7 @@ import dev.wckdboy.autobot.feature.settings.providers.ProviderDraft
 import dev.wckdboy.autobot.feature.settings.providers.TestState
 import dev.wckdboy.autobot.shared.mcp.McpEndpoint
 import dev.wckdboy.autobot.shared.mcp.McpHub
+import dev.wckdboy.autobot.shared.mcp.McpServerState
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
@@ -23,7 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -38,6 +43,9 @@ data class McpServerRow(
     val enabled: Boolean,
     val trusted: Boolean,
     val hasToken: Boolean,
+    /** Last connection from an agent session: "12 tools", or why it could not be reached. */
+    val status: String? = null,
+    val unavailable: Boolean = false,
 )
 
 /** Editor state. [tokenInput] is only held in memory and is redacted from [toString]. */
@@ -76,6 +84,7 @@ data class McpServersUiState(
 class McpServersViewModel @Inject constructor(
     private val repository: McpServerRepository,
     private val clients: HttpClientFactory,
+    host: AgentHost,
 ) : ViewModel() {
 
     private val editor = MutableStateFlow<McpServerDraft?>(null)
@@ -84,8 +93,10 @@ class McpServersViewModel @Inject constructor(
     private val error = MutableStateFlow<String?>(null)
     private var testJob: Job? = null
 
-    private val rows = repository.observeServers().map { list ->
+    private val rows = combine(repository.observeServers(), host.mcpStatus) { list, statuses ->
+        val byId = statuses.associateBy { it.id }
         list.map { s ->
+            val live = byId[s.id]?.takeIf { s.enabled }
             McpServerRow(
                 id = s.id,
                 name = s.name,
@@ -95,6 +106,12 @@ class McpServersViewModel @Inject constructor(
                 enabled = s.enabled,
                 trusted = s.trusted,
                 hasToken = s.tokenRef != null,
+                status = when (live?.state) {
+                    McpServerState.READY -> "connected · ${counted(live.toolCount, "tool")}"
+                    McpServerState.UNAVAILABLE -> "unreachable · ${live.message ?: "no answer"} · tap to test"
+                    else -> null
+                },
+                unavailable = live?.state == McpServerState.UNAVAILABLE,
             )
         }
     }
@@ -175,7 +192,7 @@ class McpServersViewModel @Inject constructor(
     }
 
     fun delete(id: String) {
-        viewModelScope.launch {
+        viewModelScope.launchSafely({ error.value = "Could not delete: ${userMessage(it)}" }) {
             repository.delete(id)
             if (editor.value?.id == id) editor.value = null
         }
@@ -190,7 +207,7 @@ class McpServersViewModel @Inject constructor(
         }
         testJob?.cancel()
         test.value = TestState.Running
-        testJob = viewModelScope.launch {
+        testJob = viewModelScope.launchSafely({ test.value = TestState.Failure(userMessage(it)) }) {
             val existing = draft.id?.let { repository.get(it) }
             val token = when {
                 draft.tokenInput.isNotBlank() -> draft.tokenInput.trim()
@@ -200,7 +217,7 @@ class McpServersViewModel @Inject constructor(
             }
             val result = McpHub.test(OkHttpTransport(clients), draft.toServer(existing).toSpec(), token)
             test.value = result.fold(
-                onSuccess = { r -> TestState.Success("Connected · ${r.toolCount} tools available · MCP ${r.protocolVersion}") },
+                onSuccess = { r -> TestState.Success("Connected · ${counted(r.toolCount, "tool")} available · MCP ${r.protocolVersion}") },
                 onFailure = { TestState.Failure(McpHub.describe(it)) },
             )
         }

@@ -13,6 +13,7 @@ import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.providers.remote.ApiKeys
@@ -54,6 +55,8 @@ data class ProviderRow(
     val requiresKey: Boolean = false,
     /** Conversations set to this provider. */
     val chats: Int = 0,
+    /** Why its model list could not be fetched after the last save (a rejected key, the kill switch). */
+    val problem: String? = null,
 )
 
 /** Editor state. [apiKeyInput] is only held in memory and is redacted from [toString]. */
@@ -77,7 +80,20 @@ data class ProviderDraft(
     val baseUrlValid: Boolean get() = baseUrl.trim().toHttpUrlOrNull() != null
     /** Why the base URL cannot work: the kill switch refuses cleartext to anything but loopback. */
     val cleartextProblem: String? get() = cleartextProblem(baseUrl)
-    val canSave: Boolean get() = displayName.isNotBlank() && baseUrlValid && cleartextProblem == null && defaultModel.isNotBlank()
+    val canSave: Boolean get() = saveProblem == null
+
+    /** Why Save is disabled, said next to it (null: it can save). */
+    val saveProblem: String? get() = when {
+        displayName.isBlank() -> "Give the provider a name"
+        baseUrl.isBlank() -> "Enter the base URL"
+        !baseUrlValid -> "The base URL is not a valid URL"
+        cleartextProblem != null -> cleartextProblem
+        defaultModel.isBlank() -> "Pick or type a model"
+        else -> null
+    }
+
+    /** A typed key that cannot be sent (a space, a stray character), shown as it is typed. */
+    val keyProblem: String? get() = apiKeyInput.takeIf { it.isNotBlank() }?.let { ApiKeys.problem(ApiKeys.clean(it)) }
 
     /** The preset needs a key and none is typed or kept. */
     val missingKey: Boolean get() = preset.requiresApiKey && apiKeyInput.isBlank() && (!hasStoredKey || clearStoredKey)
@@ -150,10 +166,11 @@ class ProvidersViewModel @Inject constructor(
     private val test = MutableStateFlow<TestState>(TestState.Idle)
     private val saving = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
+    private val problems = MutableStateFlow<Map<String, String>>(emptyMap())
     private var testJob: Job? = null
     private var modelsJob: Job? = null
 
-    private val rows = combine(repository.observeProviders(), repository.observeModelCaches(), conversations.observeConversations()) { list, caches, chats ->
+    private val rows = combine(repository.observeProviders(), repository.observeModelCaches(), conversations.observeConversations(), problems) { list, caches, chats, issues ->
         val now = System.currentTimeMillis()
         val usage = chats.groupingBy { it.providerId }.eachCount()
         list.map { p ->
@@ -166,9 +183,10 @@ class ProvidersViewModel @Inject constructor(
                 model = p.defaultModel,
                 routing = p.routing,
                 hasKey = p.apiKeyRef != null,
-                models = caches[p.id]?.let { "${it.models.size} models · ${it.ageLabel(now)}" },
+                models = caches[p.id]?.let { "${counted(it.models.size, "model")} · ${it.ageLabel(now)}" },
                 requiresKey = p.preset().requiresApiKey,
                 chats = usage[p.id] ?: 0,
+                problem = issues[p.id],
             )
         }
     }
@@ -260,11 +278,20 @@ class ProvidersViewModel @Inject constructor(
                 }
                 val stored = repository.save(draft.toProvider(existing), keyUpdate)
                 val fetched = models.value.takeIf { it.fetchedAt != null && it.models.isNotEmpty() }
+                problems.update { it - stored.id }
                 when {
                     // A list fetched in the editor (test / refresh) with the same key is kept as is.
                     fetched != null && keyUpdate !is ApiKeyUpdate.Clear -> repository.saveModelCache(stored.id, ModelCache(fetched.fetchedAt!!, fetched.models))
                     // A new key, or a provider without keys: fetch its list in the background.
-                    keyUpdate is ApiKeyUpdate.Set || !stored.preset().requiresApiKey -> appScope.launch { runCatching { refreshStored(stored) } }
+                    keyUpdate is ApiKeyUpdate.Set || !stored.preset().requiresApiKey -> appScope.launch {
+                        try {
+                            refreshStored(stored)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            problems.update { it + (stored.id to "Couldn't list models: ${userMessage(e)}") }
+                        }
+                    }
                 }
                 editor.value = null
             } catch (e: CancellationException) {
@@ -355,8 +382,10 @@ class ProvidersViewModel @Inject constructor(
         providerFactory.create(draft.toProvider(existing), key)
     }
 
+    /** Fetches a saved provider's models; a failure (most often a rejected key) shows on its row. */
     private suspend fun refreshStored(provider: Provider) {
         val result = providerFactory.create(provider).listModels()
+        problems.update { if (result is ModelListResult.Failure) it + (provider.id to "Couldn't list models: ${result.message}") else it - provider.id }
         if (result is ModelListResult.Success && result.models.isNotEmpty() && provider.preset().modelsApi != ModelsApi.NONE) {
             repository.saveModelCache(provider.id, ModelCache(System.currentTimeMillis(), result.models))
         }

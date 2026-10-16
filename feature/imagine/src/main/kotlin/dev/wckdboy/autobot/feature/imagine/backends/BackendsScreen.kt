@@ -51,6 +51,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.diffusion.BackendKind
@@ -102,9 +103,9 @@ class BackendsViewModel @Inject constructor(
                 onSuccess = { c ->
                     listOfNotNull(
                         "ok",
-                        c.models.size.takeIf { it > 0 }?.let { "$it models" },
-                        c.loras.size.takeIf { it > 0 }?.let { "$it loras" },
-                        c.samplers.size.takeIf { it > 0 }?.let { "$it samplers" },
+                        c.models.size.takeIf { it > 0 }?.let { counted(it, "model") },
+                        c.loras.size.takeIf { it > 0 }?.let { counted(it, "lora") },
+                        c.samplers.size.takeIf { it > 0 }?.let { counted(it, "sampler") },
                     ).joinToString(" · ")
                 },
                 onFailure = { "fail · ${it.message ?: it.javaClass.simpleName}" },

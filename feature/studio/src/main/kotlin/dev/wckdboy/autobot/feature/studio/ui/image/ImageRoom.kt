@@ -62,6 +62,7 @@ import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Stepper
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -178,7 +179,7 @@ fun ImageRoom(
         ControlSheet(
             expanded = controls,
             onToggle = { controls = !controls },
-            summary = "${state.mode.label} · ${state.request.steps} steps · cfg ${state.request.cfgScale} · ${state.request.width}×${state.request.height}",
+            summary = "${state.mode.label} · ${counted(state.request.steps, "step")} · cfg ${state.request.cfgScale} · ${state.request.width}×${state.request.height}",
         ) {
             Controls(state, shell, actions, onOpenModels, onOpenBackends, onEditMask = { showMask = true }, onOpenLibrary = { showLibrary = true }, onCursor = { cursor = it })
         }

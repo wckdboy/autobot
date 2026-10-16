@@ -33,6 +33,7 @@ import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
 import dev.wckdboy.autobot.core.designsystem.component.InkPrintAway
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.theme.SystemBarsBase
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.core.security.LockState
 import dev.wckdboy.autobot.entry.EntryViewModel
@@ -104,14 +105,8 @@ class MainActivity : FragmentActivity() {
                 ThemeMode.DARK -> true
                 ThemeMode.LIGHT -> false
             }
-            LaunchedEffect(darkTheme) {
-                val style = if (darkTheme) {
-                    SystemBarStyle.dark(Color.TRANSPARENT)
-                } else {
-                    SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
-                }
-                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
-            }
+            // Bars stay transparent (edge to edge); their icons follow the theme, or a screen's own surface.
+            SystemBarsBase(lightSurface = !darkTheme)
 
             AutobotTheme(darkTheme = darkTheme, amoled = settings.amoled, dynamicColor = settings.dynamicColor) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

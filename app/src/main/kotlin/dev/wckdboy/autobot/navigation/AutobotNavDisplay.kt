@@ -157,6 +157,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenSession = { navigate(Chat(it)) },
                             onOpenImagine = { navigate(Imagine(modelId = it)) },
                             onOpenGallery = { navigate(Gallery()) },
+                            onOpenNetwork = { navigate(PrivacyCenter) },
                         )
                     }
                     entry<Remote> {

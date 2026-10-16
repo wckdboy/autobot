@@ -84,7 +84,7 @@ private fun Plate(job: StudioJob, output: StudioAsset?, modifier: Modifier = Mod
         JobState.QUEUED -> "Queued: ${job.label ?: "job"}"
         JobState.RUNNING -> "Running ${(job.progress * 100).toInt()} percent: ${job.label ?: "job"}"
         JobState.DONE -> "Done: ${job.label ?: "job"}"
-        JobState.FAILED -> "Failed: ${job.error ?: ""}"
+        JobState.FAILED -> "Failed: ${job.error?.let(::jobError).orEmpty()}"
         JobState.CANCELLED -> "Cancelled"
     }
     Column(modifier.size(width = 56.dp, height = 64.dp).semantics { contentDescription = description }) {
@@ -168,7 +168,7 @@ private fun JobSheet(job: StudioJob, actions: ShellActions, onDismiss: () -> Uni
             MicroLabel(StudioRecipes.summary(job.recipe), Modifier.inkStagger(2))
             job.status?.let { MicroLabel(it, color = MaterialTheme.colorScheme.primary) }
             if (job.state == JobState.RUNNING && job.steps > 0) MicroLabel("step ${job.step} / ${job.steps}")
-            job.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            job.error?.let { Text(jobError(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!job.state.isFinished) {
                     GhostButton("Cancel", { actions.cancelJob(job.id); onDismiss() }, Modifier.weight(1f), accent = MaterialTheme.colorScheme.primary)
@@ -182,3 +182,7 @@ private fun JobSheet(job: StudioJob, actions: ShellActions, onDismiss: () -> Uni
 }
 
 private const val MAX_PLATES = 40
+
+/** A job's failure as the user reads it: a full disk says so instead of the raw `ENOSPC` error. */
+internal fun jobError(raw: String): String =
+    if ("ENOSPC" in raw || raw.contains("No space left", ignoreCase = true)) "Storage is full — free some space on this phone, then retry" else raw

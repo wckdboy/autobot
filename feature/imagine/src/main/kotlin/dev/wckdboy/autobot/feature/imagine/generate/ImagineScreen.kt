@@ -74,6 +74,7 @@ import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
@@ -441,7 +442,7 @@ private fun InitStrip(state: ImagineUiState, actions: ImagineViewModel, onEditMa
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            MicroLabel(if (state.request.mode == DiffusionMode.INPAINT) "inpaint · ${if (state.mask.isEmpty) "no mask" else "${state.mask.strokes.size} strokes"}" else "img2img")
+            MicroLabel(if (state.request.mode == DiffusionMode.INPAINT) "inpaint · ${if (state.mask.isEmpty) "no mask" else counted(state.mask.strokes.size, "stroke")}" else "img2img")
             ValueSlider("Denoise", state.request.denoiseStrength, actions::setDenoise, 0.05f..1f)
         }
         if (state.request.mode == DiffusionMode.INPAINT && state.initImage != null) {

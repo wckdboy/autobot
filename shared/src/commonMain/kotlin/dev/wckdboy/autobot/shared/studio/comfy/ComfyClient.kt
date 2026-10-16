@@ -247,6 +247,7 @@ class ComfyClient(
 
     private suspend fun pollHistory(promptId: String, onEvent: (EngineEvent) -> Unit): HistoryEntry {
         var said: String? = null
+        var missing = 0
         while (true) {
             val entry = history(promptId)
             if (entry != null && (entry.completed || entry.status != null)) return entry
@@ -257,6 +258,10 @@ class ComfyClient(
                 promptId in q.pending -> "Waiting in ${backend.label}'s queue (${q.pending.indexOf(promptId) + q.running.size} ahead)"
                 else -> null
             }
+            // Neither queued, running nor in the history: the server restarted and forgot it. Say so
+            // instead of waiting forever (one miss is normal while a finished job moves to the history).
+            missing = if (q != null && entry == null && status == null) missing + 1 else 0
+            if (missing >= LOST_AFTER_POLLS) throw ComfyException("${backend.label} lost this job (did it restart?) — queue it again")
             if (status != null && status != said) {
                 said = status
                 onEvent(EngineEvent.Status(status))
@@ -273,6 +278,7 @@ class ComfyClient(
 
     companion object {
         const val TAG = "studio:comfyui"
+        const val LOST_AFTER_POLLS = 10
         const val MAX_JSON_BYTES = 4L * 1024 * 1024
         const val MAX_OBJECT_INFO_BYTES = 64L * 1024 * 1024
         const val MAX_FILE_BYTES = 1024L * 1024 * 1024
