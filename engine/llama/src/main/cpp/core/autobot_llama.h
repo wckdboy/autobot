@@ -27,6 +27,12 @@ typedef struct autobot_llama_session autobot_llama_session;
 enum {
     AUTOBOT_LLAMA_DELTA_CONTENT = 0,
     AUTOBOT_LLAMA_DELTA_REASONING = 1,
+    /**
+     * Reasoning progress, JSON: {tokens, done, stop?}. `tokens` counts the tokens inside the think
+     * span so far; `done` is true once it closed; `stop` says what closed it early ("budget": the
+     * reasoning budget or the answer reserve ran out, "loop": the reasoning repeated itself).
+     */
+    AUTOBOT_LLAMA_DELTA_REASONING_STATUS = 2,
 };
 
 enum {
@@ -79,15 +85,32 @@ typedef int (*autobot_llama_abort_fn)(void * user);
 AUTOBOT_LLAMA_API autobot_llama_session * autobot_llama_load_abortable(const char * path, int n_ctx, int n_threads, const char * backend,
                                                                        autobot_llama_abort_fn should_abort, void * user);
 
-/** JSON: {description, n_params, size_bytes, n_ctx, n_ctx_train, chat_template, backend}. */
+/**
+ * JSON: {description, n_params, size_bytes, n_ctx, n_ctx_train, chat_template, backend,
+ * thinking:{supported, toggle, effort, start, end}}. `thinking.supported`: the template has a
+ * reasoning span (think tags); `toggle`: `enable_thinking` changes the prompt (Qwen3, Qwen3.5…);
+ * `effort`: the template takes `reasoning_effort` (gpt-oss).
+ */
 AUTOBOT_LLAMA_API char * autobot_llama_model_info(autobot_llama_session * session);
 
 /**
  * Runs one chat completion (blocking; calls on one session are serialised). `request` is
  * OpenAI-shaped: {messages, tools?, temperature?, top_p?, max_tokens?, seed?, enable_thinking?,
- * mmproj?}; image parts are {type:"image", path}. Returns JSON: {content, reasoning,
- * tool_calls:[{id,name,arguments}], finish_reason, usage:{prompt_tokens, completion_tokens,
- * cached_tokens, backend, prompt_ms, generation_ms}} or {error:{code,message}}.
+ * reasoning_budget?, min_answer_tokens?, reasoning_effort?, loop_guard?, mmproj?}; image parts are
+ * {type:"image", path}; an assistant message may carry `reasoning_content` (templates that want
+ * the current turn's reasoning back, e.g. Qwen3 in a tool loop, render it).
+ *
+ * Thinking: `enable_thinking` (default true) goes to the chat template. When the model reasons,
+ * `reasoning_budget` (tokens, -1 = none) caps the think span: at the cap the engine closes it with
+ * a short wrap-up sentence and the end tag, and the model goes on to answer. The span is also
+ * closed when fewer than `min_answer_tokens` (default: a quarter of max_tokens, 32..512) would be
+ * left for the answer, and, with `loop_guard` (default true), when the reasoning repeats itself.
+ * With thinking off, a model that opens a think span anyway gets it closed at once.
+ *
+ * Returns JSON: {content, reasoning, tool_calls:[{id,name,arguments}], finish_reason,
+ * reasoning_stop?, usage:{prompt_tokens, completion_tokens, reasoning_tokens, cached_tokens,
+ * backend, prompt_ms, generation_ms, reasoning_ms}} or {error:{code,message}}. `reasoning_stop`
+ * is "budget" or "loop" when the engine closed the reasoning early.
  */
 AUTOBOT_LLAMA_API char * autobot_llama_chat(autobot_llama_session * session, const char * request, size_t request_len,
                                             autobot_llama_delta_fn on_delta, void * user);
@@ -110,6 +133,13 @@ AUTOBOT_LLAMA_API void autobot_llama_cancel_request(autobot_llama_session * sess
 AUTOBOT_LLAMA_API void autobot_llama_free(autobot_llama_session * session);
 
 AUTOBOT_LLAMA_API void autobot_llama_string_free(char * s);
+
+/**
+ * The chat template stored in the GGUF at `path` (`tokenizer.chat_template`), read from the file
+ * header without loading the model; NULL when there is none or the file cannot be read. Lets an
+ * app tell whether a model reasons (and whether that can be switched off) before it loads it.
+ */
+AUTOBOT_LLAMA_API char * autobot_llama_chat_template(const char * path);
 
 /**
  * An embedding model (the private vault), separate from chat sessions so both can be resident.

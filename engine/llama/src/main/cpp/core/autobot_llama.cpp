@@ -4,8 +4,14 @@
 // to an arbitrary position (hybrid/recurrent ones such as Qwen3.5) keep small checkpoints of
 // that state near the end of each prompt instead, as llama-server does. No JNI or platform
 // APIs in here.
+//
+// Thinking: the chat template's own switch (`enable_thinking`) turns reasoning on or off, and
+// llama.cpp's reasoning-budget sampler bounds the think span: when the budget, the answer reserve
+// or the loop guard (reasoning_guard.h) says stop, it forces a short wrap-up and the end tag, and
+// the model goes on to answer instead of thinking until the output limit.
 
 #include "autobot_llama.h"
+#include "reasoning_guard.h"
 
 #include <algorithm>
 #include <atomic>
@@ -21,6 +27,7 @@
 
 #include "chat.h"
 #include "common.h"
+#include "gguf.h"
 #include "json.h"
 #include "llama.h"
 #include "mtmd-helper.h"
@@ -32,6 +39,15 @@
 struct Checkpoint {
     size_t n_tokens = 0;
     std::vector<uint8_t> data;
+};
+
+// What the model's chat template does about reasoning (found once per load by rendering it).
+struct ThinkingCaps {
+    bool supported = false;  // the template has a think span (start and end tags)
+    bool toggle = false;     // enable_thinking changes the prompt (Qwen3, Qwen3.5, ...)
+    bool effort = false;     // the template reads reasoning_effort (gpt-oss)
+    std::string start;       // "<think>"
+    std::string end;         // "</think>"
 };
 
 struct autobot_llama_session {
@@ -51,6 +67,7 @@ struct autobot_llama_session {
     mtmd_context * mtmd = nullptr;  // vision projector (mmproj), loaded on the first image
     std::string mmproj;
     bool kv_dirty = false;          // KV holds image embeddings that `cached` cannot describe
+    ThinkingCaps thinking;
     std::mutex lock;
 };
 
@@ -64,6 +81,13 @@ constexpr int PARSE_EVERY = 3;  // re-parse the partial output every N tokens
 // usually re-renders the end of this one (generation prompt, reasoning) a little differently.
 constexpr size_t CHECKPOINT_BACK = 4;
 constexpr size_t MAX_CHECKPOINTS = 3;
+
+// Closes a think span the engine ends early (budget, answer reserve, loop). Worded as the model's
+// own decision so it goes on to answer from what it has; tried on Qwen3 / Qwen3.5 (see the bench).
+constexpr const char * WRAP_UP = "\n\nI have thought about this enough; time to answer.\n";
+
+// Reasoning progress is streamed every this many reasoning tokens (and when the span closes).
+constexpr int STATUS_EVERY = 8;
 
 std::atomic<autobot_llama_log_fn> g_log{nullptr};
 std::atomic<void *> g_log_user{nullptr};
@@ -327,6 +351,78 @@ size_t system_prefix(Session * s, const common_chat_templates_inputs & inputs, c
     }
 }
 
+ThinkingCaps thinking_caps(const common_chat_templates * templates) {
+    ThinkingCaps caps;
+    if (!templates) return caps;
+    try {
+        common_chat_templates_inputs in;
+        common_chat_msg m;
+        m.role = "user";
+        m.content = "Hi";
+        in.messages = {m};
+        in.use_jinja = true;
+        in.add_generation_prompt = true;
+        in.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
+        in.enable_thinking = true;
+        const common_chat_params on = common_chat_templates_apply(templates, in);
+        in.enable_thinking = false;
+        const common_chat_params off = common_chat_templates_apply(templates, in);
+        caps.supported = on.supports_thinking && !on.thinking_start_tag.empty() && !on.thinking_end_tags.empty();
+        caps.toggle = caps.supported && on.prompt != off.prompt;
+        if (caps.supported) {
+            caps.start = on.thinking_start_tag;
+            caps.end = on.thinking_end_tags.front();
+        }
+    } catch (const std::exception & e) {
+        LOGE("cannot inspect the chat template: %s", e.what());
+    }
+    caps.effort = common_chat_templates_source(templates).find("reasoning_effort") != std::string::npos;
+    return caps;
+}
+
+// Follows the think span through the prompt's generation prefix and the generated tokens, and
+// counts the tokens inside it (the tags themselves excluded).
+struct ThinkSpan {
+    std::vector<llama_token> start;
+    std::vector<std::vector<llama_token>> ends;
+    std::vector<llama_token> recent;
+    bool inside = false;
+    bool closed = false;
+    int tokens = 0;
+
+    static bool ends_with(const std::vector<llama_token> & seq, const std::vector<llama_token> & tail) {
+        return !tail.empty() && seq.size() >= tail.size() && std::equal(tail.begin(), tail.end(), seq.end() - (long) tail.size());
+    }
+
+    // Returns true when this token closed the span.
+    bool accept(llama_token t) {
+        recent.push_back(t);
+        if (recent.size() > 32) recent.erase(recent.begin(), recent.begin() + 16);
+        if (!inside) {
+            if (ends_with(recent, start)) inside = true;
+            return false;
+        }
+        for (const auto & e : ends) {
+            if (ends_with(recent, e)) {
+                tokens = std::max(0, tokens - (int) e.size() + 1);  // the tag's own leading tokens were counted
+                inside = false;
+                closed = true;
+                return true;
+            }
+        }
+        ++tokens;
+        return false;
+    }
+};
+
+std::string reasoning_status(int tokens, bool done, const std::string & stop) {
+    auto st = common_json::object();
+    st["tokens"] = tokens;
+    st["done"] = done;
+    if (!stop.empty()) st["stop"] = stop;
+    return st.dump();
+}
+
 std::string chat(Session * s, const std::string & request_text, Sink & sink) {
     const llama_vocab * vocab = llama_model_get_vocab(s->model);
 
@@ -354,7 +450,10 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         inputs.use_jinja = true;
         inputs.add_generation_prompt = true;
         inputs.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-        inputs.enable_thinking = req.value("enable_thinking", true);
+        const bool thinking_on = req.value("enable_thinking", true);
+        inputs.enable_thinking = thinking_on;
+        const std::string effort = req.value("reasoning_effort", std::string());
+        if (!effort.empty() && s->thinking.effort) inputs.chat_template_kwargs["reasoning_effort"] = common_json(effort).dump();
 
         const common_chat_params chat = common_chat_templates_apply(s->templates.get(), inputs);
 
@@ -466,6 +565,41 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
             sp.grammar_triggers.push_back(trigger);
         }
         if (sp.grammar_lazy && sp.grammar_triggers.empty()) sp.grammar_lazy = false;
+
+        // ---- thinking: the budget sampler watches the think span (and closes it on request)
+        ThinkSpan span;
+        int budget = req.value("reasoning_budget", -1);
+        if (!thinking_on) budget = 0;  // a model that opens a span anyway gets it closed at once
+        int reserve = req.value("min_answer_tokens", std::max(32, std::min(512, max_tokens / 4)));
+        reserve = std::max(0, std::min(reserve, max_tokens / 2));
+        const bool loop_guard = req.value("loop_guard", true);
+        size_t forced_len = 0;
+        if (!chat.thinking_start_tag.empty() && !chat.thinking_end_tags.empty()) {
+            span.start = common_tokenize(vocab, chat.thinking_start_tag, false, true);
+            for (const auto & e : chat.thinking_end_tags) span.ends.push_back(common_tokenize(vocab, e, false, true));
+            llama_tokens forced;
+            if (thinking_on) forced = common_tokenize(vocab, req.value("reasoning_budget_message", std::string(WRAP_UP)), false, true);
+            forced.insert(forced.end(), span.ends.front().begin(), span.ends.front().end());
+            forced_len = forced.size();
+            sp.reasoning_budget_tokens = budget;
+            sp.reasoning_budget_start = span.start;
+            sp.reasoning_budget_end = span.ends;
+            sp.reasoning_budget_forced = std::move(forced);
+            sp.reasoning_control = true;  // lets the loop guard and the answer reserve close the span
+            for (const llama_token t : common_tokenize(vocab, chat.generation_prompt, false, true)) span.accept(t);
+            span.tokens = 0;
+            span.closed = false;
+        }
+        // Past this many generated tokens an open think span is closed, so the answer keeps `reserve`
+        // tokens of the output limit and of the context left after the prompt.
+        const int out_room = std::min(max_tokens, s->n_ctx - 1 - (int) pos);
+        const int think_cap = std::max(0, out_room - reserve - (int) forced_len);
+        ReasoningLoopGuard guard;
+        std::string reasoning_stop;   // why the engine closed the span early
+        bool closing = false;         // the end sequence is being forced
+        int reported = -1;
+        int64_t reasoning_us = 0;
+
         common_sampler * smpl = common_sampler_init(s->model, sp);
         if (!smpl) return error_json("SAMPLER_FAILED", "could not initialise sampler");
 
@@ -493,12 +627,39 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
             }
             const llama_token tok = common_sampler_sample(smpl, s->ctx, -1);
             common_sampler_accept(smpl, tok, true);
+            const bool was_inside = span.inside;
+            const bool span_closed = span.accept(tok);
             if (llama_vocab_is_eog(vocab, tok)) {
                 finish = "stop";
                 break;
             }
             out += common_token_to_piece(s->ctx, tok);
             ++n_gen;
+
+            if (span.inside && !closing) {
+                if (budget >= 0 && span.tokens >= budget) {
+                    // The budget sampler starts forcing by itself at this count.
+                    closing = true;
+                    if (thinking_on) reasoning_stop = "budget";
+                } else if (n_gen >= think_cap && common_sampler_reasoning_budget_force(smpl)) {
+                    closing = true;
+                    reasoning_stop = "budget";
+                } else if (loop_guard && guard.push(tok) && common_sampler_reasoning_budget_force(smpl)) {
+                    closing = true;
+                    reasoning_stop = "loop";
+                    LOGI("reasoning loop (%s) after %d tokens: closing the think span", guard.reason(), span.tokens);
+                }
+            }
+            if (span_closed) {
+                reasoning_us = ggml_time_us() - t_gen;
+                closing = false;
+                guard.reset();
+            }
+            if ((was_inside || span.inside) && thinking_on &&
+                (span_closed || reported < 0 || span.tokens - reported >= STATUS_EVERY)) {
+                reported = span.tokens;
+                sink.delta(AUTOBOT_LLAMA_DELTA_REASONING_STATUS, reasoning_status(span.tokens, span_closed, span_closed ? reasoning_stop : ""));
+            }
 
             bool stopped = false;
             for (const auto & stop : chat.additional_stops) {
@@ -568,10 +729,13 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         }
         result["tool_calls"] = calls;
         result["finish_reason"] = msg.tool_calls.empty() ? finish : std::string("tool_calls");
+        if (!reasoning_stop.empty() && span.closed) result["reasoning_stop"] = reasoning_stop;
         auto usage = common_json::object();
         usage["prompt_tokens"] = (int) prompt_tokens;
         usage["cached_tokens"] = (int) keep;
         usage["completion_tokens"] = n_gen;
+        usage["reasoning_tokens"] = span.tokens;
+        if (reasoning_us > 0) usage["reasoning_ms"] = (double) reasoning_us / 1000.0;
         usage["backend"] = s->backend;
         usage["prompt_ms"] = (double) prompt_us / 1000.0;
         usage["generation_ms"] = (double) (ggml_time_us() - t_gen) / 1000.0;
@@ -684,6 +848,7 @@ autobot_llama_session * autobot_llama_load_abortable(const char * path_c, int n_
         s->n_ctx = (int) llama_n_ctx(ctx);
         s->backend = kind;
         s->templates = common_chat_templates_init(model, "");
+        s->thinking = thinking_caps(s->templates.get());
         s->partial_rm = common_context_can_seq_rm(ctx) == COMMON_CONTEXT_SEQ_RM_TYPE_PART;
         llama_set_abort_callback(ctx, abort_requested, s);
         LOGI("loaded %s on %s%s", path.c_str(), kind.c_str(), s->partial_rm ? "" : " (prompt cache via checkpoints)");
@@ -703,6 +868,13 @@ char * autobot_llama_model_info(autobot_llama_session * s) {
     info["n_ctx_train"] = llama_model_n_ctx_train(s->model);
     info["chat_template"] = common_chat_templates_was_explicit(s->templates.get());
     info["backend"] = s->backend;
+    auto thinking = common_json::object();
+    thinking["supported"] = s->thinking.supported;
+    thinking["toggle"] = s->thinking.toggle;
+    thinking["effort"] = s->thinking.effort;
+    thinking["start"] = s->thinking.start;
+    thinking["end"] = s->thinking.end;
+    info["thinking"] = thinking;
     return dup(info.dump());
 }
 
@@ -744,6 +916,18 @@ void autobot_llama_free(autobot_llama_session * s) {
 
 void autobot_llama_string_free(char * str) {
     std::free(str);
+}
+
+char * autobot_llama_chat_template(const char * path) {
+    if (!path || !*path) return nullptr;
+    gguf_init_params params = {/*.no_alloc =*/ true, /*.ctx =*/ nullptr};
+    gguf_context * g = gguf_init_from_file(path, params);
+    if (!g) return nullptr;
+    char * out = nullptr;
+    const int64_t key = gguf_find_key(g, "tokenizer.chat_template");
+    if (key >= 0 && gguf_get_kv_type(g, key) == GGUF_TYPE_STRING) out = dup(gguf_get_val_str(g, key));
+    gguf_free(g);
+    return out;
 }
 
 // ---- embeddings (private vault)
