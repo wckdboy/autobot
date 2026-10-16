@@ -11,6 +11,9 @@ enum class ModelTask {
     /** The gallery, where upscalers run on saved images. */
     GALLERY,
 
+    /** A new chat in voice mode, where a speech model (whisper) turns what you say into the prompt. Android. */
+    VOICE,
+
     /** Nothing opens it (speech, voices, LoRAs, VAEs, or not downloaded yet): the row keeps its tags. */
     NONE,
 }
@@ -41,6 +44,8 @@ fun launchOf(
         ModelKind.CHAT, ModelKind.CODE -> ModelTask.CHAT
         ModelKind.IMAGE -> ModelTask.IMAGINE
         ModelKind.UPSCALER -> ModelTask.GALLERY
+        // Dictation models are what voice mode listens with (Android's voice mode runs whisper.cpp).
+        ModelKind.SPEECH -> if (engine == EngineKind.WHISPER && platform == AppPlatform.ANDROID) ModelTask.VOICE else return ModelLaunch(ModelTask.NONE)
         // Voices are used by read-aloud and voice mode, never opened on their own.
         else -> return ModelLaunch(ModelTask.NONE)
     }

@@ -12,6 +12,7 @@ import android.os.RemoteException
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -47,7 +48,12 @@ class EngineUnavailableException(message: String) : RemoteException(message)
  * The idle window is long ([IDLE_UNBIND_MILLIS]): reloading a multi-GB model costs seconds, and
  * real memory pressure frees it sooner through the app's memory coordinator.
  */
-class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILLIS) {
+class LocalLlm(
+    context: Context,
+    private val idleMillis: Long = IDLE_UNBIND_MILLIS,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+    private val connectTimeoutMillis: Long = CONNECT_TIMEOUT_MS,
+) {
     private val app = context.applicationContext
     private val mutex = Mutex()
     private val main = Handler(Looper.getMainLooper())
@@ -85,8 +91,20 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
                 ready.complete(e)
             }
 
+            /** Unbound after its process died (once: the binding is gone after that). */
+            @Volatile
+            private var released = false
+
             override fun onServiceDisconnected(name: ComponentName) {
+                // The engine process died. Unbind: a binding kept to it makes Android restart the
+                // process and hold it forever, out of reach of the idle unbind and the memory
+                // coordinator. The next request binds afresh.
                 engine = null
+                if (!released) {
+                    released = true
+                    runCatching { app.unbindService(this) }
+                }
+                synchronized(this@LocalLlm) { if (connection === this) connection = null }
             }
 
             override fun onBindingDied(name: ComponentName) {
@@ -109,7 +127,7 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
             throw EngineUnavailableException("Cannot start the on-device engine")
         }
         synchronized(this) { connection = conn }
-        val e = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { ready.await() }
+        val e = withTimeoutOrNull(connectTimeoutMillis) { ready.await() }
         if (e == null) {
             // Not a cancellation: the engine process did not come up (e.g. its native init hangs).
             synchronized(this) { if (connection === conn) connection = null }
@@ -131,7 +149,7 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
     private suspend fun <T> call(block: (ILlamaEngine) -> T): T {
         val e = acquire()
         try {
-            return withContext(Dispatchers.IO) { block(e) }
+            return withContext(io) { block(e) }
         } finally {
             done()
         }
@@ -149,7 +167,7 @@ class LocalLlm(context: Context, private val idleMillis: Long = IDLE_UNBIND_MILL
      */
     fun chat(modelPath: String, nCtx: Int, backend: String, requestJson: String): Flow<LocalLlmEvent> = callbackFlow {
         beforeJob()
-        val request = withContext(Dispatchers.IO) { requestFile(requestJson) }
+        val request = withContext(io) { requestFile(requestJson) }
         val e = try {
             acquire()
         } catch (t: Throwable) {

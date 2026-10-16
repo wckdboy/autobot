@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.navigation
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,6 +17,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntryDecorator
@@ -23,6 +25,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import dev.wckdboy.autobot.MainActivity
 import dev.wckdboy.autobot.core.designsystem.component.AutobotNavBar
 import dev.wckdboy.autobot.core.designsystem.component.NavItem
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
@@ -30,6 +33,7 @@ import dev.wckdboy.autobot.core.designsystem.motion.inkScreenTransition
 import dev.wckdboy.autobot.core.designsystem.motion.misregisterEnter
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
+import dev.wckdboy.autobot.entry.EntryActions
 import dev.wckdboy.autobot.feature.chat.conversation.ChatRoute
 import dev.wckdboy.autobot.feature.chat.list.ChatListRoute
 import dev.wckdboy.autobot.feature.home.RemoteRoute
@@ -120,6 +124,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     }
 
     val reduced = LocalInkMotion.current.reduced
+    val context = LocalContext.current
     val current = backStack.lastOrNull()
     val tab = current?.tab()
     val showBar = tab != null && backStack.size == 1
@@ -157,6 +162,8 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenSession = { navigate(Chat(it)) },
                             onOpenImagine = { navigate(Imagine(modelId = it)) },
                             onOpenGallery = { navigate(Gallery()) },
+                            // The same new voice chat the voice tile and widget open.
+                            onOpenVoice = { context.startActivity(Intent(context, MainActivity::class.java).setAction(EntryActions.VOICE)) },
                         )
                     }
                     entry<Remote> {

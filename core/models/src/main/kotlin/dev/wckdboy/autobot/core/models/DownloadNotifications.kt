@@ -144,10 +144,14 @@ class DownloadActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra(DownloadNotifications.EXTRA_ID) ?: return
-        when (intent.action) {
+        val work = when (intent.action) {
             DownloadNotifications.ACTION_PAUSE -> downloader.pause(id, fromNotification = true)
             DownloadNotifications.ACTION_RESUME -> downloader.resume(id)
             DownloadNotifications.ACTION_CANCEL -> downloader.remove(id)
+            else -> return
         }
+        // Keep the process until the action is stored: a cancel tapped as the app goes away must stick.
+        val pending = goAsync()
+        work.invokeOnCompletion { pending.finish() }
     }
 }

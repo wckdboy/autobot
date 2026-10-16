@@ -41,7 +41,6 @@ import dev.wckdboy.autobot.core.models.PreviewImages
 import dev.wckdboy.autobot.core.models.formatBytes
 import dev.wckdboy.autobot.core.models.launchOf
 import dev.wckdboy.autobot.providers.remote.LocalProviderSync
-import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +117,9 @@ sealed interface ModelsEvent {
     data class OpenSession(val conversationId: String) : ModelsEvent
     data class OpenImagine(val modelId: String) : ModelsEvent
     data object OpenGallery : ModelsEvent
+
+    /** A new chat in voice mode (a dictation model was tapped). */
+    data object OpenVoice : ModelsEvent
 }
 
 @HiltViewModel
@@ -187,26 +189,41 @@ class ModelsViewModel @Inject constructor(
     }
 
     fun setWifiOnly(enabled: Boolean) = downloader.setWifiOnly(enabled)
-    fun pauseAll() = downloader.pauseAll()
+    fun pauseAll() {
+        downloader.pauseAll()
+    }
 
     /** Notifications were refused: downloads still run, Android lists them in Task Manager. */
     fun notificationsDenied() = local.update {
         it.copy(message = "Downloads continue without notifications — Android shows them under active apps in quick settings")
     }
 
-    fun pause(id: String) = downloader.pause(id)
-    fun resume(id: String) = downloader.resume(id)
-    fun remove(id: String) = downloader.remove(id)
+    fun pause(id: String) {
+        downloader.pause(id)
+    }
+    fun resume(id: String) {
+        downloader.resume(id)
+    }
+    fun remove(id: String) {
+        downloader.remove(id)
+    }
     fun consumeMessage() = local.update { it.copy(message = null) }
 
     /**
      * Puts an installed model to work: a new session on "This phone" for chat and code models,
-     * the image studio set up for image models, the gallery for upscalers.
+     * the image studio set up for image models, the gallery for upscalers, voice mode for
+     * dictation models. A model whose files were deleted outside the app is offered for download
+     * again instead.
      */
     fun use(model: InstalledModel) {
         viewModelScope.launchSafely({ e -> local.update { it.copy(message = userMessage(e)) } }) {
-            val files = withContext(Dispatchers.IO) { model.paths.values.all { File(it).exists() } }
-            val target = launchOf(model.kind, model.engine, model.isReady, local.value.device?.fit(model.kind, model.totalBytes, model.engine), files)
+            val missing = library.missingFiles(model)
+            if (missing.isNotEmpty()) {
+                downloader.markMissing(model.id).join()
+                local.update { it.copy(message = "${model.title}: its files were deleted outside the app — tap retry in downloads to get them again") }
+                return@launchSafely
+            }
+            val target = launchOf(model.kind, model.engine, model.isReady, local.value.device?.fit(model.kind, model.totalBytes, model.engine), true)
             target.problem?.let { problem ->
                 local.update { it.copy(message = problem) }
                 return@launchSafely
@@ -224,6 +241,7 @@ class ModelsViewModel @Inject constructor(
                 }
                 ModelTask.IMAGINE -> events.send(ModelsEvent.OpenImagine(model.id))
                 ModelTask.GALLERY -> events.send(ModelsEvent.OpenGallery)
+                ModelTask.VOICE -> events.send(ModelsEvent.OpenVoice)
                 ModelTask.NONE -> Unit
             }
         }

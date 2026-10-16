@@ -31,6 +31,18 @@ class ModelRowRepository @Inject constructor(
         database.get().modelDao().updateProgress(id, downloaded, status, error, System.currentTimeMillis())
     }
 
+    suspend fun transition(id: String, from: String, to: String, downloaded: Long, error: String?): Boolean = withContext(io) {
+        database.get().modelDao().transition(id, from, to, downloaded, error, System.currentTimeMillis()) > 0
+    }
+
+    suspend fun updateBytes(id: String, downloaded: Long, whileStatus: String) = withContext(io) {
+        database.get().modelDao().updateBytes(id, downloaded, whileStatus, System.currentTimeMillis())
+    }
+
+    suspend fun updateManifest(id: String, manifestJson: String, totalBytes: Long) = withContext(io) {
+        database.get().modelDao().updateManifest(id, manifestJson, totalBytes, System.currentTimeMillis())
+    }
+
     suspend fun setBackend(id: String, backend: String) = withContext(io) {
         database.get().modelDao().setBackend(id, backend, System.currentTimeMillis())
     }
