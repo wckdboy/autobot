@@ -137,8 +137,8 @@ fun Modifier.inkGround(
             val t = ambient.time
             buildField(batch, cell.toPx(), seed + InkMath.ambientPhase(t), GROUND_DOT)
             val shift = (Motion.registerOffset * 0.5f + InkMath.ambientBreath(t)).dp.toPx()
-            translate(shift, shift) { drawPath(batch.path, plate, alpha = Motion.ambientOpacity * 0.5f) }
-            drawPath(batch.path, dot, alpha = Motion.ambientOpacity)
+            translate(shift, shift) { batch.draw(this, plate, Motion.ambientOpacity * 0.5f) }
+            batch.draw(this, dot, Motion.ambientOpacity)
         }
 }
 
@@ -261,7 +261,7 @@ fun InkPrintAway(
         drawRect(paper, alpha = lift)
         buildField(batch, GROUND_CELL.toPx(), 0f, InkMath.printMerge(ms))
         val offset = Motion.registerOffset.dp.toPx() * InkMath.registerOffset(ms)
-        translate(offset, offset) { drawPath(batch.path, plate, alpha = max(0f, 0.35f * InkMath.plateAlpha(ms))) }
-        drawPath(batch.path, dot, alpha = Motion.ambientOpacity * 2f * lift)
+        translate(offset, offset) { batch.draw(this, plate, max(0f, 0.35f * InkMath.plateAlpha(ms))) }
+        batch.draw(this, dot, Motion.ambientOpacity * 2f * lift)
     }
 }

@@ -133,6 +133,7 @@ fun AboutScreen(
 ) {
     var license by rememberSaveable { mutableStateOf<String?>(null) }
     var showLicenses by rememberSaveable { mutableStateOf(false) }
+    var allNotes by rememberSaveable { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
 
@@ -172,7 +173,13 @@ fun AboutScreen(
             if (content.notes.isEmpty()) {
                 MicroLabel("no release notes in this build", Modifier.padding(horizontal = RowGutter, vertical = 8.dp))
             } else {
-                ReleaseNotes(content.notes, Modifier.padding(horizontal = RowGutter, vertical = 4.dp))
+                val shown = if (allNotes) content.notes else content.notes.take(NOTES_PREVIEW_BLOCKS)
+                ReleaseNotes(shown, Modifier.padding(horizontal = RowGutter, vertical = 4.dp))
+                if (shown.size < content.notes.size) {
+                    TextButton(onClick = { allNotes = true }, Modifier.padding(horizontal = 4.dp)) {
+                        Text("SHOW ALL", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
             Divider()
 
@@ -306,3 +313,6 @@ private fun Header(text: String) = SectionLabel(text, Modifier.padding(start = R
 private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
 private const val ICON_PX = 192
+
+/** "What's new" shows this many blocks before "Show all" (as on iOS). */
+internal const val NOTES_PREVIEW_BLOCKS = 4

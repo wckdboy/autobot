@@ -55,19 +55,69 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
-// Procedural "ink" pieces (see the motion spec). Each canvas builds its dots into ONE reused
-// Path per colour per frame, reads the clock only while drawing (a tick redraws, never
+// Procedural "ink" pieces (see the motion spec). Each canvas collects its dots into ONE reused
+// batch per colour per frame, reads the clock only while drawing (a tick redraws, never
 // recomposes) and stops ticking when its work is done.
 
-/** Dots for one frame, added to a reused platform path (no per-dot allocations). */
+/**
+ * Dots for one frame (reused arrays: no per-dot allocations). Drawn as analytic circles, which
+ * the renderer batches, not as one many-contour path: a path of thousands of circles is
+ * re-rasterised on the render thread every frame it changes or moves (it cost 7–36 ms a frame
+ * on the paper studio of a Snapdragon 8 Elite Gen 5). Overlapping dots still merge into one
+ * ink: translucent batches draw opaque circles into a single alpha layer, as the path's union did.
+ */
 internal class DotBatch {
-    private val platform = android.graphics.Path()
-    val path: Path = platform.asComposePath()
+    private var xs = FloatArray(INITIAL)
+    private var ys = FloatArray(INITIAL)
+    private var rs = FloatArray(INITIAL)
+    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
 
-    fun reset() = platform.rewind()
+    /** Dots in this frame. */
+    var count = 0
+        private set
+
+    fun reset() {
+        count = 0
+    }
 
     fun dot(x: Float, y: Float, radius: Float) {
-        if (radius > 0.3f) platform.addCircle(x, y, radius, android.graphics.Path.Direction.CW)
+        if (radius <= 0.3f) return
+        if (count == xs.size) {
+            xs = xs.copyOf(count * 2)
+            ys = ys.copyOf(count * 2)
+            rs = rs.copyOf(count * 2)
+        }
+        xs[count] = x
+        ys[count] = y
+        rs[count] = radius
+        count++
+    }
+
+    /** Draws the batch in [color] at [alpha] (with the colour's own alpha) on [scope]. */
+    fun draw(scope: DrawScope, color: Color, alpha: Float = 1f) {
+        val a = (alpha * color.alpha).coerceIn(0f, 1f)
+        if (count == 0 || a <= 0f) return
+        val canvas = scope.drawContext.canvas.nativeCanvas
+        paint.color = color.copy(alpha = 1f).toArgb()
+        val layer = a < 1f
+        if (layer) canvas.saveLayerAlpha(null, (a * 255f + 0.5f).toInt())
+        for (i in 0 until count) canvas.drawCircle(xs[i], ys[i], rs[i], paint)
+        if (layer) canvas.restore()
+    }
+
+    private val platform = android.graphics.Path()
+    private val composePath: Path = platform.asComposePath()
+
+    /** The dots as one path, built on demand: only for clipping (a dissolve), never for drawing. */
+    val path: Path
+        get() {
+            platform.rewind()
+            for (i in 0 until count) platform.addCircle(xs[i], ys[i], rs[i], android.graphics.Path.Direction.CW)
+            return composePath
+        }
+
+    private companion object {
+        const val INITIAL = 256
     }
 }
 
@@ -216,7 +266,7 @@ fun DevelopingHalftone(
             prev == null -> InkMath.lerp(fieldAlpha, 1f, InkMath.easeOutCubic(dev))
             else -> 1f
         }
-        drawPath(batch.path, dot, alpha = alpha)
+        batch.draw(this, dot, alpha)
     }
 }
 
@@ -291,8 +341,8 @@ fun PrintReveal(
                     batch.dot((col + 0.5f) * cw, (r + 0.5f) * ch, v * c * 0.62f * merge)
                 }
                 val offset = Motion.registerOffset.dp.toPx() * InkMath.registerOffset(ms)
-                translate(offset, offset) { drawPath(batch.path, plate, alpha = 0.5f * InkMath.plateAlpha(ms)) }
-                drawPath(batch.path, dot, alpha = InkMath.printDotsAlpha(ms))
+                translate(offset, offset) { batch.draw(this, plate, 0.5f * InkMath.plateAlpha(ms)) }
+                batch.draw(this, dot, InkMath.printDotsAlpha(ms))
             }
         }
     }

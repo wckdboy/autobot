@@ -90,6 +90,26 @@ class SettingsStructureTest {
         compose.onNodeWithText("Copy diagnostics").performScrollTo().assertIsDisplayed()
     }
 
+    @Test
+    fun whatsNewShowsFourBlocksThenShowAll() {
+        compose.setContent {
+            Themed {
+                AboutScreen(
+                    info = AboutInfo("1.6.4", 16),
+                    content = AboutContent(notes = (1..6).map { NoteBlock.Bullet("Note $it") }, loaded = true),
+                    onBack = {}, onOpenLink = {}, onOpenDiagnostics = {},
+                )
+            }
+        }
+        compose.onNodeWithText("Note 4").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Note 5").assertCountEquals(0)
+        compose.onNodeWithText("SHOW ALL").performScrollTo().performClick()
+        compose.onNodeWithText("Note 6").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("SHOW ALL").assertCountEquals(0)
+        // Links that leave the app say so.
+        compose.onAllNodesWithText("github.com ↗").assertCountEquals(2)
+    }
+
     @androidx.compose.runtime.Composable
     private fun Themed(content: @androidx.compose.runtime.Composable () -> Unit) {
         AutobotTheme {

@@ -257,11 +257,12 @@ fun ModeCard(
                 }
                 Spacer(Modifier.weight(1f, fill = true))
                 Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
+                // A model name wraps to a second line on a half-width card rather than losing its end.
                 Text(
                     subtitle,
                     style = AutobotTheme.styles.micro,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -345,7 +346,7 @@ fun HalftoneImage(
             val l = grid.sample((col + 0.5f) / cols, (r + 0.5f) / rows)
             batch.dot(x0 + (col + 0.5f) * c, y0 + (r + 0.5f) * c, (1f - l) * c * 0.62f)
         }
-        drawPath(batch.path, dot)
+        batch.draw(this, dot)
     }
 }
 
@@ -390,7 +391,7 @@ fun HalftoneField(
             val v = InkMath.field(col / cols.toFloat(), r / rows.toFloat(), p)
             batch.dot(grid.x.at(col), grid.y.at(r), v * c * HALFTONE_DOT * f)
         }
-        drawPath(batch.path, dot)
+        batch.draw(this, dot)
     }
 }
 

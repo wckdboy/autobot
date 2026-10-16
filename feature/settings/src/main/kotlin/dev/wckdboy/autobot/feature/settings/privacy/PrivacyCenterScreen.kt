@@ -76,7 +76,6 @@ fun PrivacyCenterRoute(onBack: () -> Unit, viewModel: PrivacyCenterViewModel = h
         onModeChange = viewModel::setMode,
         onAllowLoopback = viewModel::setAllowLoopback,
         onClearAudit = viewModel::clearAudit,
-        onPanicWipe = viewModel::panicWipe,
     )
 }
 
@@ -102,9 +101,7 @@ fun PrivacyCenterScreen(
     onModeChange: (NetworkMode) -> Unit,
     onAllowLoopback: (Boolean) -> Unit,
     onClearAudit: () -> Unit,
-    onPanicWipe: (String) -> Unit,
 ) {
-    var showWipeDialog by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -148,36 +145,8 @@ fun PrivacyCenterScreen(
                 }
             }
             items(state.audit, key = { it.id }, contentType = { "audit" }) { row -> AuditRowView(row) }
-            item(key = "wipe-divider", contentType = "divider") { HorizontalDivider(Modifier.padding(vertical = 16.dp)) }
-            item(key = "wipe", contentType = "wipe") {
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Panic wipe", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
-                    Text(
-                        "Erases keys, chats, providers and settings, then closes the app.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Button(
-                        onClick = { showWipeDialog = true },
-                        enabled = !state.wiping,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError,
-                        ),
-                    ) { InkBusyLabel(state.wiping) { Text("Wipe everything") } }
-                }
-            }
+            // Panic wipe has one home: Settings › Privacy & security.
         }
-    }
-
-    if (showWipeDialog) {
-        PanicWipeDialog(
-            onDismiss = { showWipeDialog = false },
-            onConfirm = { typed ->
-                showWipeDialog = false
-                onPanicWipe(typed)
-            },
-        )
     }
 }
 
@@ -381,7 +350,7 @@ private fun PrivacyCenterPreview() {
                     AuditRow(2, 0, "GET", "127.0.0.1", "/v1/models", "loopback · Ollama · HTTP 200", blocked = false),
                 ),
             ),
-            onBack = {}, onModeChange = {}, onAllowLoopback = {}, onClearAudit = {}, onPanicWipe = {},
+            onBack = {}, onModeChange = {}, onAllowLoopback = {}, onClearAudit = {},
         )
     }
 }
