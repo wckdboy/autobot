@@ -72,9 +72,14 @@ if [ "${SKIP_TESTFLIGHT:-}" != "1" ]; then
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
 EOF
-    xcodebuild -exportArchive -archivePath "$WORK/Autobot.xcarchive" -exportOptionsPlist "$WORK/ExportOptions.plist" \
-        -exportPath "$WORK/export" -allowProvisioningUpdates > "$WORK/upload.log" 2>&1 ||
-        { grep -E "error" -A2 "$WORK/upload.log" | head; fail "TestFlight upload (log: $WORK/upload.log)"; }
+    # The upload is the only step that needs the network for minutes; retry a dropped connection.
+    for attempt in 1 2 3; do
+        rm -rf "$WORK/export"
+        xcodebuild -exportArchive -archivePath "$WORK/Autobot.xcarchive" -exportOptionsPlist "$WORK/ExportOptions.plist" \
+            -exportPath "$WORK/export" -allowProvisioningUpdates > "$WORK/upload.log" 2>&1 && break
+        [ "$attempt" = 3 ] && { grep -E "error" -A2 "$WORK/upload.log" | head; fail "TestFlight upload (log: $WORK/upload.log)"; }
+        echo "upload attempt $attempt failed; retrying in 60 s"; sleep 60
+    done
 fi
 
 step "commit, tag, publish $TAG"
