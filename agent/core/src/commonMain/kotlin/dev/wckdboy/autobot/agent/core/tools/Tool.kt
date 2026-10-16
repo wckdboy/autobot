@@ -81,6 +81,13 @@ interface ToolDefinition {
      */
     val privateSource: PrivateSource? get() = null
 
+    /**
+     * Whether this call can carry data off the phone: always for network tools ([ToolKind.FETCH]);
+     * other tools say so per call (a Studio workflow that runs on a remote backend). Taint
+     * tracking checks the arguments of every call that can.
+     */
+    suspend fun reachesNetwork(args: JsonObject): Boolean = kind == ToolKind.FETCH
+
     /** One-line summary for UI cards and approval prompts, e.g. `path=notes.md`. */
     fun describeCall(args: JsonObject): String = args.entries.joinToString("  ") { (k, v) ->
         val text = (v as? JsonPrimitive)?.takeIf { it.isString }?.content ?: v.toString()

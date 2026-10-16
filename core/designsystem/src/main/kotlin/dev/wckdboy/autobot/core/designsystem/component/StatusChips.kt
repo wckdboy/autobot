@@ -100,7 +100,7 @@ fun AcceleratorChip(accelerator: Accelerator, modifier: Modifier = Modifier) {
 fun TokenRateLabel(tokensPerSecond: Float?, totalTokens: Int?, modifier: Modifier = Modifier) {
     val parts = buildList {
         tokensPerSecond?.let { add(String.format(Locale.ROOT, "%.1f tok/s", it)) }
-        totalTokens?.let { add("$it tokens") }
+        totalTokens?.let { add(counted(it, "token")) }
     }
     if (parts.isEmpty()) return
     Text(

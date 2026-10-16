@@ -6,6 +6,9 @@ plugins {
 
 android {
     namespace = "dev.wckdboy.autobot.feature.settings"
+    // Compose UI tests render screens with Robolectric, one JVM per test class (see :feature:chat).
+    testOptions.unitTests.isIncludeAndroidResources = true
+    testOptions.unitTests.all { it.forkEvery = 1 }
 }
 
 dependencies {
@@ -20,4 +23,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+
+    testImplementation(libs.robolectric)
 }

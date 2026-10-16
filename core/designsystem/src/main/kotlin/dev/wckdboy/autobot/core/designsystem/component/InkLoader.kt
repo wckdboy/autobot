@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
 import dev.wckdboy.autobot.core.designsystem.motion.InkMath
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 
@@ -52,20 +53,19 @@ fun InkLoader(
             .size(size.pitch * size.cols, size.height)
             .then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier)
             .drawWithCache {
-                val pitch = size.pitch.toPx()
+                val grid = DotGeometry.loader(this.size.width, this.size.height, size.pitch.toPx(), size.cols, size.rows, LOADER_DOT)
                 val n = size.cols * size.rows
                 val xs = FloatArray(n)
                 val ys = FloatArray(n)
                 val along = FloatArray(n)
-                val top = (this.size.height - pitch * size.rows) / 2f
                 for (r in 0 until size.rows) for (c in 0 until size.cols) {
                     val i = r * size.cols + c
-                    xs[i] = (c + 0.5f) * pitch
-                    ys[i] = top + (r + 0.5f) * pitch
+                    xs[i] = grid.x.at(c)
+                    ys[i] = grid.y.at(r)
                     // The block's wave runs along the diagonal; a row's along the row.
                     along[i] = (c + r).toFloat()
                 }
-                val full = pitch * LOADER_DOT
+                val full = grid.full
                 onDrawBehind {
                     val ms = clock.time * 1000f
                     for (i in 0 until n) inkDot(color, xs[i], ys[i], full * InkMath.waveScale(InkMath.dotWave(along[i], ms)))

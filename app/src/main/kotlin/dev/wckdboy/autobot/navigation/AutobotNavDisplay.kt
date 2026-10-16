@@ -162,6 +162,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenSession = { navigate(Chat(it)) },
                             onOpenImagine = { navigate(Imagine(modelId = it)) },
                             onOpenGallery = { navigate(Gallery()) },
+                            onOpenNetwork = { navigate(PrivacyCenter) },
                             // The same new voice chat the voice tile and widget open.
                             onOpenVoice = { context.startActivity(Intent(context, MainActivity::class.java).setAction(EntryActions.VOICE)) },
                         )

@@ -5,6 +5,8 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.feature.studio.engine.StudioHost
 import dev.wckdboy.autobot.feature.studio.engine.StudioRecipes
 import dev.wckdboy.autobot.feature.studio.media.StudioExport
@@ -13,6 +15,7 @@ import dev.wckdboy.autobot.shared.studio.AssetType
 import dev.wckdboy.autobot.shared.studio.EngineKinds
 import dev.wckdboy.autobot.shared.studio.StudioAsset
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,7 +23,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class LibraryView { GRID, LIST }
@@ -65,6 +67,10 @@ class LibraryViewModel @Inject constructor(
 ) : AndroidViewModel(application), LibraryActions {
     private val local = MutableStateFlow(LibraryState())
 
+    /** Work on storage or an engine: a failure ("Storage is full") is shown, never a crash. */
+    private fun safely(block: suspend CoroutineScope.() -> Unit) =
+        viewModelScope.launchSafely({ e -> local.update { it.copy(message = userMessage(e)) } }, block)
+
     val state: StateFlow<LibraryState> = combine(local, host.store.observeAssets(), host.settings.currentProjectId) { l, all, project ->
         val filter = AssetFilter(projectId = if (l.allProjects) null else project, types = l.types, favoritesOnly = l.favoritesOnly)
         l.copy(assets = all.filter { filter.matches(it) && it.recipe.engine !in StudioRecipes.HIDDEN_ENGINES })
@@ -80,18 +86,18 @@ class LibraryViewModel @Inject constructor(
     override fun setView(view: LibraryView) = local.update { it.copy(view = view) }
 
     override fun toggleFavorite(asset: StudioAsset) {
-        viewModelScope.launch { host.store.setFavorite(asset.id, !asset.favorite) }
+        safely { host.store.setFavorite(asset.id, !asset.favorite) }
     }
 
     override fun delete(asset: StudioAsset) {
-        viewModelScope.launch {
+        safely {
             host.store.deleteAsset(asset.id)
             local.update { s -> if (s.compare?.toList()?.contains(asset.id) == true) s.copy(compare = null) else s }
         }
     }
 
     override fun export(asset: StudioAsset) {
-        viewModelScope.launch {
+        safely {
             val ok = withContext(Dispatchers.IO) {
                 val bytes = host.store.bytes(asset.id) ?: return@withContext false
                 runCatching { StudioExport.export(getApplication(), asset, bytes) }.getOrDefault(false)
@@ -102,7 +108,7 @@ class LibraryViewModel @Inject constructor(
 
     override fun runAgain(asset: StudioAsset) {
         if (asset.recipe.engine == StudioRecipes.IMPORT_ENGINE) return
-        viewModelScope.launch {
+        safely {
             host.queue.submit(asset.projectId, asset.recipe, asset.label ?: "again", asset.parentId)
             local.update { it.copy(message = "Queued the same recipe again") }
         }

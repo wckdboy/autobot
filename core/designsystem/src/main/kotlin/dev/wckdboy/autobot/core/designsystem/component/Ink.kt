@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
 import dev.wckdboy.autobot.core.designsystem.motion.FlowPhase
 import dev.wckdboy.autobot.core.designsystem.motion.InkClock
 import dev.wckdboy.autobot.core.designsystem.motion.InkMath
@@ -331,19 +332,18 @@ private const val STRIP_SPEED = 3f
 private const val PAUSED_ALPHA = 0.45f
 
 /** Bars thinner than this still draw dots this big (centred, overflowing the bar a little). */
-private val BAR_MIN_DOT = 4.dp
+private val BAR_MIN_DOT = DotGeometry.BAR_MIN_DOT_DP.dp
 
 /** [InkProgressBar] states. [Idle]: static, full strength (nothing running yet / finished). */
 enum class InkBarState { Running, Idle, Paused, Error }
 
-/** A bar's dot slots for one size: centres cached, rebuilt only when the size changes. */
+/** A bar's dot slots for one size ([DotGeometry.bar]), rebuilt only when the size changes. */
 private class BarSlots {
     var width = -1f
     var height = -1f
-    var count = 0
+    var geometry = DotGeometry.bar(0f, 0f, 0f)
+    val count: Int get() = geometry.slots.count
     var xs = FloatArray(0)
-    var full = 0f
-    var pin = 0f
 
     /** Every slot's pin as x,y pairs, drawn in one round-capped points call (filled dots cover theirs). */
     var pins = FloatArray(0)
@@ -353,14 +353,9 @@ private class BarSlots {
         if (w == width && h == height) return
         width = w
         height = h
-        val dot = max(h, minDot)
-        count = InkMath.barSlots(w, dot)
-        val pitch = if (count > 0) w / count else 0f
-        if (xs.size != count) xs = FloatArray(count)
-        for (i in 0 until count) xs[i] = (i + 0.5f) * pitch
-        full = minOf(dot, pitch) / 2f
-        pin = max(full * Motion.barEmptyDotScale, 0.6f)
-        pins = FloatArray(count * 2) { if (it % 2 == 0) xs[it / 2] else h / 2f }
+        geometry = DotGeometry.bar(w, h, minDot)
+        xs = FloatArray(count) { geometry.slots.at(it) }
+        pins = FloatArray(count * 2) { if (it % 2 == 0) xs[it / 2] else geometry.cy }
     }
 }
 
@@ -401,25 +396,23 @@ fun InkProgressBar(
             slots.update(size.width, size.height, BAR_MIN_DOT.toPx())
             val n = slots.count
             if (n == 0) return@drawBehind
-            val cy = size.height / 2f
+            val bar = slots.geometry
+            val cy = bar.cy
             val alpha = if (state == InkBarState.Paused) PAUSED_ALPHA else 1f
             val ink = if (error) errorColor else color
             val ms = clock.time * 1000f
-            val full = slots.full
             var head = 0f
             if (indeterminate) {
-                for (i in 0 until n) inkDot(ink, slots.xs[i], cy, full * InkMath.waveScale(InkMath.dotWave(i.toFloat(), ms)), alpha)
+                for (i in 0 until n) inkDot(ink, slots.xs[i], cy, DotGeometry.barWaveRadius(bar, i, ms), alpha)
             } else {
                 val p = fill.value
-                val front = InkMath.barFront(p, n)
                 val breathe = running && !reduced
                 slots.pinPaint.color = track.copy(alpha = track.alpha * alpha).toArgb()
-                slots.pinPaint.strokeWidth = slots.pin * 2f
+                slots.pinPaint.strokeWidth = bar.pin * 2f
                 drawContext.canvas.nativeCanvas.drawPoints(slots.pins, slots.pinPaint)
                 for (i in 0 until n) {
-                    val k = InkMath.barFillScale(i, front, p)
-                    if (k > 0f) {
-                        val r = full * k * if (breathe) InkMath.runningWave(InkMath.dotWave(i.toFloat(), ms)) else 1f
+                    val r = DotGeometry.barRadius(bar, i, p, if (breathe) InkMath.dotWave(i.toFloat(), ms) else null)
+                    if (r > 0f) {
                         inkDot(ink, slots.xs[i], cy, r, alpha)
                         head = slots.xs[i] + r
                     }

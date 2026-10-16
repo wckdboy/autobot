@@ -1,8 +1,5 @@
 package dev.wckdboy.autobot.core.designsystem.theme
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -14,12 +11,10 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -28,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
 import dev.wckdboy.autobot.core.designsystem.R
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkTickers
@@ -281,48 +275,26 @@ fun AutobotTheme(
 }
 
 /**
- * Paper (light) surface regardless of the app theme — used by the image studio. Switches the
- * status bar to dark icons while shown, and restores the previous appearance afterwards.
+ * Paper (light) surface regardless of the app theme (Imagine, the Studio library): dark system
+ * bar icons while shown.
  */
 @Composable
 fun PaperTheme(content: @Composable () -> Unit) {
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        DisposableEffect(view) {
-            val window = view.context.findActivity()?.window
-            val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-            val previous = controller?.isAppearanceLightStatusBars
-            controller?.isAppearanceLightStatusBars = true
-            onDispose { if (controller != null && previous != null) controller.isAppearanceLightStatusBars = previous }
-        }
-    }
+    SystemBarsFor(lightSurface = true)
     MaterialTheme(colorScheme = GraphiteLightColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
 }
 
 /**
  * The darkroom: ink (dark) surface regardless of the app theme — the Studio's image and video
- * rooms, where the picture is the only bright thing on screen. Light status bar icons while shown.
+ * rooms, where the picture is the only bright thing on screen. Light system bar icons while shown.
  */
 @Composable
 fun DarkroomTheme(content: @Composable () -> Unit) {
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        DisposableEffect(view) {
-            val window = view.context.findActivity()?.window
-            val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-            val previous = controller?.isAppearanceLightStatusBars
-            controller?.isAppearanceLightStatusBars = false
-            onDispose { if (controller != null && previous != null) controller.isAppearanceLightStatusBars = previous }
-        }
-    }
+    SystemBarsFor(lightSurface = false)
     MaterialTheme(colorScheme = GraphiteDarkColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
 }
 
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
+
 
 /** Extra text styles (mono code, micro labels, readouts, display numbers). */
 object AutobotTheme {

@@ -11,6 +11,8 @@ import dev.wckdboy.autobot.agent.runtime.PendingDeletion
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.model.ChatFolderRow
+import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
@@ -26,6 +28,7 @@ import dev.wckdboy.autobot.shared.chats.HighlightSpan
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -50,7 +53,6 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 @Immutable
 data class ConversationItem(
@@ -95,6 +97,8 @@ data class ChatListUiState(
     val privacyStatus: PrivacyStatus = PrivacyStatus.OFFLINE,
     val hasProviders: Boolean = true,
     val loading: Boolean = true,
+    /** A failed action ("Couldn't start a chat: Storage is full"), shown once. */
+    val message: String? = null,
 ) {
     val conversations: List<ConversationItem> get() = sections.flatMap { it.items }
     val selecting: Boolean get() = selection.isNotEmpty()
@@ -127,6 +131,7 @@ class ChatListViewModel @Inject constructor(
     private val filter = savedState.getStateFlow(KEY_FILTER, ChatFilter.All.key)
     private val query = savedState.getStateFlow(KEY_QUERY, "")
     private val selection = MutableStateFlow<Set<String>>(emptySet())
+    private val message = MutableStateFlow<String?>(null)
     private val events = Channel<ChatListEvent>(Channel.BUFFERED)
     val navigationEvents: Flow<ChatListEvent> = events.receiveAsFlow()
 
@@ -220,7 +225,7 @@ class ChatListViewModel @Inject constructor(
             hasProviders = providerList.isNotEmpty(),
             loading = false,
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatListUiState())
+    }.combine(message) { state, m -> state.copy(message = m) }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatListUiState())
 
     init {
         chats.prepareSearch()
@@ -230,8 +235,16 @@ class ChatListViewModel @Inject constructor(
         incognitoOverride.value = enabled
     }
 
+    fun consumeMessage() {
+        message.value = null
+    }
+
+    /** A user action that reports its failure on screen instead of crashing the app. */
+    private fun safely(what: String, block: suspend CoroutineScope.() -> Unit) =
+        viewModelScope.launchSafely({ e -> message.value = "$what: ${userMessage(e)}" }, block)
+
     fun newChat() {
-        viewModelScope.launch {
+        safely("Couldn't start a chat") {
             val provider = providers.observeProviders().first().firstOrNull()
             val conversation = conversations.createConversation(
                 incognito = uiState.value.incognito,
@@ -250,7 +263,7 @@ class ChatListViewModel @Inject constructor(
     }
 
     fun setSort(sort: ChatSort) {
-        viewModelScope.launch { settingsRepository.setChatSort(sort) }
+        safely("Couldn't change the order") { settingsRepository.setChatSort(sort) }
     }
 
     fun setQuery(text: String) {
@@ -272,7 +285,7 @@ class ChatListViewModel @Inject constructor(
     // Chat actions ([ids]: the selection, or one chat from a swipe or the chat menu)
 
     fun rename(id: String, title: String) {
-        viewModelScope.launch { conversations.rename(id, title) }
+        safely("Couldn't rename the chat") { conversations.rename(id, title) }
     }
 
     fun setPinned(ids: Collection<String>, pinned: Boolean) = act { conversations.setPinned(ids, pinned) }
@@ -295,7 +308,7 @@ class ChatListViewModel @Inject constructor(
     fun commitDelete(batch: Long) = chats.commitNow(batch)
 
     private fun act(block: suspend () -> Unit) {
-        viewModelScope.launch { block() }
+        safely("Couldn't update the chats") { block() }
         selection.value = emptySet()
     }
 
@@ -307,21 +320,21 @@ class ChatListViewModel @Inject constructor(
 
     /** Creates a folder and moves [moving] into it (none: shows the new folder). */
     fun createFolder(name: String, moving: Collection<String> = emptyList()) {
-        viewModelScope.launch {
-            val folder = conversations.createFolder(name) ?: return@launch
+        safely("Couldn't create the folder") {
+            val folder = conversations.createFolder(name) ?: return@safely
             if (moving.isEmpty()) setFilter(ChatFilter.Folder(folder.id)) else conversations.moveToFolder(moving, folder.id)
         }
         selection.value = emptySet()
     }
 
     fun renameFolder(id: String, name: String) {
-        viewModelScope.launch { conversations.renameFolder(id, name) }
+        safely("Couldn't rename the folder") { conversations.renameFolder(id, name) }
     }
 
     /** Deletes the folder; its chats stay, outside any folder. */
     fun deleteFolder(id: String) {
         if (uiState.value.filter == ChatFilter.Folder(id)) setFilter(ChatFilter.All)
-        viewModelScope.launch { conversations.deleteFolder(id) }
+        safely("Couldn't delete the folder") { conversations.deleteFolder(id) }
     }
 
     private fun startOfToday(): Long = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()

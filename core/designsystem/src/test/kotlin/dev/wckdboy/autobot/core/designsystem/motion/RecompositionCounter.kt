@@ -61,9 +61,11 @@ class RecompositionCounter private constructor(recomposer: Recomposer) : AutoClo
     companion object {
         /** Observes the window recomposer that owns [root]'s compositions (after `setContent`). */
         fun attach(root: View): RecompositionCounter {
-            val context = generateSequence(root) { (it as? android.view.ViewGroup)?.takeIf { g -> g.childCount > 0 }?.getChildAt(0) }
-                .firstNotNullOfOrNull { it.findViewTreeCompositionContext() }
-            return RecompositionCounter(context as Recomposer)
+            // Depth first through every child: the window may hold an action bar before the content.
+            fun walk(view: View): Sequence<View> = sequenceOf(view) +
+                ((view as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).asSequence().flatMap { walk(g.getChildAt(it)) } } ?: emptySequence())
+            val context = walk(root).firstNotNullOfOrNull { it.findViewTreeCompositionContext() as? Recomposer }
+            return RecompositionCounter(context ?: error("no Compose window recomposer under $root"))
         }
     }
 }

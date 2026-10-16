@@ -1,5 +1,6 @@
 import com.android.build.api.dsl.ApplicationExtension
 import dev.wckdboy.autobot.buildlogic.AutobotJavaVersion
+import dev.wckdboy.autobot.buildlogic.boundTestTasks
 import dev.wckdboy.autobot.buildlogic.intVersion
 import dev.wckdboy.autobot.buildlogic.lib
 import dev.wckdboy.autobot.buildlogic.libs
@@ -17,6 +18,7 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
             pluginManager.apply("com.android.application")
+            boundTestTasks()
 
             extensions.configure<ApplicationExtension> {
                 compileSdk {
