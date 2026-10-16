@@ -372,12 +372,15 @@ struct AssetThumb: View {
     @State private var peaks: [Float] = []
 
     var body: some View {
+        let _ = InkProbe.hit("body.assetThumb")
+        // A recycled cell shows its cached thumbnail in the first frame (no blank flash, no reload).
+        let shown = image ?? (asset.type == .audio ? nil : StudioThumbs.get(asset.id))
         ZStack {
             c.surfaceContainer
             if asset.type == .audio {
                 WaveformView(peaks: peaks).padding(8)
-            } else if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+            } else if let shown {
+                Image(uiImage: shown).resizable().scaledToFill()
             }
             if asset.type == .video {
                 Image(systemName: "play.fill").font(.system(size: 14)).foregroundStyle(.white).padding(6)
@@ -388,7 +391,12 @@ struct AssetThumb: View {
         .clipped()
         .accessibilityLabel(StudioText.describe(asset))
         .task(id: asset.id) {
-            if asset.type == .audio { peaks = await app.studio.waveform(asset) } else { image = await app.studio.thumbnail(asset) }
+            if asset.type == .audio {
+                peaks = await app.studio.waveform(asset)
+            } else if StudioThumbs.get(asset.id) == nil {
+                InkProbe.hit("studio.thumbLoad")
+                image = await app.studio.thumbnail(asset)
+            }
         }
     }
 }

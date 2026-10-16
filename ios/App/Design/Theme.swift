@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import UIKit
 
@@ -148,9 +149,33 @@ enum AutobotFonts {
     static let monoFamily = "JetBrains Mono"
     private static let weightAxis = 0x7767_6874 // 'wght'
 
+    private struct FontKey: Hashable {
+        let font: Int
+        let size: CGFloat
+        let weight: CGFloat
+        let tabular: Bool
+    }
+
+    /// Resolved fonts by role, size, weight and figures: every `textStyle` asks on each body
+    /// evaluation, and building a variable font from a descriptor is not free (list rows).
+    private static let cache = OSAllocatedUnfairLock(initialState: [FontKey: UIFont]())
+
     static func uiFont(_ style: Tokens.TypeStyle, size: CGFloat? = nil, weight: CGFloat? = nil) -> UIFont {
         let pointSize = size ?? style.size
         let w = weight ?? style.weight
+        let role = switch style.font {
+        case .sans: 0
+        case .display: 1
+        case .mono: 2
+        }
+        let key = FontKey(font: role, size: pointSize, weight: w, tabular: style.tabular)
+        if let hit = cache.withLock({ $0[key] }) { return hit }
+        let font = makeFont(style, pointSize: pointSize, weight: w)
+        cache.withLock { $0[key] = font }
+        return font
+    }
+
+    private static func makeFont(_ style: Tokens.TypeStyle, pointSize: CGFloat, weight w: CGFloat) -> UIFont {
         let font: UIFont
         switch style.font {
         case .sans:

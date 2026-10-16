@@ -139,6 +139,8 @@ struct AutobotNavHost: View {
         let inStudio = nav.studio != nil
         ZStack {
             app
+                // Hidden, not removed: its living cards and grounds must not keep ticking.
+                .environment(\.inkOffscreen, inStudio)
                 .opacity(inStudio ? 0 : 1)
                 .allowsHitTesting(!inStudio)
                 .accessibilityHidden(inStudio)
