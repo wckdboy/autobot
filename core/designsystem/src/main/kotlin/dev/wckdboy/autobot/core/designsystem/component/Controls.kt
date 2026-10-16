@@ -137,7 +137,8 @@ private fun StepperButton(glyph: String, enabled: Boolean, onClick: () -> Unit) 
 /**
  * Hairline-bordered text input for prompts and fields. The keyboard is asked not to learn from
  * what is typed. [mono] switches to the code face (prompts, URLs, ids) and, unless
- * [keyboardOptions] says otherwise, turns off auto-capitalization and autocorrect.
+ * [keyboardOptions] says otherwise, turns off auto-capitalization and autocorrect. [value] may
+ * arrive late (a ViewModel flow): edits show at once and stale echoes are ignored (see [TextEchoBuffer]).
  */
 @Composable
 fun ConsoleTextField(
@@ -156,10 +157,12 @@ fun ConsoleTextField(
     trailingIcon: (@Composable () -> Unit)? = null,
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
+    // Most callers feed a ViewModel StateFlow back in; buffer so fast typing is not lost.
+    val (shown, change) = rememberBufferedText(value, onValueChange)
     NoPersonalizedLearning {
         OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
+            value = shown,
+            onValueChange = change,
             modifier = modifier,
             enabled = enabled,
             textStyle = if (mono) AutobotTheme.styles.code else MaterialTheme.typography.bodyMedium,

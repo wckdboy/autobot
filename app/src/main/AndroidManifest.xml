@@ -103,6 +103,14 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_launcher_info" />
         </receiver>
+
+        <!-- onnxruntime-android merges a telemetry ContentProvider that loads libonnxruntime.so into
+             every process at startup and posts usage pings over HttpURLConnection (outside the
+             kill switch). Autobot sends nothing it does not show the user, so it is removed. -->
+        <provider
+            android:name="ai.onnxruntime.TelemetryInitializer"
+            android:authorities="${applicationId}.onnxruntime_telemetry_initializer"
+            tools:node="remove" />
     </application>
 
 </manifest>

@@ -65,6 +65,7 @@ import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.models.SystemModel
+import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.providers.remote.SystemAvailability
 import dev.wckdboy.autobot.providers.remote.SystemModelStatus
@@ -197,7 +198,8 @@ class ComputeViewModel @Inject constructor(
                 } + listOfNotNull(cm.lastError?.let { BenchmarkLine(cm.model.title, "last run", error = it) })
             },
             errors = listOfNotNull(d?.npuError) + errorLog.entries.value,
-            networkMode = network.mode.value::class.simpleName,
+            // The kind only (no proxy host); not ::class.simpleName, which R8 renames in release builds.
+            networkMode = NetworkMode.encode(network.mode.value).substringBefore(':'),
             systemModel = system.value?.let { s ->
                 val detail = when (s.availability) {
                     SystemAvailability.AVAILABLE -> null

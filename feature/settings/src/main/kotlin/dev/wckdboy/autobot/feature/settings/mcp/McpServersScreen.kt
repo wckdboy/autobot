@@ -61,6 +61,7 @@ import dev.wckdboy.autobot.core.data.model.ProviderRouting
 import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.component.rememberBufferedText
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
@@ -223,17 +224,21 @@ private fun McpServerEditorSheet(
             ) {
                 Text(if (draft.isNew) "Add MCP server" else "Edit MCP server", style = MaterialTheme.typography.titleLarge)
 
+                // The draft comes back through the ViewModel's combined flow; buffer so typing is not lost.
+                val (name, onName) = rememberBufferedText(draft.name) { v -> onDraftChange { it.copy(name = v) } }
+                val (url, onUrl) = rememberBufferedText(draft.url) { v -> onDraftChange { it.copy(url = v) } }
+                val (token, onToken) = rememberBufferedText(draft.tokenInput) { v -> onDraftChange { it.copy(tokenInput = v, clearStoredToken = false) } }
                 OutlinedTextField(
-                    value = draft.name,
-                    onValueChange = { v -> onDraftChange { it.copy(name = v) } },
+                    value = name,
+                    onValueChange = onName,
                     label = { Text("Name") },
                     supportingText = { Text("Tools appear to the agent as mcp__<name>__<tool>.") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    value = draft.url,
-                    onValueChange = { v -> onDraftChange { it.copy(url = v) } },
+                    value = url,
+                    onValueChange = onUrl,
                     label = { Text("URL") },
                     supportingText = {
                         Text(ProviderDraft.cleartextProblem(draft.url) ?: "The server's MCP endpoint, e.g. https://example.com/mcp. Cleartext http is only allowed for 127.0.0.1/localhost.")
@@ -245,8 +250,8 @@ private fun McpServerEditorSheet(
                 )
 
                 OutlinedTextField(
-                    value = draft.tokenInput,
-                    onValueChange = { v -> onDraftChange { it.copy(tokenInput = v, clearStoredToken = false) } },
+                    value = token,
+                    onValueChange = onToken,
                     label = { Text("Bearer token (optional)") },
                     placeholder = { if (draft.hasStoredToken && !draft.clearStoredToken) Text("•••••••• saved — type to replace") },
                     supportingText = { Text("Encrypted with Android Keystore. Sent only to this server's host. Never logged or displayed.") },
