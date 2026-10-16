@@ -56,6 +56,15 @@ class LlamaService : Service() {
     private var embedderPath: String? = null
 
     /**
+     * Whether the worker runs a completion, and whether [ILlamaEngine.cancel] asked to stop it
+     * (both under [handleLock]). A cancel while the model is still loading has no handle to stop:
+     * it is kept here, and the completion ends once the load is done instead of generating for
+     * nobody.
+     */
+    private var running = false
+    private var cancelled = false
+
+    /**
      * Backends are initialized on first use, not in onCreate: a native failure there (OpenCL,
      * Vulkan or QNN on an unsupported SoC) would crash the service on every restart. 0 = none.
      */
@@ -99,6 +108,7 @@ class LlamaService : Service() {
         }
 
         override fun cancel() = synchronized(handleLock) {
+            if (running) cancelled = true
             handle.takeIf { it != 0L }?.let(NativeLlama::cancel)
             Unit
         }
@@ -134,24 +144,45 @@ class LlamaService : Service() {
     }
 
     private fun run(path: String, nCtx: Int, backend: String, request: ByteArray, callback: ILlamaCallback) {
+        synchronized(handleLock) {
+            running = true
+            cancelled = false
+        }
         try {
+            val reload = handle == 0L || loadedPath != path || loadedCtx != nCtx || loadedBackend != backend
+            // A file that cannot work says why, before (and instead of) a load that would fail or crash.
+            val header = if (reload) {
+                val (header, problem) = GgufCheck.inspect(path)
+                if (problem != null) {
+                    callback.onResult(errorJson("LOAD_FAILED", problem.message))
+                    return
+                }
+                header
+            } else {
+                null
+            }
             if (devices == 0) {
                 callback.onResult(errorJson("LOAD_FAILED", "no CPU backend for this phone (native libraries missing)"))
                 return
             }
-            if (handle == 0L || loadedPath != path || loadedCtx != nCtx || loadedBackend != backend) {
+            if (reload) {
                 release()
                 callback.onStatus("loading")
                 val threads = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(2, 6)
                 val loaded = NativeLlama.load(path, nCtx, threads, backend)
                 synchronized(handleLock) { handle = loaded }
                 if (handle == 0L) {
-                    callback.onResult(errorJson("LOAD_FAILED", "could not load model (corrupt file or not enough memory)"))
+                    val arch = header?.architecture?.let { " ($it)" }.orEmpty()
+                    callback.onResult(errorJson("LOAD_FAILED", "could not load model$arch: an architecture this version can't run, a corrupt file, or not enough memory"))
                     return
                 }
                 loadedPath = path
                 loadedCtx = nCtx
                 loadedBackend = backend
+            }
+            if (synchronized(handleLock) { cancelled }) {
+                callback.onResult(errorJson("CANCELLED", "cancelled"))
+                return
             }
             callback.onStatus("generating")
             val sink = object : NativeLlama.DeltaSink {
@@ -171,6 +202,8 @@ class LlamaService : Service() {
         } catch (t: Throwable) {
             Log.e(TAG, "chat failed", t)
             runCatching { callback.onResult(errorJson("ENGINE_ERROR", t.message ?: t.javaClass.simpleName)) }
+        } finally {
+            synchronized(handleLock) { running = false }
         }
     }
 

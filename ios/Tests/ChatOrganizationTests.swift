@@ -99,7 +99,7 @@ struct ChatOrganizationTests {
         #expect(reloaded.get(c.id)?.folderId == nil)
     }
 
-    @Test func searchFindsMessagesWithSnippetsAndFollowsAppends() async throws {
+    @Test(.timeLimit(.minutes(3))) func searchFindsMessagesWithSnippetsAndFollowsAppends() async throws {
         let f = fixture()
         let a = f.conversations.create(incognito: false, providerId: nil, model: nil, title: "Groceries")
         let b = f.conversations.create(incognito: false, providerId: nil, model: nil, title: "Rome trip")
@@ -120,7 +120,7 @@ struct ChatOrganizationTests {
         #expect(await f.chats.search("   ", in: f.conversations.conversations).isEmpty)
     }
 
-    @Test func deletionWaitsForTheUndoWindow() async throws {
+    @Test(.timeLimit(.minutes(3))) func deletionWaitsForTheUndoWindow() async throws {
         let f = fixture(window: .milliseconds(100))
         let keep = f.conversations.create(incognito: false, providerId: nil, model: nil)
         let gone = f.conversations.create(incognito: false, providerId: nil, model: nil)

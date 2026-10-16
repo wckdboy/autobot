@@ -394,7 +394,7 @@ private struct InitStrip: View {
             }
             .accessibilityLabel("Pick an image")
             VStack(alignment: .leading, spacing: 4) {
-                MicroLabel(model.request.mode == .inpaint ? "inpaint · \(model.mask.isEmpty ? "no mask" : "\(model.mask.strokes.count) strokes")" : "img2img")
+                MicroLabel(model.request.mode == .inpaint ? "inpaint · \(model.mask.isEmpty ? "no mask" : counted(model.mask.strokes.count, "stroke"))" : "img2img")
                 ValueSlider(label: "Denoise", value: Binding(get: { model.request.denoiseStrength }, set: { model.setDenoise($0) }), range: 0.05 ... 1)
             }
             if model.request.mode == .inpaint && model.initImage != nil {

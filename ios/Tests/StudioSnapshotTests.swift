@@ -13,7 +13,7 @@ import UIKit
 struct StudioSnapshotTests {
     private var dir: String? { ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_DIR"] }
 
-    @Test func renderStudioRooms() async throws {
+    @Test(.timeLimit(.minutes(5))) func renderStudioRooms() async throws {
         guard let dir else { return }
         let app = AppContainer()
         let nav = Navigator()

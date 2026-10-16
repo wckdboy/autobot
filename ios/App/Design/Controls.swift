@@ -94,6 +94,8 @@ enum FieldKind {
     case url
     /// Numbers.
     case number
+    /// Signed or decimal numbers (a keyboard with "-" and ".").
+    case decimal
     /// Secrets: masked, no suggestions, no autocorrect, never offered to password managers.
     case secret
 }
@@ -137,7 +139,7 @@ struct ConsoleTextField: View {
             .disabled(!enabled)
             .autocorrectionDisabled(kind != .prose)
             .textInputAutocapitalization(kind == .prose ? .sentences : .never)
-            .keyboardType(kind == .url ? .URL : kind == .number ? .numberPad : .default)
+            .keyboardType(kind == .url ? .URL : kind == .number ? .numberPad : kind == .decimal ? .numbersAndPunctuation : .default)
             .submitLabel(onSubmit != nil ? .search : .return)
             .onSubmit { onSubmit?() }
             .padding(.horizontal, 14)

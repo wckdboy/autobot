@@ -47,6 +47,11 @@ func compactCount(_ n: Int) -> String {
     return "\(n)"
 }
 
+/// "1 session", "2 sessions" ([plural] for irregular words).
+func counted(_ n: Int, _ singular: String, _ plural: String? = nil) -> String {
+    "\(n) \(n == 1 ? singular : plural ?? singular + "s")"
+}
+
 /// The route of a configured provider (where its requests go).
 func routeOf(_ p: Provider) -> Route {
     if p.kind == .local { return .localGpu }

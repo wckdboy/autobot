@@ -83,7 +83,7 @@ final class AppContainer {
         memory = MemoryRepository(store: store)
         vault = VaultRepository(store: store, llm: llm)
         providerFactory = ProviderFactory(clients: clients, providers: providers, library: library, compute: compute, llm: llm)
-        engines = DiffusionEngineFactory(clients: clients, llm: llm)
+        engines = DiffusionEngineFactory(clients: clients, llm: llm) { [compute] in compute.resolve($0) }
         generator = ImageGenerator(engines: engines, gallery: gallery, backends: backends, library: library)
         sessions = SessionStore(store: store)
         studio = StudioHub(store: store, keys: keys, clients: clients, preferences: preferences, secrets: secrets)

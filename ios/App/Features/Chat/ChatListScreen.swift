@@ -362,17 +362,7 @@ struct ChatListScreen: View {
     }
 
     private func empty(_ m: ChatListModel.Model) -> some View {
-        let (title, detail): (String, String) = if !query.trimmingCharacters(in: .whitespaces).isEmpty {
-            ("no matches", "titles and messages on this device were searched")
-        } else if m.filter is ChatFilterArchived {
-            ("archive is empty", "archived chats are kept here, out of the list")
-        } else if m.filter is ChatFilterPinned {
-            ("nothing pinned", "pin a chat to keep it on top")
-        } else if m.filter is ChatFilterFolder {
-            ("empty folder", "long-press a chat, then move it here")
-        } else {
-            ("no sessions", "everything stays encrypted on this device")
-        }
+        let (title, detail) = ChatListModel.emptyState(query: query, filter: m.filter)
         return VStack(spacing: 6) {
             Spacer()
             AutobotIconView(icon: .terminal, size: 28, color: c.outline)
@@ -416,7 +406,7 @@ struct ChatListScreen: View {
 
     /// Hides the chats at once (running turns are cancelled) and deletes them unless undone in time.
     private func delete(_ ids: [String], titles: [String]) {
-        let label = ids.count == 1 ? (titles.first.map { "Deleted “\($0)”" } ?? "Chat deleted") : "Deleted \(ids.count) chats"
+        let label = ChatListModel.deletedLabel(count: ids.count, title: titles.first)
         withAnimation(.inkDissolve) { _ = app.chats.trash(ids, label: label) }
         selection = []
     }
@@ -527,13 +517,15 @@ struct ChatListScreen: View {
 }
 
 /// "N sessions · M live": the only part of the header that follows the running set.
-private struct LiveCountLabel: View {
+struct LiveCountLabel: View {
     let total: Int
     let active: Set<String>
     @Environment(AppContainer.self) private var app
 
+    static func text(total: Int, live: Int) -> String { "\(counted(total, "session")) · \(live) live" }
+
     var body: some View {
-        MicroLabel("\(total) sessions · \(app.agent.running.intersection(active).count) live")
+        MicroLabel(Self.text(total: total, live: app.agent.running.intersection(active).count))
     }
 }
 
@@ -663,6 +655,20 @@ final class ChatListModel {
         cached = m
         builds += 1
         return m
+    }
+
+    /// What an empty list says, by why it is empty.
+    static func emptyState(query: String, filter: any ChatFilter) -> (title: String, detail: String) {
+        if !query.trimmingCharacters(in: .whitespaces).isEmpty { return ("no matches", "titles and messages on this device were searched") }
+        if filter is ChatFilterArchived { return ("archive is empty", "archived chats are kept here, out of the list") }
+        if filter is ChatFilterPinned { return ("nothing pinned", "pin a chat to keep it on top") }
+        if filter is ChatFilterFolder { return ("empty folder", "long-press a chat, then move it here") }
+        return ("no sessions", "everything stays encrypted on this device")
+    }
+
+    /// The undo toast after deleting [count] chats ([title]: the only one's).
+    static func deletedLabel(count: Int, title: String?) -> String {
+        count == 1 ? (title.map { "Deleted “\($0)”" } ?? "Chat deleted") : "Deleted \(counted(count, "chat"))"
     }
 
     private static func build(_ key: Key, conversations: [Conversation], folders: [ChatFolder], providers: [Provider]) -> Model {

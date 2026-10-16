@@ -139,6 +139,14 @@ private final class ChunkReceiver: NSObject, URLSessionDataDelegate, @unchecked 
 
     func awaitResponse(_ continuation: CheckedContinuation<HTTPURLResponse, Error>) { state.withLock { $0.response = continuation } }
 
+    /// Fails the caller waiting for the response, if it still waits.
+    func failWaiting(_ error: Error) {
+        state.withLock { s -> CheckedContinuation<HTTPURLResponse, Error>? in
+            defer { s.response = nil }
+            return s.response
+        }?.resume(throwing: error)
+    }
+
     func chunks(cancelling task: URLSessionTask) -> AsyncThrowingStream<Data, Error> {
         state.withLock { s in
             s.continuation?.onTermination = { _ in task.cancel() }
@@ -374,7 +382,9 @@ final class HttpClient: Sendable {
             let http = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HTTPURLResponse, Error>) in
                     receiver.awaitResponse(continuation)
-                    task.resume()
+                    // Cancelled before this point: the handler's cancel may have completed the task
+                    // before anything waited for it, so nothing else would resume this.
+                    if Task.isCancelled { receiver.failWaiting(CancellationError()) } else { task.resume() }
                 }
             } onCancel: {
                 task.cancel()

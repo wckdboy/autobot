@@ -44,7 +44,7 @@ struct VaultTests {
         #expect(host.documents().isEmpty && host.chunks(id: "d-2") == nil)
     }
 
-    @Test func hostIndexesSearchesAndRemoves() async {
+    @Test(.timeLimit(.minutes(3))) func hostIndexesSearchesAndRemoves() async {
         let vault = VaultHost(store: VaultStoreHost(store: store()), embedder: WordEmbedder())
         let progress = Mutex<[Int]>([])
         let problems: [String] = await withCheckedContinuation { done in
@@ -78,7 +78,7 @@ struct VaultTests {
         #expect(after == ["recipes.txt"])
     }
 
-    @Test func readsTextAndMarkdownAndRejectsUnknownFiles() async throws {
+    @Test(.timeLimit(.minutes(3))) func readsTextAndMarkdownAndRejectsUnknownFiles() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("vault-files-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let md = dir.appendingPathComponent("notes.md")

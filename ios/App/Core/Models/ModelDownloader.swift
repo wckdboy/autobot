@@ -52,6 +52,8 @@ final class ModelDownloader {
     @ObservationIgnored private var speed: Int64 = 0
     /// Tests stream bodies through the policy client instead of the background session.
     @ObservationIgnored var useBackgroundSession = true
+    /// Free bytes on the models volume (tests substitute a full disk).
+    @ObservationIgnored var freeSpace: () -> Int64 = { DeviceProfile.current().freeStorageBytes }
 
     init(library: ModelLibrary, clients: HttpClientFactory, accounts: ModelAccounts) {
         self.library = library
@@ -197,8 +199,12 @@ final class ModelDownloader {
                 let result = try await downloadFile(model, file) { [weak self] written, fileTotal in
                     Task { @MainActor in self?.report(model, before + written, max(planned, before + fileTotal)) }
                 }
-                // Adopt the authoritative size/hash learned from the server.
-                manifest.files[index] = result
+                // Adopt the authoritative size/hash learned from the server, kept at once so a
+                // later file failing does not make a resume fetch this one again.
+                if result != manifest.files[index] {
+                    manifest.files[index] = result
+                    library.update(id) { $0.manifest.files[index] = result }
+                }
                 done += result.sizeBytes
             }
             let total = manifest.files.reduce(0) { $0 + $1.sizeBytes }
@@ -218,6 +224,8 @@ final class ModelDownloader {
         } catch {
             if (error as? URLError)?.code == .cancelled || Task.isCancelled {
                 settle(id, status: .paused)
+            } else if Self.isOutOfSpace(error) {
+                settle(id, status: .paused, error: "\(DownloadQueue.lowStoragePrefix): the disk filled up while downloading. Free some space, then resume.")
             } else {
                 settle(id, status: .paused, error: error.localizedDescription)
             }
@@ -255,8 +263,16 @@ final class ModelDownloader {
     }
     #endif
 
+    /// A write that failed because the volume is full.
+    nonisolated static func isOutOfSpace(_ error: Error) -> Bool {
+        let e = error as NSError
+        if e.domain == NSCocoaErrorDomain && e.code == NSFileWriteOutOfSpaceError { return true }
+        if e.domain == NSPOSIXErrorDomain && e.code == Int(ENOSPC) { return true }
+        return (e.userInfo[NSUnderlyingErrorKey] as? Error).map(isOutOfSpace) ?? false
+    }
+
     private func requireSpace(_ model: InstalledModel) throws {
-        let free = DeviceProfile.current().freeStorageBytes
+        let free = freeSpace()
         let needed = max(model.totalBytes - Self.keptBytes(model.id), 0) + Self.reserveBytes
         if free > 0 && free < needed {
             throw DownloadError(message: "\(DownloadQueue.lowStoragePrefix): needs \(formatBytes(needed)), \(formatBytes(free)) free")

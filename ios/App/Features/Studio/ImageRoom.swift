@@ -609,7 +609,7 @@ struct ImageRoom: View {
                 }
             }
             if model.mode == .inpaint && model.initImage != nil {
-                GhostButton(model.mask.isEmpty ? "Paint the mask" : "Edit mask · \(model.mask.strokes.count) strokes") { showMask = true }
+                GhostButton(model.mask.isEmpty ? "Paint the mask" : "Edit mask · \(counted(model.mask.strokes.count, "stroke"))") { showMask = true }
             }
             if model.mode == .outpaint {
                 MicroLabel("extend the canvas · px added on each side")
@@ -647,7 +647,7 @@ struct ImageRoom: View {
     private var summary: String {
         if let w = model.workflow { return "\(w.name) · v\(w.version) · seed \(model.seedMode == .random ? "random" : "\(model.seed)")" }
         let r = model.request
-        return "\(model.mode.rawValue) · \(r.steps) steps · cfg \(String(format: "%.1f", r.cfgScale)) · \(r.width)×\(r.height)"
+        return "\(model.mode.rawValue) · \(counted(r.steps, "step")) · cfg \(String(format: "%.1f", r.cfgScale)) · \(r.width)×\(r.height)"
     }
 }
 

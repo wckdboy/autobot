@@ -33,7 +33,7 @@ import UIKit
         return EngineMemory(unloaders: unloaders)
     }
 
-    @Test func loadingTheImageModelUnloadsTheChatModel() async throws {
+    @Test(.timeLimit(.minutes(3))) func loadingTheImageModelUnloadsTheChatModel() async throws {
         let log = Log()
         let memory = coordinator(log)
         try await EngineMemory.using(.llm, on: memory) {}
@@ -44,7 +44,7 @@ import UIKit
         #expect(await memory.resident == [.diffusion])
     }
 
-    @Test func memoryWarningWaitsForBusyEngines() async throws {
+    @Test(.timeLimit(.minutes(3))) func memoryWarningWaitsForBusyEngines() async throws {
         let log = Log()
         let memory = coordinator(log)
         try await EngineMemory.using(.whisper, on: memory) {}
@@ -57,7 +57,7 @@ import UIKit
         #expect(await memory.resident.isEmpty)
     }
 
-    @Test func busyVoiceIsReleasedAfterItsWorkWhenImagesStart() async throws {
+    @Test(.timeLimit(.minutes(3))) func busyVoiceIsReleasedAfterItsWorkWhenImagesStart() async throws {
         let log = Log()
         let memory = coordinator(log)
         await memory.begin(.tts)
@@ -68,7 +68,7 @@ import UIKit
         #expect(log.list.contains(.tts))
     }
 
-    @Test func releaseOnlyTouchesResidentEngines() async {
+    @Test(.timeLimit(.minutes(3))) func releaseOnlyTouchesResidentEngines() async {
         let log = Log()
         let memory = coordinator(log)
         await memory.release([.tts, .whisper])
@@ -202,7 +202,7 @@ import UIKit
     }
 
     @MainActor
-    @Test func wipeParticipantThatHangsIsLeftBehind() async {
+    @Test(.timeLimit(.minutes(3))) func wipeParticipantThatHangsIsLeftBehind() async {
         let started = ContinuousClock.now
         await PanicWipe.run({ try? await Task.sleep(for: .seconds(30)) }, timeout: .milliseconds(100))
         #expect(ContinuousClock.now - started < .seconds(5))

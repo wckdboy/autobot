@@ -302,6 +302,45 @@ private struct GridCell: View {
 
 // MARK: - Workflow parameters
 
+/**
+ What a number field shows while it is typed. Text that is not a number yet ("", "-", "1.", "1e")
+ stays as typed instead of being replaced by the parsed value (or the default) on the next render,
+ which used to eat characters; only complete numbers reach the parameter.
+ */
+enum NumberDraft {
+    static func parse(_ text: String, integer: Bool) -> ParamValue? {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        return integer ? Int64(t).map(ParamValue.int64) : Double(t).flatMap { $0.isFinite ? ParamValue.double($0) : nil }
+    }
+
+    /// Whether the typed [draft] still stands for [shown] (the parameter's value as displayed):
+    /// false once the value changed from elsewhere (a reset, a preset), so the field follows it.
+    static func keeps(_ draft: String, shown: String, integer: Bool) -> Bool {
+        guard let parsed = parse(draft, integer: integer) else { return true }
+        return parsed.display() == shown
+    }
+}
+
+/// A workflow number typed as text (see [NumberDraft]).
+private struct NumberParamField: View {
+    let label: String
+    let integer: Bool
+    @Binding var value: ParamValue?
+    let fallback: ParamValue?
+    @State private var draft: String?
+
+    var body: some View {
+        let shown = (value ?? fallback)?.display() ?? ""
+        ConsoleTextField(text: Binding(get: { draft ?? shown }, set: { t in
+            draft = t
+            if let parsed = NumberDraft.parse(t, integer: integer) { value = parsed } else if t.isEmpty { value = nil }
+        }), label: label, kind: .decimal)
+            .onChange(of: shown) { _, now in
+                if let d = draft, !NumberDraft.keeps(d, shown: now, integer: integer) { draft = nil }
+            }
+    }
+}
+
 /// One control for a workflow parameter, by its type (schema-rendered UI, spec §5).
 struct WorkflowParamControl: View {
     let param: WorkflowParam
@@ -318,9 +357,7 @@ struct WorkflowParamControl: View {
                 ValueSlider(label: param.label, value: Binding(get: { current?.asDouble()?.doubleValue ?? lo }, set: { value = isInt ? .int64(Int64($0.rounded())) : .double($0) }),
                             range: lo ... hi, step: param.step?.doubleValue ?? (isInt ? 1 : nil), format: { isInt ? "\(Int($0))" : String(format: "%.2f", $0) })
             } else {
-                ConsoleTextField(text: Binding(get: { current?.display() ?? "" }, set: { t in
-                    if param.type == .int_ { value = Int64(t).map(ParamValue.int64) } else { value = Double(t).map(ParamValue.double) }
-                }), label: param.label, kind: .number)
+                NumberParamField(label: param.label, integer: param.type == .int_, value: $value, fallback: param.default_)
             }
         case .seed:
             VStack(alignment: .leading, spacing: 4) {

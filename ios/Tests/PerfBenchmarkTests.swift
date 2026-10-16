@@ -45,7 +45,7 @@ struct PerfBenchmarkTests {
         """
     }
 
-    @Test func streamingChat() async throws {
+    @Test(.timeLimit(.minutes(5))) func streamingChat() async throws {
         guard enabled else { return }
         let app = AppContainer()
         let nav = Navigator()
@@ -100,7 +100,7 @@ struct PerfBenchmarkTests {
         print("PERF chat.render frames=\(frames) total=\(render) perFrame=\(render / frames) bodies=\(InkProbe.snapshot())")
     }
 
-    @Test func chatList300() async throws {
+    @Test(.timeLimit(.minutes(5))) func chatList300() async throws {
         guard enabled else { return }
         let app = AppContainer()
         let nav = Navigator()
@@ -143,7 +143,7 @@ struct PerfBenchmarkTests {
         print("PERF list.first=\(first) list.update n=\(updates) total=\(render) perUpdate=\(render / updates) bodies=\(InkProbe.snapshot())")
     }
 
-    @Test func downloadProgress() async throws {
+    @Test(.timeLimit(.minutes(5))) func downloadProgress() async throws {
         guard enabled else { return }
         let app = AppContainer()
         await app.unlockData()
@@ -161,7 +161,7 @@ struct PerfBenchmarkTests {
         print("PERF download.tick n=\(ticks) total=\(total) perTick=\(total / ticks)")
     }
 
-    @Test func launch() async throws {
+    @Test(.timeLimit(.minutes(5))) func launch() async throws {
         guard enabled else { return }
         let clock = ContinuousClock()
         var app: AppContainer?

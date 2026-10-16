@@ -23,7 +23,7 @@ struct AuditLogTests {
         #expect(log.entries.isEmpty)
     }
 
-    @Test func updatesEmitSnapshotThenChanges() async {
+    @Test(.timeLimit(.minutes(3))) func updatesEmitSnapshotThenChanges() async {
         let log = AuditLog(capacity: 3, clock: { 0 })
         var iterator = log.updates().makeAsyncIterator()
         #expect(await iterator.next()?.isEmpty == true)

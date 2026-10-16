@@ -68,7 +68,7 @@ struct BackgroundDownloadTests {
 
     // MARK: Background relaunch
 
-    @Test func completionHandlerWaitsForEventsAndTheDownloader() async {
+    @Test(.timeLimit(.minutes(3))) func completionHandlerWaitsForEventsAndTheDownloader() async {
         let events = BackgroundEvents()
         let settled = Flag()
         events.settled = { settled.on }
@@ -86,7 +86,7 @@ struct BackgroundDownloadTests {
         #expect(events.pending == 0)
     }
 
-    @Test func completionHandlerIsCalledAtTheDeadlineAnyway() async throws {
+    @Test(.timeLimit(.minutes(3))) func completionHandlerIsCalledAtTheDeadlineAnyway() async throws {
         let events = BackgroundEvents()
         events.settled = { false }
         events.timeout = .milliseconds(50)

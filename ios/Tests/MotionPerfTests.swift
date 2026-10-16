@@ -25,7 +25,7 @@ struct MotionPerfTests {
         var counts: [String: Double]
     }
 
-    @Test func measureScreens() async throws {
+    @Test(.timeLimit(.minutes(5))) func measureScreens() async throws {
         guard let dir = ProcessInfo.processInfo.environment["AUTOBOT_PERF_DIR"] else { return }
         let app = AppContainer()
         let nav = Navigator()

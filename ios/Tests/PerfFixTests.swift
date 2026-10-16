@@ -22,7 +22,7 @@ struct EncryptedStoreConcurrencyTests {
         #expect(try store.get("c", id: "a", as: String.self) == "x")
     }
 
-    @Test func readersAndWritersRunConcurrently() async throws {
+    @Test(.timeLimit(.minutes(5))) func readersAndWritersRunConcurrently() async throws {
         let (store, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
         let failures = Atomic<Int>(0)
@@ -334,7 +334,7 @@ struct SessionStreamDecoderTests {
         #expect(tool.output?.count == SessionStreamDecoder.outputCap)
     }
 
-    @Test func boxCoalescesFramesWithoutLosingDeltas() async throws {
+    @Test(.timeLimit(.minutes(5))) func boxCoalescesFramesWithoutLosingDeltas() async throws {
         let resyncs = Atomic<Int>(0)
         let received = Mutex<[SessionUpdate]>([])
         let box = SessionStreamBox(resync: { resyncs.add(1, ordering: .relaxed) }) { u in received.withLock { $0.append(u) } }
@@ -391,7 +391,7 @@ struct SearchTextStoreTests {
 /// Engines are released a while after the app went to the background, not on every switch.
 @MainActor
 struct EngineReleaseSchedulerTests {
-    @Test func returningInTimeKeepsTheEngines() async throws {
+    @Test(.timeLimit(.minutes(5))) func returningInTimeKeepsTheEngines() async throws {
         let released = Mutex(0)
         var ended: [UIBackgroundTaskIdentifier] = []
         let s = EngineReleaseScheduler(
@@ -449,7 +449,7 @@ struct DecryptedCacheWipeTests {
 /// A chat opened from the list (no session yet) shows its transcript once the session opens.
 @MainActor
 struct BlankChatRegressionTests {
-    @Test func chatRendersTheSessionOpenedInItsTask() async throws {
+    @Test(.timeLimit(.minutes(5))) func chatRendersTheSessionOpenedInItsTask() async throws {
         let app = AppContainer()
         let nav = Navigator()
         let conversation = app.conversations.create(incognito: true, providerId: nil, model: "m")

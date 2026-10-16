@@ -19,7 +19,7 @@ struct UpscalerTests {
         #expect(path.hasSuffix("/RealESRGAN_x4.mlpackage/Data/com.apple.CoreML/model.mlmodel"))
     }
 
-    @Test func galleryUpscaleNeedsTheModel() async {
+    @Test(.timeLimit(.minutes(3))) func galleryUpscaleNeedsTheModel() async {
         let app = AppContainer()
         let item = GalleryItem(id: "x", createdAt: 0, mode: "TXT2IMG", prompt: "p", negativePrompt: "", width: 512, height: 512, seed: 1, steps: 4,
                                cfgScale: 7, sampler: "DPM++ 2M", engine: "This phone", model: nil, durationMs: 1, paramsJson: "{}")
