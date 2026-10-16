@@ -76,6 +76,8 @@ class EngineMemoryCoordinator @Inject constructor(
 
     fun install() {
         llm.beforeJob = { free(EngineMemoryPolicy.before(Engine.LLM)) }
+        // Loading the chat model ahead of a message waits until no other exclusive engine works.
+        llm.mayPrepare = { (busy() intersect EngineMemoryPolicy.before(Engine.LLM)).isEmpty() }
         sd.beforeJob = { free(EngineMemoryPolicy.before(Engine.IMAGE)) }
         npu.beforeJob = { free(EngineMemoryPolicy.before(Engine.NPU)) }
         speech.beforeJob = { free(EngineMemoryPolicy.before(Engine.SPEECH)) }

@@ -68,6 +68,17 @@ AUTOBOT_LLAMA_API char * autobot_llama_devices_json(void);
  */
 AUTOBOT_LLAMA_API autobot_llama_session * autobot_llama_load(const char * path, int n_ctx, int n_threads, const char * backend);
 
+/** Polled while a model loads; return non-zero to stop loading. */
+typedef int (*autobot_llama_abort_fn)(void * user);
+
+/**
+ * autobot_llama_load that gives up (returns NULL) soon after `should_abort(user)` returns
+ * non-zero, so a cancelled request or a model switch can stop a multi-second load.
+ * `should_abort` is called on the loading thread and may be NULL.
+ */
+AUTOBOT_LLAMA_API autobot_llama_session * autobot_llama_load_abortable(const char * path, int n_ctx, int n_threads, const char * backend,
+                                                                       autobot_llama_abort_fn should_abort, void * user);
+
 /** JSON: {description, n_params, size_bytes, n_ctx, n_ctx_train, chat_template, backend}. */
 AUTOBOT_LLAMA_API char * autobot_llama_model_info(autobot_llama_session * session);
 

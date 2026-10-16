@@ -87,6 +87,8 @@ class LocalChatFailuresTest {
         override fun cancel() = Unit
         override fun unload() = Unit
         override fun embed(modelPath: String, texts: Array<String>): FloatArray? = null
+        override fun cancelChat(callback: ILlamaCallback) = Unit
+        override fun prepare(modelPath: String, nCtx: Int, backend: String) = Unit
 
         fun die() {
             alive = false

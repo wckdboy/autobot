@@ -142,6 +142,13 @@ struct ChatScreen: View {
     /// Which transcript items are new since the screen loaded (they ink in).
     @State private var ledger = InkLedger()
 
+    /// The chat's model when it runs on this device through llama.cpp (not Apple Intelligence).
+    private var localModelToPrepare: String? {
+        let routing = ChatRouting(app: app, conversationId: conversationId)
+        guard routing.provider?.kind == .local, let id = routing.selectedModel, id != AppleIntelligence.id else { return nil }
+        return id
+    }
+
     var body: some View {
         let _ = InkProbe.hit("body.chat")
         // A previewed (or already open) session shows at once, before .task opens it.
@@ -248,6 +255,10 @@ struct ChatScreen: View {
         .task {
             opened = app.agent.session(conversationId)
             await start()
+        }
+        // The chat's on-device model loads while the chat is open (again after a switch).
+        .task(id: localModelToPrepare) {
+            if let id = localModelToPrepare { await app.prepareLocalChat(modelId: id) }
         }
         .onDisappear {
             model.setVoiceMode(false, app: app, conversationId: conversationId)

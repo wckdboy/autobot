@@ -66,6 +66,8 @@ class EngineMemoryCoordinatorTest {
             unloads++
         }
         override fun embed(modelPath: String, texts: Array<String>): FloatArray? = null
+        override fun cancelChat(callback: ILlamaCallback) = Unit
+        override fun prepare(modelPath: String, nCtx: Int, backend: String) = Unit
     }
 
     private class FakeSd : ISdEngine.Stub() {

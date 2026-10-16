@@ -76,6 +76,18 @@ class LocalLlmTest {
 
         override fun embed(modelPath: String, texts: Array<String>): FloatArray? = null
 
+        /** Callbacks of the completions the app cancelled, in order. */
+        val cancelled = CopyOnWriteArrayList<IBinder>()
+        val prepared = CopyOnWriteArrayList<String>()
+
+        override fun cancelChat(callback: ILlamaCallback) {
+            cancelled += callback.asBinder()
+        }
+
+        override fun prepare(modelPath: String, nCtx: Int, backend: String) {
+            prepared += modelPath
+        }
+
         /** The process is killed (OOM, native crash). */
         fun die() {
             alive = false
@@ -224,7 +236,9 @@ class LocalLlmTest {
         pump()
         run.job!!.cancel()
         pump()
-        assertEquals(1, engine.cancels)
+        // Exactly this completion is cancelled, by its callback (never "whatever runs now").
+        assertEquals(listOf(engine.callbacks.single().asBinder()), engine.cancelled.toList())
+        assertEquals(0, engine.cancels)
         assertFalse(llm.isBusy)
         assertTrue(unbound.isEmpty())
 
@@ -232,6 +246,41 @@ class LocalLlmTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(60_000))
         assertTrue(bound.isEmpty())
         assertTrue(unbound.isNotEmpty())
+    }
+
+    @Test
+    fun aFinishedCompletionNeverCancelsTheNextOne() = runTest(timeout = 10.seconds) {
+        val engine = FakeEngine()
+        serve(engine)
+        val llm = llm()
+        val a = chat(llm)
+        val b = chat(llm)
+        pump()
+        val (first, second) = engine.callbacks.toList()
+        first.onResult("{}")
+        pump()
+        assertTrue(a.job!!.isCompleted)
+        assertFalse(second.asBinder() in engine.cancelled)
+        assertEquals(0, engine.cancels)
+        second.onResult("{}")
+        pump()
+        assertTrue(b.job!!.isCompleted)
+    }
+
+    @Test
+    fun prepareAsksTheEngineToLoadAheadUnlessAnotherEngineWorks() = runTest(timeout = 10.seconds) {
+        val engine = FakeEngine()
+        serve(engine)
+        val llm = llm()
+        llm.mayPrepare = { false }
+        launch { llm.prepare("/m.gguf", 4096, "auto") }
+        pump()
+        assertTrue(engine.prepared.isEmpty())
+        llm.mayPrepare = { true }
+        launch { llm.prepare("/m.gguf", 4096, "auto") }
+        pump()
+        assertEquals(listOf("/m.gguf"), engine.prepared.toList())
+        assertFalse(llm.isBusy)
     }
 
     @Test
