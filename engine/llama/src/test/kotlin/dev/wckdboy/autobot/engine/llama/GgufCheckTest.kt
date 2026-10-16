@@ -22,7 +22,7 @@ class GgufCheckTest {
     }
 
     /** A small but well-formed GGUF v3: [kvs] then two tensors, the last one's data at [lastOffset]. */
-    private fun gguf(architecture: String = "llama", lastOffset: Long = 64, dataBytes: Int = 128, extraKvs: Boolean = true): ByteArray {
+    private fun gguf(architecture: String = "llama", lastOffset: Long = 64, dataBytes: Int = 128, extraKvs: Boolean = true, template: String? = null): ByteArray {
         val out = ByteArrayOutputStream()
         fun u32(v: Int) = out.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(v).array())
         fun u64(v: Long) = out.write(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(v).array())
@@ -34,13 +34,14 @@ class GgufCheckTest {
         out.write("GGUF".toByteArray())
         u32(3)
         u64(2) // tensors
-        u64(if (extraKvs) 4 else 1)
+        u64((if (extraKvs) 4L else 1L) + (if (template != null) 1L else 0L))
         str("general.architecture"); u32(8); str(architecture)
         if (extraKvs) {
             str("llama.context_length"); u32(4); u32(4096)
             str("tokenizer.ggml.tokens"); u32(9); u32(8); u64(3); str("a"); str("b"); str("<s>")
             str("tokenizer.ggml.scores"); u32(9); u32(6); u64(3); repeat(3) { u32(0) }
         }
+        if (template != null) { str("tokenizer.chat_template"); u32(8); str(template) }
         str("token_embd.weight"); u32(2); u64(4); u64(4); u32(0); u64(0)
         str("output.weight"); u32(2); u64(4); u64(4); u32(0); u64(lastOffset)
         while (out.size() % 32 != 0) out.write(0)
@@ -49,6 +50,15 @@ class GgufCheckTest {
     }
 
     private fun file(bytes: ByteArray) = File(dir, "m.gguf").apply { writeBytes(bytes) }
+
+    @Test
+    fun theChatTemplateIsReadFromTheHeaderPastTheTokenizer() {
+        val template = "{%- if enable_thinking is defined and enable_thinking is false %}<think>\n\n</think>{%- endif %}"
+        assertEquals(template, GgufCheck.chatTemplate(file(gguf(template = template)).path))
+        assertNull(GgufCheck.chatTemplate(file(gguf()).path))
+        assertNull(GgufCheck.chatTemplate(File(dir, "gone.gguf").path))
+        assertNull(GgufCheck.chatTemplate(file("not a model".padEnd(64).toByteArray()).path))
+    }
 
     @Test
     fun aGoodFilePassesAndNamesItsArchitecture() {

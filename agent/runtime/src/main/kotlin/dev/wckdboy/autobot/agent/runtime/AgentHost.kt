@@ -15,6 +15,9 @@ import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentConfig
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
+import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
+import dev.wckdboy.autobot.agent.core.loop.chooseThinking
+import dev.wckdboy.autobot.agent.core.loop.restoreThinking
 import dev.wckdboy.autobot.agent.core.policy.Compactor
 import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
@@ -41,6 +44,9 @@ import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.core.network.OkHttpTransport
 import dev.wckdboy.autobot.providers.remote.ChatRoutes
+import dev.wckdboy.autobot.providers.remote.LocalThinkingSupport
+import dev.wckdboy.autobot.providers.remote.ThinkingDefaults
+import dev.wckdboy.autobot.providers.remote.ThinkingSupport
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
@@ -123,7 +129,8 @@ class AgentHost @Inject constructor(
     mcpServers: McpServerRepository,
     memory: MemoryRepository,
     vault: OnDeviceVault,
-    settings: SettingsRepository,
+    private val settings: SettingsRepository,
+    private val thinkingSupport: LocalThinkingSupport,
     search: WebSearchRepository,
     clients: HttpClientFactory,
     audit: AuditLog,
@@ -251,6 +258,15 @@ class AgentHost @Inject constructor(
             board.await(Interaction.Question(request.agent.id, request.callId, request.question, CompletableDeferred()))
         }
         scope.launch { mcpServers.observeServers().collect { list -> mcp.update(list.map { it.toSpec() }) } }
+        // A changed per-model Think default reaches open chats that never chose for themselves.
+        scope.launch {
+            settings.thinkingDefaults.collect { text ->
+                mutex.withLock { agents.values.toList() }.forEach { a ->
+                    val llm = a.config.value.llm
+                    a.restoreThinking(ThinkingDefaults.get(text, llm.provider, llm.model))
+                }
+            }
+        }
         // A chat whose provider was deleted (or that had none yet) moves to the first provider.
         // Only a change that can move a chat scans them (not every edit of a provider row).
         scope.launch {
@@ -312,6 +328,7 @@ class AgentHost @Inject constructor(
             PermissionPreset.fromLabel(change.preset)?.let { agent.setPermission(it) }
         }
         agent.log.latest<SessionEvent.AgentSettingsChanged>()?.let { s -> agent.updateConfig { it.copy(toolsEnabled = s.toolsEnabled) } }
+        agent.restoreThinking(thinkingDefault(provider?.id.orEmpty(), model))
         watchers[conversationId] = scope.launch {
             agent.status.collect { status ->
                 _running.update { if (status == AgentStatus.RUNNING) it + conversationId else it - conversationId }
@@ -383,7 +400,30 @@ class AgentHost @Inject constructor(
     suspend fun setRoute(conversationId: String, providerId: String, model: String) {
         val conversation = conversations.getConversation(conversationId) ?: return
         conversations.updateConversation(conversation.copy(providerId = providerId, model = model))
-        agent(conversationId).updateConfig { it.copy(llm = it.llm.copy(provider = providerId, model = model)) }
+        val agent = agent(conversationId)
+        agent.updateConfig { it.copy(llm = it.llm.copy(provider = providerId, model = model)) }
+        agent.restoreThinking(thinkingDefault(providerId, model))
+    }
+
+    /** Sets [conversationId]'s Think switch; the chat remembers it (it beats the model's default). */
+    suspend fun setThinking(conversationId: String, setting: ThinkingSetting) = agent(conversationId).chooseThinking(setting)
+
+    /** The user's Think defaults per model ([ThinkingDefaults] text). */
+    val thinkingDefaults: Flow<String> get() = settings.thinkingDefaults
+
+    /** [provider]/[model]'s Think default, or null (auto). */
+    suspend fun thinkingDefault(provider: String, model: String): ThinkingSetting? =
+        ThinkingDefaults.get(settings.thinkingDefaults.first(), provider, model)
+
+    /** Sets (null: clears) [provider]/[model]'s Think default; open chats that never chose follow it. */
+    suspend fun setThinkingDefault(provider: String, model: String, setting: ThinkingSetting?) {
+        settings.setThinkingDefaults(ThinkingDefaults.with(settings.thinkingDefaults.first(), provider, model, setting))
+    }
+
+    /** Whether [model] on [providerId] reasons (and can switch it off): decides whether the Think chip shows. */
+    suspend fun thinkingSupport(providerId: String, model: String): ThinkingSupport {
+        val kind = providers.getProvider(providerId)?.kind ?: return ThinkingSupport.NONE
+        return thinkingSupport.of(kind, model)
     }
 
     suspend fun setToolsEnabled(conversationId: String, enabled: Boolean) {

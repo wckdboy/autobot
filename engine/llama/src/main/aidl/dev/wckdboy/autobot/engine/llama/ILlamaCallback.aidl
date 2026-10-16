@@ -5,7 +5,7 @@ oneway interface ILlamaCallback {
     /** Phase change: "loading", "prefill", "generating". */
     void onStatus(String status);
 
-    /** Text delta: kind 0 = answer content, 1 = reasoning. */
+    /** Text delta: kind 0 = answer content, 1 = reasoning, 2 = reasoning progress JSON {tokens, done, stop?}. */
     void onDelta(int kind, String text);
 
     /** Final JSON result (content, reasoning, tool_calls, usage) or {error:{code,message}}. */
