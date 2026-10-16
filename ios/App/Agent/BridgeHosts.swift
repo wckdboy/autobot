@@ -268,13 +268,15 @@ final class SocketConnection: NSObject, WebSocketConnection, URLSessionWebSocket
         guard let task else { return }
         task.delegate = self
         task.resume()
-        let loop = Task.detached { [weak self] in
+        // The loop holds the connection until the socket ends, so the listener always hears how it
+        // ended even when nobody else keeps a reference (a failed connect must never hang its caller).
+        let loop = Task.detached {
             while !Task.isCancelled {
                 do {
                     let message = try await task.receive()
-                    self?.deliver(message)
+                    self.deliver(message)
                 } catch {
-                    self?.ended(error)
+                    self.ended(error)
                     return
                 }
             }
@@ -335,6 +337,10 @@ final class SocketConnection: NSObject, WebSocketConnection, URLSessionWebSocket
             s.opened = true
             listener.onOpen()
         }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        ended(error ?? URLError(.networkConnectionLost))
     }
 
     func sendText(text: String) -> Bool {
