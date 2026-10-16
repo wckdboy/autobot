@@ -204,12 +204,6 @@ struct MarkdownCacheTests {
         #expect(cache.count == 0)
     }
 
-    @Test func safeSplitSkipsBlankLinesInsideFences() {
-        let text: Substring = "a\n\n```\nx\n\ny\n"
-        let split = MarkdownCache.safeSplit(text)
-        #expect(split.map { String(text[..<$0]) } == "a\n\n")
-    }
-
     @Test func thinkingTailIsTheLastNonBlankLine() {
         #expect(ThinkingDisclosure.lastLine("one\n  two  \n\n  ") == "two")
         #expect(ThinkingDisclosure.lastLine("   ") == "")

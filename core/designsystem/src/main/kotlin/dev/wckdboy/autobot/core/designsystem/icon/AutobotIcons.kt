@@ -125,6 +125,14 @@ object AutobotIcons {
         }
     }
 
+    /** Two sheets: copy. */
+    val Copy: ImageVector by lazy {
+        icon("Copy") {
+            moveTo(9f, 9f); lineTo(20f, 9f); lineTo(20f, 20f); lineTo(9f, 20f); close()
+            moveTo(15f, 9f); lineTo(15f, 4f); lineTo(4f, 4f); lineTo(4f, 15f); lineTo(9f, 15f)
+        }
+    }
+
     /** Wrench: tools. */
     val Wrench: ImageVector by lazy {
         icon("Wrench") {

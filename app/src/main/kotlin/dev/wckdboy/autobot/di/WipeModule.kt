@@ -5,6 +5,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
+import dev.wckdboy.autobot.core.designsystem.markdown.LiteMarkdown
 import dev.wckdboy.autobot.core.models.ModelDownloader
 import dev.wckdboy.autobot.core.security.WipeParticipant
 import javax.inject.Provider
@@ -17,4 +18,10 @@ object WipeModule {
     @IntoSet
     fun provideDownloadsWipeParticipant(downloader: Provider<ModelDownloader>): WipeParticipant =
         WipeParticipant.ordered(WipeParticipant.STOP_WORK) { downloader.get().pauseAll() }
+
+    /** Parsed chat text kept for rendering goes too (decrypted content in memory). */
+    @Provides
+    @IntoSet
+    fun provideMarkdownCacheWipeParticipant(): WipeParticipant =
+        WipeParticipant.ordered(WipeParticipant.STOP_WORK) { LiteMarkdown.clearCache() }
 }

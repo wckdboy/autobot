@@ -481,6 +481,8 @@ private struct AssistantMessage: View {
                         if interrupted { Tag("interrupted", accent: AutobotColors.amber) }
                         if let outputTokens { TokenRateLabel(totalTokens: outputTokens) }
                         Spacer(minLength: 0)
+                        // Copies the message as written (markdown), not the rendered text.
+                        CopyMessageButton(markdown: text)
                         IconAction(.speaker, label: speaking ? "Stop reading" : "Read aloud", tint: speaking ? c.primary : c.onSurfaceVariant, size: 18, action: onSpeak)
                             .frame(width: 32, height: 32)
                     }

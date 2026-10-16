@@ -97,6 +97,7 @@ import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
+import dev.wckdboy.autobot.core.designsystem.component.CopyMessageButton
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
@@ -462,6 +463,8 @@ private fun AssistantMessage(
                         if (item.interrupted) Tag("interrupted", accent = AutobotColors.Amber)
                         if (item.outputTokens != null) TokenRateLabel(tokensPerSecond = null, totalTokens = item.outputTokens)
                         Spacer(Modifier.weight(1f))
+                        // Copies the message as written (markdown), not the rendered text.
+                        CopyMessageButton(item.text)
                         IconButton(onClick = onSpeak, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 AutobotIcons.Speaker,
