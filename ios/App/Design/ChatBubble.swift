@@ -4,8 +4,9 @@ enum BubbleRole { case user, assistant }
 
 /**
  A transcript message. User input is an outlined, right-aligned block with a mono `›` prompt
- marker; assistant output is unframed full-width text with lightweight markdown (paragraphs,
- inline code, fenced code blocks).
+ marker; assistant output is unframed full-width text with chat markdown (`MarkdownBlocks`:
+ headings, lists, quotes, tables, code, emphasis, links). A tapped link only opens after the
+ prompt confirms it; nothing in a message is ever fetched.
  */
 struct ChatBubble<Footer: View>: View {
     let role: BubbleRole
@@ -14,6 +15,8 @@ struct ChatBubble<Footer: View>: View {
     var hasFooter = true
     @ViewBuilder var footer: () -> Footer
     @Environment(\.scheme) private var c
+    /// The link the user tapped, waiting for "Open in browser".
+    @State private var link: URL?
 
     var body: some View {
         let _ = InkProbe.hit("body.chatBubble")
@@ -26,7 +29,7 @@ struct ChatBubble<Footer: View>: View {
                     Text("›").textStyle(.code).foregroundStyle(c.primary).padding(.trailing, 8)
                 }
                 VStack(alignment: .leading, spacing: Tokens.Spacing.chatBlockGap) {
-                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in MarkdownBlockView(block: block) }
+                    MarkdownBlocks(blocks: blocks)
                     if isStreaming && blocks.isEmpty {
                         HalftoneStrip(color: c.primary).padding(.vertical, 6)
                     }
@@ -47,65 +50,22 @@ struct ChatBubble<Footer: View>: View {
             if !isUser { Spacer(minLength: 0) }
         }
         .frame(maxWidth: .infinity)
+        // Links never open by themselves: a tap only asks.
+        .environment(\.openURL, OpenURLAction { url in
+            link = url
+            return .handled
+        })
+        .alert("Open link?", isPresented: Binding(get: { link != nil }, set: { if !$0 { link = nil } }), presenting: link) { url in
+            Button(LinkPrompt.action(url)) { UIApplication.shared.open(url) }
+            Button("Cancel", role: .cancel) {}
+        } message: { url in
+            Text(LinkPrompt.message(url))
+        }
     }
 }
 
 extension ChatBubble where Footer == EmptyView {
     init(role: BubbleRole, text: String, isStreaming: Bool = false) {
         self.init(role: role, text: text, isStreaming: isStreaming, hasFooter: false, footer: { EmptyView() })
-    }
-}
-
-private struct MarkdownBlockView: View {
-    let block: MdBlock
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        switch block {
-        case .paragraph(let spans):
-            Text(attributed(spans))
-                .textStyle(.bodyLarge)
-                .foregroundStyle(c.onSurface)
-                .fixedSize(horizontal: false, vertical: true)
-        case .codeBlock(let language, let code, _):
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    MicroLabel(language ?? "code", color: c.tertiary)
-                    Spacer()
-                }
-                .padding(.horizontal, Tokens.Spacing.codeHeaderPaddingHorizontal)
-                .padding(.vertical, Tokens.Spacing.codeHeaderPaddingVertical)
-                .background(c.surfaceContainerLow)
-                Hairline()
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(code)
-                        .textStyle(.codeBlock)
-                        .foregroundStyle(c.onSurface)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(Tokens.Spacing.codePadding)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(c.surfaceContainerLowest))
-            .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.small))
-            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
-        }
-    }
-
-    private func attributed(_ spans: [MdSpan]) -> AttributedString {
-        var out = AttributedString()
-        for span in spans {
-            switch span {
-            case .text(let t):
-                out += AttributedString(t)
-            case .inlineCode(let code):
-                var a = AttributedString(code)
-                a.font = AutobotFonts.uiFont(Tokens.Typography.code, size: Tokens.Typography.bodyLarge.size - 1)
-                a.foregroundColor = c.tertiary
-                a.backgroundColor = c.surfaceContainerHighest
-                out += a
-            }
-        }
-        return out
     }
 }

@@ -5,7 +5,7 @@ import SwiftUI
  `AutobotIcons.kt`. Generic glyphs (back, close, star…) use SF Symbols instead of Material icons.
  */
 enum AutobotIcon: String, CaseIterable, Sendable {
-    case terminal, spark, chip, sliders, brush, eraser, dice, layers, image, mic, speaker, wrench, shield, undo, invert, download
+    case terminal, spark, chip, sliders, brush, eraser, dice, layers, image, mic, speaker, wrench, shield, undo, invert, download, copy
 
     /// The path in the 24×24 viewport.
     var path: Path {
@@ -82,6 +82,9 @@ enum AutobotIcon: String, CaseIterable, Sendable {
         case .download:
             m(12, 3); l(12, 15); m(7, 10); l(12, 15); l(17, 10)
             m(4, 17); l(4, 21); l(20, 21); l(20, 17)
+        case .copy:
+            m(9, 9); l(20, 9); l(20, 20); l(9, 20); z()
+            m(15, 9); l(15, 4); l(4, 4); l(4, 15); l(9, 15)
         }
         return p
     }

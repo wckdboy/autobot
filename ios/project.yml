@@ -197,6 +197,9 @@ targets:
       # Cross-platform proof: an export written by the Kotlin code, decrypted by the Swift crypto.
       - path: ../shared/backup/testvector.autobot
         buildPhase: resources
+      # The chat markdown spec both apps' parsers are held to (Android: MarkdownConformanceTest).
+      - path: ../shared/design/markdown-cases.json
+        buildPhase: resources
     dependencies:
       - target: Autobot
     settings:

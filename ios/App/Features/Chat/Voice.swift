@@ -38,7 +38,8 @@ extension Speaker {
     /// [onChunk] hears each piece's index as it starts (voice mode's speaking strip pulses with it).
     func read(_ markdown: String, onChunk: (Int) -> Void = { _ in }) async throws {
         let text = AutobotShared.VoiceText.shared
-        let chunks = text.chunks(text: text.speakable(markdown: markdown), maxChars: text.MAX_CHUNK)
+        // The chat renderer's own parse: what is spoken is what is shown, without the symbols.
+        let chunks = text.chunks(text: LiteMarkdown.speakable(markdown), maxChars: text.MAX_CHUNK)
         for (i, chunk) in chunks.enumerated() {
             // stop() ends the piece being spoken; a cancelled task must not start the next one.
             try Task.checkCancellation()
