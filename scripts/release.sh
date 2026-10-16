@@ -6,7 +6,8 @@
 # 1. bumps Android + iOS to the version (scripts/bump-version.sh) and commits the bump
 # 2. runs every test suite: Android/JVM (Gradle), iOS app, iOS engines
 # 3. builds the signed release APK + debug APK, archives iOS and uploads it to TestFlight
-# 4. tags vX.Y.Z, pushes, and publishes the GitHub release with the APKs and SHA256SUMS.txt
+# 4. tags vX.Y.Z, pushes, and publishes the GitHub release with the APKs, the R8 mapping.txt
+#    (to retrace release stack traces) and SHA256SUMS.txt
 #
 # Stops at the first failure, before anything is tagged or published. Needs: keystore.properties
 # (release signing), an Xcode account with App Store Connect access, and `gh` logged in.
@@ -41,6 +42,8 @@ APK=app/build/outputs/apk/foss/release/app-foss-release.apk
 SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 BT=$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)
 "$BT/apksigner" verify "$APK" || fail "release APK signature does not verify"
+MAPPING=app/build/outputs/mapping/fossRelease/mapping.txt
+[ -f "$MAPPING" ] || fail "no R8 mapping.txt (needed to retrace release crashes)"
 
 step "iOS: engines, tests"
 rm -rf ios/Packages/AutobotEngines/Frameworks/*.xcframework
@@ -83,10 +86,11 @@ git tag -a "$TAG" -m "Autobot $VERSION"
 git push origin HEAD "$TAG"
 cp "$APK" "$WORK/autobot-$VERSION-release.apk"
 cp app/build/outputs/apk/foss/debug/app-foss-debug.apk "$WORK/autobot-$VERSION-debug.apk"
-(cd "$WORK" && shasum -a 256 autobot-*.apk | sed 's/  / */' > SHA256SUMS.txt)
+cp "$MAPPING" "$WORK/autobot-$VERSION-mapping.txt"
+(cd "$WORK" && shasum -a 256 autobot-*.apk autobot-*-mapping.txt | sed 's/  / */' > SHA256SUMS.txt)
 if [ -n "$NOTES" ]; then set -- --notes-file "$NOTES"; else set -- --generate-notes; fi
 gh release create "$TAG" --title "Autobot $VERSION" --latest "$@" \
-    "$WORK/autobot-$VERSION-release.apk" "$WORK/autobot-$VERSION-debug.apk" "$WORK/SHA256SUMS.txt"
+    "$WORK/autobot-$VERSION-release.apk" "$WORK/autobot-$VERSION-debug.apk" "$WORK/autobot-$VERSION-mapping.txt" "$WORK/SHA256SUMS.txt"
 # Download from the repo directory (gh needs it to know the repository), check in $WORK.
 rm -rf "$WORK/dl" && gh release download "$TAG" -D "$WORK/dl" && (cd "$WORK/dl" && shasum -a 256 -c SHA256SUMS.txt) || fail "published assets do not match"
 echo "Released Autobot $VERSION ($BUILD): $(gh release view "$TAG" --json url -q .url)"

@@ -19,7 +19,14 @@
 -renamesourcefileattribute SourceFile
 -keepattributes SourceFile,LineNumberTable
 
+# Errors shown to the user and written to the diagnostics/error log fall back to the exception's
+# simple name ("SocketTimeoutException", "SQLiteFullException"); keep those names readable. Names
+# only: unused exception classes are still removed.
+-keepnames class * extends java.lang.Throwable
+
 # ---- kotlinx.serialization -------------------------------------------------
+# kotlinx-serialization 1.11 ships the official rules in its jar (META-INF/com.android.tools/r8);
+# these add the explicit Companion / $$serializer keeps from the library README.
 -keepattributes *Annotation*, InnerClasses, Signature, Exceptions
 -dontnote kotlinx.serialization.AnnotationsKt
 -keepclassmembers @kotlinx.serialization.Serializable class ** {
