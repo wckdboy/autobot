@@ -80,7 +80,9 @@ class Compactor(private val retainRatio: Double = 0.16) {
 
         agent.log.append(SessionEvent.CompactionStart(reason, estimateTokens(entries)))
         val summary = try {
-            summarize(agent, entries)
+            // After an overflow the whole history no longer fits the model: send only the part the
+            // summary replaces (the retained tail stays verbatim anyway).
+            summarize(agent, if (reason == "overflow") entries.filter { it.seq <= endSeq } else entries)
         } catch (e: CancellationException) {
             throw e
         } catch (t: Throwable) {
@@ -115,6 +117,8 @@ class Compactor(private val retainRatio: Double = 0.16) {
     private suspend fun summarize(agent: Agent, entries: List<LogEntry>): String {
         val config = summaryConfig(agent)
         val adapter = agent.ctx.require(LlmService.Key).adapter(config.provider)
+        // The whole history goes to this route: the turn's receipt must name it.
+        agent.recordModel(config)
         val messages = deriveMessages(entries) + ModelMessage(ModelRole.USER, SUMMARY_INSTRUCTION)
         val out = StringBuilder()
         adapter.stream(LlmCall(config.copy(temperature = 0.2), messages, emptyList(), sessionId = agent.id)).collect { chunk ->

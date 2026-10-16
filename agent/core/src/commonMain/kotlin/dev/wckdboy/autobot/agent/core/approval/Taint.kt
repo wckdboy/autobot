@@ -13,6 +13,7 @@ import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
 import dev.wckdboy.autobot.agent.core.tools.ToolKind
 import dev.wckdboy.autobot.agent.core.tools.ToolRegistry
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.json.JsonArray
@@ -371,11 +372,21 @@ internal fun taintTrackingPlugin(priority: Int = TaintTracker.PRIORITY, tracker:
     ctx.intercept(Hooks.ToolPreExecute, priority = priority) { input, next ->
         val agent: Agent = input.agent
         tracker.track(agent)
-        // Only a network tool can carry private data off the phone: other calls skip the index.
-        if (input.tool.kind != ToolKind.FETCH) return@intercept next(input)
+        // Only a call that can carry data off the phone needs the index: other calls skip it.
+        val network = try {
+            input.tool.reachesNetwork(input.args)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            true
+        }
+        if (!network) return@intercept next(input)
         tracker.ingestAll(agent)
         val hits = tracker.check(agent, input.args)
         if (hits.isEmpty()) return@intercept next(input)
+        // Asking never overrides a refusal further in (a disabled MCP server, a host policy).
+        val inner = next(input)
+        if (inner is PreToolDecision.Deny) return@intercept inner
         val reason = TaintTracker.reason(hits)
         if (agent.approvalPolicy.value == ApprovalPolicy.NEVER) return@intercept PreToolDecision.Deny(reason)
         tracker.asked(agent, input.callId, hits)
