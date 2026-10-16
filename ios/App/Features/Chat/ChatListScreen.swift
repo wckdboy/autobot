@@ -177,7 +177,7 @@ struct ChatListScreen: View {
                 PrivacyStatusPill(status: app.settings.settings.mode.privacyStatus) { nav.push(.privacyCenter) }
             }
             .padding(.leading, nav.path.isEmpty ? 16 : 4)
-            .padding(.trailing, 12)
+            .padding(.trailing, Tokens.Spacing.gutter)
             .padding(.top, 10)
             .padding(.bottom, 6)
             HStack(spacing: 10) {
@@ -202,7 +202,7 @@ struct ChatListScreen: View {
                 .buttonStyle(PressStyle())
             }
             .padding(.leading, 16)
-            .padding(.trailing, 12)
+            .padding(.trailing, Tokens.Spacing.gutter)
             .padding(.bottom, 8)
         }
     }

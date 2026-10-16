@@ -116,7 +116,7 @@ struct DeviceProfile: Equatable, Sendable {
             "iPhone15,2": "A16 Bionic", "iPhone15,3": "A16 Bionic", "iPhone15,4": "A16 Bionic", "iPhone15,5": "A16 Bionic",
             "iPhone16,1": "A17 Pro", "iPhone16,2": "A17 Pro",
             "iPhone17,1": "A18 Pro", "iPhone17,2": "A18 Pro", "iPhone17,3": "A18", "iPhone17,4": "A18", "iPhone17,5": "A18",
-            "iPhone18,1": "A19 Pro", "iPhone18,2": "A19 Pro", "iPhone18,3": "A19", "iPhone18,4": "A19 Pro",
+            "iPhone18,1": "A19 Pro", "iPhone18,2": "A19 Pro", "iPhone18,3": "A19", "iPhone18,4": "A19 Pro", "iPhone18,5": "A19",
         ]
         if let chip = table[machine] { return chip }
         if machine.hasPrefix("arm64") || machine.hasPrefix("x86") { return "simulator" }

@@ -94,6 +94,7 @@ struct AboutScreen: View {
                         withAnimation(.easeInOut(duration: 0.2)) { allNotes.toggle() }
                     }
                     .frame(minHeight: 44)
+                    .padding(.leading, -12) // the label lines up with the notes (TextAction pads its target)
                 }
             }
             .tint(c.primary)

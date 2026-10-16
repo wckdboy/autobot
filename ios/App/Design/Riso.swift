@@ -74,8 +74,8 @@ struct SectionLabel: View {
         Text("// \(text.uppercased())")
             .textStyle(.micro)
             .foregroundStyle(color ?? c.primary)
-            .lineLimit(1)
-            .truncationMode(.tail)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -419,6 +419,7 @@ struct ModeCard<Background: View>: View {
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                             .truncationMode(.tail)
                             .inkClearance(card)
                     }
@@ -474,7 +475,9 @@ struct RunRow<Leading: View, Trailing: View>: View {
                         Text(subtitle)
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
-                            .lineLimit(1)
+                            // A status line wraps once instead of losing its end on narrow phones.
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

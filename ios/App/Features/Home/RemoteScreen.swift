@@ -13,6 +13,8 @@ struct RemoteScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Remote") {
                 PrivacyStatusPill(status: app.settings.settings.mode.privacyStatus) { nav.push(.privacyCenter) }
+                    // A bordered pill lines up with the content gutter (the bar's end padding is sized for icon targets).
+                    .padding(.trailing, Tokens.Spacing.gutter - Tokens.Spacing.topBarPaddingEnd)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
