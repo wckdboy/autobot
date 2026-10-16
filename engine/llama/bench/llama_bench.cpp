@@ -1,6 +1,11 @@
 // Benchmark and correctness check for the shared llama engine core (the code both apps run).
 //
-//   llama_bench <model.gguf> [--backend cpu|gpu|auto] [--threads N] [--ctx N] [--gen N] [--quick]
+//   llama_bench <model.gguf> [--backend cpu|gpu|npu|npu+cpu|auto] [--threads N] [--ctx N] [--gen N] [--quick]
+//               [--speed] [--libs DIR]
+//
+// --speed only measures prefill and generation (a cold ~2k-token prompt, then the same prompt
+// again from an empty cache) and prints the greedy output, to compare backends quickly.
+// --libs loads the dynamically built ggml backends from DIR (the phone build, see android.sh).
 //
 // Measures load time, time-to-first-token on a ~2k-token agent prompt (turn 1 cold, turn 2 with
 // the KV cache from turn 1), prompt and generation speed, and cancellation latency during prefill
@@ -40,7 +45,9 @@ struct Options {
     int ctx = 8192;
     int gen = 64;
     bool quick = false;
+    bool speed = false;
     bool verbose = false;
+    std::string libs;
 };
 
 struct Run {
@@ -232,11 +239,13 @@ int main(int argc, char ** argv) {
         else if (a == "--ctx") o.ctx = std::atoi(next().c_str());
         else if (a == "--gen") o.gen = std::atoi(next().c_str());
         else if (a == "--quick") o.quick = true;
+        else if (a == "--speed") o.speed = true;
+        else if (a == "--libs") o.libs = next();
         else if (a == "-v") o.verbose = true;
         else o.model = a;
     }
     if (o.model.empty()) {
-        std::fprintf(stderr, "usage: llama_bench <model.gguf> [--backend cpu|gpu|auto] [--threads N] [--ctx N] [--gen N] [--quick]\n");
+        std::fprintf(stderr, "usage: llama_bench <model.gguf> [--backend cpu|gpu|npu|npu+cpu|auto] [--threads N] [--ctx N] [--gen N] [--quick] [--speed] [--libs DIR]\n");
         return 2;
     }
     if (o.verbose) {
@@ -245,7 +254,7 @@ int main(int argc, char ** argv) {
             if (level >= AUTOBOT_LLAMA_LOG_INFO) std::fprintf(stderr, "[%9.1f] %s", ms_since(start), text);
         }, nullptr);
     }
-    autobot_llama_init(nullptr);
+    autobot_llama_init(o.libs.empty() ? nullptr : o.libs.c_str());
 
     double load_cold = 0, load_warm = 0;
     autobot_llama_session * s = load(o, &load_cold);
@@ -257,6 +266,25 @@ int main(int argc, char ** argv) {
     autobot_llama_free(s);
     s = load(o, &load_warm);
     std::printf("load: first %.1f ms, again (page cache warm) %.1f ms\n\n", load_cold, load_warm);
+
+    if (o.speed) {
+        const json m = json::array({msg("system", system_prompt("main")), msg("user", "Write a short story about a lighthouse keeper and his bicycle.")});
+        std::string first;
+        for (int i = 0; i < 2; ++i) {
+            if (i > 0) {  // the same prompt again from an empty cache
+                autobot_llama_free(s);
+                s = load(o, nullptr);
+            }
+            Run r = chat(s, request(m, o.gen, false));
+            print_run(i == 0 ? "2k prompt, cold" : "2k prompt, again", r);
+            const std::string out = r.result.value("content", std::string());
+            if (i == 0) first = out;
+            else if (out != first) std::printf("  note: second run's output differs from the first\n");
+        }
+        std::printf("greedy: %s\n", first.substr(0, 400).c_str());
+        autobot_llama_free(s);
+        return 0;
+    }
 
     // ---- agent conversation: turn 1 (cold), turn 2 (cached), regenerate, tool step
     const std::string sys = system_prompt("main");

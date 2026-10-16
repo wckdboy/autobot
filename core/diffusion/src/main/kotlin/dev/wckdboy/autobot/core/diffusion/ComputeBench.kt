@@ -61,7 +61,8 @@ class ComputeBench @Inject constructor(
                         gpu = gpu ?: d.optString("description").ifBlank { d.optString("name") }
                         backends += Backend.GPU
                     }
-                    "npu" -> backends += Backend.NPU
+                    // The NPU also enables the split: prompts on the NPU, generation on the CPU.
+                    "npu" -> backends += listOf(Backend.NPU, Backend.NPU_CPU)
                 }
             }
         }

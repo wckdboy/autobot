@@ -47,7 +47,13 @@ struct autobot_llama_session {
     std::atomic<bool> prefilling{false};      // the abort callback may interrupt a decode
     int n_ctx = 0;
     int n_batch = 512;
-    std::string backend;  // "cpu", "gpu" or "npu": where the model actually loaded
+    std::string backend;  // "cpu", "gpu", "npu" or "npu+cpu"/"gpu+cpu": where the model actually runs
+    // Split placement ("npu+cpu"): prompts are decoded on the accelerator (`ctx`), generated
+    // tokens on this CPU copy of the model, which decodes single tokens faster. The prompt's
+    // memory is handed over before each reply (see hand_off); `ctx` stays the reference that
+    // `cached` and the checkpoints describe.
+    llama_model * dec_model = nullptr;
+    llama_context * dec_ctx = nullptr;
     mtmd_context * mtmd = nullptr;  // vision projector (mmproj), loaded on the first image
     std::string mmproj;
     bool kv_dirty = false;          // KV holds image embeddings that `cached` cannot describe
@@ -251,6 +257,23 @@ void save_checkpoint(Session & s) {
     c.data.resize(size);
     if (llama_state_seq_get_data_ext(s.ctx, c.data.data(), size, 0, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) != size) return;
     s.checkpoints.push_back(std::move(c));
+}
+
+// Split placement: copies sequence 0 of the prompt context's memory (attention cache and
+// recurrent state, a few tens of MB) into the CPU decoder. Returns the context to generate on:
+// the decoder, or `ctx` itself when there is none or the copy failed.
+llama_context * hand_off(Session & s) {
+    if (!s.dec_ctx) return s.ctx;
+    llama_memory_clear(llama_get_memory(s.dec_ctx), true);
+    const size_t size = llama_state_seq_get_size(s.ctx, 0);
+    std::vector<uint8_t> state(size);
+    if (size > 0 && llama_state_seq_get_data(s.ctx, state.data(), size, 0) == size &&
+        llama_state_seq_set_data(s.dec_ctx, state.data(), size, 0) == size) {
+        return s.dec_ctx;
+    }
+    LOGE("could not hand the prompt over to the CPU decoder; generating on %s", s.backend.c_str());
+    llama_memory_clear(llama_get_memory(s.dec_ctx), true);
+    return s.ctx;
 }
 
 // Decodes tokens[cached.size(), end) in batches, keeping `cached` in step with the memory.
@@ -481,7 +504,11 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         std::string finish = "length";
         int n_gen = 0;
         const int64_t t_gen = ggml_time_us();
-        common_batch batch(s->ctx);
+        // The first token comes from the prompt's logits; the rest are decoded on `gen` (the CPU
+        // decoder with split placement, whose tokens `ctx` and `cached` then do not hold).
+        llama_context * logits_ctx = s->ctx;
+        llama_context * gen = hand_off(*s);
+        common_batch batch(gen);
         while (n_gen < max_tokens) {
             if (cancelled(*s)) {
                 finish = "cancelled";
@@ -491,7 +518,7 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                 finish = "length";
                 break;
             }
-            const llama_token tok = common_sampler_sample(smpl, s->ctx, -1);
+            const llama_token tok = common_sampler_sample(smpl, logits_ctx, -1);
             common_sampler_accept(smpl, tok, true);
             if (llama_vocab_is_eog(vocab, tok)) {
                 finish = "stop";
@@ -531,13 +558,14 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
 
             batch.clear();
             batch.add(tok, pos, 0, true);
-            if (llama_process(s->ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+            if (llama_process(gen, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
                 // The memory may hold part of this step: return to a consistent point.
-                if (!s->partial_rm) truncate_cache(*s, s->cached.size(), true);
+                if (gen == s->ctx && !s->partial_rm) truncate_cache(*s, s->cached.size(), true);
                 finish = "error";
                 break;
             }
-            s->cached.push_back(tok);
+            logits_ctx = gen;
+            if (gen == s->ctx) s->cached.push_back(tok);
             ++pos;
         }
         common_sampler_free(smpl);
@@ -581,6 +609,62 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         LOGE("chat failed: %s", e.what());
         return error_json("BAD_REQUEST", e.what());
     }
+}
+
+// Bytes the system could still give this process without reclaiming much (0 = unknown).
+size_t available_memory() {
+#if defined(__linux__)
+    FILE * f = std::fopen("/proc/meminfo", "r");
+    if (!f) return 0;
+    char line[256];
+    size_t kb = 0;
+    while (std::fgets(line, sizeof(line), f)) {
+        if (std::sscanf(line, "MemAvailable: %zu kB", &kb) == 1) break;
+    }
+    std::fclose(f);
+    return kb * 1024;
+#else
+    return 0;
+#endif
+}
+
+// Split placement: a second, CPU-only copy of the model for generation. Its repacked weights
+// take about the model's size again, so it is skipped when memory is short; the session then
+// simply generates on the accelerator.
+void load_decoder(Session & s, const std::string & path, int n_threads, LoadAbort & abort) {
+    const size_t need = llama_model_size(s.model) + ((size_t) 512 << 20);
+    const size_t avail = available_memory();
+    if (avail != 0 && avail < 2 * need) {
+        LOGI("not enough free memory for a CPU decoder (%zu MB free); generating on %s", avail >> 20, s.backend.c_str());
+        return;
+    }
+    ggml_backend_dev_t cpu_only[] = {nullptr};
+    auto mparams = llama_model_default_params();
+    mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
+    mparams.devices = cpu_only;
+    mparams.n_gpu_layers = 0;
+    mparams.progress_callback = [](float, void * data) { return !static_cast<LoadAbort *>(data)->requested(); };
+    mparams.progress_callback_user_data = &abort;
+    llama_model * model = llama_model_load_from_file(path.c_str(), mparams);
+    if (!model) {
+        if (!abort.requested()) LOGE("could not load a CPU decoder; generating on %s", s.backend.c_str());
+        return;
+    }
+    auto cparams = llama_context_default_params();
+    cparams.n_ctx = (uint32_t) s.n_ctx;
+    cparams.n_batch = 512;
+    cparams.n_ubatch = 512;
+    cparams.n_threads = n_threads;
+    cparams.n_threads_batch = n_threads;
+    llama_context * ctx = llama_init_from_model(model, cparams);
+    if (!ctx) {
+        LOGE("could not create a CPU decoder context; generating on %s", s.backend.c_str());
+        llama_model_free(model);
+        return;
+    }
+    s.dec_model = model;
+    s.dec_ctx = ctx;
+    s.backend += "+cpu";
 }
 
 }  // namespace
@@ -631,7 +715,10 @@ autobot_llama_session * autobot_llama_load_abortable(const char * path_c, int n_
                                                      autobot_llama_abort_fn should_abort, void * user) {
     LoadAbort abort{should_abort, user};
     const std::string path = path_c ? path_c : "";
-    const std::string wanted = backend ? backend : "";
+    std::string wanted = backend ? backend : "";
+    // "npu+cpu" / "gpu+cpu": prompts on the accelerator, generation on the CPU.
+    const bool split = wanted == "npu+cpu" || wanted == "gpu+cpu";
+    if (split) wanted.resize(3);
     std::vector<std::string> order;
     if (wanted == "auto") order = {"npu", "gpu", "cpu"};
     else if (wanted == "gpu" || wanted == "npu") order = {wanted, "cpu"};
@@ -686,7 +773,15 @@ autobot_llama_session * autobot_llama_load_abortable(const char * path_c, int n_
         s->templates = common_chat_templates_init(model, "");
         s->partial_rm = common_context_can_seq_rm(ctx) == COMMON_CONTEXT_SEQ_RM_TYPE_PART;
         llama_set_abort_callback(ctx, abort_requested, s);
-        LOGI("loaded %s on %s%s", path.c_str(), kind.c_str(), s->partial_rm ? "" : " (prompt cache via checkpoints)");
+        if (split && kind != "cpu") {
+            load_decoder(*s, path, n_threads, abort);
+            if (abort.requested()) {
+                LOGI("loading %s was cancelled", path.c_str());
+                autobot_llama_free(s);
+                return nullptr;
+            }
+        }
+        LOGI("loaded %s on %s%s", path.c_str(), s->backend.c_str(), s->partial_rm ? "" : " (prompt cache via checkpoints)");
         return s;
     }
     return nullptr;
@@ -738,6 +833,8 @@ void autobot_llama_free(autobot_llama_session * s) {
         if (s->mtmd) mtmd_free(s->mtmd);
         llama_free(s->ctx);
         llama_model_free(s->model);
+        if (s->dec_ctx) llama_free(s->dec_ctx);
+        if (s->dec_model) llama_model_free(s->dec_model);
     }
     delete s;
 }

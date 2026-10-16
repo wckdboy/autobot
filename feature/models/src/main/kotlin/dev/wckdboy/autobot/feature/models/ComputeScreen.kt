@@ -383,7 +383,8 @@ private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: Compu
     }) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (isText) {
-                val options = listOf(Backend.AUTO, Backend.CPU, Backend.GPU, Backend.NPU)
+                val options = listOf(Backend.AUTO, Backend.CPU, Backend.GPU, Backend.NPU) +
+                    listOfNotNull(Backend.NPU_CPU.takeIf { it in state.devices?.llmBackends.orEmpty() || m.backend == it })
                 Segmented(options, m.backend, { actions.setBackend(m, it) }, { b ->
                     if (b == Backend.AUTO && cm.fastest != null) "auto · ${cm.fastest.label}" else b.label
                 }, Modifier.fillMaxWidth())
