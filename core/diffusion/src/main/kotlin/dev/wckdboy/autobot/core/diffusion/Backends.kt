@@ -11,6 +11,7 @@ import dev.wckdboy.autobot.core.diffusion.engine.LocalSseEngine
 import dev.wckdboy.autobot.core.diffusion.engine.OnDeviceEngine
 import dev.wckdboy.autobot.core.diffusion.engine.SdApiEngine
 import dev.wckdboy.autobot.core.models.EngineKind
+import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.network.HttpClientFactory
@@ -158,7 +159,7 @@ class OnDeviceBackendSync @Inject constructor(
     fun start(scope: kotlinx.coroutines.CoroutineScope) {
         scope.launch {
             library.models
-                .map { list -> list.any { it.isReady && it.engine == EngineKind.DIFFUSION && it.kind == ModelKind.IMAGE } }
+                .map(::hasOnDeviceImageModel)
                 .distinctUntilChanged()
                 .collect { available ->
                     val existing = backends.backends.first().firstOrNull { it.id == ON_DEVICE_ID }
@@ -172,5 +173,14 @@ class OnDeviceBackendSync @Inject constructor(
 
     companion object {
         const val ON_DEVICE_ID = "on-device"
+
+        /**
+         * Whether "This phone" can generate: a ready stable-diffusion.cpp model or a ready NPU/GPU
+         * package (Local Dream layout). Both run through [OnDeviceEngine]; leaving the NPU packages
+         * out meant a phone with only those had no on-device backend at all.
+         */
+        fun hasOnDeviceImageModel(models: List<InstalledModel>): Boolean = models.any {
+            it.isReady && it.kind == ModelKind.IMAGE && (it.engine == EngineKind.DIFFUSION || it.engine == EngineKind.NPU)
+        }
     }
 }

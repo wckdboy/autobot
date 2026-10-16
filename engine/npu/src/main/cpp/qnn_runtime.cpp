@@ -9,7 +9,10 @@
 
 #include <cmath>
 #include <cstdarg>
+#include <cstdio>
 #include <cstring>
+#include <deque>
+#include <mutex>
 #include <sstream>
 
 #include "HTP/QnnHtpDevice.h"
@@ -23,13 +26,78 @@
 namespace npu {
 namespace {
 
+// The backend's own error messages ("Failed to load skel", "unsupported binary version"…) say far
+// more than an error code: the last few are kept so failures can quote them to the user.
+std::mutex g_log_mutex;
+std::deque<std::string> g_log_lines;
+constexpr size_t MAX_LOG_LINES = 6;
+
 void qnn_log(const char * fmt, QnnLog_Level_t level, uint64_t, va_list args) {
     int prio = level == QNN_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR : level == QNN_LOG_LEVEL_WARN ? ANDROID_LOG_WARN : ANDROID_LOG_DEBUG;
+    va_list copy;
+    va_copy(copy, args);
     __android_log_vprint(prio, TAG, fmt, args);
+    if (level == QNN_LOG_LEVEL_ERROR) {
+        char line[384];
+        vsnprintf(line, sizeof(line), fmt, copy);
+        std::string s(line);
+        while (!s.empty() && (s.back() == '\n' || s.back() == ' ')) s.pop_back();
+        std::lock_guard<std::mutex> guard(g_log_mutex);
+        g_log_lines.push_back(s);
+        while (g_log_lines.size() > MAX_LOG_LINES) g_log_lines.pop_front();
+    }
+    va_end(copy);
+}
+
+void clear_log() {
+    std::lock_guard<std::mutex> guard(g_log_mutex);
+    g_log_lines.clear();
+}
+
+/** The backend's error messages since the last clear_log(), newest last. */
+std::string recent_log() {
+    std::lock_guard<std::mutex> guard(g_log_mutex);
+    std::string out;
+    for (const auto & l : g_log_lines) out += (out.empty() ? "" : " | ") + l;
+    return out;
+}
+
+const char * error_name(uint64_t code) {
+    switch (code) {
+        case QNN_COMMON_ERROR_NOT_SUPPORTED: return "not supported";
+        case QNN_COMMON_ERROR_MEM_ALLOC: return "out of memory";
+        case QNN_COMMON_ERROR_SYSTEM: return "system error";
+        case QNN_COMMON_ERROR_INVALID_ARGUMENT: return "invalid argument";
+        case QNN_COMMON_ERROR_OPERATION_NOT_PERMITTED: return "operation not permitted";
+        case QNN_COMMON_ERROR_PLATFORM_NOT_SUPPORTED: return "platform not supported";
+        case QNN_COMMON_ERROR_SYSTEM_COMMUNICATION: return "DSP communication failed";
+        case QNN_COMMON_ERROR_INCOMPATIBLE_BINARIES: return "incompatible libraries (stub/skel mismatch)";
+        case QNN_COMMON_ERROR_LOADING_BINARIES: return "cannot load the DSP libraries (skel)";
+        case QNN_COMMON_ERROR_RESOURCE_UNAVAILABLE: return "NPU resource unavailable";
+        case QNN_COMMON_ERROR_SYSTEM_COMMUNICATION_FATAL: return "DSP communication failed (fatal)";
+        case QNN_COMMON_ERROR_GENERAL: return "general error";
+        case QNN_BACKEND_ERROR_CANNOT_INITIALIZE: return "backend cannot initialize";
+        case QNN_DEVICE_ERROR_HARDWARE_UNAVAILABLE: return "NPU hardware unavailable";
+        case QNN_DEVICE_ERROR_INVALID_CONFIG: return "invalid device config";
+        case QNN_CONTEXT_ERROR_INVALID_ARGUMENT: return "invalid argument";
+        case QNN_CONTEXT_ERROR_BINARY_VERSION: return "context binary version not supported by this runtime";
+        case QNN_CONTEXT_ERROR_CREATE_FROM_BINARY: return "cannot create the context from this binary";
+        case QNN_CONTEXT_ERROR_BINARY_CONFIGURATION: return "binary built for another configuration";
+        case QNN_CONTEXT_ERROR_INVALID_CONFIG: return "invalid context config";
+        case QNN_CONTEXT_ERROR_BINARY_SUBOPTIMAL: return "binary suboptimal for this chip";
+        case QNN_CONTEXT_ERROR_ABORTED: return "aborted";
+        case QNN_CONTEXT_ERROR_TIMED_OUT: return "timed out";
+        default: return "";
+    }
 }
 
 std::string err_text(const char * what, Qnn_ErrorHandle_t e) {
-    return std::string(what) + " failed (QNN error " + std::to_string(QNN_GET_ERROR_CODE(e)) + ")";
+    const uint64_t code = QNN_GET_ERROR_CODE(e);
+    const char * name = error_name(code);
+    std::string out = std::string(what) + " failed (QNN error " + std::to_string(code) + (*name ? std::string(": ") + name : "") + ")";
+    const std::string log = recent_log();
+    if (!log.empty()) out += " — " + log;
+    return out;
 }
 
 size_t type_size(Qnn_DataType_t t) {
@@ -237,23 +305,49 @@ QnnRuntime::~QnnRuntime() {
 
 bool QnnRuntime::init(const std::string & lib_dir, std::string * error) {
     if (backend_) return true;
-    const std::string htp_path = lib_dir + "/libQnnHtp.so";
+    lib_dir_ = lib_dir;
+    // libQnnSystem.so first and on its own: it reads context binaries (inspect, diagnostics) even
+    // when the HTP backend cannot start.
     const std::string sys_path = lib_dir + "/libQnnSystem.so";
-    htp_lib_ = dlopen(htp_path.c_str(), RTLD_NOW | RTLD_LOCAL);
     sys_lib_ = dlopen(sys_path.c_str(), RTLD_NOW | RTLD_LOCAL);
-    if (!htp_lib_ || !sys_lib_) {
-        *error = std::string("QNN libraries missing: ") + dlerror();
+    if (!sys_lib_) {
+        *error = std::string("cannot load libQnnSystem.so: ") + dlerror();
+        stage_ = "load libQnnSystem.so";
+        return false;
+    }
+    using GetSysProviders = Qnn_ErrorHandle_t (*)(const QnnSystemInterface_t ***, uint32_t *);
+    auto get_sys = (GetSysProviders) dlsym(sys_lib_, "QnnSystemInterface_getProviders");
+    const QnnSystemInterface_t ** sys_providers = nullptr;
+    uint32_t n_sys = 0;
+    if (get_sys && get_sys(&sys_providers, &n_sys) == QNN_SUCCESS) {
+        for (uint32_t i = 0; i < n_sys; i++) {
+            if (sys_providers[i]->systemApiVersion.major == QNN_SYSTEM_API_VERSION_MAJOR &&
+                sys_providers[i]->systemApiVersion.minor >= QNN_SYSTEM_API_VERSION_MINOR) {
+                sys_ = sys_providers[i]->QNN_SYSTEM_INTERFACE_VER_NAME;
+                break;
+            }
+        }
+    }
+    if (!sys_.systemContextCreate) {
+        *error = "libQnnSystem.so has no compatible system interface";
+        stage_ = "system interface";
+        return false;
+    }
+
+    const std::string htp_path = lib_dir + "/libQnnHtp.so";
+    htp_lib_ = dlopen(htp_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!htp_lib_) {
+        *error = std::string("cannot load libQnnHtp.so: ") + dlerror();
+        stage_ = "load libQnnHtp.so";
         return false;
     }
     using GetProviders = Qnn_ErrorHandle_t (*)(const QnnInterface_t ***, uint32_t *);
-    using GetSysProviders = Qnn_ErrorHandle_t (*)(const QnnSystemInterface_t ***, uint32_t *);
     auto get = (GetProviders) dlsym(htp_lib_, "QnnInterface_getProviders");
-    auto get_sys = (GetSysProviders) dlsym(sys_lib_, "QnnSystemInterface_getProviders");
     const QnnInterface_t ** providers = nullptr;
-    const QnnSystemInterface_t ** sys_providers = nullptr;
-    uint32_t n = 0, n_sys = 0;
-    if (!get || !get_sys || get(&providers, &n) != QNN_SUCCESS || get_sys(&sys_providers, &n_sys) != QNN_SUCCESS || n == 0 || n_sys == 0) {
-        *error = "QNN interface not available";
+    uint32_t n = 0;
+    if (!get || get(&providers, &n) != QNN_SUCCESS || n == 0) {
+        *error = "libQnnHtp.so exports no QNN interface";
+        stage_ = "backend interface";
         return false;
     }
     bool found = false;
@@ -264,23 +358,21 @@ bool QnnRuntime::init(const std::string & lib_dir, std::string * error) {
             found = true;
         }
     }
-    bool found_sys = false;
-    for (uint32_t i = 0; i < n_sys && !found_sys; i++) {
-        if (sys_providers[i]->systemApiVersion.major == QNN_SYSTEM_API_VERSION_MAJOR &&
-            sys_providers[i]->systemApiVersion.minor >= QNN_SYSTEM_API_VERSION_MINOR) {
-            sys_ = sys_providers[i]->QNN_SYSTEM_INTERFACE_VER_NAME;
-            found_sys = true;
-        }
-    }
-    if (!found || !found_sys) {
+    if (!found) {
         *error = "QNN runtime is older than the headers this app was built with";
+        stage_ = "backend interface";
         return false;
     }
+    const char * build = nullptr;
+    if (api_.backendGetBuildId && api_.backendGetBuildId(&build) == QNN_SUCCESS && build) build_ = build;
     api_.logCreate(qnn_log, QNN_LOG_LEVEL_WARN, &log_);
+    clear_log();
     Qnn_ErrorHandle_t e = api_.backendCreate(log_, nullptr, &backend_);
     if (e != QNN_SUCCESS) {
         backend_ = nullptr;
-        *error = QNN_GET_ERROR_CODE(e) == 4000 ? std::string("no Snapdragon Hexagon NPU found on this device") : err_text("opening the NPU", e);
+        *error = (QNN_GET_ERROR_CODE(e) == QNN_BACKEND_ERROR_CANNOT_INITIALIZE ? std::string("no usable Snapdragon Hexagon NPU: ") : std::string()) +
+                 err_text("opening the HTP backend", e);
+        stage_ = "backendCreate";
         return false;
     }
 
@@ -291,18 +383,36 @@ bool QnnRuntime::init(const std::string & lib_dir, std::string * error) {
         auto * ext = reinterpret_cast<QnnHtpDevice_DeviceInfoExtension_t *>(platform->v1.hwDevices[0].v1.deviceInfoExtension);
         if (ext && ext->devType == QNN_HTP_DEVICE_TYPE_ON_CHIP) {
             arch_ = "v" + std::to_string((int) ext->onChipDevice.arch);
-            LOGI("HTP arch %s, soc model %u", arch_.c_str(), ext->onChipDevice.socModel);
+            soc_model_ = ext->onChipDevice.socModel;
+            signed_pd_ = ext->onChipDevice.signedPdSupport;
+            LOGI("HTP arch %s, soc model %u", arch_.c_str(), soc_model_);
         }
         if (api_.deviceFreePlatformInfo) api_.deviceFreePlatformInfo(log_, platform);
     }
 
+    // deviceCreate is where FastRPC opens the unsigned protection domain on the cDSP and loads
+    // libQnnHtpV<arch>Skel.so through ADSP_LIBRARY_PATH: a missing or unreadable skel fails here.
+    clear_log();
     e = api_.deviceCreate(log_, nullptr, &device_);
     if (e != QNN_SUCCESS) {
         device_ = nullptr;
-        *error = err_text("deviceCreate", e);
+        *error = err_text("opening the NPU (deviceCreate)", e);
+        stage_ = "deviceCreate";
+        // Without a device no context can load: report the NPU as unavailable instead of failing
+        // every generation later.
+        api_.backendFree(backend_);
+        backend_ = nullptr;
         return false;
     }
+    stage_ = "ready";
     return true;
+}
+
+std::string QnnRuntime::diagnostics() const {
+    std::ostringstream o;
+    o << "\"stage\":\"" << json_escape(stage_) << "\",\"qnn_build\":\"" << json_escape(build_) << "\",\"soc_model\":" << soc_model_
+      << ",\"signed_pd\":" << (signed_pd_ ? "true" : "false") << ",\"system_lib\":" << (sys_.systemContextCreate ? "true" : "false");
+    return o.str();
 }
 
 void QnnRuntime::set_performance(bool burst) {
@@ -339,7 +449,7 @@ void QnnRuntime::set_performance(bool burst) {
 }
 
 bool QnnRuntime::binary_info(const void * data, size_t size, std::vector<GraphSpec> * graphs, std::string * meta,
-                             QnnModel * owner, std::string * error) {
+                             QnnModel * owner, std::string * error, std::string * built_with) {
     QnnSystemContext_Handle_t sys = nullptr;
     if (sys_.systemContextCreate(&sys) != QNN_SUCCESS) {
         *error = "systemContextCreate failed";
@@ -368,6 +478,7 @@ bool QnnRuntime::binary_info(const void * data, size_t size, std::vector<GraphSp
             n_graphs = info->contextBinaryInfoV3.numGraphs; list = info->contextBinaryInfoV3.graphs;
             build = info->contextBinaryInfoV3.buildId; break;
     }
+    if (built_with) *built_with = build ? build : "";
     if (meta) {
         std::ostringstream o;
         o << "\"soc\":\"" << json_escape(soc ? soc : "") << "\",\"build\":\"" << json_escape(build ? build : "") << "\"";
@@ -448,11 +559,16 @@ std::unique_ptr<QnnModel> QnnRuntime::load(const std::string & path, std::string
     if (!map.open(path, error)) return nullptr;
     auto model = std::unique_ptr<QnnModel>(new QnnModel());
     model->rt_ = this;
-    if (!binary_info(map.data, map.size, &model->graphs_, nullptr, model.get(), error)) return nullptr;
+    std::string built;
+    if (!binary_info(map.data, map.size, &model->graphs_, nullptr, model.get(), error, &built)) return nullptr;
+    clear_log();
     Qnn_ErrorHandle_t e = api_.contextCreateFromBinary(backend_, device_, nullptr, map.data, map.size, &model->context_, nullptr);
     if (e != QNN_SUCCESS) {
         model->context_ = nullptr;
-        *error = err_text("loading the model on the NPU", e) + " — this file may be built for another chip or QNN version";
+        const std::string name = path.substr(path.find_last_of('/') + 1);
+        // Which runtime met which binary: the report needs both builds.
+        *error = err_text(("loading " + name + " on the NPU (Hexagon " + (arch_.empty() ? "?" : arch_) + ", runtime " + build_ +
+                           ", binary built with " + (built.empty() ? "?" : built) + ")").c_str(), e);
         return nullptr;
     }
     for (auto & g : model->graphs_) {
@@ -486,6 +602,7 @@ bool QnnModel::execute(int graph, const std::vector<void *> & inputs, const std:
     std::vector<Qnn_Tensor_t> out = g.output_templates;
     for (size_t i = 0; i < in.size(); i++) v1(in[i]).clientBuf = {inputs[i], (uint32_t) g.inputs[i].bytes()};
     for (size_t i = 0; i < out.size(); i++) v1(out[i]).clientBuf = {outputs[i], (uint32_t) g.outputs[i].bytes()};
+    clear_log();
     Qnn_ErrorHandle_t e = rt_->api_.graphExecute(g.handle, in.data(), (uint32_t) in.size(), out.data(), (uint32_t) out.size(), nullptr, nullptr);
     if (e != QNN_SUCCESS) {
         *error = err_text(("running " + g.name).c_str(), e);

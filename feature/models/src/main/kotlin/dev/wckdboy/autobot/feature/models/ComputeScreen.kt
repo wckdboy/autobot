@@ -172,8 +172,32 @@ class ComputeViewModel @Inject constructor(
         viewModelScope.launch { profile.setBackend(model.id, backend) }
     }
 
+    /**
+     * Builds the report after a live NPU check: the engine status is refreshed and, when the HTP
+     * opened, the smallest installed QNN binary is loaded once, so one tap on the user's phone tells
+     * whether (and why not) models load there.
+     */
+    fun report(onReady: (String) -> Unit) {
+        if (running.value != null) return
+        viewModelScope.launch {
+            running.value = "testing the npu"
+            val probe = try {
+                val d = withContext(Dispatchers.IO) { withTimeoutOrNull(DEVICES_TIMEOUT_MS) { runCatching { bench.devices() }.getOrNull() } }
+                if (d != null) devices.value = d
+                if (d?.npu != null) {
+                    withTimeoutOrNull(PROBE_TIMEOUT_MS) { bench.npuProbe(d.npuArch) } ?: "context load test: timed out"
+                } else {
+                    null
+                }
+            } finally {
+                running.value = null
+            }
+            onReady(report(probe))
+        }
+    }
+
     /** The shared diagnostics report for what this screen shows (no prompts, paths or identifiers). */
-    fun report(): String {
+    fun report(npuProbe: String? = null): String {
         val state = uiState.value
         val p = state.device
         val d = state.devices
@@ -192,6 +216,7 @@ class ComputeViewModel @Inject constructor(
             ),
             engineDevices = d?.engineDevices.orEmpty(),
             imageAccelerator = d?.let { AcceleratorStatus("QNN HTP", it.npu != null, it.npu ?: it.npuError) },
+            imageAcceleratorDetails = d?.npuDetails.orEmpty() + listOfNotNull(npuProbe),
             benchmarks = state.models.flatMap { cm ->
                 cm.results.values.map { b ->
                     BenchmarkLine(cm.model.title, b.backend.label, b.promptTps, b.generationTps, b.stepMs, b.loadMs)
@@ -237,7 +262,13 @@ fun ComputeRoute(onBack: () -> Unit, viewModel: ComputeViewModel = hiltViewModel
             AutobotTopBar(
                 title = "Compute",
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-                actions = { Tag("report", Modifier.padding(end = 12.dp), onClick = { report = viewModel.report() }) },
+                actions = {
+                    Tag(
+                        if (state.running != null) "busy" else "report",
+                        Modifier.padding(end = 12.dp),
+                        onClick = { viewModel.report { report = it } }.takeIf { state.running == null },
+                    )
+                },
             )
         },
     ) { padding ->
@@ -374,5 +405,8 @@ private fun fmt(v: Double): String = String.format(Locale.ROOT, if (v >= 100) "%
 /** CPU features worth reporting (they decide which llama.cpp CPU variant loads). */
 /** Starting the engine process can take a while on first use; past this, show what is known. */
 private const val DEVICES_TIMEOUT_MS = 30_000L
+
+/** Loading even an SDXL VAE context takes seconds; a hung DSP must not hold the report forever. */
+private const val PROBE_TIMEOUT_MS = 60_000L
 
 private val REPORTED_CPU_FEATURES = setOf("asimddp", "i8mm", "sve", "sve2", "bf16", "sme", "fphp", "asimdhp")

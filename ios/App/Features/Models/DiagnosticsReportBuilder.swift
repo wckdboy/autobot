@@ -66,6 +66,7 @@ enum DiagnosticsReportBuilder {
             errors: [devices?.npuError].compactMap { $0 } + EngineErrors.recent,
             networkMode: app.settings.settings.mode.privacyStatus.label,
             systemModel: AcceleratorStatus(name: AppleIntelligence.title, available: AppleIntelligence.unavailability == nil, detail: AppleIntelligence.unavailability?.detail),
+            imageAcceleratorDetails: [],
         )
         return report.render()
         #else

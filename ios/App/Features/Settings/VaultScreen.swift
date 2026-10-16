@@ -26,23 +26,11 @@ struct VaultScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     SwitchRow(
-                        title: "Let the agent search the vault",
-                        subtitle: settings.vaultEnabled
-                            ? "The agent can look up passages with vault_search."
-                            : "Off: the agent neither sees nor searches your files.",
+                        title: "Agent search",
                         isOn: Binding(get: { settings.vaultEnabled }, set: { app.settings.setVaultEnabled($0) }),
+                        info: "The agent can look up passages in your files (vault_search). Text, Markdown, PDF and photos (on-device OCR) are indexed on this phone, encrypted, never uploaded.",
                     )
-                    Text("Indexed on this phone, encrypted, never uploaded.")
-                        .textStyle(.bodyMedium)
-                        .foregroundStyle(c.onSurface)
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.vertical, 6)
-                    NavigationRow(
-                        title: model?.title ?? "No embedding model",
-                        subtitle: model == nil
-                            ? "Download one in Models (embedding · vault) to add files"
-                            : "Text, Markdown, PDF and photos (read with on-device OCR)",
-                    ) { nav.switchTo(.models) }
+                    NavigationRow(title: "Embedding model", value: model?.title ?? "None") { nav.switchTo(.models) }
                     if let progress = vault.progress {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {

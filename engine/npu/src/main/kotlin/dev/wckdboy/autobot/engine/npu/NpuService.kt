@@ -28,7 +28,8 @@ class NpuService : Service() {
             // The DSP loads the HTP skeleton libraries (libQnnHtpV*Skel.so) from these directories.
             val dsp = listOf(applicationInfo.nativeLibraryDir, "/vendor/dsp/cdsp", "/vendor/lib/rfsa/adsp", "/system/lib/rfsa/adsp", "/vendor/dsp/dsp", "/vendor/dsp")
             Os.setenv("ADSP_LIBRARY_PATH", dsp.joinToString(";"), true)
-            Init(true, String(NativeNpu.init(applicationInfo.nativeLibraryDir), Charsets.UTF_8).also { Log.i(TAG, "engine status $it") })
+            val status = JSONObject(String(NativeNpu.init(applicationInfo.nativeLibraryDir), Charsets.UTF_8))
+            Init(true, withLibraryReport(status, File(applicationInfo.nativeLibraryDir)).toString().also { Log.i(TAG, "engine status $it") })
         } catch (t: Throwable) {
             Log.e(TAG, "engine init failed", t)
             Init(false, """{"npu":false,"arch":"","error":${JSONObject.quote("cannot start: ${t.javaClass.simpleName}")}}""")
@@ -89,7 +90,25 @@ class NpuService : Service() {
         runCatching { callback.onResult(result) }
     }
 
-    private companion object {
+    internal companion object {
         const val TAG = "NpuService"
+
+        /**
+         * Adds what the DSP loader needs to the engine status: whether the APK's native libraries
+         * were extracted (FastRPC reads the skel from a real file, never from inside the APK), and
+         * whether this phone's `libQnnHtpV<arch>Skel.so` is there and readable. Names and sizes
+         * only: no paths go into the report.
+         */
+        fun withLibraryReport(status: JSONObject, libDir: File): JSONObject {
+            val arch = status.optString("arch").removePrefix("v")
+            val skels = libDir.listFiles { f -> f.name.startsWith("libQnnHtpV") && f.name.endsWith("Skel.so") }.orEmpty()
+            status.put("libs_extracted", File(libDir, "libQnnHtp.so").isFile)
+            status.put("skels", skels.map { it.name.removePrefix("libQnnHtp").removeSuffix("Skel.so") }.sorted().joinToString(","))
+            if (arch.isNotEmpty()) {
+                val skel = File(libDir, "libQnnHtpV${arch}Skel.so")
+                status.put("skel", "${skel.name}: " + if (skel.canRead()) "found (${skel.length()} bytes)" else "MISSING")
+            }
+            return status
+        }
     }
 }

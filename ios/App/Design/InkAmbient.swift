@@ -66,6 +66,7 @@ struct InkLoader: View {
     @Environment(\.scheme) private var c
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.inkStill) private var still
+    @Environment(\.displayScale) private var displayScale
 
     init(_ size: Size = .inline, caption: String? = nil, color: Color? = nil) {
         self.size = size
@@ -82,10 +83,10 @@ struct InkLoader: View {
                 Canvas { context, canvas in
                     InkProbe.hit("ink.draw")
                     let t = reduced ? InkMath.loaderCycleSeconds * 0.3 : date.timeIntervalSinceReferenceDate
-                    context.fill(Self.dots(size, in: canvas, seconds: t), with: .color(ink))
+                    context.fill(Self.dots(size, in: canvas, seconds: t, scale: Double(context.environment.displayScale)), with: .color(ink))
                 }
             }
-            .frame(width: size.width, height: size.height)
+            .frame(width: Self.frame(size, scale: displayScale).width, height: Self.frame(size, scale: displayScale).height)
             if size == .block, let caption { MicroLabel(caption).fixedSize() }
         }
         .accessibilityElement()
@@ -93,16 +94,38 @@ struct InkLoader: View {
     }
 
     /// The loader's dots, centred in [canvas], at [seconds].
-    static func dots(_ size: Size, in canvas: CGSize, seconds: Double) -> Path {
-        let d = size.diameter, pitch = size.pitch
-        let ox = (canvas.width - size.width) / 2 + d / 2
-        let oy = (canvas.height - (CGFloat(size.rows - 1) * pitch + d)) / 2 + d / 2
+    /// The loader's frame at [scale]: exactly its whole-pixel dots (inline and button keep the
+    /// height of the text they stand in for).
+    static func frame(_ size: Size, scale: CGFloat) -> CGSize {
+        let s = Double(max(scale, 1))
+        let d = InkGrid.pixels(Double(size.diameter), scale: s)
+        let pitch = max(d + 1, InkGrid.pixels(Double(size.pitch), scale: s))
+        let width = CGFloat(Double((size.cols - 1) * pitch + d) / s)
+        let height = size == .block ? CGFloat(Double((size.rows - 1) * pitch + d) / s) : size.height
+        return CGSize(width: width, height: height)
+    }
+
+    /// Whole-pixel geometry at [scale]: diameter, pitch and the centred, snapped axes.
+    static func layout(_ size: Size, in canvas: CGSize, scale: Double) -> (diameterPx: Int, cols: InkGrid.Axis, rows: InkGrid.Axis) {
+        let d = InkGrid.pixels(Double(size.diameter), scale: scale)
+        let pitch = max(d + 1, InkGrid.pixels(Double(size.pitch), scale: scale))
+        let odd = d % 2 == 1
+        return (
+            d,
+            InkGrid.centred(count: size.cols, pitchPx: pitch, lengthPx: Double(canvas.width) * scale, oddDiameter: odd),
+            InkGrid.centred(count: size.rows, pitchPx: pitch, lengthPx: Double(canvas.height) * scale, oddDiameter: odd),
+        )
+    }
+
+    static func dots(_ size: Size, in canvas: CGSize, seconds: Double, scale: Double = 3) -> Path {
+        let (d, cols, rows) = layout(size, in: canvas, scale: scale)
+        let full = Double(d) / 2 / scale
         var path = Path()
-        for r in 0 ..< size.rows {
-            for col in 0 ..< size.cols {
+        for r in 0 ..< rows.count {
+            for col in 0 ..< cols.count {
                 let position = Double(col) + Double(r) * 0.75
-                let radius = d / 2 * CGFloat(InkMath.loaderScale(position: position, wavelength: size.wavelength, seconds: seconds))
-                let cx = ox + CGFloat(col) * pitch, cy = oy + CGFloat(r) * pitch
+                let radius = full * InkMath.loaderScale(position: position, wavelength: size.wavelength, seconds: seconds)
+                let cx = cols.center(col, scale: scale), cy = rows.center(r, scale: scale)
                 path.addEllipse(in: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
             }
         }
@@ -212,8 +235,12 @@ struct InkGround: View {
         InkTimeline(active: !heavy, tier: .ambient) { date in
             Canvas { context, size in
                 InkProbe.hit("ink.draw")
-                grid.layout(size, base: Double(cell), maxDots: hero ? Self.heroMaxDots : Int(Tokens.Motion.cardMaxDots), fade: fade)
-                Self.draw(&context, grid: grid, seconds: date.timeIntervalSinceReferenceDate, phase: phase, hero: hero, printing: printing,
+                grid.layout(size, base: Double(cell), maxDots: hero ? Self.heroMaxDots : Int(Tokens.Motion.cardMaxDots), fade: fade,
+                            scale: Double(context.environment.displayScale))
+                // The paper's own clock: no jump after a pause or a resize.
+                let period = Double(Tokens.Motion.ambientCycleSeconds)
+                let seconds = grid.clock.advance(to: date, period: period) * period
+                Self.draw(&context, grid: grid, seconds: seconds, phase: phase, hero: hero, printing: printing,
                           ink: ink, plate: plateInk, opacity: opacity)
             }
         }

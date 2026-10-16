@@ -20,7 +20,7 @@ struct AccountsScreen: View {
             AutobotTopBar(title: "Accounts", onBack: { nav.back() })
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SectionLabel("model hubs · tokens are encrypted on this phone")
+                    SectionLabel("model hubs · encrypted")
                     if let message {
                         HStack {
                             MicroLabel(message, color: c.primary, lines: 3).frame(maxWidth: .infinity, alignment: .leading)
@@ -28,14 +28,15 @@ struct AccountsScreen: View {
                         }
                     }
                     Panel(title: "Hugging Face") {
-                        Text(accounts.huggingFaceUser.map { "Signed in as \($0). Gated models (Llama, Gemma 3…) download once you accept their terms on huggingface.co." }
-                            ?? "Optional. A read token lifts rate limits and unlocks gated models you have accepted. Create one at huggingface.co/settings/tokens (fine-grained, read access to public gated repos).")
-                            .textStyle(.bodySmall)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 0) {
+                            Text(accounts.huggingFaceUser.map { "Signed in as \($0)" } ?? "Optional read token")
+                                .textStyle(.bodySmall)
+                                .foregroundStyle(c.onSurfaceVariant)
+                            InfoButton(title: "Hugging Face", text: "A read token lifts rate limits and unlocks gated models (Llama, Gemma 3…) once you accept their terms on huggingface.co. Create one at huggingface.co/settings/tokens (fine-grained, read access to public gated repos).")
+                        }
                         if accounts.huggingFaceUser == nil {
                             ConsoleTextField(text: $hfToken, placeholder: "hf_…", kind: .secret)
-                            PrimaryButton("Verify & save", enabled: !hfToken.trimmingCharacters(in: .whitespaces).isEmpty && !busy, busy: busy && busyPanel == "hf") {
+                            GhostButton("Verify & save", accent: c.primary, enabled: !hfToken.trimmingCharacters(in: .whitespaces).isEmpty && !busy, busy: busy && busyPanel == "hf") {
                                 busyPanel = "hf"
                                 let token = Secret(hfToken.trimmingCharacters(in: .whitespacesAndNewlines))
                                 hfToken = ""
@@ -50,14 +51,15 @@ struct AccountsScreen: View {
                         }
                     }
                     Panel(title: "Civitai") {
-                        Text(accounts.civitaiUser.map { "API key saved for \($0)." }
-                            ?? "Optional. Some creators require login to download. Create a key in civitai.com → Account settings → API keys.")
-                            .textStyle(.bodySmall)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 0) {
+                            Text(accounts.civitaiUser.map { "Key saved · \($0)" } ?? "Optional API key")
+                                .textStyle(.bodySmall)
+                                .foregroundStyle(c.onSurfaceVariant)
+                            InfoButton(title: "Civitai", text: "Some creators require login to download. Create a key in civitai.com → Account settings → API keys.")
+                        }
                         if accounts.civitaiUser == nil {
                             ConsoleTextField(text: $civitaiKey, placeholder: "api key", kind: .secret)
-                            PrimaryButton("Verify & save", enabled: !civitaiKey.trimmingCharacters(in: .whitespaces).isEmpty && !busy, busy: busy && busyPanel == "civitai") {
+                            GhostButton("Verify & save", accent: c.primary, enabled: !civitaiKey.trimmingCharacters(in: .whitespaces).isEmpty && !busy, busy: busy && busyPanel == "civitai") {
                                 busyPanel = "civitai"
                                 let key = Secret(civitaiKey.trimmingCharacters(in: .whitespacesAndNewlines))
                                 civitaiKey = ""
@@ -75,7 +77,7 @@ struct AccountsScreen: View {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Mature content").textStyle(.titleSmall).foregroundStyle(c.onSurface)
-                                Text("Show NSFW models (previews stay blurred). 18+ only.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+                                Text("18+ · previews blurred").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             RisoToggle(isOn: Binding(

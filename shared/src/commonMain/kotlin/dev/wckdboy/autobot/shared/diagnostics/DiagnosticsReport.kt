@@ -29,6 +29,11 @@ class DiagnosticsReport(
     val networkMode: String? = null,
     /** The OS's own language model (Apple Intelligence, Gemini Nano), when the build can use one. */
     val systemModel: AcceleratorStatus? = null,
+    /**
+     * Bring-up details of the image accelerator, one fact per line: how far QNN got, the runtime
+     * build, which DSP skel this chip needs and whether it is there, a real context-load test.
+     */
+    val imageAcceleratorDetails: List<String> = emptyList(),
 ) {
     /** Plain text, readable in an issue or a chat message. */
     fun render(): String = buildString {
@@ -51,6 +56,7 @@ class DiagnosticsReport(
             appendLine()
             appendLine("### image accelerator")
             appendLine(a.line())
+            imageAcceleratorDetails.forEach { appendLine("- ${it.take(MAX_DETAIL_CHARS)}") }
         }
         systemModel?.let { a ->
             appendLine()
@@ -78,7 +84,8 @@ class DiagnosticsReport(
 
     private companion object {
         const val MAX_ERRORS = 10
-        const val MAX_ERROR_CHARS = 300
+        const val MAX_ERROR_CHARS = 600
+        const val MAX_DETAIL_CHARS = 600
 
         fun AcceleratorStatus.line(): String = "$name: ${if (available) "available" else "unavailable"}${detail?.let { " · $it" }.orEmpty()}"
 

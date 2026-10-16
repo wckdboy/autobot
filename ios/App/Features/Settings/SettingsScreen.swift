@@ -16,35 +16,27 @@ struct SettingsScreen: View {
             AutobotTopBar(title: "System", onBack: nav.path.isEmpty ? nil : { nav.back() })
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    NavigationRow(title: "Model providers", subtitle: "Chat endpoints and API keys") { nav.push(.providers) }
-                    NavigationRow(title: "MCP servers", subtitle: "Remote tools for agent sessions, each call approved") { nav.push(.mcpServers) }
-                    NavigationRow(title: "Image backends", subtitle: "Diffusion servers: Local Dream host, A1111/Forge, local SSE engines") { nav.push(.imageBackends) }
-                    NavigationRow(title: "Privacy Center", subtitle: "Network mode, audit log, panic wipe") { nav.push(.privacyCenter) }
-                    NavigationRow(title: "Export & import", subtitle: "Move sessions, gallery and memory between phones, sealed with a passphrase") { showBackup = true }
-                    NavigationRow(title: "Licenses", subtitle: "Autobot and the open-source software inside it") { nav.push(.licenses) }
+                    header("Connections")
+                    NavigationRow(title: "Model providers", value: count(app.providers.providers.count)) { nav.push(.providers) }
+                    NavigationRow(title: "MCP servers") { nav.push(.mcpServers) }
+                    NavigationRow(title: "Image backends", value: count(app.backends.backends.count)) { nav.push(.imageBackends) }
+                    NavigationRow(title: "Privacy Center", value: Self.modeLabel(settings.mode)) { nav.push(.privacyCenter) }
                     Hairline().padding(.vertical, 8)
 
                     header("Agent")
                     SwitchRow(
                         title: "Memory",
-                        subtitle: "Let the agent recall and save notes, kept encrypted on this phone",
                         isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
+                        info: "The agent recalls and saves notes, kept encrypted on this phone.",
                     )
-                    NavigationRow(title: "Memory notes", subtitle: "View, search, edit and delete what the agent remembers") { nav.push(.memory) }
-                    NavigationRow(
-                        title: "Vault",
-                        subtitle: settings.vaultEnabled ? "On · your files, searched by meaning on this phone" : "Off · private search over your own files",
-                    ) { nav.push(.vault) }
+                    NavigationRow(title: "Memory notes") { nav.push(.memory) }
+                    NavigationRow(title: "Vault", value: settings.vaultEnabled ? "On" : "Off") { nav.push(.vault) }
                     SwitchRow(
-                        title: "On limit, fall back",
-                        subtitle: "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so",
+                        title: "Fallback on limit",
                         isOn: Binding(get: { settings.quotaFallback }, set: { app.settings.setQuotaFallback($0) }),
+                        info: "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
                     )
-                    NavigationRow(
-                        title: "Web search",
-                        subtitle: settings.webSearchOn ? "\(WebSearchDraft.label(settings.searchProvider)) · queries only, through your route" : "Off · SearXNG or Brave Search",
-                    ) { showSearch = true }
-                    note("Used in sessions with agent tools on (not plain chat or Apple Intelligence)")
+                    NavigationRow(title: "Web search", value: settings.webSearchOn ? WebSearchDraft.label(settings.searchProvider) : "Off") { showSearch = true }
                     if settings.webSearchOn && settings.mode == .offline {
                         note("Offline mode blocks searches", color: c.error)
                     }
@@ -58,7 +50,6 @@ struct SettingsScreen: View {
                     .padding(.vertical, 8)
                     SwitchRow(
                         title: "AMOLED black",
-                        subtitle: "Pure black backgrounds in dark theme",
                         isOn: Binding(get: { settings.amoled }, set: { app.settings.setAmoled($0) }),
                         enabled: settings.themeMode != .light,
                     )
@@ -67,16 +58,17 @@ struct SettingsScreen: View {
                     header("Security")
                     SwitchRow(
                         title: "App lock",
-                        subtitle: lockAvailable ? "Require \(app.lock.biometryLabel()) or the device passcode" : "Set up a passcode on this device to enable",
+                        subtitle: lockAvailable ? nil : "Needs a device passcode",
                         isOn: Binding(get: { settings.appLockEnabled && lockAvailable }, set: { app.settings.setAppLockEnabled($0) }),
                         enabled: lockAvailable,
+                        info: lockAvailable ? "Require \(app.lock.biometryLabel()) or the device passcode." : nil,
                     )
                     if settings.appLockEnabled && lockAvailable {
-                        Text("Lock after leaving the app")
+                        Text("Lock after")
                             .textStyle(.bodyMedium)
-                            .foregroundStyle(c.onSurface)
+                            .foregroundStyle(c.onSurfaceVariant)
                             .padding(.horizontal, Tokens.Spacing.gutter)
-                            .padding(.vertical, 4)
+                            .padding(.top, 4)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(lockTimeoutOptions, id: \.millis) { option in
@@ -87,31 +79,32 @@ struct SettingsScreen: View {
                                 }
                             }
                             .padding(.horizontal, Tokens.Spacing.gutter)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, 8)
                         }
                     }
                     SwitchRow(
                         title: "Incognito by default",
-                        subtitle: "New chats are kept in memory only",
                         isOn: Binding(get: { settings.incognitoByDefault }, set: { app.settings.setIncognitoByDefault($0) }),
+                        info: "New chats are kept in memory only, never written to disk.",
                     )
+                    Hairline().padding(.vertical, 8)
+
+                    header("Data")
+                    NavigationRow(title: "Export & import") { showBackup = true }
                     Button { confirmDeleteChats = true } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Delete all chats").textStyle(.bodyLarge).foregroundStyle(c.error)
-                            Text("Remove every session from this phone; folders and memory stay")
-                                .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
+                        Text("Delete all chats").textStyle(.bodyLarge).foregroundStyle(c.error)
+                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                            .padding(.horizontal, Tokens.Spacing.gutter)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(PressStyle())
                     Hairline().padding(.vertical, 8)
 
                     header("About")
-                    MicroLabel("autobot \(Self.version) · no analytics · no telemetry", lines: 2)
+                    NavigationRow(title: "Licenses") { nav.push(.licenses) }
+                    MicroLabel("autobot \(Self.version) · no analytics", lines: 2)
                         .padding(.horizontal, Tokens.Spacing.gutter)
+                        .padding(.top, 8)
                         .padding(.bottom, 24)
                 }
             }
@@ -122,7 +115,7 @@ struct SettingsScreen: View {
         .risoAlert(
             $confirmDeleteChats,
             title: "Delete all chats?",
-            message: "Every session, its encrypted history, tool calls, approvals and attached images is removed from this phone. Folders, memory notes and workspace files stay. This cannot be undone.",
+            message: "Every session is removed from this phone. Folders, memory and files stay.",
             confirm: "Delete all",
         ) { app.chats.deleteAll() }
     }
@@ -138,6 +131,19 @@ struct SettingsScreen: View {
 
     private func header(_ text: String) -> some View {
         SectionLabel(text).padding(.horizontal, Tokens.Spacing.gutter).padding(.top, 12).padding(.bottom, 4)
+    }
+
+    /// A count as a row value; nothing for none.
+    private func count(_ n: Int) -> String? { n > 0 ? "\(n)" : nil }
+
+    /// The network mode in one word (the Privacy Center row's value).
+    static func modeLabel(_ mode: NetworkMode) -> String {
+        switch mode {
+        case .offline: "Offline"
+        case .direct: "Direct"
+        case .tor: "Tor"
+        case .socks5: "SOCKS5"
+        }
     }
 
     static var version: String {

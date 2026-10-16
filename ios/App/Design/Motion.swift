@@ -268,7 +268,7 @@ struct FlowingHalftone: View {
                 InkProbe.hit("ink.draw")
                 flow.advance(to: date, speed: speed, fill: fill(date))
                 let pitch = InkMath.dotCell(width: size.width, height: size.height, base: cell)
-                context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase + flow.phase, fill: flow.fill), with: .color(dot ?? scheme.primary))
+                context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase + flow.phase, fill: flow.fill, displayScale: Double(context.environment.displayScale)), with: .color(dot ?? scheme.primary))
             }
         }
         .clipped()
@@ -279,17 +279,17 @@ struct FlowingHalftone: View {
 /// Dot paths shared by the static and animated halftones.
 enum HalftonePaths {
     /// The procedural field on a centred grid of [cell] pitch, radius scaled by [fill].
-    static func field(size: CGSize, cell: CGFloat, phase: Double, fill: Double) -> Path {
-        let cols = max(1, Int(size.width / cell)), rows = max(1, Int(size.height / cell))
-        let ox = (size.width - CGFloat(cols) * cell) / 2, oy = (size.height - CGFloat(rows) * cell) / 2
-        let scale = Double(cell * Tokens.Halftone.fieldRadiusFactor) * fill
+    /// Centres on a whole-pixel grid at [displayScale], centred and snapped ([InkGrid.centres]).
+    static func field(size: CGSize, cell: CGFloat, phase: Double, fill: Double, displayScale: Double = 3) -> Path {
+        let w = Double(size.width), h = Double(size.height)
+        let grid = InkGrid.centres(width: w, height: h, pitch: Double(cell), scale: displayScale)
+        let scale = grid.pitch * Double(Tokens.Halftone.fieldRadiusFactor) * fill
         var path = Path()
-        for r in 0 ..< rows {
-            let y = (Double(r) + 0.5) / Double(rows)
-            for c in 0 ..< cols {
-                let radius = CGFloat(InkMath.fieldValue(x: (Double(c) + 0.5) / Double(cols), y: y, phase: phase) * scale)
-                if radius > Tokens.Halftone.fieldMinRadius {
-                    let cx = ox + (CGFloat(c) + 0.5) * cell, cy = oy + (CGFloat(r) + 0.5) * cell
+        for cy in grid.ys {
+            let y = cy / max(h, 1)
+            for cx in grid.xs {
+                let radius = InkMath.fieldValue(x: cx / max(w, 1), y: y, phase: phase) * scale
+                if radius > Double(Tokens.Halftone.fieldMinRadius) {
                     path.addEllipse(in: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
                 }
             }

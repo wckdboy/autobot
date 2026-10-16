@@ -409,7 +409,7 @@ struct ImageRoom: View {
                         CanvasImage(asset: asset)
                     } else {
                         Color.clear.inkCard(seed: 0.6, fade: .bottomLeading, cornerRadius: 0)
-                        MicroLabel("the canvas · results print here").padding(10)
+                            .accessibilityLabel("Empty canvas")
                     }
                     if let running {
                         Tag(running.state == .queued ? "queued" : running.steps > 0 ? "step \(running.step)/\(running.steps)" : (running.status ?? "loading"),
@@ -498,7 +498,7 @@ struct ImageRoom: View {
                     }
                 }
             }
-            if let runs = model.runsOn { RunsOnTag(label: runs.label, route: runs.route) }
+            if let runs = model.runsOn { RouteTag(route: runs.route).accessibilityLabel("Runs on \(runs.label)") }
             if let error = model.catalogError {
                 HStack {
                     MicroLabel("can't reach \(model.backend?.name ?? "the backend"): \(error)", color: c.error, lines: 2)

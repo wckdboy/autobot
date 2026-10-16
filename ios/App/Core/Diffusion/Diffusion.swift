@@ -244,6 +244,19 @@ final class DiffusionBackendRepository {
 
     var defaultBackend: DiffusionBackend? { backends.first { $0.id == defaultBackendId } ?? backends.first }
 
+    /**
+     The backend a new image starts on: the default, except in Offline mode, where a PC backend
+     cannot be reached; then "This phone" when it has a model (one tap less: no chip to switch).
+     */
+    func startingBackend(offline: Bool) -> DiffusionBackend? {
+        let chosen = defaultBackend
+        if offline, let chosen, chosen.kind != .onDevice, !chosen.isLoopback,
+           let phone = backends.first(where: { $0.id == Self.onDeviceId }) {
+            return phone
+        }
+        return chosen
+    }
+
     func save(_ backend: DiffusionBackend) {
         backends = backends.filter { $0.id != backend.id } + [backend]
         preferences.set("diffusion_backends", backends)

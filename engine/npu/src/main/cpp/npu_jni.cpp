@@ -46,7 +46,7 @@ std::string quote(const std::string & s) {
 
 }  // namespace
 
-/** Opens the HTP backend; returns {"npu":bool,"arch":"v79","error":...}. */
+/** Opens the HTP backend; returns {"npu":bool,"arch":"v79","error":...,"stage":...,"qnn_build":...}. */
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_dev_wckdboy_autobot_engine_npu_NativeNpu_init(JNIEnv * env, jobject, jstring jlib_dir) {
     std::lock_guard<std::mutex> guard(g_lock);
@@ -58,7 +58,7 @@ Java_dev_wckdboy_autobot_engine_npu_NativeNpu_init(JNIEnv * env, jobject, jstrin
     }
     const bool ok = g_qnn->ready();
     std::string json = std::string("{\"npu\":") + (ok ? "true" : "false") + ",\"arch\":" + quote(g_qnn->arch()) +
-                       ",\"error\":" + quote(ok ? "" : g_qnn_error) + "}";
+                       ",\"error\":" + quote(ok ? "" : g_qnn_error) + "," + g_qnn->diagnostics() + "}";
     return bytes(env, json);
 }
 
@@ -121,7 +121,7 @@ Java_dev_wckdboy_autobot_engine_npu_NativeNpu_unload(JNIEnv *, jobject) {
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_dev_wckdboy_autobot_engine_npu_NativeNpu_inspect(JNIEnv * env, jobject, jstring jpath) {
     std::lock_guard<std::mutex> guard(g_lock);
-    if (!g_qnn || !g_qnn->ready()) return bytes(env, "{\"error\":" + quote("NPU unavailable: " + g_qnn_error) + "}");
+    if (!g_qnn || !g_qnn->system_ready()) return bytes(env, "{\"error\":" + quote("QNN unavailable: " + g_qnn_error) + "}");
     std::string error;
     std::string json = g_qnn->inspect(jstr(env, jpath), &error);
     return bytes(env, json.empty() ? "{\"error\":" + quote(error) + "}" : json);

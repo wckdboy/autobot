@@ -761,9 +761,8 @@ private struct EmptySession: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(toolsEnabled ? "agent ready · workspace /workspace" : "chat")
+            SectionLabel(toolsEnabled ? "agent" : "chat")
             Text(toolsEnabled ? "What should\nit do?" : "Ask\nanything.").textStyle(.displaySmall).foregroundStyle(c.onSurface)
-            MicroLabel("type / for commands", color: c.outline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 48)
