@@ -38,7 +38,7 @@ class InkMathV2Test {
         assertEquals(0f, InkMath.ambientBreath(0f), eps)
         assertEquals(1f, InkMath.ambientBreath(Motion.ambientBreathSeconds / 4f), eps)
         assertEquals(-1f, InkMath.ambientBreath(Motion.ambientBreathSeconds * 3 / 4f), eps)
-        assertTrue("≤10 fps", Motion.ambientFrameIntervalMillis >= 100)
+        assertTrue("≤5 fps", Motion.ambientFrameIntervalMillis >= 200)
     }
 
     @Test

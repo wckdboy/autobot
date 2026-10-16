@@ -122,7 +122,7 @@ enum InkMath {
     /// The fractional part of [t] (0…1), for looping cycles.
     static func cycle(_ t: Double) -> Double { t - t.rounded(.down) }
 
-    /// Ambient tier: 10 fps; never in Low Power Mode.
+    /// Ambient tier: 5 fps; never in Low Power Mode.
     static var ambientFrameInterval: TimeInterval { Double(Tokens.Motion.ambientFrameIntervalMillis) / 1000 }
 
     /// An ambient ground only drifts on screen, in the foreground, with motion allowed, outside Low
@@ -181,19 +181,19 @@ extension EnvironmentValues {
     @Entry var inkOffscreen = false
 }
 
-/// Frame budget of an [InkTimeline]: work (30 / 15 fps) or ambient (10 fps, off in Low Power).
+/// Frame budget of an [InkTimeline]: work (30 / 15 fps) or ambient (5 fps, off in Low Power).
 enum InkTier { case work, ambient }
 
 /**
  Procedural ink on the shared frame clock ([InkClock], one per tier): while [active], on screen,
  in the foreground and with Reduce Motion off, [content] is re-run for every tick of the tier's
- clock (30 / 15 fps, or 10 fps ambient). Only the small leaf that calls [content] reads the clock,
+ clock (30 / 15 fps, or 5 fps ambient). Only the small leaf that calls [content] reads the clock,
  so a tick never re-evaluates the view that owns the timeline. Paused, it renders once, so
  content must draw a sensible still for any date.
  */
 struct InkTimeline<Content: View>: View {
     let active: Bool
-    /// `.ambient`: 10 fps, never in Low Power Mode, asleep after a minute without a touch.
+    /// `.ambient`: 5 fps, never in Low Power Mode, asleep after a minute without a touch.
     var tier = InkTier.work
     @ViewBuilder let content: (Date) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

@@ -73,7 +73,7 @@ private val GROUND_CELL = 14.dp
 private const val GROUND_DOT = 0.75f
 
 /**
- * The ambient tier's clock: ≤10 fps (`ambientFrameIntervalMillis`), still `ambientIdleStopSeconds`
+ * The ambient tier's clock: ≤5 fps (`ambientFrameIntervalMillis`), still `ambientIdleStopSeconds`
  * after the last touch on the screen wearing [ambientTouch] (a touch, or coming back to the
  * screen, resumes it), and never moving during heavy work, in Battery Saver, off screen or with
  * reduced motion. Read [time] only while drawing.
@@ -203,7 +203,7 @@ internal class CardField {
  * travelling wave: one wavelength per card width, one cycle per `cardWavePeriodSeconds`, lighter
  * towards the top-left. Drawn behind the element's content (put it inside the card's shape and
  * background) on the screen's [LocalInkAmbient] clock, or its own on the same shared ambient
- * tier: ≤10 fps, still once idle, in Battery Saver, during heavy work and with reduced motion.
+ * tier: ≤5 fps, still once idle, in Battery Saver, during heavy work and with reduced motion.
  * Reads the clock only while drawing. For a few hero surfaces per screen, never list rows.
  */
 @Composable

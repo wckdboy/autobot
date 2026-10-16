@@ -205,7 +205,7 @@ struct InkTouchWatcher: UIViewRepresentable {
 /**
  Living paper (motion specs v2 §2, v3 §2): behind large empty areas, the living-card dot field
  at `ambientOpacity` in a low-contrast ink, its radii following a very slow travelling wave (one
- cycle per `ambientCycleSeconds`). ≤ `cardMaxDots` dots on the shared ambient clock (≤10 fps,
+ cycle per `ambientCycleSeconds`). ≤ `cardMaxDots` dots on the shared ambient clock (≤5 fps,
  asleep after `ambientIdleStopSeconds` without a touch, off while a heavy job runs, in Low Power
  Mode and with Reduce Motion). [hero] draws the halftone field pattern at full strength in
  [dot] (the welcome hero). [fade] thins the dots where text sits. Unlocking prints the paper away

@@ -372,7 +372,7 @@ enum InkField {
 /**
  A living card background (motion spec v3 §2): a halftone dot grid in a low-contrast tone whose
  radii follow a slow 2-D travelling wave (`cardWavePeriodSeconds` per cycle), on the shared
- ambient clock (≤10 fps, asleep after a minute without a touch, off in Low Power Mode, with
+ ambient clock (≤5 fps, asleep after a minute without a touch, off in Low Power Mode, with
  Reduce Motion, off screen and while heavy work runs). ≤ `cardMaxDots` dots. The wave keeps its
  place across pauses and resizes ([InkWaveClock]).
  */

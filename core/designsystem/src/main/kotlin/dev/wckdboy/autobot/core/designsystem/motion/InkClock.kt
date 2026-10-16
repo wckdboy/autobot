@@ -154,7 +154,7 @@ class InkTicker internal constructor() {
     }
 }
 
-/** The two shared tiers: [active] work (30 fps, 15 in Battery Saver) and [ambient] paper (≤10 fps). */
+/** The two shared tiers: [active] work (30 fps, 15 in Battery Saver) and [ambient] paper (≤5 fps). */
 @Stable
 class InkTickers internal constructor() {
     val active = InkTicker()

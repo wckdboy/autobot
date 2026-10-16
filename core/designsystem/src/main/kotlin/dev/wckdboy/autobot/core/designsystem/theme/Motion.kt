@@ -24,7 +24,7 @@ object Motion {
     const val enterRise = 4f
     const val progressMillis = 240
     const val reducedMotionMillis = 150
-    const val ambientFrameIntervalMillis = 100
+    const val ambientFrameIntervalMillis = 200
     const val ambientCycleSeconds = 48
     const val ambientOpacity = 0.10f
     const val ambientBreathSeconds = 8

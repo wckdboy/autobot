@@ -5,7 +5,7 @@ import UIKit
 /**
  The one frame clock per tier (motion spec v3 §4): every ink animation on screen draws from the
  same tick, so N loaders, bars and plates cost one display-link callback per frame, all in phase.
- `.work`: 30 fps (15 in Low Power Mode). `.ambient`: 10 fps, off in Low Power Mode and after
+ `.work`: 30 fps (15 in Low Power Mode). `.ambient`: 5 fps, off in Low Power Mode and after
  `ambientIdleStopSeconds` without a touch (a touch wakes it).
 
  Only the tiny leaf view that hosts a Canvas reads [now] (see [InkTimeline]), so a tick

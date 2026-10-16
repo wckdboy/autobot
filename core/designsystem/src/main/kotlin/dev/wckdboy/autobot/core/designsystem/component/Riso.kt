@@ -367,7 +367,7 @@ fun HalftoneImage(
  * the wave's phase advances (ink moving over a drum) at [speed] × `flowCyclesPerSecond`, on the
  * throttled, lifecycle-aware ink clock; [fill] scales the dots and eases to new values. Static
  * (as before) when not flowing or with reduced motion. With an [ambient] clock the hero drifts
- * at the ambient tier's pace instead (one cycle per `ambientCycleSeconds`, ≤10 fps).
+ * at the ambient tier's pace instead (one cycle per `ambientCycleSeconds`, ≤5 fps).
  */
 @Composable
 fun HalftoneField(

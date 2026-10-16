@@ -275,7 +275,7 @@ enum Tokens {
     enum Motion {
         static let ambientBreathSeconds: CGFloat = 8.0
         static let ambientCycleSeconds: CGFloat = 48.0
-        static let ambientFrameIntervalMillis: CGFloat = 100.0
+        static let ambientFrameIntervalMillis: CGFloat = 200.0
         static let ambientIdleStopSeconds: CGFloat = 60.0
         static let ambientOpacity: CGFloat = 0.1
         static let barDotPitch: CGFloat = 1.6
