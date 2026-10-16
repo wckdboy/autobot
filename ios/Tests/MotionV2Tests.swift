@@ -7,7 +7,7 @@ import UIKit
 /// plus rendered frames for a visual check.
 struct MotionV2Tests {
     @Test func ambientBudget() {
-        #expect(abs(InkMath.ambientFrameInterval - 0.1) < 1e-9)
+        #expect(abs(InkMath.ambientFrameInterval - 0.2) < 1e-9)
         #expect(InkMath.cycle(-0.25) == 0.75)
         #expect(InkMath.easeInOutCubic(0.1) < 0.1)
         #expect(InkMath.easeInOutCubic(0.9) > 0.9)

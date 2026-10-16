@@ -153,13 +153,15 @@ struct InkPrecisionTests {
         let clock = InkWaveClock()
         let t0 = Date(timeIntervalSinceReferenceDate: 800_000_000)
         clock.advance(to: t0, period: period)
-        // Running at 10 fps for exactly one period: back where it started.
+        // Running at the ambient rate for exactly one period: back where it started. Dates this far
+        // from the reference resolve to ~0.1 µs, so 1e-6 of a cycle (12 µs) is the honest bound.
+        let step = InkMath.ambientFrameInterval
         var t = t0
-        for _ in 0 ..< Int(period * 10) {
-            t = t.addingTimeInterval(0.1)
+        for _ in 0 ..< Int((period / step).rounded()) {
+            t = t.addingTimeInterval(step)
             clock.advance(to: t, period: period)
         }
-        #expect(abs(clock.cycle) < 1e-9 || abs(clock.cycle - 1) < 1e-9)
+        #expect(abs(clock.cycle) < 1e-6 || abs(clock.cycle - 1) < 1e-6, "cycle \(clock.cycle)")
         // A pause of a minute moves the wave at most one frame.
         let before = clock.cycle
         clock.advance(to: t.addingTimeInterval(60), period: period)
