@@ -8,6 +8,7 @@ import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.engine.llama.EngineDiedException
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import dev.wckdboy.autobot.engine.llama.LocalLlmEvent
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
@@ -45,6 +46,15 @@ class LocalChatProvider(
             emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, "Model '${request.model}' is not installed on this phone (Models tab)"))
             return@flow
         }
+        if (!File(path).isFile || model.paths[FileRole.MMPROJ]?.let { !File(it).isFile } == true) {
+            emit(
+                ChatEvent.Error(
+                    ErrorKind.BAD_REQUEST,
+                    "The files of ${model.title} are missing (deleted outside the app). Download it again in the Models tab.",
+                ),
+            )
+            return@flow
+        }
         val backend = compute.resolve(model).id
         engine.chat(path, contextOf(model), backend, encode(request, model.paths[FileRole.MMPROJ]).toString()).collect { event ->
             when (event) {
@@ -76,7 +86,7 @@ class LocalChatProvider(
     override suspend fun prepare(model: String) {
         val installed = library.get(model) ?: return
         if (modelState(installed, fit) != LocalModelState.READY) return
-        val path = installed.paths[FileRole.MODEL] ?: return
+        val path = installed.paths[FileRole.MODEL]?.takeIf { File(it).isFile } ?: return
         try {
             engine.prepare(path, contextOf(installed), compute.resolve(installed).id)
         } catch (_: android.os.RemoteException) {

@@ -65,4 +65,8 @@ extensions.configure<LibraryAndroidComponentsExtension> {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
+
+    // The client against a fake engine binder (death, timeouts, cancel); no native code runs.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

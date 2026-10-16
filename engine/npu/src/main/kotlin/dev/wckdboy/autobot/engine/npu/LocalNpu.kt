@@ -77,8 +77,20 @@ class LocalNpu(context: Context, private val idleMillis: Long = 3 * 60_000L) {
                 ready.complete(e)
             }
 
+            /** Unbound after its process died (once: the binding is gone after that). */
+            @Volatile
+            private var released = false
+
             override fun onServiceDisconnected(name: ComponentName) {
+                // The engine process died. Unbind: a binding kept to it makes Android restart the
+                // process and hold it forever, out of reach of the idle unbind and the memory
+                // coordinator. The next request binds afresh.
                 engine = null
+                if (!released) {
+                    released = true
+                    runCatching { app.unbindService(this) }
+                }
+                synchronized(this@LocalNpu) { if (connection === this) connection = null }
             }
 
             override fun onBindingDied(name: ComponentName) {
@@ -130,7 +142,6 @@ class LocalNpu(context: Context, private val idleMillis: Long = 3 * 60_000L) {
         val e = acquire()
         val binder = e.asBinder()
         val death = IBinder.DeathRecipient { close(NpuEngineDiedException()) }
-        binder.linkToDeath(death, 0)
         val callback = object : INpuCallback.Stub() {
             override fun onStatus(status: String) {
                 trySend(NpuEvent.Status(status))
@@ -151,6 +162,8 @@ class LocalNpu(context: Context, private val idleMillis: Long = 3 * 60_000L) {
             }
         }
         try {
+            // Inside the try: an engine that died since [acquire] must not keep this use counted.
+            binder.linkToDeath(death, 0)
             e.generate(requestJson.toByteArray(Charsets.UTF_8), callback)
         } catch (t: RemoteException) {
             runCatching { binder.unlinkToDeath(death, 0) }

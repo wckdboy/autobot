@@ -157,6 +157,8 @@ class ComfyClientTest {
     fun cancellingDequeuesAndInterrupts() = runTest {
         val server = server()
         server.json["GET /history/PROMPT"] = { 200 to "{}" }
+        // Still running on the server (a prompt it no longer lists at all counts as lost).
+        server.json["GET /queue"] = { 200 to """{"queue_running":[[1,"PROMPT",{},{},[]]],"queue_pending":[]}""" }
         val run = async { client(server, sockets = false).execute(graph) }
         runCurrent()
         advanceTimeBy(2_500)

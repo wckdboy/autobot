@@ -145,19 +145,14 @@ class LlamaService : Service() {
             }
         }
 
-        override fun cancel() = synchronized(handleLock) {
-            handle.takeIf { it != 0L }?.let(NativeLlama::cancel)
-            Unit
+        /** Older clients: cancels the completion that runs or loads now (see [cancelChat]). */
+        override fun cancel() {
+            val load = loading
+            val owner = (load?.owner as? IBinder) ?: synchronized(handleLock) { running }
+            if (owner != null) this@LlamaService.cancelChat(owner) else if (load != null) NativeLlama.abortLoad(load.id)
         }
 
-        override fun cancelChat(callback: ILlamaCallback) {
-            val key = callback.asBinder()
-            if (requests.replace(key, true) == null) return // finished already
-            loading?.takeIf { it.owner === key }?.let { NativeLlama.abortLoad(it.id) }
-            synchronized(handleLock) {
-                if (running === key && handle != 0L) NativeLlama.cancelRequest(handle, runningToken)
-            }
-        }
+        override fun cancelChat(callback: ILlamaCallback) = this@LlamaService.cancelChat(callback.asBinder())
 
         override fun prepare(modelPath: String, nCtx: Int, backend: String) {
             worker.execute {
@@ -177,6 +172,15 @@ class LlamaService : Service() {
             runCatching { worker.submit<FloatArray?> { runEmbed(modelPath, texts) }.get() }
                 .onFailure { Log.e(TAG, "embed failed", it) }
                 .getOrNull()
+    }
+
+    /** Stops the completion reporting to [key]: queued, loading its model, or running. Any thread. */
+    private fun cancelChat(key: IBinder) {
+        if (requests.replace(key, true) == null) return // finished already
+        loading?.takeIf { it.owner === key }?.let { NativeLlama.abortLoad(it.id) }
+        synchronized(handleLock) {
+            if (running === key && handle != 0L) NativeLlama.cancelRequest(handle, runningToken)
+        }
     }
 
     private fun sameModel(path: String, nCtx: Int, backend: String) = loadedPath == path && loadedCtx == nCtx && loadedBackend == backend
@@ -225,18 +229,34 @@ class LlamaService : Service() {
 
     private fun run(path: String, nCtx: Int, backend: String, request: ByteArray, callback: ILlamaCallback, key: IBinder) {
         try {
-            if (devices == 0) {
-                callback.onResult(errorJson("LOAD_FAILED", "no CPU backend for this phone (native libraries missing)"))
-                return
-            }
             if (requests[key] == true) {
                 callback.onResult(CANCELLED)
                 return
             }
-            if (handle == 0L || !sameModel(path, nCtx, backend)) {
+            val reload = handle == 0L || !sameModel(path, nCtx, backend)
+            // A file that cannot work says why, before (and instead of) a load that would fail or crash.
+            val header = if (reload) {
+                val (header, problem) = GgufCheck.inspect(path)
+                if (problem != null) {
+                    callback.onResult(errorJson("LOAD_FAILED", problem.message))
+                    return
+                }
+                header
+            } else {
+                null
+            }
+            if (devices == 0) {
+                callback.onResult(errorJson("LOAD_FAILED", "no CPU backend for this phone (native libraries missing)"))
+                return
+            }
+            if (reload) {
                 callback.onStatus("loading")
                 if (!ensureLoaded(path, nCtx, backend, key)) {
-                    callback.onResult(if (requests[key] == true) CANCELLED else errorJson("LOAD_FAILED", "could not load model (corrupt file or not enough memory)"))
+                    val arch = header?.architecture?.let { " ($it)" }.orEmpty()
+                    callback.onResult(
+                        if (requests[key] == true) CANCELLED
+                        else errorJson("LOAD_FAILED", "could not load model$arch: an architecture this version can't run, a corrupt file, or not enough memory"),
+                    )
                     return
                 }
             }

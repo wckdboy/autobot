@@ -8,9 +8,13 @@ import java.security.MessageDigest
 import java.util.zip.CRC32
 import java.util.zip.Inflater
 import java.util.zip.InflaterInputStream
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import okhttp3.Response
@@ -21,6 +25,12 @@ import okhttp3.Response
  * to their own hub), `Range` resume of `*.part`, SHA-256 verification (known up front, or the
  * Hub's `X-Linked-ETag`) and the atomic rename to the target. Zip entries are fetched by range
  * into `*.z.part`, then inflated and checked against the zip's CRC-32.
+ *
+ * A resumed part carries the validator (strong `ETag`, else `Last-Modified`) of the response
+ * that started it in `*.part.validator`, sent back as `If-Range`: a file that changed on the
+ * server comes back whole (200) and replaces the part instead of being spliced onto it.
+ * Cancelling the caller cancels the HTTP call too, so a pause or a cancel never waits for a
+ * stalled read to time out.
  */
 class FileFetcher(private val clients: HttpClientFactory) {
 
@@ -45,6 +55,7 @@ class FileFetcher(private val clients: HttpClientFactory) {
         target.parentFile?.mkdirs()
         val session = FetchSession(file, credential?.takeUnless { it.isBlank }?.reveal())
         val part = File(target.path + if (file.zipEntry != null) ".z.part" else ".part")
+        val validator = File(part.path + VALIDATOR)
         fun have() = if (part.isFile) part.length() else 0L
         val hash = RunningHash()
         var step = session.begin(have())
@@ -54,10 +65,12 @@ class FileFetcher(private val clients: HttpClientFactory) {
                     currentCoroutineContext().ensureActive()
                     val have = have()
                     val request = session.request(have)
-                    execute(request.url, request.headers).use { r ->
+                    val ifRange = if (have > 0 && file.zipEntry == null) validator.readValidator() else null
+                    execute(request.url, if (ifRange != null) request.headers + ("If-Range" to ifRange) else request.headers) { r ->
                         val headers = r.headers.toMap()
                         when (val next = session.onResponse(r.code, headers, have, r.body.contentLength())) {
                             is FetchStep.Write -> {
+                                if (!next.append) validator.writeValidator(r)
                                 stream(r, part, next.append, session.expectedSize, hash, onProgress)
                                 FetchStep.Verify
                             }
@@ -68,12 +81,18 @@ class FileFetcher(private val clients: HttpClientFactory) {
                 }
                 FetchStep.Restart -> {
                     part.delete()
+                    validator.delete()
                     FetchStep.Next
                 }
                 is FetchStep.Fail -> throw s.error
-                FetchStep.Verify -> return withContext(Dispatchers.IO) {
-                    session.checkComplete(if (part.isFile) part.length() else -1)
-                    if (file.zipEntry != null) inflateAndCommit(session, part, target) else verifyAndCommit(session, part, target, hash)
+                FetchStep.Verify -> return try {
+                    withContext(Dispatchers.IO) {
+                        session.checkComplete(if (part.isFile) part.length() else -1)
+                        if (file.zipEntry != null) inflateAndCommit(session, part, target) else verifyAndCommit(session, part, target, hash)
+                    }
+                } finally {
+                    // Committed or deleted as corrupt: the validator goes with the part. Incomplete: both stay for a resume.
+                    if (!part.isFile) validator.delete()
                 }
                 is FetchStep.Write, FetchStep.Reject -> error("$s is answered inside a response")
             }
@@ -88,10 +107,10 @@ class FileFetcher(private val clients: HttpClientFactory) {
         var current = url
         repeat(FetchRules.MAX_HOPS) {
             val headers = FetchRules.headers(current, from, to, credential?.takeUnless { it.isBlank }?.reveal(), auth)
-            execute(current, headers).use { r ->
+            execute(current, headers) { r ->
                 if (FetchRules.isRedirect(r.code)) {
                     current = r.header("Location")?.let { FetchRules.resolve(current, it) } ?: throw DownloadException("Redirect without location")
-                    return@use
+                    return@execute null
                 }
                 if (r.code != 206) {
                     throw if (r.code == 200) {
@@ -101,19 +120,47 @@ class FileFetcher(private val clients: HttpClientFactory) {
                     }
                 }
                 val total = r.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: -1L
-                return withContext(Dispatchers.IO) { r.body.bytes() } to total
-            }
+                withContext(Dispatchers.IO) { r.body.bytes() } to total
+            }?.let { return it }
         }
         throw DownloadException("Too many redirects")
     }
 
-    private suspend fun execute(url: String, headers: Map<String, String>): Response = withContext(Dispatchers.IO) {
+    /**
+     * Sends one GET through the audited client and hands the response to [block], then closes it.
+     * Cancelling the caller cancels the call: a read blocked on a stalled connection fails at once
+     * instead of after the read timeout.
+     */
+    private suspend fun <T> execute(url: String, headers: Map<String, String>, block: suspend (Response) -> T): T {
         val request = try {
             Request.Builder().url(url).get().apply { headers.forEach { (name, value) -> header(name, value) } }.build()
         } catch (e: IllegalArgumentException) {
             throw DownloadException("Invalid URL", retryable = false)
         }
-        clients.create(tag = "models:download").newCall(request).execute()
+        val call = clients.create(tag = "models:download").newCall(request)
+        return coroutineScope {
+            val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    call.cancel()
+                }
+            }
+            try {
+                withContext(Dispatchers.IO) { call.execute() }.use { block(it) }
+            } finally {
+                watcher.cancel()
+            }
+        }
+    }
+
+    /** The validator a resumed request sends as `If-Range`, or null when none was kept. */
+    private fun File.readValidator(): String? = runCatching { if (isFile) readText().trim().takeIf { it.isNotEmpty() } else null }.getOrNull()
+
+    /** Keeps the response's strong `ETag` (else `Last-Modified`) for resuming the part it starts; weak ETags can't be used with If-Range. */
+    private suspend fun File.writeValidator(r: Response) = withContext(Dispatchers.IO) {
+        val value = r.header("ETag")?.takeUnless { it.startsWith("W/") } ?: r.header("Last-Modified")
+        runCatching { if (value.isNullOrBlank()) delete() else writeText(value) }
     }
 
     private suspend fun stream(response: Response, part: File, append: Boolean, expectedSize: Long, hash: RunningHash, onProgress: suspend (Long, Long) -> Unit) {
@@ -210,6 +257,9 @@ class FileFetcher(private val clients: HttpClientFactory) {
 
     companion object {
         private const val BUFFER = 256 * 1024
+
+        /** Suffix of the file next to a part that holds its `If-Range` validator. */
+        internal const val VALIDATOR = ".validator"
 
         fun isHubHost(host: String, auth: AuthHost): Boolean = FetchRules.isHubHost(host, auth)
 
