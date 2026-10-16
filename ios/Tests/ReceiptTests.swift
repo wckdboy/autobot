@@ -11,11 +11,11 @@ struct ReceiptTests {
 
     @Test func oldStatesWithoutAReceiptStillDecode() throws {
         let item = try decode(#"{"type":"assistant","key":"e3","text":"hi","reasoning":null,"interrupted":false,"outputTokens":4,"model":"m"}"#)
-        guard case .assistant(let key, let text, _, _, _, _, let receipt, _) = item else { Issue.record("expected an answer"); return }
+        guard case .assistant(let key, let text, _, _, _, _, let receipt, _, _) = item else { Issue.record("expected an answer"); return }
         #expect(key == "e3" && text == "hi")
         #expect(receipt == nil)
         // The bridge encodes defaults, so a turn without a receipt sends an explicit null.
-        guard case .assistant(_, _, _, _, _, _, nil, _) = try decode(#"{"type":"assistant","key":"e4","text":"x","receipt":null}"#) else {
+        guard case .assistant(_, _, _, _, _, _, nil, _, _) = try decode(#"{"type":"assistant","key":"e4","text":"x","receipt":null}"#) else {
             Issue.record("expected no receipt"); return
         }
     }
@@ -30,7 +30,7 @@ struct ReceiptTests {
            "models":[{"provider":"p","model":"glm-5","name":"OpenCode Go","onDevice":false,"policy":"no retention","policyNote":"no training · zero retention"}],
            "tools":[{"name":"web_fetch","network":true},{"name":"read","network":false}],"fallbacks":[],"redactions":3}}
         """#
-        guard case .assistant(_, _, _, _, _, _, let r?, _) = try decode(json) else { Issue.record("expected a receipt"); return }
+        guard case .assistant(_, _, _, _, _, _, let r?, _, _) = try decode(json) else { Issue.record("expected a receipt"); return }
         #expect(r.turn == 2)
         #expect(r.line == "2 hosts · 14 KB out · no retention")
         #expect(!r.onDevice && r.tracked)
@@ -46,7 +46,7 @@ struct ReceiptTests {
 
     @Test func aMinimalOnDeviceReceiptDecodes() throws {
         let item = try decode(#"{"type":"assistant","key":"e1","text":"hi","receipt":{"turn":1,"line":"on device","onDevice":true}}"#)
-        guard case .assistant(_, _, _, _, _, _, let r?, _) = item else { Issue.record("expected a receipt"); return }
+        guard case .assistant(_, _, _, _, _, _, let r?, _, _) = item else { Issue.record("expected a receipt"); return }
         #expect(r.onDevice && r.hosts.isEmpty && r.models.isEmpty)
     }
 

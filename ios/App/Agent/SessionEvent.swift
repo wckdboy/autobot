@@ -108,8 +108,10 @@ enum SessionEvent: Equatable, Sendable {
         var model: String? = nil
         /// Cut short by cancellation; kept so the next request contains what the user saw.
         var interrupted = false
+        /// "budget" or "loop" when the engine ended the reasoning early.
+        var reasoningStop: String? = nil
 
-        enum CodingKeys: String, CodingKey { case turn, step, text, reasoning, toolCalls, usage, model, interrupted }
+        enum CodingKeys: String, CodingKey { case turn, step, text, reasoning, toolCalls, usage, model, interrupted, reasoningStop }
 
         init(turn: Int, step: Int, text: String, reasoning: String? = nil, toolCalls: [ToolCallRecord] = [], usage: TokenUsage? = nil, model: String? = nil, interrupted: Bool = false) {
             self.turn = turn
@@ -132,6 +134,7 @@ enum SessionEvent: Equatable, Sendable {
             usage = try c.decodeIfPresent(TokenUsage.self, forKey: .usage)
             model = try c.decodeIfPresent(String.self, forKey: .model)
             interrupted = try c.decodeIfPresent(Bool.self, forKey: .interrupted) ?? false
+            reasoningStop = try c.decodeIfPresent(String.self, forKey: .reasoningStop)
         }
 
         func encode(to encoder: Encoder) throws {
@@ -144,6 +147,7 @@ enum SessionEvent: Equatable, Sendable {
             try c.encodeIfPresent(usage, forKey: .usage)
             try c.encodeIfPresent(model, forKey: .model)
             if interrupted { try c.encode(true, forKey: .interrupted) }
+            try c.encodeIfPresent(reasoningStop, forKey: .reasoningStop)
         }
     }
 

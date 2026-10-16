@@ -139,6 +139,7 @@ struct ChatScreen: View {
     @State private var openReceipt: Receipt?
     /// The "files changed" sheet.
     @State private var showChanges = false
+    @State private var showThink = false
     /// Which transcript items are new since the screen loaded (they ink in).
     @State private var ledger = InkLedger()
 
@@ -227,7 +228,11 @@ struct ChatScreen: View {
             if let question = session?.question {
                 QuestionCard(question: question) { app.agent.answerQuestion(conversationId, callId: question.callId, answers: $0) }
             }
-            PolicyLine(settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow)
+            PolicyLine(
+                settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow,
+                onThink: { app.agent.setThinking(conversationId, settings.thinking.next) },
+                onThinkSheet: { showThink = true },
+            )
             if let voice = model.voice {
                 VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
             } else {
@@ -245,6 +250,15 @@ struct ChatScreen: View {
             }) { showSession = false }
         }
         .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
+        .sheet(isPresented: $showThink) {
+            ThinkSheet(
+                choice: settings.thinking,
+                modelDefault: app.agent.thinkingDefault(provider: settings.provider, model: settings.model),
+                onChoose: { app.agent.setThinking(conversationId, $0) },
+                onDefault: { app.agent.setThinkingDefault(provider: settings.provider, model: settings.model, $0) },
+            )
+            .presentationDetents([.height(300)])
+        }
         .sheet(isPresented: $showChanges) {
             ChangesSheet(
                 groups: transcript.projection.changes, running: running,
@@ -376,11 +390,11 @@ private struct TranscriptRow: View, Equatable {
                 }
                 if !images.isEmpty { AttachmentStrip(ids: images, model: model) }
             }
-        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt, let turnChanges):
+        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt, let turnChanges, let thinking):
             VStack(alignment: .leading, spacing: 6) {
                 AssistantMessage(
                     text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: speaking,
-                    receipt: receipt, onReceipt: { openReceipt = $0 },
+                    receipt: receipt, onReceipt: { openReceipt = $0 }, thinking: thinking,
                 ) {
                     model.speak(key: key, text: text)
                 }
@@ -454,12 +468,13 @@ private struct AssistantMessage: View {
     let speaking: Bool
     var receipt: Receipt? = nil
     var onReceipt: (Receipt) -> Void = { _ in }
+    var thinking: ThinkingInfo? = nil
     let onSpeak: () -> Void
     @Environment(\.scheme) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let reasoning, !reasoning.isEmpty { ThinkingDisclosure(reasoning: reasoning) }
+            if let reasoning, !reasoning.isEmpty { ThinkingDisclosure(reasoning: reasoning, tokens: thinking?.tokens, stop: thinking?.stop) }
             if !text.isEmpty {
                 ChatBubble(role: .assistant, text: text) {
                     HStack(spacing: 8) {
@@ -483,7 +498,12 @@ private struct LiveMessage: View {
     var body: some View {
         let _ = InkProbe.hit("body.liveMessage")
         VStack(alignment: .leading, spacing: 6) {
-            if !live.reasoning.isEmpty { ThinkingDisclosure(reasoning: live.reasoning, isThinking: live.text.isEmpty) }
+            if !live.reasoning.isEmpty {
+                ThinkingDisclosure(
+                    reasoning: live.reasoning, isThinking: live.text.isEmpty && live.reasoningDone != true,
+                    tokens: live.reasoningTokens, stop: live.reasoningStop,
+                )
+            }
             if !live.text.isEmpty || live.reasoning.isEmpty {
                 if let rate = live.tokensPerSecond {
                     ChatBubble(role: .assistant, text: live.text, isStreaming: true) { TokenRateLabel(tokensPerSecond: rate) }
@@ -780,28 +800,130 @@ private struct EmptySession: View {
     }
 }
 
-/// `POLICY · READ: AUTO · WRITE: AUTO · DELETE: ASK · NETWORK: ASK`
+/// `POLICY · READ: AUTO · WRITE: AUTO · DELETE: ASK · NETWORK: ASK`, with the Think chip when the
+/// chat's model reasons.
 private struct PolicyLine: View {
     let settings: SessionSettings
     let contextUsed: Int?
     let contextWindow: Int?
+    var onThink: () -> Void = {}
+    var onThinkSheet: () -> Void = {}
 
     var body: some View {
-        if settings.toolsEnabled {
+        let think = settings.thinkingSupport != "NONE"
+        if settings.toolsEnabled || think {
             let text = switch settings.permissionPreset {
             case .readOnly: "policy · read: auto · write: deny · network: ask"
             case .workspace: "policy · read: auto · write: auto · delete: ask · network: ask"
             case .fullAccess: "policy · everything: auto · kill switch still applies"
             }
-            HStack {
-                MicroLabel(text).frame(maxWidth: .infinity, alignment: .leading)
-                if let used = contextUsed, let window = contextWindow, window > 0 {
+            HStack(spacing: 8) {
+                if think { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet) }
+                if settings.toolsEnabled {
+                    MicroLabel(text).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
+                if settings.toolsEnabled, let used = contextUsed, let window = contextWindow, window > 0 {
                     MicroLabel("\(compactCount(used))/\(compactCount(window))")
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
         }
+    }
+}
+
+/// `∴ THINK · AUTO`: tap cycles auto → on → off; a long press opens the budget sheet.
+private struct ThinkChip: View {
+    let choice: ThinkingChoice
+    let onTap: () -> Void
+    let onLongPress: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        let active = choice.mode != "OFF"
+        HStack(spacing: 4) {
+            Text("∴").textStyle(.code).foregroundStyle(active ? c.secondary : c.outline)
+            MicroLabel(choice.chipLabel, color: active ? c.secondary : c.onSurfaceVariant)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .overlay(Rectangle().stroke(active ? c.secondary.opacity(0.7) : c.outlineVariant, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .onLongPressGesture(perform: onLongPress)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Thinking")
+        .accessibilityValue(choice.chipLabel.replacingOccurrences(of: "think · ", with: ""))
+        .accessibilityHint("Tap to switch auto, on or off. Hold for the budget.")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Budget", onLongPress)
+    }
+}
+
+/// The Think switch in full: off / auto / on, a reasoning budget for on, and this model's default.
+struct ThinkSheet: View {
+    let choice: ThinkingChoice
+    let modelDefault: ThinkingChoice?
+    let onChoose: (ThinkingChoice) -> Void
+    let onDefault: (ThinkingChoice?) -> Void
+    @State private var current: ThinkingChoice
+    @State private var saved: ThinkingChoice?
+    @Environment(\.scheme) private var c
+
+    init(choice: ThinkingChoice, modelDefault: ThinkingChoice?, onChoose: @escaping (ThinkingChoice) -> Void, onDefault: @escaping (ThinkingChoice?) -> Void) {
+        self.choice = choice
+        self.modelDefault = modelDefault
+        self.onChoose = onChoose
+        self.onDefault = onDefault
+        _current = State(initialValue: choice)
+        _saved = State(initialValue: modelDefault)
+    }
+
+    private struct Mode: Hashable {
+        let id: String
+        let label: String
+    }
+
+    private static let modes = [Mode(id: "OFF", label: "off"), Mode(id: "AUTO", label: "auto"), Mode(id: "ON", label: "on")]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionLabel("think")
+            Segmented(options: Self.modes, selected: Self.modes.first { $0.id == current.mode } ?? Self.modes[1], label: \.label) { mode in
+                current = ThinkingChoice(mode: mode.id, budget: mode.id == "ON" ? current.budget : nil)
+                onChoose(current)
+            }
+            if current.mode == "ON" {
+                VStack(alignment: .leading, spacing: 6) {
+                    MicroLabel("budget")
+                    HStack(spacing: 6) {
+                        ForEach(ThinkingChoice.budgets, id: \.self) { budget in
+                            let label = budget.map { ThinkingChoice.tokens($0) } ?? "model"
+                            Tag(label, accent: current.budget == budget ? c.secondary : nil, filled: current.budget == budget) {
+                                current = ThinkingChoice(mode: "ON", budget: budget)
+                                onChoose(current)
+                            }
+                        }
+                    }
+                }
+            }
+            HStack {
+                MicroLabel(saved.map { "model default · " + $0.chipLabel.replacingOccurrences(of: "think · ", with: "") } ?? "model default · auto")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(saved == current ? "CLEAR" : "SET") {
+                    let next: ThinkingChoice? = saved == current ? nil : current
+                    saved = next
+                    onDefault(next)
+                }
+                .textStyle(.labelLarge)
+                .foregroundStyle(c.primary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(c.surface)
     }
 }
 

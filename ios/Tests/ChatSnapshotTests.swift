@@ -28,6 +28,11 @@ struct ChatSnapshotTests {
         app.conversations.update(chat)
         app.agent.preview(chat.id, state: Self.chatState(chat.id))
 
+        var think = app.conversations.create(incognito: true, providerId: nil, model: "qwen3.5-0.8b")
+        think.title = "When does the train arrive?"
+        app.conversations.update(think)
+        app.agent.preview(think.id, state: Self.thinkState(think.id))
+
         let empty = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
         app.conversations.setPinned([agent.id], true)
 
@@ -36,6 +41,11 @@ struct ChatSnapshotTests {
             try await snapshot(ChatScreen(conversationId: agent.id), app, nav, mode, "\(dir)/chat-agent-\(suffix).png")
             try await snapshot(ChatScreen(conversationId: chat.id), app, nav, mode, "\(dir)/chat-plain-\(suffix).png")
             try await snapshot(ChatScreen(conversationId: empty.id), app, nav, mode, "\(dir)/chat-empty-\(suffix).png")
+            try await snapshot(ChatScreen(conversationId: think.id), app, nav, mode, "\(dir)/chat-think-\(suffix).png")
+            try await snapshot(
+                VStack { Spacer(); ThinkSheet(choice: ThinkingChoice(mode: "ON", budget: 512), modelDefault: .off, onChoose: { _ in }, onDefault: { _ in }) },
+                app, nav, mode, "\(dir)/chat-think-sheet-\(suffix).png",
+            )
             try await snapshot(ChatListScreen(), app, nav, mode, "\(dir)/chat-list-\(suffix).png")
             try await snapshot(ChatListScreen(query: "list"), app, nav, mode, "\(dir)/chat-list-search-\(suffix).png")
         }
@@ -85,6 +95,34 @@ struct ChatSnapshotTests {
         s.live = LiveState(text: "", reasoning: "Day 1: Alfama and the castle…", toolNames: [], tokensPerSecond: 18.4)
         s.provider = "p"
         s.model = "deepseek-chat"
+        return s
+    }
+
+    /// A plain chat on a reasoning model: the Think chip, a finished answer whose reasoning the
+    /// engine ended at its budget, and a reply still thinking (counted tokens).
+    static func thinkState(_ id: String) -> ChatSessionState {
+        var s = ChatSessionState(sessionId: id)
+        s.toolsEnabled = false
+        s.running = true
+        s.thinking = "ON"
+        s.thinkingBudget = 512
+        s.thinkingSupport = "SWITCH"
+        s.projection = SessionProjection(
+            items: [
+                .user(key: "e1", text: "A train leaves at 14:35 and takes 2 h 50 min. When does it arrive?", images: []),
+                .assistant(
+                    key: "e2", text: "It arrives at **17:25**: 14:35 plus 2 hours is 16:35, plus 50 minutes is 17:25.",
+                    reasoning: "Departure 14:35, duration 2 h 50 min.\nAdd 2 hours: 16:35.\nAdd 50 minutes: 16:35 + 25 = 17:00, + 25 = 17:25.\n\nI have thought about this enough; time to answer.",
+                    interrupted: false, outputTokens: 183, model: "qwen3.5-0.8b", thinking: ThinkingInfo(tokens: 140, stop: "budget"),
+                ),
+                .user(key: "e3", text: "And if it leaves 40 minutes late?", images: []),
+            ],
+            lastUsage: TokenUsage(inputTokens: 300, outputTokens: 183),
+            contextWindow: 8192,
+        )
+        s.live = LiveState(text: "", reasoning: "Late by 40 minutes: 14:35 + 0:40 = 15:15.\nThen add 2 h 50 min…", toolNames: [], tokensPerSecond: 21.0, reasoningTokens: 96)
+        s.provider = "local"
+        s.model = "qwen3.5-0.8b"
         return s
     }
 

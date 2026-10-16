@@ -389,6 +389,7 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
                         switch delta {
                         case .content(let t): sink.onContent(text: t)
                         case .reasoning(let t): sink.onReasoning(text: t)
+                        case .reasoningStatus(let json): sink.onReasoningStatus(json: json)
                         }
                     },
                 )
@@ -431,6 +432,13 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
     func mmproj(modelId: String) -> String? { snapshots.model(modelId)?.mmproj }
 
     func readyModelCount() -> Int32 { Int32(snapshots.readyModelCount) }
+
+    /// The model file's chat template (header only, no load): the bridge reads it once per model to
+    /// know whether the Think chip shows.
+    func chatTemplate(modelId: String) -> String? {
+        guard let model = snapshots.model(modelId) else { return nil }
+        return LocalLlm.chatTemplate(path: model.path)
+    }
 
     func modelState(modelId: String) -> LocalModelState {
         guard let model = snapshots.model(modelId) else { return .notInstalled }
