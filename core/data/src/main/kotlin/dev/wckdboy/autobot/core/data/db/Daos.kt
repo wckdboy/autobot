@@ -196,6 +196,18 @@ interface ModelDao {
     @Query("UPDATE models SET downloadedBytes = :downloaded, status = :status, error = :error, updatedAt = :now WHERE id = :id")
     suspend fun updateProgress(id: String, downloaded: Long, status: String, error: String?, now: Long)
 
+    /** Moves [id] from [from] to [to] only if it is still in [from]; returns the rows changed (0 or 1). */
+    @Query("UPDATE models SET downloadedBytes = :downloaded, status = :to, error = :error, updatedAt = :now WHERE id = :id AND status = :from")
+    suspend fun transition(id: String, from: String, to: String, downloaded: Long, error: String?, now: Long): Int
+
+    /** The byte count only, and only while [id] is in [status] (a pause or a removal is never undone). */
+    @Query("UPDATE models SET downloadedBytes = :downloaded, updatedAt = :now WHERE id = :id AND status = :status")
+    suspend fun updateBytes(id: String, downloaded: Long, status: String, now: Long)
+
+    /** Never inserts: a row deleted meanwhile stays deleted. */
+    @Query("UPDATE models SET manifestJson = :manifestJson, totalBytes = :totalBytes, updatedAt = :now WHERE id = :id")
+    suspend fun updateManifest(id: String, manifestJson: String, totalBytes: Long, now: Long)
+
     @Query("UPDATE models SET backend = :backend, updatedAt = :now WHERE id = :id")
     suspend fun setBackend(id: String, backend: String, now: Long)
 

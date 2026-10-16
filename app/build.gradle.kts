@@ -171,4 +171,8 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+
+    // The engine memory coordinator against fake engine binders.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

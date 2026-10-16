@@ -78,6 +78,8 @@ class OnDeviceEngine(
             npuImages.generate(this, model, request, inputs)
             return@flow
         }
+        // Out-of-range values would fail deep in the engine (or take it down): say what to change.
+        validate(request, capabilities.maxSteps)?.let { throw DiffusionException(it, DiffusionException.Code.UNSUPPORTED) }
         npu?.unloadModels()
         val loras = request.loras.mapNotNull { ref ->
             all.firstOrNull { it.kind == ModelKind.LORA && (it.title == ref.name || it.id == ref.name) }
@@ -132,6 +134,21 @@ class OnDeviceEngine(
     }
 
     companion object {
+        const val MIN_SIDE = 64
+        const val MAX_SIDE = 2048
+
+        /** Why stable-diffusion.cpp can't run [request] as asked (user-facing), or null when it can. */
+        fun validate(request: DiffusionRequest, maxSteps: Int): String? {
+            val (w, h) = request.width to request.height
+            return when {
+                w !in MIN_SIDE..MAX_SIDE || h !in MIN_SIDE..MAX_SIDE -> "Image size ${w}×$h is out of range: each side must be $MIN_SIDE–$MAX_SIDE px"
+                w % 8 != 0 || h % 8 != 0 -> "Image size ${w}×$h doesn't work: each side must be a multiple of 8 px"
+                request.steps !in 1..maxSteps -> "Steps must be between 1 and $maxSteps (got ${request.steps})"
+                request.mode != DiffusionMode.TXT2IMG && request.denoiseStrength !in 0f..1f -> "Denoise strength must be between 0 and 1 (got ${request.denoiseStrength})"
+                else -> null
+            }
+        }
+
         val SAMPLERS = listOf("euler_a", "euler", "dpm++2m", "dpm++2m_sde", "dpm++2s_a", "heun", "lcm", "ddim_trailing", "tcd", "ipndm")
         val SCHEDULERS = listOf("discrete", "karras", "exponential", "ays", "sgm_uniform", "simple", "beta")
 
