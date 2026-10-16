@@ -95,15 +95,43 @@ class NpuPackagesTest {
 
     @Test
     fun chipsForHexagonGenerations() {
-        assertEquals("8gen4", LocalDream.chipOrder("v81").first())
-        assertEquals(listOf("8gen3", "8gen2"), LocalDream.chipOrder("v75"))
+        // Local Dream's table: every v73+ phone runs the 8gen2 (v73) builds; SDXL ships 8gen3 (v75) only.
+        assertEquals(listOf("8gen2", "8gen3"), LocalDream.chipOrder("v81"))
+        assertEquals(listOf("8gen2", "8gen3"), LocalDream.chipOrder("v75"))
+        assertEquals(listOf("8gen2"), LocalDream.chipOrder("v73"))
+        assertEquals(listOf("8gen1", "min"), LocalDream.chipOrder("v69"))
+        assertEquals(listOf("min"), LocalDream.chipOrder(null))
         assertEquals("v81", LocalDream.archOfSoc("SM8850"))
+        assertEquals("v81", LocalDream.archOfSoc("SM8850P"))
         assertEquals("8gen3", LocalDream.chipOf("juggernaut_dmd2_qnn2.28_8gen3.zip"))
         assertEquals("min", LocalDream.chipOf("AnythingV5_qnn2.28_min.zip"))
         val sdxl = NpuCatalog.image.first { it.sdxl }
-        assertNotNull(sdxl.fileFor("v81"))
+        assertEquals("juggernaut_dmd2_qnn2.28_8gen3.zip", sdxl.fileFor("v81"))
         assertNull(sdxl.fileFor("v73"))
         assertEquals("AnythingV5_qnn2.28_8gen2.zip", NpuCatalog.image.first { it.id == "npu:sd15:AnythingV5" }.fileFor("v79"))
-        assertEquals("4x_UltraSharpV2_Lite/upscaler_8gen4.bin", NpuCatalog.upscalers.first().fileFor("v81"))
+        assertEquals("AnythingV5_qnn2.28_8gen2.zip", NpuCatalog.image.first { it.id == "npu:sd15:AnythingV5" }.fileFor("v81"))
+        // Upscalers: the 8gen2 build, as Local Dream installs on an 8 Elite Gen 5, never the v79 one.
+        assertEquals("4x_UltraSharpV2_Lite/upscaler_8gen2.bin", NpuCatalog.upscalers.first().fileFor("v81"))
+    }
+
+    @Test
+    fun snapdragon8EliteGen5RunsOnlyBuildsItCanLoad() {
+        // SM8850 (OnePlus 15): Hexagon v81.
+        val arch = LocalDream.archOfSoc("SM8850")
+        assertTrue(LocalDream.runsOn("8gen2", arch))
+        assertTrue(LocalDream.runsOn("8gen3", arch))
+        assertFalse(LocalDream.runsOn("8gen4", arch))
+        assertFalse(LocalDream.runsOn("8gen1", arch))
+        assertNull(LocalDream.incompatibility("v73", arch))
+        assertNull(LocalDream.incompatibility("v75", arch))
+        val v79 = LocalDream.incompatibility("v79", arch)
+        assertNotNull(v79)
+        assertTrue(v79!!, "v81" in v79 && "8gen2" in v79)
+        // Unknown on either side: no claim either way.
+        assertNull(LocalDream.incompatibility(null, arch))
+        assertNull(LocalDream.incompatibility("v79", null))
+        // Older phones never get a newer generation's binaries.
+        assertFalse(LocalDream.runsOn("8gen3", "v73"))
+        assertNotNull(LocalDream.incompatibility("v75", "v73"))
     }
 }
