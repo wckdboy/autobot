@@ -56,6 +56,14 @@ class SdService : Service() {
     private val handleLock = Any()
     private var loadedKey: String? = null
 
+    /**
+     * Whether the worker runs a request, and whether [ISdEngine.cancel] asked to stop it (both
+     * under [handleLock]). A cancel while the model is still loading has no handle to stop: it is
+     * kept here, and the request ends once the load is done instead of sampling for nobody.
+     */
+    private var running = false
+    private var cancelled = false
+
     private val outDir: File by lazy { File(cacheDir, "sd-out").apply { mkdirs() } }
 
     /** Native init on first use, not in onCreate: a failure there would crash every restart. */
@@ -85,6 +93,7 @@ class SdService : Service() {
         }
 
         override fun cancel() = synchronized(handleLock) {
+            if (running) cancelled = true
             handle.takeIf { it != 0L }?.let(NativeSd::cancel)
             Unit
         }
@@ -95,7 +104,16 @@ class SdService : Service() {
     }
 
     private fun run(r: Bundle, callback: ISdCallback) {
+        synchronized(handleLock) {
+            running = true
+            cancelled = false
+        }
         try {
+            // A file deleted outside the app is named, instead of failing (or crashing) inside the load.
+            SdRequest.missingFiles(r).firstOrNull()?.let {
+                callback.onDone("A model file is missing (${File(it).name}): download the model again in the Models tab")
+                return
+            }
             initError?.let {
                 callback.onDone(it)
                 return
@@ -121,6 +139,10 @@ class SdService : Service() {
             val height = r.getInt(SdRequest.K_HEIGHT)
             val init = r.getString(SdRequest.K_INIT)?.let { decodeRgb(it, width, height) }
             val mask = r.getString(SdRequest.K_MASK)?.let { decodeMask(it, width, height) }
+            if (synchronized(handleLock) { cancelled }) {
+                callback.onDone("Cancelled")
+                return
+            }
             callback.onStatus("sampling")
             val sink = object : NativeSd.Sink {
                 override fun onProgress(step: Int, steps: Int) = safe { callback.onProgress(step, steps) }
@@ -152,6 +174,8 @@ class SdService : Service() {
         } catch (t: Throwable) {
             Log.e(TAG, "generation failed", t)
             runCatching { callback.onDone(t.message ?: t.javaClass.simpleName) }
+        } finally {
+            synchronized(handleLock) { running = false }
         }
     }
 

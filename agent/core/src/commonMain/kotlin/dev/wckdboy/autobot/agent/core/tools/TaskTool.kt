@@ -102,7 +102,11 @@ object TaskTool : ToolDefinition {
                     .firstNotNullOf { it.event as? SessionEvent.TurnEnd }
                 report(log, end, child)
             } finally {
-                withContext(NonCancellable) { child.dispose() }
+                withContext(NonCancellable) {
+                    // The subagent's requests count for the parent turn's receipt (its models included).
+                    child.turnRoutes.forEach(parent::recordModel)
+                    child.dispose()
+                }
             }
         }
     }

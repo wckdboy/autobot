@@ -98,6 +98,19 @@ object DownloadQueue {
         else -> null
     }
 
+    /** Whether [e] (or a cause) is the disk running full while writing (`ENOSPC`). */
+    fun isDiskFull(e: Throwable): Boolean = generateSequence(e) { it.cause }.take(8).any { t ->
+        val message = t.message.orEmpty()
+        "ENOSPC" in message || "No space left on device" in message
+    }
+
+    /** The pause reason for a disk that filled up mid-download ([free] bytes left); the panel shows it as low storage. */
+    fun diskFullMessage(free: Long): String = "$LOW_STORAGE_PREFIX: the disk filled up during the download (${formatBytes(free)} free). Free some space, then resume."
+
+    /** The reason a ready model failed: [missing] of its [total] files were deleted outside the app. */
+    fun missingFilesMessage(missing: Int, total: Int): String =
+        "Files deleted outside the app (${if (missing == total) "all $total" else "$missing of $total"} missing). Retry to download them again."
+
     /** Whether to warn before [bytes] go over a metered network. */
     fun warnMetered(bytes: Long, env: DownloadEnvironment): Boolean =
         bytes > METERED_WARNING_BYTES && env.connected && env.metered && !env.wifiOnly

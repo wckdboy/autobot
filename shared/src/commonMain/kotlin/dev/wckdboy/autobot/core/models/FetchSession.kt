@@ -57,6 +57,11 @@ object FetchRules {
             "Civitai requires login for this file: add an API key under Remote → Accounts.",
             retryable = false,
         )
+        (status == 401 || status == 403) && auth == AuthHost.HUGGING_FACE -> DownloadException(
+            "Hugging Face denied access (HTTP $status): the repo is private or gated. Sign in under Remote → Accounts " +
+                "with a token that can read it, and accept its terms on huggingface.co.",
+            retryable = false,
+        )
         status == 401 || status == 403 -> DownloadException(
             "Access denied (HTTP $status)${if ("Early Access" in body) ": early-access file" else ""}",
             retryable = false,
@@ -169,6 +174,9 @@ class FetchSession(val file: ModelFile, credential: String?) {
                 else -> FetchStep.Reject
             }
         }
+        // A partial answer that does not continue the part file exactly would splice two files.
+        val rangeStart = with(FetchRules) { headers.header("Content-Range") }?.let(::contentRangeStart)
+        if (status == 206 && rangeStart != null && rangeStart != have) return FetchStep.Restart
         return when (status) {
             200, 206 -> {
                 val append = status == 206 && have > 0
@@ -180,6 +188,10 @@ class FetchSession(val file: ModelFile, credential: String?) {
             else -> FetchStep.Reject
         }
     }
+
+    /** First byte of a `Content-Range: bytes a-b/c` answer, null when absent or unreadable. */
+    private fun contentRangeStart(value: String): Long? =
+        value.trim().takeIf { it.startsWith("bytes ", ignoreCase = true) }?.substring(6)?.substringBefore('-')?.trim()?.toLongOrNull()
 
     /** The error for a [FetchStep.Reject]ed response ([body]: its first bytes). */
     fun failure(status: Int, headers: Map<String, String>, body: String): DownloadException = FetchRules.failure(status, headers, body, file.auth)

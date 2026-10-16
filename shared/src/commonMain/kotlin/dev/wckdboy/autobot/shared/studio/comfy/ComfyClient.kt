@@ -73,6 +73,12 @@ class ComfyClient(
     val clientId: String = StudioIds.new("autobot"),
     private val pollIntervalMs: Long = 1_000,
     private val socketOpenTimeoutMs: Long = 5_000,
+    /** A JSON request the server never answers fails after this (the host's own timeouts may not apply). */
+    private val requestTimeoutMs: Long = 60_000,
+    /** A file transfer (`/view`, uploads) gets this long. */
+    private val transferTimeoutMs: Long = 10 * 60_000,
+    /** An open socket silent this long makes the client check the server still has the prompt. */
+    private val socketIdleMs: Long = 60_000,
 ) {
     private val base: String = backend.baseUrl.trim().trimEnd('/')
 
@@ -90,7 +96,8 @@ class ComfyClient(
         HttpRequestSpec(method, base + path, headers(accept, body?.let { "application/json" }), body, TAG, backend.route, maxBytes)
 
     private suspend fun json(method: String, path: String, body: String? = null, maxBytes: Long = MAX_JSON_BYTES): Pair<Int, String> {
-        val r = fetchAll(http, spec(method, path, body, maxBytes))
+        val r = withTimeoutOrNull(requestTimeoutMs) { fetchAll(http, spec(method, path, body, maxBytes)) }
+            ?: throw ComfyException("${backend.label} didn't answer $path within ${requestTimeoutMs / 1000} s")
         if (r.failure != null) throw ComfyException(if (r.blocked) "Blocked by network policy: ${r.failure}" else "Can't reach ${backend.label}: ${r.failure}", r.blocked)
         return r.status to r.body
     }
@@ -121,7 +128,8 @@ class ComfyClient(
 
     /** Downloads an output (or input / temp) file. */
     suspend fun view(file: ComfyFile): ByteArray {
-        val r = bytes.fetch(spec("GET", ComfyRequests.viewPath(file), maxBytes = MAX_FILE_BYTES, accept = "*/*"))
+        val r = withTimeoutOrNull(transferTimeoutMs) { bytes.fetch(spec("GET", ComfyRequests.viewPath(file), maxBytes = MAX_FILE_BYTES, accept = "*/*")) }
+            ?: throw ComfyException("${backend.label} didn't send ${file.filename} within ${transferTimeoutMs / 1000} s")
         if (r.failure != null) throw ComfyException(if (r.blocked) "Blocked by network policy: ${r.failure}" else "Can't download ${file.filename}: ${r.failure}", r.blocked)
         if (!r.isSuccessful) throw ComfyException("${backend.label} answered HTTP ${r.status} for ${file.filename}")
         return r.body
@@ -132,7 +140,8 @@ class ComfyClient(
         val boundary = "autobot-" + StudioIds.new("b").substringAfter('-')
         val (contentType, body) = ComfyRequests.uploadBody(name, mimeType, data, subfolder, overwrite, boundary)
         val request = HttpRequestSpec("POST", "$base/upload/image", headers(contentType = contentType), null, TAG, backend.route, MAX_JSON_BYTES)
-        val r = bytes.fetch(request, body)
+        val r = withTimeoutOrNull(transferTimeoutMs) { bytes.fetch(request, body) }
+            ?: throw ComfyException("${backend.label} didn't take the upload within ${transferTimeoutMs / 1000} s")
         if (r.failure != null) throw ComfyException(if (r.blocked) "Blocked by network policy: ${r.failure}" else "Upload failed: ${r.failure}", r.blocked)
         if (!r.isSuccessful) throw ComfyException("${backend.label} refused the upload (HTTP ${r.status}): ${r.body.decodeToString().take(200)}")
         return ComfyRequests.parseUpload(r.body.decodeToString()) ?: throw ComfyException("Unexpected upload answer from ${backend.label}")
@@ -211,7 +220,14 @@ class ComfyClient(
     ) {
         var started = false
         while (true) {
-            when (val event = events.receiveCatching().getOrNull() ?: return) {
+            val received = withTimeoutOrNull(socketIdleMs) { events.receiveCatching() }
+            if (received == null) {
+                // A silent socket: keep listening only while the server still has the prompt.
+                val q = runCatching { queue() }.getOrNull()
+                if (q == null || (promptId !in q.running && promptId !in q.pending)) return
+                continue
+            }
+            when (val event = received.getOrNull() ?: return) {
                 is SocketEvent.Text -> when (val m = ComfyMessage.parse(event.text)) {
                     is ComfyMessage.ExecutionStart -> if (m.promptId == promptId) {
                         started = true
@@ -247,10 +263,15 @@ class ComfyClient(
 
     private suspend fun pollHistory(promptId: String, onEvent: (EngineEvent) -> Unit): HistoryEntry {
         var said: String? = null
+        var missing = 0
         while (true) {
             val entry = history(promptId)
             if (entry != null && (entry.completed || entry.status != null)) return entry
             val q = runCatching { queue() }.getOrNull()
+            // Neither queued, running nor finished, several polls in a row: the server lost it
+            // (restarted, queue cleared). Waiting longer would hang the job forever.
+            missing = if (q != null && entry == null && promptId !in q.running && promptId !in q.pending) missing + 1 else 0
+            if (missing >= LOST_POLLS) throw ComfyException("${backend.label} no longer has this job (was it restarted or its queue cleared?)")
             val status = when {
                 q == null -> null
                 promptId in q.running -> "Running on ${backend.label}"
@@ -273,6 +294,7 @@ class ComfyClient(
 
     companion object {
         const val TAG = "studio:comfyui"
+        private const val LOST_POLLS = 3
         const val MAX_JSON_BYTES = 4L * 1024 * 1024
         const val MAX_OBJECT_INFO_BYTES = 64L * 1024 * 1024
         const val MAX_FILE_BYTES = 1024L * 1024 * 1024

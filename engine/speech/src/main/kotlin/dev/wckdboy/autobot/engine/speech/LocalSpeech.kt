@@ -69,8 +69,20 @@ class LocalSpeech(context: Context, private val idleMillis: Long = 60_000L) {
                 ISpeechEngine.Stub.asInterface(service).also { engine = it; ready.complete(it) }
             }
 
+            /** Unbound after its process died (once: the binding is gone after that). */
+            @Volatile
+            private var released = false
+
             override fun onServiceDisconnected(name: ComponentName) {
+                // The engine process died. Unbind: a binding kept to it makes Android restart the
+                // process and hold it forever, out of reach of the idle unbind and the memory
+                // coordinator. The next request binds afresh.
                 engine = null
+                if (!released) {
+                    released = true
+                    runCatching { app.unbindService(this) }
+                }
+                synchronized(this@LocalSpeech) { if (connection === this) connection = null }
             }
 
             override fun onBindingDied(name: ComponentName) {

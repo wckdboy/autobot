@@ -11,6 +11,8 @@ import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.tools.ToolKind
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /**
  * Permission presets (DSH `dsh-permission-presets`), adapted to a phone: there is no shell
@@ -68,7 +70,10 @@ class ApprovalService {
             try {
                 agent.ctx.run(Hooks.ApprovalRequest, request) { ApprovalOutcome.UNAVAILABLE }
             } catch (e: CancellationException) {
-                agent.log.append(SessionEvent.ApprovalDecided(request.callId, ApprovalOutcome.CANCELLED))
+                // The coroutine is cancelled: a store that suspends would refuse the write otherwise.
+                withContext(NonCancellable) {
+                    runCatching { agent.log.append(SessionEvent.ApprovalDecided(request.callId, ApprovalOutcome.CANCELLED)) }
+                }
                 throw e
             } catch (_: Throwable) {
                 ApprovalOutcome.UNAVAILABLE

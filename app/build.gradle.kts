@@ -22,8 +22,8 @@ android {
 
     defaultConfig {
         applicationId = "ai.wckd.autobot"
-        versionCode = 12
-        versionName = "1.6.0"
+        versionCode = 13
+        versionName = "1.6.1"
     }
 
     // Release signing is optional and local: when `keystore.properties` (git-ignored) exists at the
@@ -262,4 +262,8 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+
+    // The engine memory coordinator against fake engine binders.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

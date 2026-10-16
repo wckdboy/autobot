@@ -74,7 +74,9 @@ class ModelLibrary @Inject constructor(
             nsfw = plan.nsfw,
             totalBytes = plan.totalBytes,
             downloadedBytes = existing?.downloadedBytes ?: 0,
-            status = if (existing?.status == ModelStatus.READY.name) ModelStatus.READY.name else ModelStatus.QUEUED.name,
+            // A ready model stays ready, and one downloading right now keeps downloading (queued
+            // again, it would be fetched twice).
+            status = existing?.status?.takeIf { it == ModelStatus.READY.name || it == ModelStatus.DOWNLOADING.name } ?: ModelStatus.QUEUED.name,
             error = null,
             manifestJson = ManifestJson.encodeToString(ModelManifest.serializer(), plan.manifest),
             addedAt = existing?.addedAt ?: now,
@@ -85,25 +87,51 @@ class ModelLibrary @Inject constructor(
         return row.toModel()!!
     }
 
-    internal suspend fun update(model: InstalledModel, manifest: ModelManifest, totalBytes: Long) {
-        rows.get(model.id)?.let { row ->
-            rows.upsert(
-                row.copy(
-                    manifestJson = ManifestJson.encodeToString(ModelManifest.serializer(), manifest),
-                    totalBytes = totalBytes,
-                    updatedAt = System.currentTimeMillis(),
-                ),
-            )
-        }
-    }
+    /** Stores what the server taught about the files (sizes, hashes); never brings back a removed model. */
+    internal suspend fun update(model: InstalledModel, manifest: ModelManifest, totalBytes: Long) =
+        rows.updateManifest(model.id, ManifestJson.encodeToString(ModelManifest.serializer(), manifest), totalBytes)
 
     internal suspend fun progress(id: String, downloaded: Long, status: ModelStatus, error: String? = null) =
         rows.updateProgress(id, downloaded, status.name, error)
 
+    /** Moves [id] from [from] to [to], only if nothing (a pause, a removal) changed it meanwhile. */
+    internal suspend fun transition(id: String, from: ModelStatus, to: ModelStatus, downloaded: Long, error: String? = null): Boolean =
+        rows.transition(id, from.name, to.name, downloaded, error)
+
+    /** [id] starts downloading, if it is still queued (not paused or removed meanwhile). */
+    internal suspend fun start(id: String, downloaded: Long): Boolean =
+        rows.transition(id, ModelStatus.QUEUED.name, ModelStatus.DOWNLOADING.name, downloaded, null)
+
+    /** The running download's byte count; a model paused or removed meanwhile is left alone. */
+    internal suspend fun downloaded(id: String, bytes: Long) = rows.updateBytes(id, bytes, ModelStatus.DOWNLOADING.name)
+
     /** Deletes the files and the registry entry. */
     suspend fun remove(id: String) {
-        withContext(Dispatchers.IO) { dirOf(id).deleteRecursively() }
-        rows.delete(id)
+        forget(id)
+        deleteFiles(id)
+    }
+
+    /** Deletes the registry entry only: from here on the model is gone, whatever happens to its files. */
+    internal suspend fun forget(id: String) = rows.delete(id)
+
+    internal suspend fun deleteFiles(id: String) = withContext(Dispatchers.IO) { dirOf(id).deleteRecursively() }
+
+    /**
+     * Deletes model folders no registry entry owns (a removal interrupted after its entry was
+     * deleted). Run before anything downloads in this process. Returns the folders deleted.
+     */
+    internal suspend fun sweepOrphans(): List<String> {
+        val owned = rows.all().mapTo(HashSet()) { safeName(it.id) }
+        return withContext(Dispatchers.IO) {
+            rootDir.listFiles().orEmpty().filter { it.isDirectory && it.name !in owned }
+                .onEach { it.deleteRecursively() }
+                .map { it.name }
+        }
+    }
+
+    /** The files of a ready model that are gone from disk (deleted outside the app); empty when all are there. */
+    suspend fun missingFiles(model: InstalledModel): List<ModelFile> = withContext(Dispatchers.IO) {
+        if (!model.isReady) emptyList() else model.manifest.files.filter { !fileOf(model.id, it).isFile }
     }
 
     /** Bytes on disk for [id] (finished files plus partial downloads). */

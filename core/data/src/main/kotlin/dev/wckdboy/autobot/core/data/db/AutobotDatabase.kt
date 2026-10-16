@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.core.data.db
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
@@ -117,6 +118,13 @@ class DatabaseHolder @Inject constructor(
         if (wiped) throw DatabaseUnavailableException("The database was wiped")
         (_state.value as? DatabaseState.Failed)?.let { throw DatabaseUnavailableException(it.reason) }
         instance ?: open().also { instance = it }
+    }
+
+    /** Tests: serves [database] (e.g. an in-memory Room database) instead of opening the encrypted file. */
+    @VisibleForTesting
+    fun useForTesting(database: AutobotDatabase) = synchronized(this) {
+        instance = database
+        _state.value = DatabaseState.Open
     }
 
     /** Opens the database now (off the main thread) so [state] is known before screens use it. */

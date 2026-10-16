@@ -27,10 +27,19 @@ class ModelLaunchTest {
     }
 
     @Test
+    fun aDictationModelOpensVoiceModeOnAndroid() {
+        assertEquals(ModelLaunch(ModelTask.VOICE), android(ModelKind.SPEECH, EngineKind.WHISPER))
+        assertTrue(android(ModelKind.SPEECH, EngineKind.WHISPER).opens)
+        // Not on iOS (its dictation is the system's), and not while it downloads or with its files gone.
+        assertEquals(ModelLaunch(ModelTask.NONE), launchOf(ModelKind.SPEECH, EngineKind.WHISPER, true, Fit.GOOD, true, AppPlatform.IOS))
+        assertEquals(ModelLaunch(ModelTask.NONE), android(ModelKind.SPEECH, EngineKind.WHISPER, ready = false))
+        assertFalse(android(ModelKind.SPEECH, EngineKind.WHISPER, files = false).opens)
+    }
+
+    @Test
     fun speechAndPartsOpenNothing() {
-        listOf(ModelKind.SPEECH, ModelKind.VOICE, ModelKind.LORA, ModelKind.VAE, ModelKind.EMBEDDING, ModelKind.OTHER).forEach { kind ->
+        listOf(ModelKind.VOICE, ModelKind.LORA, ModelKind.VAE, ModelKind.EMBEDDING, ModelKind.OTHER).forEach { kind ->
             val engine = when (kind) {
-                ModelKind.SPEECH -> EngineKind.WHISPER
                 ModelKind.VOICE -> EngineKind.ONNX
                 else -> EngineKind.DIFFUSION
             }
