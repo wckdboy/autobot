@@ -337,6 +337,34 @@ void Engine::unload() {
     tokenizers_.clear();
 }
 
+void Engine::evict_except(const std::set<std::string> & keep) {
+    auto file_of = [](const std::string & key) { return key.substr(0, key.rfind('#')); };
+    for (auto it = qnn_models_.begin(); it != qnn_models_.end();) it = keep.count(it->first) ? std::next(it) : qnn_models_.erase(it);
+    for (auto it = mnn_models_.begin(); it != mnn_models_.end();) it = keep.count(file_of(it->first)) ? std::next(it) : mnn_models_.erase(it);
+    for (auto it = tokenizers_.begin(); it != tokenizers_.end();) it = keep.count(it->first) ? std::next(it) : tokenizers_.erase(it);
+    for (auto it = tables_.begin(); it != tables_.end();) {
+        const std::string tokens = it->first.substr(0, it->first.find('|'));
+        it = keep.count(tokens) ? std::next(it) : tables_.erase(it);
+    }
+}
+
+std::string Engine::probe(const std::string & request) {
+    // Loads one context binary on the NPU and frees it again: proves the whole DSP path (skel,
+    // unsigned PD, runtime ↔ binary versions) for the diagnostics report without generating.
+    rapidjson::Document doc;
+    doc.Parse(request.c_str(), request.size());
+    const std::string path = str(doc, "model");
+    if (!qnn_ || !qnn_->ready()) return error_json("NPU_UNAVAILABLE", "the NPU is not available on this phone");
+    std::string error;
+    auto t = Clock::now();
+    auto model = qnn_->load(path, &error);
+    if (!model) return error_json("LOAD_FAILED", error);
+    const double ms = ms_since(t);
+    const std::string graphs = model->describe();
+    model.reset();
+    return "{\"ok\":true,\"load_ms\":" + std::to_string((long long) ms) + ",\"graphs\":" + graphs + "}";
+}
+
 std::string Engine::run(const std::string & request, const Events & events) {
     cancel_.store(false);
     rapidjson::Document doc;
@@ -344,6 +372,7 @@ std::string Engine::run(const std::string & request, const Events & events) {
     if (doc.HasParseError() || !doc.IsObject()) return error_json("BAD_REQUEST", "invalid request");
     const std::string op = str(doc, "op", "generate");
     if (op == "upscale") return upscale(request, events);
+    if (op == "probe") return probe(request);
     if (op == "unload") {
         unload();
         return "{}";
@@ -376,48 +405,61 @@ std::string Engine::generate(const std::string & request, const Events & events)
     auto t_load = Clock::now();
 
     // ---- models
+    // Only this request's models stay resident: switching packages must not stack a second UNet
+    // (an SDXL context alone is ~2.7 GB of NPU-mapped memory) on top of the previous one.
+    {
+        std::set<std::string> keep;
+        for (auto it = files.MemberBegin(); it != files.MemberEnd(); ++it)
+            if (it->value.IsString()) keep.insert(std::string(it->value.GetString(), it->value.GetStringLength()));
+        evict_except(keep);
+    }
     ClipTokenizer * tok = tokenizer(str(files, "tokenizer"), &error);
     EmbeddingTable * tab = tok ? table(str(files, "token_emb"), str(files, "pos_emb"), &error) : nullptr;
     MnnModel * text = tab ? mnn_model(str(files, "text_encoder"), false, &error) : nullptr;
-    if (!text) return error_json("LOAD_FAILED", error);
+    if (!text) return error_json("LOAD_FAILED", "text encoder: " + error);
     EmbeddingTable * tab2 = nullptr;
     MnnModel * text2 = nullptr;
     if (sdxl) {
         tab2 = table(str(files, "token_emb_2"), str(files, "pos_emb_2"), &error);
         text2 = tab2 ? mnn_model(str(files, "text_encoder_2"), false, &error) : nullptr;
-        if (!text2) return error_json("LOAD_FAILED", error);
+        if (!text2) return error_json("LOAD_FAILED", "second text encoder: " + error);
     }
+    // The VAE encoder is only needed for img2img/inpaint: loading it for every txt2img job cost an
+    // extra NPU context (for SDXL with a ~575 MB spill-fill buffer) for nothing.
+    const bool img2img = !str(doc, "init_image").empty() && files.HasMember("vae_encoder");
     std::unique_ptr<Unet> unet;
     std::unique_ptr<Vae> vae;
-    if (use_mnn) {
-        MnnModel * u = mnn_model(str(files, "unet"), gpu, &error);
-        MnnModel * d = u ? mnn_model(str(files, "vae_decoder"), gpu, &error) : nullptr;
-        if (!d) return error_json("LOAD_FAILED", error);
-        MnnModel * e = files.HasMember("vae_encoder") ? mnn_model(str(files, "vae_encoder"), gpu, &error) : nullptr;
-        unet = std::make_unique<MnnUnet>(u);
-        vae = std::make_unique<MnnVae>(d, e);
-    } else {
-        QnnModel * u = qnn_model(str(files, "unet"), &error);
-        QnnModel * d = u ? qnn_model(str(files, "vae_decoder"), &error) : nullptr;
-        if (!d) return error_json("LOAD_FAILED", error);
-        QnnModel * e = files.HasMember("vae_encoder") ? qnn_model(str(files, "vae_encoder"), &error) : nullptr;
-        auto qu = std::make_unique<QnnUnet>(u);
-        if (!qu->valid()) return error_json("UNSUPPORTED", "unrecognised UNet inputs: " + u->describe());
-        unet = std::move(qu);
-        vae = std::make_unique<QnnVae>(d, e);
+    auto load_denoiser = [&]() -> std::string {
+        if (use_mnn) {
+            MnnModel * u = mnn_model(str(files, "unet"), gpu, &error);
+            if (!u) return error_json("LOAD_FAILED", "UNet: " + error);
+            MnnModel * d = mnn_model(str(files, "vae_decoder"), gpu, &error);
+            if (!d) return error_json("LOAD_FAILED", "VAE decoder: " + error);
+            MnnModel * e = img2img ? mnn_model(str(files, "vae_encoder"), gpu, &error) : nullptr;
+            if (img2img && !e) return error_json("LOAD_FAILED", "VAE encoder: " + error);
+            unet = std::make_unique<MnnUnet>(u);
+            vae = std::make_unique<MnnVae>(d, e);
+        } else {
+            QnnModel * u = qnn_model(str(files, "unet"), &error);
+            if (!u) return error_json("LOAD_FAILED", error);
+            QnnModel * d = qnn_model(str(files, "vae_decoder"), &error);
+            if (!d) return error_json("LOAD_FAILED", error);
+            QnnModel * e = img2img ? qnn_model(str(files, "vae_encoder"), &error) : nullptr;
+            if (img2img && !e) return error_json("LOAD_FAILED", error);
+            auto qu = std::make_unique<QnnUnet>(u);
+            if (!qu->valid()) return error_json("UNSUPPORTED", "unrecognised UNet inputs: " + u->describe());
+            unet = std::move(qu);
+            vae = std::make_unique<QnnVae>(d, e);
+        }
+        return {};
+    };
+    // SD 1.5 is small: everything loads now. SDXL loads its UNet/VAE only after the prompts are
+    // encoded and both text encoders (~1.4 GB) are released, as Local Dream's low-RAM mode does.
+    if (!sdxl) {
+        const std::string failed = load_denoiser();
+        if (!failed.empty()) return failed;
     }
-    const double load_ms = ms_since(t_load);
-
-    // ---- size
-    auto shape = unet->latent_shape();
-    int lh = shape[1], lw = shape[2];
-    if (lh == 0 || lw == 0) {
-        lh = std::max(32, (int) num(doc, "height", 512) / 8);
-        lw = std::max(32, (int) num(doc, "width", 512) / 8);
-    }
-    const int channels = shape[0];
-    const int h = lh * 8, w = lw * 8;
-    const size_t latent_n = (size_t) channels * lh * lw;
+    double load_ms = ms_since(t_load);
 
     // ---- text
     if (qnn_) qnn_->set_performance(true);
@@ -473,8 +515,31 @@ std::string Engine::generate(const std::string & request, const Events & events)
     };
     if (!encode(prompt, false, &cond, &pooled_c)) return error_json("ENCODE_FAILED", error);
     if (with_uncond && !encode(negative, true, &uncond, &pooled_u)) return error_json("ENCODE_FAILED", error);
-    const std::vector<float> time_ids = {(float) h, (float) w, 0.0f, 0.0f, (float) h, (float) w};
     const double text_ms = ms_since(t_text);
+    if (sdxl) {
+        mnn_models_.erase(str(files, "text_encoder") + "#cpu");
+        mnn_models_.erase(str(files, "text_encoder_2") + "#cpu");
+        events.status("loading");
+        auto t_load2 = Clock::now();
+        const std::string failed = load_denoiser();
+        if (!failed.empty()) {
+            if (qnn_) qnn_->set_performance(false);
+            return failed;
+        }
+        load_ms += ms_since(t_load2);
+    }
+
+    // ---- size
+    auto shape = unet->latent_shape();
+    int lh = shape[1], lw = shape[2];
+    if (lh == 0 || lw == 0) {
+        lh = std::max(32, (int) num(doc, "height", 512) / 8);
+        lw = std::max(32, (int) num(doc, "width", 512) / 8);
+    }
+    const int channels = shape[0];
+    const int h = lh * 8, w = lw * 8;
+    const size_t latent_n = (size_t) channels * lh * lw;
+    const std::vector<float> time_ids = {(float) h, (float) w, 0.0f, 0.0f, (float) h, (float) w};
 
     // ---- img2img / inpaint inputs
     std::vector<float> init_latent_mean, init_latent_std, mask_latent;

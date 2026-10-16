@@ -170,7 +170,7 @@ struct AudioRoom: View {
                 if let clip = model.selected {
                     ClipStage(clip: clip, player: player, trim: $model.trim) { Task { await model.saveTrim() } }
                 } else if model.runningJob == nil {
-                    MicroLabel("clips print here · \(model.tab == .sound ? "describe a sound below" : "type a text below")").padding(.top, 16)
+                    Color.clear.frame(height: 16)
                 }
                 if !model.clips.isEmpty {
                     SectionLabel("clips · \(model.clips.count)")

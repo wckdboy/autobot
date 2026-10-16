@@ -307,6 +307,7 @@ struct ModelsScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Models") {
                 TextAction("Compute", color: c.onSurface) { nav.push(.compute) }
+                .accessibilityHint("Benchmarks for this phone")
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -344,16 +345,11 @@ struct ModelsScreen: View {
 
     @ViewBuilder private var profile: some View {
         if let d = model.device, let info = model.deviceInfo {
-            let name = [info.name ?? d.machine, info.chip ?? d.chip].compactMap { $0 }.joined(separator: " · ")
-            SectionLabel("this phone · \(name)")
-            Spacer().frame(height: 4)
-            MicroLabel(
-                "\(formatBytes(d.totalRamBytes)) ram · \(formatBytes(d.freeStorageBytes)) free · \(d.cores) cores" +
-                    (info.neuralEngine ? " · neural engine" : "") + (d.gpu != nil ? " · metal" : ""),
-                lines: 2,
-            )
+            // One line: what decides which models fit.
+            let chip = info.chip ?? d.chip ?? info.name ?? d.machine
+            SectionLabel("\(chip) · \(formatBytes(d.totalRamBytes)) ram · \(formatBytes(d.freeStorageBytes)) free")
         }
-        Spacer().frame(height: 14)
+        Spacer().frame(height: 16)
     }
 
     @ViewBuilder private func recommended(_ installed: Set<String>) -> some View {
@@ -376,14 +372,13 @@ struct ModelsScreen: View {
             }
             Spacer().frame(height: 14)
         }
-        MicroLabel("core ml images run on the neural engine, gguf models on the gpu (metal) or cpu · downloads are verified (sha-256) before use", lines: 3)
     }
 
     @ViewBuilder private var huggingFace: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                MicroLabel(app.accounts.state.huggingFaceUser.map { "signed in · \($0)" } ?? "anonymous · gated models need a token")
+                MicroLabel(app.accounts.state.huggingFaceUser ?? "anonymous")
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Tag("account") { nav.push(.accounts) }
             }
@@ -428,13 +423,12 @@ struct ModelsScreen: View {
         let account = app.accounts.state
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                MicroLabel([account.civitaiHost.host, account.civitaiUser.map { "signed in · \($0)" } ?? "no api key", account.showMature ? "mature on" : "sfw"].joined(separator: " · "))
+                MicroLabel([account.civitaiUser ?? "no api key", account.showMature ? "mature on" : "sfw"].joined(separator: " · "))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Tag("account") { nav.push(.accounts) }
             }
             Segmented(options: CivitaiScope.allCases, selected: model.civitaiScope, label: \.label) { model.setCivitaiScope($0) }
             ConsoleTextField(text: $model.civitaiQuery, placeholder: "search sd 1.5 / sdxl / pony / illustrious", kind: .mono) { model.searchCivitai() }
-            MicroLabel("checkpoints and loras run on pc backends (a1111 / forge) — core ml on this phone needs converted models", color: AutobotColors.amber, lines: 3)
             if model.civitaiLoading { InkLoader() }
             Hairline()
         }
@@ -527,9 +521,8 @@ private struct InstalledRow: View {
     var body: some View {
         let subtitle = [
             model.kind.label,
-            model.format.label,
             model.totalBytes > 0 ? formatBytes(model.totalBytes) : nil,
-            model.engine.runsOnIOS ? model.engine.label : "not runnable here",
+            model.engine.runsOnIOS ? nil : "not runnable here",
         ].compactMap { $0 }.joined(separator: " · ")
         // Tapping a ready model opens the task it runs (the × tag still removes it).
         let opens = ModelsModel.launch(model).task != ModelTask.none
@@ -544,7 +537,7 @@ private struct InstalledRow: View {
                 }
             }
             .stamp(model.status == .ready) { $0 }
-            Tag(confirm ? "sure?" : "×", accent: confirm ? c.error : c.onSurfaceVariant) {
+            Tag(confirm ? "delete" : "×", accent: confirm ? c.error : c.onSurfaceVariant, filled: confirm) {
                 if confirm {
                     app.downloader.remove(model.id)
                     app.compute.deleteFor(modelId: model.id)
@@ -554,7 +547,7 @@ private struct InstalledRow: View {
             }
         }
         if confirm {
-            MicroLabel("Deletes \(formatBytes(model.totalBytes)) from this phone. Chats that use it need another model picked.", color: c.error, lines: 2)
+            MicroLabel("frees \(formatBytes(model.totalBytes))", color: c.error)
                 .padding(.bottom, 8)
         }
         if model.status == .paused { InkProgressBar(.paused(model.fraction), height: 2).padding(.bottom, 6) }
@@ -574,8 +567,8 @@ private struct CatalogRow: View {
     @Environment(\.scheme) private var c
 
     var body: some View {
-        RunRow(title: plan.title, subtitle: sizedSubtitle(bytes: plan.totalBytes, plan.subtitle, plan.license)) {
-            if let fit {
+        RunRow(title: plan.title, subtitle: sizedSubtitle(bytes: plan.totalBytes, plan.subtitle)) {
+            if let fit, fit != .good {
                 Tag(fit.label, accent: fitColor(fit, c))
             }
             if installed {
@@ -619,7 +612,7 @@ private struct RepoSheet: View {
                         let size = repo.coreMLSize(folder)
                         let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
                         RunRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.lowercased().contains("original") ? "gpu" : "neural engine")") {
-                            if let fit { Tag(fit.label, accent: fitColor(fit, c)) }
+                            if let fit, fit != .good { Tag(fit.label, accent: fitColor(fit, c)) }
                             Tag("get", accent: c.primary, filled: true) { model.installCoreML(repo, folder: folder) }
                         }
                     }
@@ -629,7 +622,7 @@ private struct RepoSheet: View {
                     let kind = model.hfScope.kind
                     let fit = model.device?.fit(kind, bytes: f.sizeBytes, engine: engineFor(kind, formatOf(f.path, owner: owner)))
                     RunRow(title: String(f.path.split(separator: "/").last ?? ""), subtitle: "\(formatBytes(f.sizeBytes))\(f.sha256 != nil ? " · sha-256 known" : "")") {
-                        if let fit { Tag(fit.label, accent: fit == .good ? c.onSurfaceVariant : AutobotColors.amber) }
+                        if let fit, fit != .good { Tag(fit.label, accent: AutobotColors.amber) }
                         let format = formatOf(f.path, owner: owner)
                         if format == .safetensors || format == .ckpt {
                             PcOnlyGetTag { model.installFile(repo, f.path) }
@@ -639,7 +632,7 @@ private struct RepoSheet: View {
                     }
                 }
                 if files.contains(where: { formatOf($0.path, owner: owner) == .safetensors }) {
-                    MicroLabel("safetensors checkpoints need a pc backend — on this phone images run from core ml builds", color: AutobotColors.amber, lines: 3)
+                    MicroLabel("safetensors run on a pc backend", color: AutobotColors.amber)
                 }
             }
             .padding(.horizontal, 16)

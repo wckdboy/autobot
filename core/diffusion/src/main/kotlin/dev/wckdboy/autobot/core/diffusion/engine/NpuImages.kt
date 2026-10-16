@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.core.diffusion.PromptSyntax
 import dev.wckdboy.autobot.core.models.Backend
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.InstalledModel
+import dev.wckdboy.autobot.core.models.LocalDream
 import dev.wckdboy.autobot.engine.npu.LocalNpu
 import dev.wckdboy.autobot.engine.npu.NpuEngineDiedException
 import dev.wckdboy.autobot.engine.npu.NpuEngineUnavailableException
@@ -82,9 +83,7 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
                         out.emit(DiffusionEvent.Result(event.index, png, event.seed, event.width, event.height, clock() - started, info(model)))
                     }
                     is NpuEvent.Result -> JSONObject(event.json).optJSONObject("error")?.let { e ->
-                        if (e.optString("code") != "CANCELLED") {
-                            throw DiffusionException(e.optString("message", "NPU engine error"), DiffusionException.Code.BACKEND)
-                        }
+                        if (e.optString("code") != "CANCELLED") throw DiffusionException(failure(model, e), DiffusionException.Code.BACKEND)
                     }
                 }
             }
@@ -127,7 +126,7 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
                         result = try { png(file.readBytes(), event.width, event.height) } finally { file.delete() }
                     }
                     is NpuEvent.Result -> JSONObject(event.json).optJSONObject("error")?.let { e ->
-                        throw DiffusionException(e.optString("message", "Upscale failed"), DiffusionException.Code.BACKEND)
+                        throw DiffusionException(failure(upscaler, e), DiffusionException.Code.BACKEND)
                     }
                     is NpuEvent.Status -> Unit
                 }
@@ -136,6 +135,26 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
         } finally {
             input.delete()
         }
+    }
+
+    /**
+     * The engine's error as the user sees it: which stage failed, the runtime's own words, and —
+     * when the package was built for a Hexagon generation this phone cannot load — what to install.
+     */
+    private suspend fun failure(model: InstalledModel, error: JSONObject): String {
+        val pkg = model.manifest.npu
+        val message = error.optString("message").ifBlank { "NPU engine error" }
+        val where = if (pkg?.runtime == "qnn") "on the NPU" else "on the GPU"
+        val text = when (error.optString("code")) {
+            "LOAD_FAILED" -> "${model.title} could not be loaded $where: $message"
+            "UNSUPPORTED" -> "${model.title} is not a layout this engine can run: $message"
+            "ENCODE_FAILED" -> "The text encoder of ${model.title} failed: $message"
+            "UNET_FAILED", "DECODE_FAILED" -> "${model.title} failed while generating $where: $message"
+            else -> message
+        }
+        if (pkg?.runtime != "qnn") return text
+        val arch = runCatching { JSONObject(npu.status()).optString("arch") }.getOrNull()?.takeIf { it.isNotBlank() }
+        return LocalDream.incompatibility(pkg.htpArch, arch)?.let { "$text ($it)" } ?: text
     }
 
     private fun info(model: InstalledModel): String {

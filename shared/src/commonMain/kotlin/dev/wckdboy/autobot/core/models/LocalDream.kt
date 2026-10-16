@@ -7,17 +7,41 @@ package dev.wckdboy.autobot.core.models
  */
 object LocalDream {
 
-    /** Package suffixes that can run on a Hexagon generation, best first. */
+    /**
+     * Package suffixes that can run on a Hexagon generation, best first. This mirrors Local Dream
+     * (the app these packages are built for), whose chip table maps every v73-and-newer phone
+     * (SM8550 … SM8850, Snapdragon 8 Elite Gen 5 included) to the `8gen2` (v73) builds and runs the
+     * `8gen3` (v75) SDXL builds on them: an older Hexagon generation's context binary loads on a
+     * newer HTP. `8gen4` (v79) builds are offered on v79 only: nothing shows that a v79 binary loads
+     * on a v81 HTP, and Local Dream itself never installs them.
+     */
     fun chipOrder(arch: String?): List<String> = when (arch) {
-        "v81", "v79" -> listOf("8gen4", "8gen3", "8gen2")
-        "v75" -> listOf("8gen3", "8gen2")
+        "v81" -> listOf("8gen2", "8gen3")
+        "v79" -> listOf("8gen2", "8gen3", "8gen4")
+        "v75" -> listOf("8gen2", "8gen3")
         "v73" -> listOf("8gen2")
         "v69" -> listOf("8gen1", "min")
         else -> listOf("min")
     }
 
+    /**
+     * Why a package whose binaries were compiled for Hexagon [builtArch] (`NpuPackage.htpArch`)
+     * cannot run on a phone with HTP [arch], or null when it can (or either is unknown). Shown when
+     * a context binary fails to load (e.g. an `8gen4` upscaler installed on a v81 phone by an earlier version).
+     */
+    fun incompatibility(builtArch: String?, arch: String?): String? {
+        if (builtArch == null || arch == null) return null
+        val chip = CHIPS.firstOrNull { archOfChip(it) == builtArch } ?: return null
+        if (runsOn(chip, arch)) return null
+        val better = chipOrder(arch).firstOrNull()
+        return "this package is built for Hexagon $builtArch ($chip), which this phone's Hexagon $arch cannot load" +
+            (better?.let { " — install the $it build instead" } ?: "")
+    }
+
+    private val CHIPS = listOf("min", "8gen1", "8gen2", "8gen3", "8gen4")
+
     /** Hexagon generation a package suffix was compiled for. */
-    fun archOfChip(chip: String): String? = when (chip) {
+    fun archOfChip(chip: String?): String? = when (chip) {
         "8gen1" -> "v69"
         "8gen2" -> "v73"
         "8gen3" -> "v75"

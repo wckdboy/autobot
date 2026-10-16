@@ -1,5 +1,6 @@
 import com.android.build.api.dsl.LibraryExtension
 import dev.wckdboy.autobot.buildlogic.AutobotJavaVersion
+import dev.wckdboy.autobot.buildlogic.boundTestTasks
 import dev.wckdboy.autobot.buildlogic.intVersion
 import dev.wckdboy.autobot.buildlogic.lib
 import dev.wckdboy.autobot.buildlogic.libs
@@ -16,6 +17,7 @@ class AndroidLibraryConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
             pluginManager.apply("com.android.library")
+            boundTestTasks()
 
             extensions.configure<LibraryExtension> {
                 compileSdk {

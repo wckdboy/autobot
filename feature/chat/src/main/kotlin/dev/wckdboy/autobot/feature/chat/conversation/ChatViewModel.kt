@@ -38,6 +38,7 @@ import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.designsystem.component.Route
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.markdown.LiteMarkdown
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
@@ -70,6 +71,7 @@ import dev.wckdboy.autobot.shared.voice.EndOfSpeech
 import dev.wckdboy.autobot.shared.voice.SpeechVerdict
 import dev.wckdboy.autobot.shared.voice.VoiceText
 import dev.wckdboy.autobot.shared.voice.VoiceTurn
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -495,6 +497,10 @@ class ChatViewModel @AssistedInject constructor(
                     notice.value = "Get a speech model in Models → speech to dictate"
                     return@launch
                 }
+                missingSpeechModel(path)?.let {
+                    notice.value = it
+                    return@launch
+                }
                 stopRecording.set(false)
                 dictation.value = Dictation.RECORDING
                 try {
@@ -502,8 +508,10 @@ class ChatViewModel @AssistedInject constructor(
                     dictation.value = Dictation.TRANSCRIBING
                     val text = speech.transcribe(path, audio)
                     if (text.isNotBlank()) dictated.value = text
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    notice.value = "Dictation failed: ${e.message ?: e.javaClass.simpleName}"
+                    notice.value = "Dictation failed: ${userMessage(e)}"
                 } finally {
                     dictation.value = Dictation.IDLE
                 }
@@ -517,6 +525,12 @@ class ChatViewModel @AssistedInject constructor(
 
     private suspend fun speechModelPath(): String? =
         library.all().firstOrNull { it.isReady && it.engine == EngineKind.WHISPER }?.paths?.get(FileRole.MODEL)
+
+    /** A "ready" speech model whose file was deleted or moved: say so instead of failing in the engine. */
+    private suspend fun missingSpeechModel(path: String): String? =
+        if (withContext(Dispatchers.IO) { File(path).isFile }) null else "The speech model's file is missing — remove it and download it again in Models › speech"
+
+
 
     /** Reads an answer aloud, on the device only (see [Speakers]); tapping again stops. */
     override fun speak(key: String, text: String) {
@@ -588,6 +602,7 @@ class ChatViewModel @AssistedInject constructor(
         voiceJob?.cancel()
         voiceJob = viewModelScope.launch {
             val path = speechModelPath() ?: return@launch voiceFailed("Get a speech model in Models › speech")
+            missingSpeechModel(path)?.let { return@launch voiceFailed(it) }
             stopRecording.set(false)
             setPhase(VoicePhase.LISTENING)
             val handsFree = voiceMode.value?.handsFree == true
@@ -854,7 +869,7 @@ class ChatViewModel @AssistedInject constructor(
             models = (if (local) installed else cache?.models ?: preset.suggestedModels.map { RemoteModel(it) }) + localSystemModel().map { RemoteModel(it) },
             modelsLabel = when {
                 local -> "${installed.size} downloaded"
-                cache != null -> "${cache.models.size} models · ${cache.ageLabel(System.currentTimeMillis())}"
+                cache != null -> "${counted(cache.models.size, "model")} · ${cache.ageLabel(System.currentTimeMillis())}"
                 else -> "offline list"
             },
             canRefresh = !local && preset.modelsApi != ModelsApi.NONE,

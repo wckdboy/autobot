@@ -44,6 +44,7 @@ import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Stepper
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.models.StableAudioCatalog
@@ -140,7 +141,7 @@ fun AudioRoom(state: AudioRoomState, shell: StudioShellState, actions: AudioActi
         ControlSheet(
             expanded = controls,
             onToggle = { controls = !controls },
-            summary = if (state.tab == AudioTab.SOUND) "${state.seconds} s · ${state.steps} steps · cfg ${state.cfg}" else "${state.voice} · ×${state.speed}",
+            summary = if (state.tab == AudioTab.SOUND) "${state.seconds} s · ${counted(state.steps, "step")} · cfg ${state.cfg}" else "${state.voice} · ×${state.speed}",
         ) {
             if (state.tab == AudioTab.SOUND) SoundControls(state, actions) else VoiceControls(state, actions)
         }

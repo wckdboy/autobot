@@ -15,7 +15,7 @@ struct CountLabelTests {
         #expect(counted(2, "memory note") == "2 memory notes")
         #expect(counted(1, "child", "children") == "1 child")
         #expect(counted(3, "child", "children") == "3 children")
-        #expect(LiveCountLabel.text(total: 1, live: 0) == "1 session · 0 live")
+        #expect(LiveCountLabel.text(total: 1, live: 0) == "1 session")
         #expect(LiveCountLabel.text(total: 12, live: 3) == "12 sessions · 3 live")
         #expect(ChatListModel.deletedLabel(count: 1, title: "Trip") == "Deleted “Trip”")
         #expect(ChatListModel.deletedLabel(count: 1, title: nil) == "Chat deleted")

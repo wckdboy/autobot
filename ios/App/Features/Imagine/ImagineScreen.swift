@@ -66,21 +66,18 @@ struct ImagineScreen: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if let error = m.error { ErrorLine(message: error, onDismiss: m.dismissError) }
                     if m.backends.isEmpty {
-                        SectionLabel("no image engine yet")
-                        Text("Download an image model to run on this phone, or point Autobot at a PC (A1111 / Forge / Local Dream host).")
+                        // One short sentence, one action; a PC is the secondary path.
+                        Text("No image model yet.")
                             .textStyle(.bodyMedium)
                             .foregroundStyle(c.onSurfaceVariant)
-                            .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 8) {
-                            PrimaryButton("Get a model") { nav.switchTo(.models) }
-                            GhostButton("Add a pc") { nav.push(.imageBackends) }
-                        }
+                        PrimaryButton("Get a model") { nav.switchTo(.models) }
+                        TextAction("Use a PC instead", color: c.primary) { nav.push(.imageBackends) }
                     }
                     PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate)
                     if !m.chips.isEmpty { chipRow(m) }
                     if m.catalogStatus == .error, let error = m.catalogError {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("Can't reach \(m.backend?.name ?? "the backend"): \(error)")
+                            Text("\(m.backend?.name ?? "Backend") unreachable · \(error)")
                                 .textStyle(.bodySmall)
                                 .foregroundStyle(c.error)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -182,7 +179,8 @@ private struct PromptField: View {
                 .textInputAutocapitalization(.never)
                 .lineLimit(1 ... 12)
                 .frame(minHeight: 96, alignment: .topLeading)
-            MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? AutobotColors.redDeep : c.onSurfaceVariant)
+            // Only worth saying near the limit.
+            if tokens > 60 { MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? AutobotColors.redDeep : c.onSurfaceVariant) }
         }
     }
 }
@@ -366,7 +364,7 @@ private struct StudioBar: View {
             return "Running \(model.backend?.kind == .onDevice ? "on device" : "on \(backend)") · \(seconds) s"
         }
         if !model.results.isEmpty { return "Done · \(model.results.count) image\(model.results.count == 1 ? "" : "s")" }
-        if let blocker = model.generateBlocker { return blocker }
+        if let blocker = model.generateBlocker, !blocker.isEmpty { return blocker }
         return "\(r.mode.label) · \(r.sampler.isEmpty ? "default sampler" : r.sampler) · cfg \(String(format: "%.1f", r.cfgScale))"
     }
 }

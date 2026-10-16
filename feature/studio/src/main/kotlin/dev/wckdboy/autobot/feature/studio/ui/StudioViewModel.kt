@@ -28,7 +28,13 @@ import kotlinx.coroutines.withContext
 /** Decrypted previews for the screens, cached in memory only. */
 @Singleton
 class StudioAssetLoader @Inject constructor(private val store: StudioRepository) : AssetLoader {
-    private val thumbs = LruCache<String, ImageBitmap>(96)
+    /**
+     * Sized by pixel memory, not count: this loader lives as long as the app, and 96 previews of
+     * 384 px (~576 KB each) could pin ~55 MB. [THUMB_CACHE_KB] still holds 40+ of them.
+     */
+    private val thumbs = object : LruCache<String, ImageBitmap>(THUMB_CACHE_KB) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = (value.width * value.height * 4 / 1024).coerceAtLeast(1)
+    }
     private val waves = LruCache<String, FloatArray>(96)
 
     override suspend fun thumbnail(id: String): ImageBitmap? {
@@ -45,6 +51,10 @@ class StudioAssetLoader @Inject constructor(private val store: StudioRepository)
     }
 
     override suspend fun bytes(id: String): ByteArray? = store.bytes(id)
+
+    private companion object {
+        const val THUMB_CACHE_KB = 24 * 1024
+    }
 }
 
 /** The shell: projects, the queue strip and the current project's assets (for input pickers). */

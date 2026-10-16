@@ -21,14 +21,17 @@ struct DownloadsPanel: View {
         if !state.isEmpty || app.downloader.forceQuitNotice {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    MicroLabel("downloads", color: c.primary).frame(maxWidth: .infinity, alignment: .leading)
-                    Tag(notify ? "notify on" : "notify off", accent: notify ? c.primary : c.onSurfaceVariant, filled: notify) {
+                    MicroLabel("downloads", color: c.primary)
+                    InfoButton(title: "Downloads", text: "Downloads keep going in the background. Swiping Autobot away stops them until you open it again; they resume where they stopped.")
+                    Spacer(minLength: 0)
+                    IconAction(symbol: notify ? "bell.fill" : "bell.slash", label: notify ? "Notifications on" : "Notifications off",
+                               tint: notify ? c.primary : c.onSurfaceVariant, size: 17) {
                         Task { notify = await DownloadAlerts.setEnabled(!notify) }
                     }
                 }
                 if app.downloader.forceQuitNotice {
                     HStack(alignment: .top) {
-                        MicroLabel("Swiping Autobot away stops downloads; leave it in the background and they continue. They resumed where they stopped.", color: c.primary, lines: 3)
+                        MicroLabel("Resumed · swiping Autobot away stops downloads", color: c.primary, lines: 2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Tag("got it") { app.downloader.dismissForceQuitNotice() }
                     }
@@ -55,9 +58,6 @@ struct DownloadsPanel: View {
                 ForEach(Array(state.queued.enumerated()), id: \.element.id) { i, m in row(m, status: "queued · \(i + 1)") }
                 ForEach(state.paused) { m in
                     row(m, status: DownloadQueue.pausedReason(m)?.label ?? m.error ?? (m.status == .failed ? "failed" : "paused"))
-                }
-                if state.active != nil || !state.queued.isEmpty {
-                    MicroLabel("keeps going in the background · swiping autobot away stops it until you open it again", lines: 2)
                 }
             }
             .padding(12)

@@ -42,10 +42,10 @@ private enum ModeKind: CaseIterable {
 
     var description: String {
         switch self {
-        case .offline: "Kill switch on. Nothing leaves the device."
-        case .direct: "Connect to providers directly."
-        case .tor: "Route through a Tor SOCKS app such as Orbot for iOS (127.0.0.1:9050, remote DNS)."
-        case .socks5: "Route through a custom SOCKS5 proxy."
+        case .offline: "Nothing leaves the phone"
+        case .direct: "Straight to providers"
+        case .tor: "Through Orbot · 127.0.0.1:9050"
+        case .socks5: "Through your proxy"
         }
     }
 
@@ -81,21 +81,19 @@ struct PrivacyCenterScreen: View {
                     header("Network mode")
                     NetworkModeSelector(mode: settings.mode) { app.settings.setNetworkMode($0) }
                     SwitchRow(
-                        title: "Allow loopback while offline",
-                        subtitle: "Lets on-device servers (e.g. Ollama at 127.0.0.1) work in Offline mode",
+                        title: "Loopback offline",
                         isOn: Binding(get: { settings.allowLoopbackWhenOffline }, set: { app.settings.setAllowLoopbackWhenOffline($0) }),
+                        info: "Lets on-device servers (e.g. Ollama at 127.0.0.1) work in Offline mode.",
                     )
-                    HStack {
-                        header("Live audit log (\(audit.count))")
+                    HStack(spacing: 0) {
+                        header("Audit log · \(audit.count)")
+                        InfoButton(title: "Audit log", text: "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.")
+                            .padding(.top, 8)
                         Spacer()
-                        TextAction("Clear", color: c.primary) { app.auditLog.clear() }.padding(.top, 8)
+                        if !audit.isEmpty { TextAction("Clear", color: c.primary) { app.auditLog.clear() }.padding(.top, 8).padding(.trailing, 8) }
                     }
-                    Text("Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.")
-                        .textStyle(.bodySmall)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .padding(.horizontal, Tokens.Spacing.gutter)
                     if audit.isEmpty {
-                        Text("No requests yet.").textStyle(.bodyMedium).foregroundStyle(c.onSurface).padding(Tokens.Spacing.gutter)
+                        Text("No requests").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
                     }
                     ForEach(audit) { AuditRowView(row: $0) }
                     Hairline().padding(.vertical, 16)
@@ -125,7 +123,7 @@ struct PrivacyCenterScreen: View {
     private var wipePanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Panic wipe").textStyle(.titleMedium).foregroundStyle(c.error)
-            Text("Destroys encryption keys, conversations, providers, API keys, models and settings, then closes the app. This cannot be undone.")
+            Text("Destroys every key and all data, then closes the app.")
                 .textStyle(.bodySmall)
                 .foregroundStyle(c.onSurfaceVariant)
                 .fixedSize(horizontal: false, vertical: true)
@@ -172,12 +170,16 @@ private struct NetworkModeSelector: View {
                         RadioMark(selected: kind == current)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(kind.label).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                            Text(kind.description).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).multilineTextAlignment(.leading)
+                            // Only the chosen mode says what it does (state, not a manual).
+                            if kind == current {
+                                Text(kind.description).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).multilineTextAlignment(.leading)
+                            }
                         }
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, Tokens.Spacing.gutter)
                     .padding(.vertical, 8)
+                    .frame(minHeight: 52)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())

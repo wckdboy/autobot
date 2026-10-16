@@ -144,16 +144,27 @@ fun McpServersScreen(
                         modifier = Modifier.inkDissolve(dissolve, row.id).clickable { onEdit(row.id) },
                         headlineContent = { Text(row.name) },
                         supportingContent = {
-                            Text(
-                                listOfNotNull(
-                                    row.host,
-                                    row.routing.label,
-                                    if (row.trusted) "trusted · follows preset" else "asks each call",
-                                    "token ✓".takeIf { row.hasToken },
-                                ).joinToString(" · "),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Column {
+                                Text(
+                                    listOfNotNull(
+                                        row.host,
+                                        row.routing.label,
+                                        if (row.trusted) "trusted · follows preset" else "asks each call",
+                                        "token ✓".takeIf { row.hasToken },
+                                    ).joinToString(" · "),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                row.status?.let {
+                                    Text(
+                                        it,
+                                        color = if (row.unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         },
                         overlineContent = { Text(row.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingContent = {

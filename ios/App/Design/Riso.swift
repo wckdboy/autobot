@@ -389,11 +389,13 @@ struct ModeCard<Background: View>: View {
                         .textStyle(.headlineMedium)
                         .foregroundStyle(c.onSurface)
                         .lineLimit(1)
-                    Text(subtitle)
-                        .textStyle(.micro)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    if subtitle.lowercased() != title.lowercased() {
+                        Text(subtitle)
+                            .textStyle(.micro)
+                            .foregroundStyle(c.onSurfaceVariant)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 .padding(Tokens.Spacing.cardPadding)
             }
@@ -442,10 +444,12 @@ struct RunRow<Leading: View, Trailing: View>: View {
                         .textStyle(.titleMedium)
                         .foregroundStyle(c.onSurface)
                         .lineLimit(1)
-                    Text(subtitle)
-                        .textStyle(.micro)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .textStyle(.micro)
+                            .foregroundStyle(c.onSurfaceVariant)
+                            .lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 trailing()
@@ -471,6 +475,18 @@ extension RunRow where Leading == EmptyView {
 extension RunRow where Leading == EmptyView, Trailing == EmptyView {
     init(title: String, subtitle: String, action: (() -> Void)? = nil) {
         self.init(title: title, subtitle: subtitle, action: action, leading: { EmptyView() }, trailing: { EmptyView() })
+    }
+}
+
+/// The trailing `›` of a row that opens a screen (decorative: the row is the button).
+struct Chevron: View {
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(c.onSurfaceVariant)
+            .accessibilityHidden(true)
     }
 }
 

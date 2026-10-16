@@ -33,6 +33,7 @@ import dev.wckdboy.autobot.core.data.backup.BackupService
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import java.time.LocalDate
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,7 +68,8 @@ class BackupViewModel @Inject constructor(
         val added = context.contentResolver.openInputStream(uri)!!.use { input ->
             backups.import(input, passphrase) { _state.value = BackupState.Working(it) }
         }
-        "Imported ${added.conversations} sessions, ${added.images} images, ${added.providers} providers, ${added.memories} memory notes, ${added.studioAssets} studio assets. " +
+        "Imported ${counted(added.conversations, "session")}, ${counted(added.images, "image")}, ${counted(added.providers, "provider")}, " +
+            "${counted(added.memories, "memory note")}, ${counted(added.studioAssets, "studio asset")}. " +
             "Add API keys again under Model providers."
     }
 

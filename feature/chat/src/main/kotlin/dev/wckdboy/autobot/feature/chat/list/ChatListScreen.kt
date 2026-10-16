@@ -82,6 +82,7 @@ import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
@@ -145,6 +146,7 @@ class ChatListActions(
     val createFolder: (String, Collection<String>) -> Unit = { _, _ -> },
     val renameFolder: (String, String) -> Unit = { _, _ -> },
     val deleteFolder: (String) -> Unit = {},
+    val consumeMessage: () -> Unit = {},
 )
 
 private fun ChatListViewModel.asActions() = ChatListActions(
@@ -152,7 +154,7 @@ private fun ChatListViewModel.asActions() = ChatListActions(
     toggleSelected = ::toggleSelected, selectAll = ::selectAll, clearSelection = ::clearSelection, rename = ::rename,
     setPinned = ::setPinned, setArchived = ::setArchived, move = ::move, delete = ::delete, undoDelete = ::undoDelete,
     commitDelete = ::commitDelete, folderProblem = ::folderProblem, createFolder = ::createFolder, renameFolder = ::renameFolder,
-    deleteFolder = ::deleteFolder,
+    deleteFolder = ::deleteFolder, consumeMessage = ::consumeMessage,
 )
 
 /** Which dialog of the list is open. */
@@ -183,6 +185,11 @@ fun ChatListScreen(
         if (pending == null) return@LaunchedEffect
         val result = snackbar.showSnackbar(pending.label, actionLabel = "UNDO", withDismissAction = true, duration = SnackbarDuration.Short)
         if (result == SnackbarResult.ActionPerformed) actions.undoDelete(pending.batch)
+    }
+    LaunchedEffect(state.message) {
+        val message = state.message ?: return@LaunchedEffect
+        actions.consumeMessage()
+        snackbar.showSnackbar(message, withDismissAction = true, duration = SnackbarDuration.Long)
     }
     BackHandler(enabled = state.selecting) { actions.clearSelection() }
     // Row callbacks read these when tapped, so they need not change (and recompose rows) with them.
@@ -276,7 +283,7 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
         }
         Column(Modifier.weight(1f)) {
             Text("SESSIONS", style = MaterialTheme.typography.titleLarge)
-            MicroLabel("${state.total} sessions · ${state.live} live")
+            MicroLabel("${counted(state.total, "session")} · ${state.live} live")
         }
         PrivacyStatusPill(state.privacyStatus, onClick = onOpenPrivacyCenter)
     }

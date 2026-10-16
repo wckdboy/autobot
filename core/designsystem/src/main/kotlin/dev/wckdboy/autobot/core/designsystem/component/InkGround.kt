@@ -29,11 +29,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import dev.wckdboy.autobot.core.designsystem.motion.InkClock
+import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
 import dev.wckdboy.autobot.core.designsystem.motion.InkMath
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
@@ -140,55 +142,47 @@ fun Modifier.inkGround(
         }
 }
 
-/** Living card dots at full swell fill this much of their pitch. */
-private const val CARD_DOT = 0.36f
-
 /**
- * A living card's dot field for one size: centres, spatial wave phases and base radii are
- * computed once per size (at most `cardMaxDots`); each frame only the radii change. Nothing is
- * allocated per frame.
+ * A living card's dot field for one size ([DotGeometry.card]): centres and base radii are
+ * computed once per size (at most `cardMaxDots`); each frame only the radii change, from
+ * [DotGeometry.cardRadius]. Nothing is allocated per frame.
  */
 internal class CardField {
     private var width = -1f
     private var height = -1f
     private var count = 0
+    private var wavelength = 1.0
     private var xs = FloatArray(0)
     private var ys = FloatArray(0)
-    private var phase = FloatArray(0)
-    private var base = FloatArray(0)
+    private var base = DoubleArray(0)
 
     fun update(w: Float, h: Float, pitchPx: Float) {
         if (w == width && h == height) return
         width = w
         height = h
-        val p = InkMath.cardPitch(w, h, pitchPx)
-        val cols = max(1, (w / p).toInt())
-        val rows = max(1, (h / p).toInt())
-        count = cols * rows
+        val grid = DotGeometry.card(w, h, pitchPx)
+        wavelength = grid.wavelength
+        count = grid.x.count * grid.y.count
         if (xs.size < count) {
             xs = FloatArray(count)
             ys = FloatArray(count)
-            phase = FloatArray(count)
-            base = FloatArray(count)
+            base = DoubleArray(count)
         }
-        // Centred grid: an even margin on every side.
-        val ox = (w - cols * p) / 2f + p / 2f
-        val oy = (h - rows * p) / 2f + p / 2f
-        for (r in 0 until rows) for (c in 0 until cols) {
-            val i = r * cols + c
-            val x = ox + c * p
-            val y = oy + r * p
-            xs[i] = x
-            ys[i] = y
-            phase[i] = InkMath.cardPhase(x, y, w)
-            base[i] = p * CARD_DOT * InkMath.cardFalloff(x / w, y / h)
+        for (r in 0 until grid.y.count) for (c in 0 until grid.x.count) {
+            val i = r * grid.x.count + c
+            xs[i] = grid.x.at(c)
+            ys[i] = grid.y.at(r)
+            base[i] = DotGeometry.cardBase(grid.x.pitch, xs[i], ys[i], w, h)
         }
     }
 
     /** Draws the field at wave time [seconds] (dots never overlap: plain circles, one paint). */
     fun draw(scope: DrawScope, seconds: Float, color: Color, alpha: Float) {
-        val t = InkMath.cardTimePhase(seconds)
-        for (i in 0 until count) scope.inkDot(color, xs[i], ys[i], base[i] * InkMath.cardDot(phase[i], t), alpha)
+        val t = seconds.toDouble()
+        for (i in 0 until count) {
+            val r = DotGeometry.cardRadius(base[i], xs[i].toDouble(), ys[i].toDouble(), t, wavelength)
+            scope.inkDot(color, xs[i], ys[i], r.toFloat(), alpha)
+        }
     }
 }
 
@@ -216,15 +210,17 @@ fun Modifier.inkCard(
 
 /** Fills [batch] with the hero field over this canvas at [phase]. */
 private fun DrawScope.buildField(batch: DotBatch, cell: Float, phase: Float, scale: Float = 1f) {
-    val c = InkMath.cappedCell(size.width, size.height, cell)
-    val cols = (size.width / c).toInt() + 1
-    val rows = (size.height / c).toInt() + 1
+    val grid = DotGeometry.ground(size.width, size.height, InkMath.cappedCell(size.width, size.height, cell), FIELD_DOT * min(scale, 1f))
+    val c = grid.x.pitch
     batch.reset()
-    for (r in 0 until rows) for (col in 0 until cols) {
-        val v = InkMath.field(col / cols.toFloat(), r / rows.toFloat(), phase)
-        batch.dot(col * c + c / 2f, r * c + c / 2f, v * c * 0.6f * scale)
+    for (r in 0 until grid.y.count) for (col in 0 until grid.x.count) {
+        val v = InkMath.field(col / grid.x.count.toFloat(), r / grid.y.count.toFloat(), phase)
+        batch.dot(grid.x.at(col), grid.y.at(r), v * c * FIELD_DOT * scale)
     }
 }
+
+/** Ground dots at full value fill this fraction of their pitch (as a radius). */
+private const val FIELD_DOT = 0.6f
 
 /**
  * The lock screen's paper printing away: when [locked] turns false, a [paper] sheet with the

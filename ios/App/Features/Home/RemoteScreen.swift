@@ -16,30 +16,26 @@ struct RemoteScreen: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionLabel("models · api & lan")
+                    // The Privacy Center is the status pill above (one way in, with its state).
+                    SectionLabel("providers")
                     ForEach(providers) { p in
-                        RunRow(title: p.displayName, subtitle: "\(p.defaultModel) · \(host(p.baseUrl))", action: { nav.push(.providers) }) {
+                        RunRow(title: p.displayName, subtitle: p.defaultModel, action: { nav.push(.providers) }) {
                             RouteTag(route: Loopback.isLoopbackURL(p.baseUrl) || p.kind == .ollama ? .pcLan : .cloudApi)
                         }
                     }
-                    RunRow(title: "Add or edit providers", subtitle: "deepseek · openrouter · ollama · any openai-compatible", action: { nav.push(.providers) }) { Tag("open") }
-                    Spacer().frame(height: 18)
-                    SectionLabel("image backends · pc & lan")
+                    RunRow(title: providers.isEmpty ? "Add a provider" : "Add or edit", subtitle: "", action: { nav.push(.providers) }) { Chevron() }
+                    Spacer().frame(height: 24)
+                    SectionLabel("image backends")
                     ForEach(backends) { b in
-                        RunRow(title: b.name, subtitle: "\(b.kind.label) · \(afterScheme(b.baseUrl))", action: { nav.push(.imageBackends) }) {
+                        RunRow(title: b.name, subtitle: b.kind.label, action: { nav.push(.imageBackends) }) {
                             RouteTag(route: b.isLoopback ? .localCpu : .pcLan)
                         }
                     }
-                    RunRow(title: "Add or edit backends", subtitle: "a1111 / forge · local dream host · sse engines", action: { nav.push(.imageBackends) }) { Tag("open") }
-                    Spacer().frame(height: 18)
-                    SectionLabel("accounts · model hubs")
-                    RunRow(title: "Hugging Face", subtitle: accounts.huggingFaceUser.map { "signed in · \($0)" } ?? "not signed in", action: { nav.push(.accounts) }) { Tag("open") }
-                    RunRow(title: "Civitai", subtitle: (accounts.civitaiUser.map { "key · \($0)" } ?? "no api key") + " · \(accounts.civitaiHost.host)", action: { nav.push(.accounts) }) { Tag("open") }
-                    Spacer().frame(height: 18)
-                    SectionLabel("privacy")
-                    RunRow(title: "Privacy Center", subtitle: "network mode · kill switch · audit log · panic wipe", action: { nav.push(.privacyCenter) }) { Tag("open") }
-                    Spacer().frame(height: 12)
-                    MicroLabel("on-device models never use the network; everything here goes through the kill switch", lines: 3)
+                    RunRow(title: backends.isEmpty ? "Add a PC" : "Add or edit", subtitle: "", action: { nav.push(.imageBackends) }) { Chevron() }
+                    Spacer().frame(height: 24)
+                    SectionLabel("accounts")
+                    RunRow(title: "Hugging Face", subtitle: accounts.huggingFaceUser ?? "signed out", action: { nav.push(.accounts) }) { Chevron() }
+                    RunRow(title: "Civitai", subtitle: accounts.civitaiUser ?? "no key", action: { nav.push(.accounts) }) { Chevron() }
                     Spacer().frame(height: 16)
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)

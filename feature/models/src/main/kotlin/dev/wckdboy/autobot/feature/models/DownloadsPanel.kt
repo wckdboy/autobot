@@ -33,7 +33,7 @@ import dev.wckdboy.autobot.core.models.formatBytes
  * for Wi-Fi) and the "Wi-Fi only" switch. Downloads keep running after you leave the app.
  */
 @Composable
-internal fun DownloadsPanel(state: DownloadsState, actions: ModelsViewModel) {
+internal fun DownloadsPanel(state: DownloadsState, actions: ModelsActions) {
     Column(
         // The one living surface on the models screen (not its rows): a quiet breathing field.
         Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall).inkCard().padding(12.dp),
@@ -77,7 +77,7 @@ internal fun DownloadsPanel(state: DownloadsState, actions: ModelsViewModel) {
 }
 
 @Composable
-private fun QueueRow(model: InstalledModel, status: String, actions: ModelsViewModel) {
+private fun QueueRow(model: InstalledModel, status: String, actions: ModelsActions) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Column(Modifier.weight(1f)) {
             Text(model.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

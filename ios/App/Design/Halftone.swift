@@ -83,15 +83,16 @@ struct HalftoneImage: View {
     var body: some View {
         Canvas { context, size in
             guard let grid else { return }
-            let cols = max(1, Int(size.width / cell))
-            let rows = max(1, Int(size.height / cell))
+            // Centred on a whole-pixel grid ([InkGrid.centres]), sampled at each dot's centre.
+            let w = Double(size.width), h = Double(size.height)
+            let dots = InkGrid.centres(width: w, height: h, pitch: Double(cell), scale: Double(context.environment.displayScale))
+            let factor = dots.pitch * Double(Tokens.Halftone.imageRadiusFactor)
             var path = Path()
-            for r in 0 ..< rows {
-                for c in 0 ..< cols {
-                    let l = grid.sample((Float(c) + 0.5) / Float(cols), (Float(r) + 0.5) / Float(rows))
-                    let radius = CGFloat(1 - l) * cell * Tokens.Halftone.imageRadiusFactor
-                    if radius > Tokens.Halftone.imageMinRadius {
-                        let x = (CGFloat(c) + 0.5) * cell, y = (CGFloat(r) + 0.5) * cell
+            for y in dots.ys {
+                for x in dots.xs {
+                    let l = grid.sample(Float(x / max(w, 1)), Float(y / max(h, 1)))
+                    let radius = Double(1 - l) * factor
+                    if radius > Double(Tokens.Halftone.imageMinRadius) {
                         path.addEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
                     }
                 }
@@ -113,24 +114,8 @@ struct HalftoneField: View {
 
     var body: some View {
         Canvas { context, size in
-            let cols = Int(size.width / cell) + 1
-            let rows = Int(size.height / cell) + 1
-            var path = Path()
-            for r in 0 ..< rows {
-                for c in 0 ..< cols {
-                    let x = CGFloat(c) / CGFloat(cols)
-                    let y = CGFloat(r) / CGFloat(rows)
-                    let wave = 0.5 + 0.5 * sin((x * Tokens.Halftone.fieldWaveX + y * Tokens.Halftone.fieldWaveY + phase) * 3.14159)
-                    let dx = x - Tokens.Halftone.fieldBlobX, dy = y - Tokens.Halftone.fieldBlobY
-                    let blob = 1 - min(1, sqrt(dx * dx * Tokens.Halftone.fieldBlobWeightX + dy * dy * Tokens.Halftone.fieldBlobWeightY))
-                    let v = min(max(Tokens.Halftone.fieldWaveMix * wave + Tokens.Halftone.fieldBlobMix * blob - Tokens.Halftone.fieldFalloffY * y, 0), 1)
-                    let radius = v * cell * Tokens.Halftone.fieldRadiusFactor
-                    if radius > Tokens.Halftone.fieldMinRadius {
-                        let cx = CGFloat(c) * cell, cy = CGFloat(r) * cell
-                        path.addEllipse(in: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
-                    }
-                }
-            }
+            // Centred on a whole-pixel grid: no half dots cut by the edges.
+            let path = HalftonePaths.field(size: size, cell: cell, phase: -Double(phase), fill: 1, displayScale: Double(context.environment.displayScale))
             context.fill(path, with: .color(dot ?? scheme.primary))
         }
         .clipped()

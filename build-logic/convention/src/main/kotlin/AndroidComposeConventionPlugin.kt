@@ -39,6 +39,10 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
                 add("implementation", libs.lib("androidx-compose-material-icons-core"))
                 add("implementation", libs.lib("androidx-compose-ui-tooling-preview"))
                 add("debugImplementation", libs.lib("androidx-compose-ui-tooling"))
+                // Compose UI tests run on the JVM (Robolectric) in `testDebugUnitTest`.
+                add("testImplementation", bom)
+                add("testImplementation", libs.lib("androidx-compose-ui-test-junit4"))
+                add("testImplementation", libs.lib("androidx-compose-ui-test-manifest"))
             }
         }
     }

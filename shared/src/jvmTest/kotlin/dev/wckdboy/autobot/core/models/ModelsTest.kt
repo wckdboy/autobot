@@ -35,6 +35,15 @@ class ModelsTest {
     }
 
     @Test
+    fun catalogSubtitlesDoNotRepeatTheSize() {
+        // Rows print formatBytes(totalBytes) next to the subtitle; a hand-written MiB figure there read "59 MB · 57 MB".
+        val size = Regex("""\b\d+(\.\d+)?\s?(KB|MB|GB|KiB|MiB|GiB)\b""")
+        (Catalog.all + CoreMLCatalog.all + CoreMLCatalog.upscalers + CoreMLCatalog.voices + CoreMLCatalog.audio).forEach { plan ->
+            assertFalse("${plan.id}: ${plan.subtitle}", plan.subtitle?.let { size.containsMatchIn(it) && "RAM" !in it } ?: false)
+        }
+    }
+
+    @Test
     fun embeddingModelIsPinned() {
         val plan = Catalog.embeddingModels.single()
         assertEquals(ModelKind.EMBEDDING, plan.kind)

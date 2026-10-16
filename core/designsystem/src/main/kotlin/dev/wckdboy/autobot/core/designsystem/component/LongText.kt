@@ -65,7 +65,7 @@ fun VerbatimText(text: String, style: TextStyle, modifier: Modifier = Modifier, 
         )
         if (visible.length < text.length) {
             Text(
-                "show more · ${text.length - visible.length} characters left",
+                "show more · ${counted(text.length - visible.length, "character")} left",
                 modifier = Modifier
                     .clickable(role = Role.Button) { shown += LongText.PAGE }
                     .padding(horizontal = 10.dp, vertical = 6.dp),

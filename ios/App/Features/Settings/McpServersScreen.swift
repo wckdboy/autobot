@@ -217,11 +217,11 @@ private struct McpServerEditorSheet: View {
                     .foregroundStyle(c.onSurfaceVariant)
                     .fixedSize(horizontal: false, vertical: true)
 
-                SwitchRow(title: "Enabled", subtitle: "Agent sessions get this server's tools", isOn: Binding(get: { draft.enabled }, set: { v in update { $0.enabled = v } }))
+                SwitchRow(title: "Enabled", isOn: Binding(get: { draft.enabled }, set: { v in update { $0.enabled = v } }))
                 SwitchRow(
                     title: "Trusted",
-                    subtitle: draft.trusted ? "Calls follow the permission preset instead of always asking (like web fetch: full-access runs them, the other presets ask)" : "Every tool call asks for approval first",
                     isOn: Binding(get: { draft.trusted }, set: { v in update { $0.trusted = v } }),
+                    info: "Off: every tool call asks for approval first. On: calls follow the permission preset (full access runs them, the other presets ask).",
                 )
 
                 testResult

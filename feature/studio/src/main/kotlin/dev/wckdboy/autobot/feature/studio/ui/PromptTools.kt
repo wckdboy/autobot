@@ -52,6 +52,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Stepper
 import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -248,7 +249,7 @@ fun GridBuilderSheet(params: List<GridParam>, onQueue: (GridAxis, GridAxis?) -> 
                 if (x == y) MicroLabel("x and y must differ", color = MaterialTheme.colorScheme.error)
             }
             MicroLabel(
-                if (cells > GridPlanner.DEFAULT_CAP) "$cells cells · only the first ${GridPlanner.DEFAULT_CAP} are queued" else "$cells cell${if (cells == 1) "" else "s"} · one job each",
+                if (cells > GridPlanner.DEFAULT_CAP) "$cells cells · only the first ${GridPlanner.DEFAULT_CAP} are queued" else "${counted(cells, "cell")} · one job each",
                 color = if (cells > GridPlanner.DEFAULT_CAP) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             PrimaryButton("Queue grid", {

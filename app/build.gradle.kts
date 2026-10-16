@@ -1,4 +1,6 @@
 import java.util.Properties
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.Property
@@ -127,12 +129,101 @@ abstract class GenerateShortcuts : DefaultTask() {
     }
 }
 
+/**
+ * Checks the packaged APK the way the phone's DSP will see it. FastRPC loads the Hexagon skeleton
+ * libraries (`libQnnHtpV<arch>Skel.so`) from ADSP_LIBRARY_PATH, i.e. from real files in the app's
+ * native library directory: they must be in the APK for every HTP generation, compressed (so the
+ * installer extracts them: `useLegacyPackaging`) and still Hexagon ELF files. For minified builds
+ * it also reads R8's mapping: the JNI classes and the callbacks native code looks up by name
+ * (GetMethodID) must keep their names, or every generation fails with NoSuchMethodError.
+ */
+abstract class VerifyNativePackaging : DefaultTask() {
+    @get:org.gradle.api.tasks.InputFiles
+    abstract val apkDirectory: DirectoryProperty
+
+    @get:org.gradle.api.tasks.Optional
+    @get:org.gradle.api.tasks.InputFile
+    abstract val mappingFile: org.gradle.api.file.RegularFileProperty
+
+    @get:org.gradle.api.tasks.OutputFile
+    abstract val report: org.gradle.api.file.RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        val problems = mutableListOf<String>()
+        val apks = apkDirectory.get().asFile.listFiles { f -> f.name.endsWith(".apk") }.orEmpty()
+        if (apks.isEmpty()) problems += "no APK in ${apkDirectory.get().asFile}"
+        apks.forEach { apk ->
+            ZipFile(apk).use { zip ->
+                val required = listOf("libQnnHtp.so", "libQnnSystem.so") +
+                    listOf(68, 69, 73, 75, 79, 81).flatMap { listOf("libQnnHtpV${it}Skel.so", "libQnnHtpV${it}Stub.so") }
+                required.forEach { name ->
+                    val entry = zip.getEntry("lib/arm64-v8a/$name")
+                    when {
+                        entry == null -> problems += "${apk.name}: $name missing"
+                        entry.method != ZipEntry.DEFLATED ->
+                            problems += "${apk.name}: $name is stored, not compressed: native libraries would not be extracted and the DSP could not load the skel"
+                        name.endsWith("Skel.so") -> {
+                            val header = zip.getInputStream(entry).use { it.readNBytes(20) }
+                            val machine = (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
+                            if (header.size < 20 || header[0] != 0x7f.toByte() || machine != 164) problems += "${apk.name}: $name is not a Hexagon ELF (e_machine $machine)"
+                        }
+                    }
+                }
+            }
+        }
+        mappingFile.orNull?.asFile?.takeIf { it.isFile }?.let { mapping ->
+            val lines = mapping.readLines()
+            val jniClasses = listOf(
+                "dev.wckdboy.autobot.engine.npu.NativeNpu", "dev.wckdboy.autobot.engine.npu.NativeNpu\$Sink",
+                "dev.wckdboy.autobot.engine.diffusion.NativeSd", "dev.wckdboy.autobot.engine.diffusion.NativeSd\$Sink",
+                "dev.wckdboy.autobot.engine.llama.NativeLlama", "dev.wckdboy.autobot.engine.llama.NativeLlama\$DeltaSink",
+                "dev.wckdboy.autobot.engine.speech.NativeWhisper",
+            )
+            jniClasses.forEach { cls ->
+                val line = lines.firstOrNull { it.startsWith("$cls -> ") }
+                if (line != null && line != "$cls -> $cls:") problems += "R8 renamed JNI class: $line"
+            }
+            // Callbacks looked up with GetMethodID: no Sink implementation may have them renamed.
+            val callbacks = setOf("onStatus", "onProgress", "onImage", "onPreview", "onDelta")
+            val renamed = Regex("""^\s+(?:[\d:]+:)?\S+ (\w+)\([^)]*\)(?::[\d:]+)? -> (\w+)$""")
+            var inSink = false
+            var sinks = 0
+            lines.forEach { l ->
+                if (!l.startsWith(" ") && !l.startsWith("#")) {
+                    val cls = l.substringBefore(" -> ")
+                    inSink = cls.startsWith("dev.wckdboy.autobot.engine.") && ("\$sink\$" in cls || cls.endsWith("Sink"))
+                    if (inSink) sinks++
+                    return@forEach
+                }
+                if (!inSink) return@forEach
+                val m = renamed.find(l) ?: return@forEach
+                val (from, to) = m.destructured
+                if (from in callbacks && from != to) problems += "R8 renamed JNI callback: ${l.trim()}"
+            }
+            if (sinks == 0) problems += "no JNI Sink classes found in ${mapping.name}: the check is out of date"
+        }
+        val out = report.get().asFile
+        out.parentFile.mkdirs()
+        out.writeText(if (problems.isEmpty()) "ok\n" else problems.joinToString("\n", postfix = "\n"))
+        if (problems.isNotEmpty()) throw GradleException("Native packaging check failed:\n" + problems.joinToString("\n"))
+    }
+}
+
 androidComponents {
     onVariants { variant ->
-        val task = tasks.register<GenerateShortcuts>("generate${variant.name.replaceFirstChar(Char::uppercase)}Shortcuts") {
+        val name = variant.name.replaceFirstChar(Char::uppercase)
+        val task = tasks.register<GenerateShortcuts>("generate${name}Shortcuts") {
             applicationId.set(variant.applicationId)
         }
         variant.sources.res?.addGeneratedSourceDirectory(task, GenerateShortcuts::outputDirectory)
+
+        val verify = tasks.register<VerifyNativePackaging>("verify${name}NativePackaging") {
+            apkDirectory.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.APK))
+            if (variant.isMinifyEnabled) mappingFile.set(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.OBFUSCATION_MAPPING_FILE))
+            report.set(layout.buildDirectory.file("reports/native-packaging/${variant.name}.txt"))
+        }
+        afterEvaluate { tasks.named("assemble$name") { dependsOn(verify) } }
     }
 }
 

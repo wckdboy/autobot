@@ -126,7 +126,7 @@ private struct StillPlate: View {
         Canvas { context, size in
             InkProbe.hit("ink.draw")
             let pitch = InkMath.dotCell(width: size.width, height: size.height, base: cell)
-            context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase, fill: fill), with: .color(color))
+            context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase, fill: fill, displayScale: Double(context.environment.displayScale)), with: .color(color))
         }
     }
 }

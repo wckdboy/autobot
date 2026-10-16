@@ -172,49 +172,101 @@ struct RisoToggle: View {
     }
 }
 
-/// A settings row: title, supporting text, trailing switch.
-struct SwitchRow: View {
+/// An ⓘ button that shows a short explanation in a popover (progressive disclosure: rows carry
+/// a one- or two-word label, the why sits one tap away).
+struct InfoButton: View {
     let title: String
-    let subtitle: String
-    @Binding var isOn: Bool
-    var enabled = true
+    let text: String
+    @State private var shown = false
     @Environment(\.scheme) private var c
 
     var body: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).textStyle(.bodyLarge).foregroundStyle(enabled ? c.onSurface : c.onSurfaceVariant)
-                Text(subtitle).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            RisoToggle(isOn: $isOn, enabled: enabled)
+        Button { shown = true } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(c.onSurfaceVariant)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture { if enabled { isOn.toggle() } }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("About \(title)")
+        .popover(isPresented: $shown) {
+            Text(text)
+                .textStyle(.bodyMedium)
+                .foregroundStyle(c.onSurface)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 300, alignment: .leading)
+                .padding(16)
+                .presentationCompactAdaptation(.popover)
+                .presentationBackground(c.surfaceContainerHigh)
+        }
     }
 }
 
-/// A settings row that opens another screen.
+/// A settings row: title, optional state line (only when it carries state), an optional ⓘ, a switch.
+struct SwitchRow: View {
+    let title: String
+    var subtitle: String? = nil
+    @Binding var isOn: Bool
+    var enabled = true
+    /// The explanation, behind an ⓘ button.
+    var info: String? = nil
+    @Environment(\.scheme) private var c
+
+    init(title: String, subtitle: String? = nil, isOn: Binding<Bool>, enabled: Bool = true, info: String? = nil) {
+        self.title = title
+        self.subtitle = subtitle
+        self._isOn = isOn
+        self.enabled = enabled
+        self.info = info
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).textStyle(.bodyLarge).foregroundStyle(enabled ? c.onSurface : c.onSurfaceVariant)
+                if let subtitle { Text(subtitle).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { if enabled { isOn.toggle() } }
+            if let info { InfoButton(title: title, text: info) }
+            RisoToggle(isOn: $isOn, enabled: enabled)
+                .accessibilityLabel(title)
+        }
+        .padding(.horizontal, Tokens.Spacing.gutter)
+        .padding(.vertical, 8)
+        .frame(minHeight: 52)
+    }
+}
+
+/// A settings row that opens another screen: title, optional trailing state value, chevron.
 struct NavigationRow: View {
     let title: String
-    let subtitle: String
+    /// A short state value (`On`, `Off`, `3`), trailing like iOS Settings; nil when there is none.
+    var value: String? = nil
     let action: () -> Void
     @Environment(\.scheme) private var c
 
+    init(title: String, value: String? = nil, action: @escaping () -> Void) {
+        self.title = title
+        self.value = value
+        self.action = action
+    }
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                    Text(subtitle).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).multilineTextAlignment(.leading)
+            HStack(spacing: 8) {
+                Text(title).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let value {
+                    Text(value).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(c.onSurfaceVariant)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, Tokens.Spacing.gutter)
-            .padding(.vertical, 12)
+            .frame(minHeight: 52)
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())

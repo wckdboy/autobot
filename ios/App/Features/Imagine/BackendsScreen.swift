@@ -49,10 +49,10 @@ struct BackendsScreen: View {
                         .transition(.inkDissolve)
                     }
                     Panel(title: "Add backend", accent: AutobotColors.acid) {
-                        Text("Loopback backends keep working in Offline mode. Anything else must be HTTPS and follows your network mode and kill switch.")
-                            .textStyle(.bodySmall)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 0) {
+                            Text("Loopback or HTTPS").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+                            InfoButton(title: "Backends", text: "Loopback backends keep working in Offline mode. Anything else must be HTTPS and follows your network mode and kill switch.")
+                        }
                         ForEach(DiffusionBackendRepository.presets, id: \.1) { kind, url in
                             Button {
                                 editing = EditTarget(

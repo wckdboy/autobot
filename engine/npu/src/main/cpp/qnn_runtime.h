@@ -74,6 +74,12 @@ public:
     bool init(const std::string & lib_dir, std::string * error);
     bool ready() const { return backend_ != nullptr; }
 
+    /** libQnnSystem.so loaded: context binaries can be inspected even when the NPU cannot open. */
+    bool system_ready() const { return sys_.systemContextCreate != nullptr; }
+
+    /** JSON members (no braces) describing how far init got: stage, QNN build, SoC model… */
+    std::string diagnostics() const;
+
     /** Loads a context binary from [path] (memory-mapped while the context is created). */
     std::unique_ptr<QnnModel> load(const std::string & path, std::string * error);
 
@@ -100,9 +106,14 @@ private:
     uint32_t power_id_ = 0;
     bool have_power_ = false;
     std::string arch_;
+    std::string lib_dir_;
+    std::string build_;
+    std::string stage_ = "not started";
+    uint32_t soc_model_ = 0;
+    bool signed_pd_ = false;
 
     bool binary_info(const void * data, size_t size, std::vector<GraphSpec> * graphs, std::string * meta,
-                     QnnModel * owner, std::string * error);
+                     QnnModel * owner, std::string * error, std::string * built_with = nullptr);
 };
 
 /** Converts float32 values into a tensor's native representation (fp16/fp32/quantized/int). */

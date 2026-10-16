@@ -65,8 +65,8 @@ final class ImagineModel {
     var backends: [DiffusionBackend] { app.backends.backends }
 
     var backend: DiffusionBackend? {
-        let id = selectedBackendId ?? app.backends.defaultBackendId
-        return backends.first { $0.id == id } ?? backends.first
+        if let id = selectedBackendId, let chosen = backends.first(where: { $0.id == id }) { return chosen }
+        return app.backends.startingBackend(offline: app.settings.settings.mode == .offline)
     }
 
     var capabilities: EngineCapabilities? {
@@ -110,8 +110,8 @@ final class ImagineModel {
 
     /// Why Generate is disabled (shown in place of the settings line), or nil when it can run.
     var generateBlocker: String? {
-        if backend == nil { return "No image engine yet: get a model or add a PC" }
-        if request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Type a prompt to generate" }
+        if backend == nil { return "No image engine" }
+        if request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "" }
         if request.mode != .txt2img && initImage == nil { return "\(request.mode.label) needs an input image" }
         if request.mode == .inpaint && mask.isEmpty { return "Paint a mask over the part to repaint" }
         return nil
