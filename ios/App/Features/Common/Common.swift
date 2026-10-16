@@ -1,13 +1,43 @@
+import Observation
 import SwiftUI
 import UIKit
 
-/// "2 min ago" style relative time (Android's `DateUtils.getRelativeTimeSpanString`).
-func relativeTime(_ millis: Int64) -> String {
-    let date = Date(timeIntervalSince1970: TimeInterval(millis) / 1000)
-    if abs(date.timeIntervalSinceNow) < 60 { return "just now" }
+/// One formatter for every relative time (creating one per row per render was most of a row's cost).
+@MainActor private let relativeFormatter: RelativeDateTimeFormatter = {
     let f = RelativeDateTimeFormatter()
     f.unitsStyle = .full
-    return f.localizedString(for: date, relativeTo: Date())
+    return f
+}()
+
+/// "2 min ago" style relative time (Android's `DateUtils.getRelativeTimeSpanString`), relative to [now].
+@MainActor
+func relativeTime(_ millis: Int64, now: Date = Date()) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(millis) / 1000)
+    if abs(date.timeIntervalSince(now)) < 60 { return "just now" }
+    return relativeFormatter.localizedString(for: date, relativeTo: now)
+}
+
+/**
+ The current minute, observed: a view showing relative times reads [now] and re-renders once a
+ minute ("just now" turns into "1 minute ago"), not only when something else changes.
+ */
+@MainActor
+@Observable
+final class MinuteTicker {
+    static let shared = MinuteTicker()
+
+    private(set) var now = Date()
+    @ObservationIgnored private var task: Task<Void, Never>?
+
+    private init() {
+        task = Task { [weak self] in
+            while !Task.isCancelled {
+                let seconds = 60 - Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+                try? await Task.sleep(for: .seconds(seconds + 0.05))
+                self?.now = Date()
+            }
+        }
+    }
 }
 
 /// `12k`, `1.2M` token counts.

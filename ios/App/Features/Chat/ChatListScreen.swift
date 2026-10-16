@@ -8,7 +8,6 @@ struct ConversationItem: Identifiable, Equatable {
     let subtitle: String
     let updatedAt: Int64
     let incognito: Bool
-    var running = false
     var pinned = false
     var archived = false
     var folderId: String? = nil
@@ -72,60 +71,22 @@ struct ChatListScreen: View {
     private var sort: ChatSort { ChatSort.companion.parse(name: sortKey) }
     private var selecting: Bool { !selection.isEmpty }
 
-    private struct Model {
-        var sections: [ChatListSectionModel] = []
-        var total = 0
-        var live = 0
-        var filter: any ChatFilter = ChatFilterAll.shared
-        var showIncognitoChip = false
-        var archivedCount = 0
-        var folderCounts: [String: Int] = [:]
-        var items: [ConversationItem] { sections.flatMap(\.items) }
-    }
+    /// The list's model, memoized ([ChatListModel]): rebuilt only when its inputs change.
+    @State private var lists = ChatListModel()
 
-    private var model: Model {
-        let names = Dictionary(app.providers.providers.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
-        let running = app.agent.running
-        let hidden = app.chats.hidden
-        let visible = app.conversations.conversations.filter { !hidden.contains($0.id) }
-        let byId = Dictionary(visible.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let entries = visible.map { conv in
-            ChatEntry(
-                id: conv.id, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt, pinned: conv.pinned,
-                archived: conv.archived, folderId: conv.folderId, incognito: app.conversations.isIncognito(conv.id),
-            )
-        }
-        var filter = ChatFilterCompanion.shared.parse(key: filterKey)
-        // A deleted folder falls back to everything.
-        if let folder = filter as? ChatFilterFolder, !app.conversations.folders.contains(where: { $0.id == folder.id }) { filter = ChatFilterAll.shared }
-        let searched = hits.map { h in entries.filter { h[$0.id] != nil } } ?? entries
-        let organizer = ChatOrganizer.shared
-        let sections = organizer.sections(entries: searched, filter: filter, sort: sort, startOfToday: Self.startOfToday()).map { section in
-            ChatListSectionModel(label: section.group.label, items: section.entries.compactMap { e in
-                guard let conv = byId[e.id] else { return nil }
-                return ConversationItem(
-                    id: conv.id,
-                    title: conv.title,
-                    subtitle: [conv.providerId.flatMap { names[$0] }, conv.model].compactMap { $0 }.joined(separator: " · "),
-                    updatedAt: conv.updatedAt,
-                    incognito: e.incognito,
-                    running: running.contains(conv.id),
-                    pinned: conv.pinned,
-                    archived: conv.archived,
-                    folderId: conv.folderId,
-                    hit: hits?[conv.id],
-                )
-            })
-        }
-        var m = Model()
-        m.sections = sections
-        m.total = entries.filter { !$0.archived }.count
-        m.live = entries.filter { !$0.archived && running.contains($0.id) }.count
-        m.filter = filter
-        m.showIncognitoChip = organizer.showsIncognitoChip(entries: entries) || filter is ChatFilterIncognito
-        m.archivedCount = entries.filter(\.archived).count
-        m.folderCounts = organizer.folderCounts(entries: entries).reduce(into: [:]) { $0[$1.key] = Int(truncating: $1.value) }
-        return m
+    private var model: ChatListModel.Model {
+        lists.model(.init(
+            revision: app.conversations.revision,
+            // Read for observation: the screen follows the list (the revision is not observed).
+            count: app.conversations.conversations.count,
+            folders: app.conversations.folders.map(\.id),
+            providers: app.providers.providers.map { "\($0.id)\u{0}\($0.displayName)" },
+            hidden: app.chats.hidden,
+            filterKey: filterKey,
+            sortKey: sortKey,
+            hits: hits,
+            startOfToday: Self.startOfToday(),
+        )) { [app] in (app.conversations.conversations, app.conversations.folders, app.providers.providers) }
     }
 
     var body: some View {
@@ -202,7 +163,7 @@ struct ChatListScreen: View {
 
     // MARK: Header
 
-    private func header(_ m: Model) -> some View {
+    private func header(_ m: ChatListModel.Model) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if !nav.path.isEmpty {
@@ -210,7 +171,7 @@ struct ChatListScreen: View {
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     Text("SESSIONS").textStyle(.titleLarge).foregroundStyle(c.onBackground)
-                    MicroLabel("\(m.total) sessions · \(m.live) live")
+                    LiveCountLabel(total: m.total, active: m.activeIds)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 PrivacyStatusPill(status: app.settings.settings.mode.privacyStatus) { nav.push(.privacyCenter) }
@@ -248,7 +209,7 @@ struct ChatListScreen: View {
     }
 
     /// Multi-select: count, then pin / delete, and more (rename one, move, archive, select all).
-    private func selectionBar(_ m: Model) -> some View {
+    private func selectionBar(_ m: ChatListModel.Model) -> some View {
         let chosen = m.items.filter { selection.contains($0.id) }
         let ids = chosen.map(\.id)
         let allPinned = !chosen.isEmpty && chosen.allSatisfy(\.pinned)
@@ -309,7 +270,7 @@ struct ChatListScreen: View {
     }
 
     /// All · Pinned · Incognito · folders · Archive · + folder. Long-press a folder to rename or delete it.
-    private func chips(_ m: Model) -> some View {
+    private func chips(_ m: ChatListModel.Model) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 chip("All", key: "all", m)
@@ -331,7 +292,7 @@ struct ChatListScreen: View {
         }
     }
 
-    private func chip(_ text: String, key: String, _ m: Model, accent: Color? = nil) -> some View {
+    private func chip(_ text: String, key: String, _ m: ChatListModel.Model, accent: Color? = nil) -> some View {
         let selected = m.filter.key == key
         return Tag(text, accent: selected ? (accent ?? c.primary) : c.onSurfaceVariant, filled: selected) {
             filterKey = key
@@ -341,7 +302,7 @@ struct ChatListScreen: View {
 
     // MARK: List
 
-    private func list(_ m: Model) -> some View {
+    private func list(_ m: ChatListModel.Model) -> some View {
         List {
             ForEach(m.sections) { section in
                 if !section.label.isEmpty {
@@ -364,7 +325,7 @@ struct ChatListScreen: View {
         .scrollContentBackground(.hidden)
         .background(c.background)
         .environment(\.defaultMinListRowHeight, 0)
-        .animation(.inkDissolve, value: m.sections.map { $0.items.map(\.id) })
+        .animation(.inkDissolve, value: m.order)
     }
 
     private func row(_ item: ConversationItem) -> some View {
@@ -372,6 +333,7 @@ struct ChatListScreen: View {
             ConversationRow(item: item, selecting: selecting, selected: selection.contains(item.id)) {
                 if selecting { toggle(item.id) } else { nav.push(.chat(conversationId: item.id)) }
             }
+            .equatable()
             Hairline().padding(.leading, 16)
         }
         .transition(.inkDissolve)
@@ -399,7 +361,7 @@ struct ChatListScreen: View {
         }
     }
 
-    private func empty(_ m: Model) -> some View {
+    private func empty(_ m: ChatListModel.Model) -> some View {
         let (title, detail): (String, String) = if !query.trimmingCharacters(in: .whitespaces).isEmpty {
             ("no matches", "titles and messages on this device were searched")
         } else if m.filter is ChatFilterArchived {
@@ -545,7 +507,8 @@ struct ChatListScreen: View {
 
     // Search
 
-    private var searchKey: String { "\(query)|\(app.conversations.conversations.count)" }
+    /// The query only: a new or renamed chat does not search every chat again.
+    private var searchKey: String { query }
 
     private func runSearch() async {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -563,14 +526,32 @@ struct ChatListScreen: View {
     private static func startOfToday() -> Int64 { Int64(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 * 1000) }
 }
 
-private struct ConversationRow: View {
+/// "N sessions · M live": the only part of the header that follows the running set.
+private struct LiveCountLabel: View {
+    let total: Int
+    let active: Set<String>
+    @Environment(AppContainer.self) private var app
+
+    var body: some View {
+        MicroLabel("\(total) sessions · \(app.agent.running.intersection(active).count) live")
+    }
+}
+
+/// Equatable on what it shows (the click action is not compared): a list change re-renders only
+/// the rows that changed.
+private struct ConversationRow: View, Equatable {
     let item: ConversationItem
     let selecting: Bool
     let selected: Bool
     let onClick: () -> Void
+    @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
 
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.item == b.item && a.selecting == b.selecting && a.selected == b.selected }
+
     var body: some View {
+        let _ = InkProbe.hit("body.conversationRow")
+        let minute = MinuteTicker.shared.now
         Button(action: onClick) {
             HStack(spacing: 12) {
                 ZStack {
@@ -578,7 +559,7 @@ private struct ConversationRow: View {
                         Image(systemName: selected ? "checkmark.square.fill" : "square")
                             .font(.system(size: 16))
                             .foregroundStyle(selected ? c.primary : c.outline)
-                    } else if item.running {
+                    } else if app.agent.running.contains(item.id) {
                         StatusDot(color: AutobotColors.acid, live: true)
                     } else if item.incognito {
                         StatusDot(color: AutobotColors.uv)
@@ -600,7 +581,7 @@ private struct ConversationRow: View {
                             .foregroundStyle(c.onSurfaceVariant)
                             .lineLimit(2)
                     }
-                    Text([item.subtitle, relativeTime(item.updatedAt)].filter { !$0.isEmpty }.joined(separator: " · "))
+                    Text([item.subtitle, relativeTime(item.updatedAt, now: minute)].filter { !$0.isEmpty }.joined(separator: " · "))
                         .textStyle(.codeBlock)
                         .foregroundStyle(c.onSurfaceVariant)
                         .lineLimit(1)
@@ -627,5 +608,104 @@ private struct ConversationRow: View {
             out[range].inlinePresentationIntent = .stronglyEmphasized
         }
         return out
+    }
+}
+
+
+/**
+ The chat list's sections and counts, memoized: rebuilding them maps every chat into a shared
+ `ChatEntry` and runs the organizer, so it happens when an input changes (a chat, a folder, the
+ filter, the sort, search hits, hidden chats, provider names, the day), not on every render.
+ */
+@MainActor
+final class ChatListModel {
+    struct Model {
+        var sections: [ChatListSectionModel] = []
+        var total = 0
+        /// Non-archived chats (the header counts how many of them run).
+        var activeIds: Set<String> = []
+        var filter: any ChatFilter = ChatFilterAll.shared
+        var showIncognitoChip = false
+        var archivedCount = 0
+        var folderCounts: [String: Int] = [:]
+        /// Changes when the visible order changes (drives the list animation).
+        var order = 0
+        var items: [ConversationItem] { sections.flatMap(\.items) }
+    }
+
+    struct Key: Equatable {
+        var revision: Int
+        var count: Int
+        var folders: [String]
+        var providers: [String]
+        var hidden: Set<String>
+        var filterKey: String
+        var sortKey: String
+        var hits: [String: ChatSearchHit]?
+        var startOfToday: Int64
+    }
+
+    private var key: Key?
+    private var cached = Model()
+    private var lastOrder: [String] = []
+    /// Times the model was rebuilt (tests).
+    private(set) var builds = 0
+
+    /// The model for [key]; [inputs] (conversations, folders, providers) are read only to rebuild.
+    func model(_ key: Key, inputs: () -> ([Conversation], [ChatFolder], [Provider])) -> Model {
+        if key == self.key { return cached }
+        let (conversations, folders, providers) = inputs()
+        var m = Self.build(key, conversations: conversations, folders: folders, providers: providers)
+        let order = m.sections.flatMap { $0.items.map(\.id) }
+        m.order = order == lastOrder ? cached.order : cached.order + 1
+        lastOrder = order
+        self.key = key
+        cached = m
+        builds += 1
+        return m
+    }
+
+    private static func build(_ key: Key, conversations: [Conversation], folders: [ChatFolder], providers: [Provider]) -> Model {
+        let names = Dictionary(providers.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
+        let visible = conversations.filter { !key.hidden.contains($0.id) }
+        let byId = Dictionary(visible.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let entries = visible.map { conv in
+            ChatEntry(
+                id: conv.id, title: conv.title, createdAt: conv.createdAt, updatedAt: conv.updatedAt, pinned: conv.pinned,
+                archived: conv.archived, folderId: conv.folderId, incognito: conv.id.hasPrefix(ConversationRepository.incognitoPrefix),
+            )
+        }
+        var filter = ChatFilterCompanion.shared.parse(key: key.filterKey)
+        // A deleted folder falls back to everything.
+        if let folder = filter as? ChatFilterFolder, !folders.contains(where: { $0.id == folder.id }) { filter = ChatFilterAll.shared }
+        let searched = key.hits.map { h in entries.filter { h[$0.id] != nil } } ?? entries
+        let organizer = ChatOrganizer.shared
+        let sort = ChatSort.companion.parse(name: key.sortKey)
+        let sections = organizer.sections(entries: searched, filter: filter, sort: sort, startOfToday: key.startOfToday).map { section in
+            ChatListSectionModel(label: section.group.label, items: section.entries.compactMap { e in
+                guard let conv = byId[e.id] else { return nil }
+                return ConversationItem(
+                    id: conv.id,
+                    title: conv.title,
+                    subtitle: [conv.providerId.flatMap { names[$0] }, conv.model].compactMap { $0 }.joined(separator: " · "),
+                    updatedAt: conv.updatedAt,
+                    incognito: e.incognito,
+                    pinned: conv.pinned,
+                    archived: conv.archived,
+                    folderId: conv.folderId,
+                    hit: key.hits?[conv.id],
+                )
+            })
+        }
+        var m = Model()
+        m.sections = sections
+        let active = entries.filter { !$0.archived }
+        m.total = active.count
+        m.activeIds = Set(active.map(\.id))
+        m.filter = filter
+        m.showIncognitoChip = organizer.showsIncognitoChip(entries: entries) || filter is ChatFilterIncognito
+        m.archivedCount = entries.count - active.count
+        m.folderCounts = organizer.folderCounts(entries: entries).reduce(into: [:]) { $0[$1.key] = Int(truncating: $1.value) }
+        return m
     }
 }

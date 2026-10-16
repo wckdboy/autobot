@@ -28,12 +28,15 @@ actor LocalAudioGen {
         onProgress: @Sendable (AudioGenEngine.Progress) -> Void = { _ in }
     ) async throws -> AudioGenEngine.Audio {
         let tokens = try ids(folder: folder, prompt: prompt)
-        do {
-            return try await AudioGenEngine.shared.generate(
-                folder: folder, request: .init(tokens: tokens, seconds: seconds, steps: steps, cfg: cfg, seed: seed), onProgress: onProgress,
-            )
-        } catch {
-            throw error is CancellationError ? error : Engines.map(error)
+        // Runs alone: chat, image, upscaler and voice models are unloaded first ([EngineMemory]).
+        return try await EngineMemory.using(.audio) {
+            do {
+                return try await AudioGenEngine.shared.generate(
+                    folder: folder, request: .init(tokens: tokens, seconds: seconds, steps: steps, cfg: cfg, seed: seed), onProgress: onProgress,
+                )
+            } catch {
+                throw error is CancellationError ? error : Engines.map(error)
+            }
         }
     }
     #endif

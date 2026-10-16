@@ -117,8 +117,8 @@ struct ImagineScreen: View {
             .inkGround(m.results.isEmpty && !m.isRunning)
             StudioBar(model: m) { showTune = true }
         }
-        .task(id: m.running.isRunning) { await m.syncResults() }
-        .task(id: app.generator.lastResults.count) { await m.syncResults() }
+        // One sync when a job starts or ends or a result arrives.
+        .task(id: [m.isRunning ? 1 : 0, app.generator.lastResults.count]) { await m.syncResults() }
         .sheet(isPresented: $showTune) {
             TuneSheet(model: m) {
                 showTune = false
@@ -312,8 +312,15 @@ private struct StudioBar: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                    Text(status(now: context.date)).textStyle(.bodyMedium).foregroundStyle(c.onBackground).lineLimit(2)
+                Group {
+                    // The elapsed seconds tick only while a job runs (whole seconds: once a second).
+                    if model.isRunning {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(status(now: context.date)).textStyle(.bodyMedium).foregroundStyle(c.onBackground).lineLimit(2)
+                        }
+                    } else {
+                        Text(status(now: Date())).textStyle(.bodyMedium).foregroundStyle(c.onBackground).lineLimit(2)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if case .running(_, _, let r, _, _, _, _, _) = model.running {

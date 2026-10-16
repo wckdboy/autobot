@@ -71,6 +71,10 @@ private struct ChatRouting {
 /**
  An agent run (mockup 03): red run line, the task as a display title, numbered tool steps with
  timings, approvals as a full red block, and the active policy in the footer.
+
+ The session's parts are observed separately: the body follows the transcript, approvals,
+ question, running and settings; the streamed answer re-renders only [LiveSlot]. Rows are
+ equatable, so a transcript change re-renders only the rows that changed.
  */
 struct ChatScreen: View {
     let conversationId: String
@@ -78,6 +82,9 @@ struct ChatScreen: View {
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
     @State private var model = ChatModel()
+    /// The open session, set in .task (opening must not happen while the view renders). Held in
+    /// state so setting it re-renders the screen: a chat opened from the list never stays blank.
+    @State private var opened: AgentSession?
     @State private var showModels = false
     @State private var showSession = false
     /// The privacy receipt being looked at.
@@ -89,20 +96,20 @@ struct ChatScreen: View {
 
     var body: some View {
         let _ = InkProbe.hit("body.chat")
-        // Opened in .task: opening repoints the conversation and starts the agent, which must not
-        // happen while the view renders. A previewed (or already open) session shows at once.
-        let state = app.agent.existingSession(conversationId)?.state ?? ChatSessionState(sessionId: conversationId)
+        // A previewed (or already open) session shows at once, before .task opens it.
+        let session = opened ?? app.agent.existingSession(conversationId)
+        let transcript = session?.transcript ?? Self.emptyTranscript
+        let settings = session?.settings ?? SessionSettings()
+        let running = session?.running ?? false
+        let approvals = session?.approvals ?? []
+        let isLive = session?.isLive ?? false
         let routing = ChatRouting(app: app, conversationId: conversationId)
-        let toolItems = state.projection.items.compactMap { item -> String? in if case .tool(let t) = item { t.key } else { nil } }
-        // A repeated key (a model that reuses tool-call ids) must not trap: the first one keeps its number.
-        let stepNumbers = Dictionary(toolItems.enumerated().map { ($0.element, $0.offset + 1) }, uniquingKeysWith: { first, _ in first })
-        let firstPrompt = state.projection.items.first { if case .user = $0 { true } else { false } }?.key
-        let usage = state.projection.lastUsage
-        let contextUsed = usage.map { ($0.inputTokens ?? 0) + ($0.cacheReadTokens ?? 0) + ($0.outputTokens ?? 0) }
-        let _ = ledger.observe(state.projection.items.map(\.key) + state.approvals.map { "approval:" + $0.callId })
+        let _ = ledger.observe(transcript.keys + approvals.map { "approval:" + $0.callId })
+        let header = ["run", routing.modelLabel ?? routing.selectedModel, transcript.contextUsed.map { "\(compactCount($0)) tok" }].compactMap { $0 }.joined(separator: " · ")
+        let speakingKey = model.speakingKey
 
         VStack(spacing: 0) {
-            AutobotTopBar(title: state.toolsEnabled ? "Agent run" : "Chat", onBack: { nav.back() }) {
+            AutobotTopBar(title: settings.toolsEnabled ? "Agent run" : "Chat", onBack: { nav.back() }) {
                 Tag("voice", accent: model.voice != nil ? c.primary : nil, filled: model.voice != nil) {
                     model.setVoiceMode(model.voice == nil, app: app, conversationId: conversationId)
                 }
@@ -122,14 +129,28 @@ struct ChatScreen: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        if app.dataLoaded && state.projection.items.isEmpty && state.live == nil {
-                            EmptySession(toolsEnabled: state.toolsEnabled)
+                        if app.dataLoaded && transcript.items.isEmpty && !isLive {
+                            EmptySession(toolsEnabled: settings.toolsEnabled)
                         }
-                        ForEach(state.projection.items.uniqueKeys) { item in
-                            row(item, state: state, routing: routing, contextUsed: contextUsed, stepNumbers: stepNumbers, firstPrompt: firstPrompt)
-                                .inkEnter(ledger.isNew(item.key)) { ledger.entered(item.key) }
+                        ForEach(transcript.items) { item in
+                            let approval: ApprovalState? = if case .tool(let t) = item { approvals.first { $0.callId == t.callId } } else { nil }
+                            TranscriptRow(
+                                item: item,
+                                number: transcript.stepNumbers[item.key] ?? 0,
+                                header: item.key == transcript.firstPrompt ? header : nil,
+                                approval: approval,
+                                ghost: approval.map { ledger.isNew("approval:" + $0.callId) } ?? false,
+                                running: running,
+                                speaking: speakingKey == item.key,
+                                conversationId: conversationId,
+                                model: model,
+                                ledger: ledger,
+                                openReceipt: $openReceipt,
+                            )
+                            .equatable()
+                            .inkEnter(ledger.isNew(item.key)) { ledger.entered(item.key) }
                         }
-                        if let live = state.live { LiveMessage(live: live) }
+                        if let session { LiveSlot(session: session) }
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(.horizontal, 16)
@@ -137,22 +158,22 @@ struct ChatScreen: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
-                .inkGround(app.dataLoaded && state.projection.items.isEmpty && state.live == nil, fade: UnitPoint(x: 0.3, y: 0.15))
-                .onChange(of: state.projection.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-                .onChange(of: state.live == nil) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                .inkGround(app.dataLoaded && transcript.items.isEmpty && !isLive, fade: UnitPoint(x: 0.3, y: 0.15))
+                .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: isLive) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
 
-            if state.projection.todos.contains(where: { $0.status != .completed }) {
-                TodoPanel(todos: state.projection.todos)
+            if transcript.projection.todos.contains(where: { $0.status != .completed }) {
+                TodoPanel(todos: transcript.projection.todos)
             }
-            if let question = state.question {
-                QuestionCard(question: question) { app.agent.answerQuestion(callId: question.callId, answers: $0) }
+            if let question = session?.question {
+                QuestionCard(question: question) { app.agent.answerQuestion(conversationId, callId: question.callId, answers: $0) }
             }
-            PolicyLine(state: state, contextUsed: contextUsed)
+            PolicyLine(settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow)
             if let voice = model.voice {
                 VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
             } else {
-                InputBar(model: model, running: state.running, onSend: send, onStop: { app.agent.cancel(conversationId) })
+                InputBar(model: model, running: running, onSend: send, onStop: { app.agent.cancel(conversationId) }).equatable()
             }
         }
         .background(c.background)
@@ -160,7 +181,7 @@ struct ChatScreen: View {
             ModelSheet(conversationId: conversationId, routing: routing) { showModels = false }
         }
         .sheet(isPresented: $showSession) {
-            SessionSheet(conversationId: conversationId, state: state, onDelete: deleteChat, onChanges: {
+            SessionSheet(conversationId: conversationId, session: session, onDelete: deleteChat, onChanges: {
                 showSession = false
                 showChanges = true
             }) { showSession = false }
@@ -168,14 +189,13 @@ struct ChatScreen: View {
         .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
         .sheet(isPresented: $showChanges) {
             ChangesSheet(
-                groups: state.projection.changes, running: state.running,
+                groups: transcript.projection.changes, running: running,
                 onUndoStep: { app.agent.undoStep(conversationId, callId: $0) },
                 onUndoTurn: { app.agent.undoTurn(conversationId, turn: $0) },
             )
         }
-        .onChange(of: state) { _, new in model.sessionChanged(new) }
         .task {
-            _ = app.agent.session(conversationId)
+            opened = app.agent.session(conversationId)
             await start()
         }
         .onDisappear {
@@ -189,6 +209,8 @@ struct ChatScreen: View {
         }
     }
 
+    private static let emptyTranscript = SessionTranscript(SessionProjection())
+
     /// Deletes this chat (undoable from the list for a few seconds); a running turn is cancelled first.
     private func deleteChat() {
         showSession = false
@@ -196,52 +218,6 @@ struct ChatScreen: View {
         let title = app.conversations.get(conversationId)?.title ?? ""
         app.chats.trash([conversationId], label: title.isEmpty ? "Chat deleted" : "Deleted “\(title)”")
         nav.back()
-    }
-
-    @ViewBuilder
-    private func row(_ item: SessionItem, state: ChatSessionState, routing: ChatRouting, contextUsed: Int?, stepNumbers: [String: Int], firstPrompt: String?) -> some View {
-        switch item {
-        case .user(let key, let text, let images):
-            VStack(alignment: .leading, spacing: 8) {
-                if key == firstPrompt {
-                    RunHeader(prompt: text, label: ["run", routing.modelLabel ?? routing.selectedModel, contextUsed.map { "\(compactCount($0)) tok" }].compactMap { $0 }.joined(separator: " · "))
-                } else {
-                    FollowUp(text: text)
-                }
-                if !images.isEmpty { AttachmentStrip(ids: images, model: model) }
-            }
-        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt, let turnChanges):
-            VStack(alignment: .leading, spacing: 6) {
-                AssistantMessage(
-                    text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: model.speakingKey == key,
-                    receipt: receipt, onReceipt: { openReceipt = $0 },
-                ) {
-                    model.speak(key: key, text: text)
-                }
-                UndoTurnLine(
-                    changes: turnChanges, running: state.running,
-                    onUndo: { app.agent.undoTurn(conversationId, turn: $0) },
-                    onRedo: { app.agent.redo(conversationId, revertId: $0) },
-                )
-            }
-        case .tool(let tool):
-            if let approval = state.approvals.first(where: { $0.callId == tool.callId }) {
-                let key = "approval:" + tool.callId
-                ApprovalCard(number: stepNumbers[tool.key] ?? 0, tool: tool, approval: approval) { outcome in
-                    app.agent.answerApproval(callId: tool.callId, outcome: outcome)
-                }
-                .registerGhost(ledger.isNew(key), color: c.primary)
-                .onAppear { ledger.entered(key) }
-            } else {
-                StepRow(
-                    number: stepNumbers[tool.key] ?? 0, tool: tool, model: model, running: state.running,
-                    onUndo: { app.agent.undoStep(conversationId, callId: $0) },
-                    onRedo: { app.agent.redo(conversationId, revertId: $0) },
-                ) { id in if app.studio.library.asset(id) != nil { nav.enterStudio(.library) } else { nav.push(.gallery(openId: id)) } }
-            }
-        case .notice(_, let text, let kind):
-            NoticeRow(text: text, kind: kind)
-        }
     }
 
     // MARK: Intents
@@ -299,6 +275,88 @@ struct ChatScreen: View {
 }
 
 // MARK: - Transcript
+
+/**
+ One transcript row. Equatable on what it shows (not its actions, which only reach stable
+ objects), so a transcript change re-evaluates only the rows whose item or context changed.
+ */
+private struct TranscriptRow: View, Equatable {
+    let item: SessionItem
+    let number: Int
+    /// The run header's label when this is the first prompt.
+    let header: String?
+    let approval: ApprovalState?
+    /// The approval card enters out of register.
+    let ghost: Bool
+    let running: Bool
+    let speaking: Bool
+    let conversationId: String
+    let model: ChatModel
+    let ledger: InkLedger
+    @Binding var openReceipt: Receipt?
+    @Environment(AppContainer.self) private var app
+    @Environment(Navigator.self) private var nav
+    @Environment(\.scheme) private var c
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.item == b.item && a.number == b.number && a.header == b.header && a.approval == b.approval && a.ghost == b.ghost
+            && a.running == b.running && a.speaking == b.speaking && a.conversationId == b.conversationId && a.model === b.model
+    }
+
+    var body: some View {
+        switch item {
+        case .user(_, let text, let images):
+            VStack(alignment: .leading, spacing: 8) {
+                if let header {
+                    RunHeader(prompt: text, label: header)
+                } else {
+                    FollowUp(text: text)
+                }
+                if !images.isEmpty { AttachmentStrip(ids: images, model: model) }
+            }
+        case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt, let turnChanges):
+            VStack(alignment: .leading, spacing: 6) {
+                AssistantMessage(
+                    text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: speaking,
+                    receipt: receipt, onReceipt: { openReceipt = $0 },
+                ) {
+                    model.speak(key: key, text: text)
+                }
+                UndoTurnLine(
+                    changes: turnChanges, running: running,
+                    onUndo: { app.agent.undoTurn(conversationId, turn: $0) },
+                    onRedo: { app.agent.redo(conversationId, revertId: $0) },
+                )
+            }
+        case .tool(let tool):
+            if let approval {
+                let key = "approval:" + tool.callId
+                ApprovalCard(number: number, tool: tool, approval: approval) { outcome in
+                    app.agent.answerApproval(conversationId, callId: tool.callId, outcome: outcome)
+                }
+                .registerGhost(ghost, color: c.primary)
+                .onAppear { ledger.entered(key) }
+            } else {
+                StepRow(
+                    number: number, tool: tool, model: model, running: running,
+                    onUndo: { app.agent.undoStep(conversationId, callId: $0) },
+                    onRedo: { app.agent.redo(conversationId, revertId: $0) },
+                ) { id in if app.studio.library.asset(id) != nil { nav.enterStudio(.library) } else { nav.push(.gallery(openId: id)) } }
+            }
+        case .notice(_, let text, let kind):
+            NoticeRow(text: text, kind: kind)
+        }
+    }
+}
+
+/// The streamed answer: the only view that follows the session's live frames.
+private struct LiveSlot: View {
+    let session: AgentSession
+
+    var body: some View {
+        if let live = session.live { LiveMessage(live: live) }
+    }
+}
 
 private struct RunHeader: View {
     let prompt: String
@@ -361,6 +419,7 @@ private struct LiveMessage: View {
     @Environment(\.scheme) private var c
 
     var body: some View {
+        let _ = InkProbe.hit("body.liveMessage")
         VStack(alignment: .leading, spacing: 6) {
             if !live.reasoning.isEmpty { ThinkingDisclosure(reasoning: live.reasoning, isThinking: live.text.isEmpty) }
             if !live.text.isEmpty || live.reasoning.isEmpty {
@@ -406,6 +465,7 @@ private struct StepRow: View {
     }
 
     var body: some View {
+        let _ = InkProbe.hit("body.stepRow")
         let (mark, markColor): (String, Color) = switch tool.state {
         case .ok: (tool.isUndone ? "undone" : "✓", c.onSurfaceVariant)
         case .error: ("×", c.error)
@@ -661,19 +721,20 @@ private struct EmptySession: View {
 
 /// `POLICY · READ: AUTO · WRITE: AUTO · DELETE: ASK · NETWORK: ASK`
 private struct PolicyLine: View {
-    let state: ChatSessionState
+    let settings: SessionSettings
     let contextUsed: Int?
+    let contextWindow: Int?
 
     var body: some View {
-        if state.toolsEnabled {
-            let text = switch state.permissionPreset {
+        if settings.toolsEnabled {
+            let text = switch settings.permissionPreset {
             case .readOnly: "policy · read: auto · write: deny · network: ask"
             case .workspace: "policy · read: auto · write: auto · delete: ask · network: ask"
             case .fullAccess: "policy · everything: auto · kill switch still applies"
             }
             HStack {
                 MicroLabel(text).frame(maxWidth: .infinity, alignment: .leading)
-                if let used = contextUsed, let window = state.projection.contextWindow, window > 0 {
+                if let used = contextUsed, let window = contextWindow, window > 0 {
                     MicroLabel("\(compactCount(used))/\(compactCount(window))")
                 }
             }
@@ -780,11 +841,14 @@ private struct QuestionCard: View {
     }
 }
 
-private struct InputBar: View {
+private struct InputBar: View, Equatable {
     let model: ChatModel
     let running: Bool
     let onSend: (String) -> Void
     let onStop: () -> Void
+
+    /// The actions reach stable objects (the screen's agent and conversation): not compared.
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.model === b.model && a.running == b.running }
     @Environment(AppContainer.self) private var app
     @Environment(\.scheme) private var c
     @State private var text = ""
@@ -930,7 +994,7 @@ private struct VoicePanel: View {
                         if voice.phase == .speaking {
                             SpeechStrip(spoken: voice.spoken)
                         } else {
-                            LevelMeter(levels: voice.levels, listening: voice.phase == .listening)
+                            LevelMeter(levels: model.levels, listening: voice.phase == .listening)
                         }
                     }
                     .frame(height: 36)
@@ -966,7 +1030,8 @@ private struct VoicePanel: View {
 /// Microphone peaks as riso bars, newest on the right, easing toward each new peak (no jitter);
 /// a flat rule when not listening.
 private struct LevelMeter: View {
-    let levels: [Float]
+    /// Observed here only: ~10 updates a second re-render the meter, not the chat screen.
+    let levels: VoiceLevels
     let listening: Bool
     @Environment(\.scheme) private var c
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -975,7 +1040,7 @@ private struct LevelMeter: View {
     var body: some View {
         InkTimeline(active: listening) { date in
             Canvas { context, size in
-                bars.step(levels, at: date, ease: listening && !reduceMotion)
+                bars.step(levels.peaks, at: date, ease: listening && !reduceMotion)
                 let slot = size.width / CGFloat(LevelBars.slots)
                 var live = Path(), rule = Path()
                 for i in 0 ..< LevelBars.slots {
@@ -1210,7 +1275,7 @@ private struct ModelSheet: View {
 
 private struct SessionSheet: View {
     let conversationId: String
-    let state: ChatSessionState
+    let session: AgentSession?
     let onDelete: () -> Void
     /// Opens the "files changed" sheet.
     var onChanges: () -> Void = {}
@@ -1221,7 +1286,8 @@ private struct SessionSheet: View {
     @State private var name = ""
 
     var body: some View {
-        let session = app.agent.existingSession(conversationId)
+        let settings = session?.settings ?? SessionSettings()
+        let changes = session?.transcript.projection.changes ?? []
         let conversation = app.conversations.get(conversationId)
         InkStack(alignment: .leading, spacing: 14) {
             SectionLabel("chat")
@@ -1257,11 +1323,11 @@ private struct SessionSheet: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                RisoToggle(isOn: Binding(get: { session?.state.toolsEnabled ?? state.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) }))
+                RisoToggle(isOn: Binding(get: { settings.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) }))
             }
             VStack(alignment: .leading, spacing: 6) {
                 MicroLabel("permission preset")
-                Segmented(options: PermissionPreset.allCases, selected: (session?.state ?? state).permissionPreset, label: \.label) {
+                Segmented(options: PermissionPreset.allCases, selected: settings.permissionPreset, label: \.label) {
                     app.agent.setPermission(conversationId, $0)
                 }
             }
@@ -1272,14 +1338,14 @@ private struct SessionSheet: View {
                         .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Compact", color: c.primary, enabled: !(session?.state ?? state).running) {
+                TextAction("Compact", color: c.primary, enabled: !(session?.running ?? false)) {
                     app.agent.compact(conversationId)
                     onDismiss()
                 }
             }
             HStack(spacing: 12) {
-                let files = (session?.state ?? state).projection.changes.reduce(0) { $0 + $1.files.count }
-                let turns = (session?.state ?? state).projection.changes.count
+                let files = changes.reduce(0) { $0 + $1.files.count }
+                let turns = changes.count
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Files changed").textStyle(.titleMedium).foregroundStyle(c.onSurface)
                     Text(files == 0 ? "Nothing yet. Every file the agent changes can be undone."

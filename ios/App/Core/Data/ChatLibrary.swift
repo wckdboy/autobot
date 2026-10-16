@@ -89,20 +89,41 @@ final class ChatLibrary {
         pending.removeAll()
     }
 
+    /**
+     Stops the chats' agents and drops them from the list now; their logs, search text and
+     attached images are deleted off the main thread (secure delete overwrites every row, which
+     takes a while for long chats or "Delete all").
+     */
     private func purge(_ ids: [String]) {
-        for id in ids {
-            let images = sessions.attachmentIds(id)
-            // Stops the agent and drops its log, then the row.
-            agent.discard(id)
-            conversations.delete(id)
-            sessions.delete(id)
-            images.forEach(attachments.delete)
+        guard !ids.isEmpty else { return }
+        ids.forEach(agent.discard)
+        conversations.forget(ids)
+        let sessions = sessions, attachments = attachments
+        let task = Task.detached(priority: .utility) {
+            for id in ids {
+                // Read before the log goes: the images the chat referenced.
+                let images = sessions.attachmentIds(id)
+                sessions.delete(id)
+                images.forEach(attachments.delete)
+            }
         }
+        purging.append(task)
+    }
+
+    /// Deletions still running in the background.
+    @ObservationIgnored private var purging: [Task<Void, Never>] = []
+
+    /// Waits for the background deletions started so far (tests, panic wipe ordering).
+    func waitForPurges() async {
+        let running = purging
+        purging.removeAll()
+        for task in running { await task.value }
     }
 
     /**
      Chats among [candidates] matching [query] in their title or messages. Runs off the main
-     actor; the first search reads (and caches) every chat's log.
+     actor on the chats' stored search text (a chat indexed before that text was kept is
+     indexed from its log once).
      */
     func search(_ query: String, in candidates: [Conversation]) async -> [String: ChatSearchHit] {
         let terms = ChatSearch.shared.terms(query: query)
@@ -111,9 +132,11 @@ final class ChatLibrary {
         let sessions = sessions
         return await Task.detached(priority: .userInitiated) {
             var out: [String: ChatSearchHit] = [:]
+            // One read of the stored search text (no log is decrypted for an indexed chat).
+            let texts = sessions.searchTexts(items.map(\.0))
             for (id, title) in items {
                 if Task.isCancelled { break }
-                let text = sessions.searchText(id)
+                let text = texts[id] ?? ""
                 // A quick Swift pre-check; the shared matcher decides and builds the excerpt.
                 guard terms.allSatisfy({ title.range(of: $0, options: .caseInsensitive) != nil || text.range(of: $0, options: .caseInsensitive) != nil }) else { continue }
                 guard let m = ChatSearch.shared.match(terms: terms, title: title, text: text) else { continue }

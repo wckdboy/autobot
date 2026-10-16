@@ -83,3 +83,94 @@ enum LiteMarkdown {
         return spans
     }
 }
+
+
+/**
+ Parsed markdown per text, so a bubble is parsed once, not on every render. Finished messages hit
+ the cache by their text; a streaming message (each frame's text extends the last one) re-parses
+ only its tail: blocks before the last blank line outside a code fence never change as more
+ text arrives, so they are kept and the rest is parsed and appended (`parse(head + tail) ==
+ parse(head) + parse(tail)` when head ends at such a line).
+ */
+@MainActor
+final class MarkdownCache {
+    static let shared = MarkdownCache()
+
+    private let limit: Int
+    private var entries: [String: [MdBlock]] = [:]
+    /// Insertion order, oldest first (evicted beyond [limit]).
+    private var order: [String] = []
+    /// The streamed text's stable head (ends at a safe split) and its blocks.
+    private var stream: (head: String, blocks: [MdBlock])?
+
+    init(limit: Int = 256) { self.limit = limit }
+
+    func blocks(_ text: String) -> [MdBlock] {
+        if let hit = entries[text] { return hit }
+        let blocks: [MdBlock]
+        if let s = stream, !s.head.isEmpty, text.utf8.count > s.head.utf8.count, text.utf8.starts(with: s.head.utf8), !text.utf8.contains(13) {
+            let tail = Substring(text.utf8.dropFirst(s.head.utf8.count))
+            let split = Self.safeSplit(tail)
+            let stable = split.map { s.blocks + LiteMarkdown.parse(String(tail[..<$0])) } ?? s.blocks
+            if let split { stream = (s.head + String(tail[..<split]), stable) }
+            blocks = stable + LiteMarkdown.parse(String(split.map { tail[$0...] } ?? tail))
+        } else {
+            if !text.utf8.contains(13), let split = Self.safeSplit(Substring(text)) {
+                // Parsed in two parts (the same work): the head is kept for a streamed extension.
+                let head = String(text[..<split])
+                let headBlocks = LiteMarkdown.parse(head)
+                stream = (head, headBlocks)
+                blocks = headBlocks + LiteMarkdown.parse(String(text[split...]))
+            } else {
+                stream = nil
+                blocks = LiteMarkdown.parse(text)
+            }
+        }
+        store(text, blocks)
+        return blocks
+    }
+
+    private func store(_ text: String, _ blocks: [MdBlock]) {
+        // Streamed prefixes would crowd the cache out: keep one entry per growing message.
+        if let last = order.last, text.hasPrefix(last) {
+            entries[last] = nil
+            order.removeLast()
+        }
+        entries[text] = blocks
+        order.append(text)
+        if order.count > limit {
+            let drop = order.count - limit
+            order.prefix(drop).forEach { entries[$0] = nil }
+            order.removeFirst(drop)
+        }
+    }
+
+    func removeAll() {
+        entries.removeAll()
+        order.removeAll()
+        stream = nil
+    }
+
+    var count: Int { entries.count }
+
+    /**
+     The index just after the last blank line of [text] that is outside a code fence (nil: none),
+     assuming [text] starts outside a fence. Mirrors [LiteMarkdown.parse]'s line rules.
+     */
+    nonisolated static func safeSplit(_ text: Substring) -> Substring.Index? {
+        var inFence = false
+        var split: Substring.Index?
+        var lineStart = text.startIndex
+        while lineStart < text.endIndex {
+            guard let newline = text[lineStart...].firstIndex(of: "\n") else { break }
+            let line = text[lineStart ..< newline]
+            if line.drop(while: { $0.isWhitespace }).hasPrefix("```") {
+                inFence.toggle()
+            } else if !inFence && line.allSatisfy({ $0 == " " || $0 == "\t" }) {
+                split = text.index(after: newline)
+            }
+            lineStart = text.index(after: newline)
+        }
+        return split
+    }
+}

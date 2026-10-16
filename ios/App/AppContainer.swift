@@ -60,10 +60,11 @@ final class AppContainer {
     @ObservationIgnored private var unlocking = false
     @ObservationIgnored private var activeObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
+    @ObservationIgnored private let engineRelease = EngineReleaseScheduler()
 
     init() {
         AppPaths.prepare()
-        preferences = Preferences()
+        preferences = Preferences(background: true)
         settings = SettingsStore(preferences: preferences, policy: policy, lock: lock)
         clients = HttpClientFactory(policy: policy, auditLog: auditLog)
         store = EncryptedStore(keys: keys)
@@ -104,13 +105,16 @@ final class AppContainer {
         chats = ChatLibrary(conversations: conversations, agent: agent, sessions: sessions, attachments: attachments)
 
         let agent = agent, conversations = conversations, downloader = downloader, generator = generator, clients = clients, store = store, llm = llm
+        let preferences = preferences
         let studio = studio
         panicWipe = PanicWipe(keys: keys, secrets: secrets, participants: [
+            { preferences.close() },
             { agent.shutdown() },
             { studio.close() },
             { downloader.cancelAll() },
             { generator.cancel() },
             { conversations.clearIncognito() },
+            { AppContainer.clearDecryptedCaches() },
             { await llm.unload() },
             { clients.evictAll(cancelInFlight: true) },
             { store.close() },
@@ -119,6 +123,10 @@ final class AppContainer {
         providers.onChange = { [weak self] list in self?.providersChanged(list) }
         mcpServers.onChange = { [weak self] list in self?.mcpServersChanged(list) }
         settings.onChange = { [weak self] s in
+            #if canImport(AutobotShared)
+            // The network policy may have changed: model adapters are rebuilt on their next step.
+            (self?.agent as? SharedAgentRuntime)?.invalidateProviders()
+            #endif
             self?.agentFeaturesChanged(s)
             self?.downloader.networkChanged(offline: s.mode == .offline)
         }
@@ -135,17 +143,40 @@ final class AppContainer {
         }
         let center = NotificationCenter.default
         // The engines' models are the bulk of the app's memory: free them before the system
-        // terminates the app (and in the background, where it is first in line).
-        for name in [UIApplication.didReceiveMemoryWarningNotification, UIApplication.didEnterBackgroundNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
-                Task { await EngineMemory.shared.releaseAll() }
-            })
-        }
+        // terminates the app (at once on a memory warning; in the background, where it is first
+        // in line, after a grace so a quick app switch does not reload the chat model).
+        let release = engineRelease
+        observers.append(center.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { release.memoryWarning() }
+        })
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                release.enteredBackground()
+                // No MCP list-change stream stays open or reconnects in the background.
+                #if canImport(AutobotShared)
+                (self?.agent as? SharedAgentRuntime)?.setForeground(false)
+                #endif
+            }
+            preferences.flush()
+        })
+        observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                release.becameActive()
+                #if canImport(AutobotShared)
+                (self?.agent as? SharedAgentRuntime)?.setForeground(true)
+                #endif
+            }
+        })
         // Preferences unreadable at launch (before the first unlock) are read now.
-        let preferences = preferences
         observers.append(center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { _ in
             preferences.reloadIfNeeded()
         })
+    }
+
+    /// Drops decrypted content cached for rendering (gallery thumbnails, parsed chat text): panic wipe.
+    static func clearDecryptedCaches() {
+        GalleryThumbs.removeAll()
+        MarkdownCache.shared.removeAll()
     }
 
     /// Back in the foreground: re-check what "This phone" can run.
@@ -179,6 +210,8 @@ final class AppContainer {
         #if canImport(AutobotShared)
         snapshots.setProviders(list)
         snapshots.setModelLists(providers.modelLists.mapValues(\.json))
+        // Providers or their model lists changed: the bridge's cached model adapters go.
+        (agent as? SharedAgentRuntime)?.invalidateProviders()
         (agent as? SharedAgentRuntime)?.setQuotaFallback(settings.settings.quotaFallback, onDevice: list.first { $0.id == ProviderPresets.localProviderId })
         #endif
         // A chat whose provider was deleted (or that had none yet) moves to the first provider.
@@ -239,10 +272,16 @@ final class AppContainer {
         unlocking = true
         defer { unlocking = false }
         let store = store, memoryHost = memory.host
+        // What the first screens show first (the chat list, routes): decrypted and published
+        // before the rest, which follows in a second pass.
+        let first = await Task.detached(priority: .userInitiated) {
+            (conversations: ConversationRepository.read(store), providers: ProviderRepository.read(store))
+        }.value
+        guard !dataLoaded else { return }
+        conversations.load(first.conversations)
+        providers.load(first.providers)
         let rows = await Task.detached(priority: .userInitiated) {
             (
-                conversations: ConversationRepository.read(store),
-                providers: ProviderRepository.read(store),
                 mcpServers: McpServerRepository.read(store),
                 gallery: GalleryRepository.read(store),
                 memory: memoryHost.records(),
@@ -251,8 +290,6 @@ final class AppContainer {
             )
         }.value
         guard !dataLoaded else { return }
-        conversations.load(rows.conversations)
-        providers.load(rows.providers)
         mcpServers.load(rows.mcpServers)
         gallery.load(rows.gallery)
         memory.load(rows.memory)

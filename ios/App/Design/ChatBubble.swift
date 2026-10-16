@@ -16,7 +16,8 @@ struct ChatBubble<Footer: View>: View {
     @Environment(\.scheme) private var c
 
     var body: some View {
-        let blocks = LiteMarkdown.parse(text)
+        let _ = InkProbe.hit("body.chatBubble")
+        let blocks = MarkdownCache.shared.blocks(text)
         let isUser = role == .user
         HStack {
             if isUser { Spacer(minLength: 0) }

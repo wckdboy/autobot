@@ -20,8 +20,8 @@ struct ChatOrganizationTests {
         func preview(_ conversationId: String, state: Autobot.ChatSessionState) {}
         func send(_ conversationId: String, text: String, images: [String]) async {}
         func cancel(_ conversationId: String) { cancelled.append(conversationId) }
-        func answerApproval(callId: String, outcome: Autobot.ApprovalOutcome) {}
-        func answerQuestion(callId: String, answers: [String]?) {}
+        func answerApproval(_ conversationId: String, callId: String, outcome: Autobot.ApprovalOutcome) {}
+        func answerQuestion(_ conversationId: String, callId: String, answers: [String]?) {}
         func setToolsEnabled(_ conversationId: String, _ enabled: Bool) {}
         func setPermission(_ conversationId: String, _ preset: Autobot.PermissionPreset) {}
         func setRoute(_ conversationId: String, providerId: String, model: String) {}

@@ -51,6 +51,9 @@ final class ImagineModel {
     @ObservationIgnored private var initSource: CGImage?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var catalogTask: Task<Void, Never>?
+    /// Engine capabilities by backend kind (they are constants of the engine type; building an
+    /// engine to read them on every render was wasted work).
+    @ObservationIgnored private var capabilityCache: [BackendKind: EngineCapabilities] = [:]
 
     init(app: AppContainer) {
         self.app = app
@@ -66,7 +69,13 @@ final class ImagineModel {
         return backends.first { $0.id == id } ?? backends.first
     }
 
-    var capabilities: EngineCapabilities? { backend.map { app.generator.engine(for: $0).capabilities } }
+    var capabilities: EngineCapabilities? {
+        guard let backend else { return nil }
+        if let cached = capabilityCache[backend.kind] { return cached }
+        let caps = app.generator.engine(for: backend).capabilities
+        capabilityCache[backend.kind] = caps
+        return caps
+    }
 
     var catalog: EngineCatalog { backend.flatMap { catalogs[$0.id] } ?? EngineCatalog() }
 
@@ -92,7 +101,8 @@ final class ImagineModel {
     var running: GenerationState { app.generator.state }
     /// Model loading before the first step, when the backend reports it.
     var phase: String? { app.generator.phase }
-    var isRunning: Bool { app.generator.state.isRunning }
+    /// Not per step: reads the generator's stored busy flag, not its progress state.
+    var isRunning: Bool { app.generator.isBusy }
     var error: String? { localError ?? app.generator.lastError }
     var tokenEstimate: Int { PromptSyntax.estimateTokens(request.prompt) }
 

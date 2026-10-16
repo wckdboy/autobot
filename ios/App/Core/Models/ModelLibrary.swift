@@ -114,12 +114,25 @@ final class ModelLibrary {
 
     private func put(_ model: InstalledModel) {
         try? store.put(Self.collection, id: model.id, model)
+        let old: InstalledModel?
         if let i = models.firstIndex(where: { $0.id == model.id }) {
+            old = models[i]
             models[i] = model
         } else {
+            old = nil
             models.insert(model, at: 0)
         }
-        onChange?()
+        // Byte counts alone change nothing the app derives from the registry (providers, the
+        // bridge's model snapshot, the vault's embedder): only a real change fans out.
+        if !Self.sameExceptProgress(old, model) { onChange?() }
+    }
+
+    /// Whether [a] and [b] differ in downloaded bytes and timestamps only.
+    nonisolated static func sameExceptProgress(_ a: InstalledModel?, _ b: InstalledModel) -> Bool {
+        guard var a else { return false }
+        a.downloadedBytes = b.downloadedBytes
+        a.updatedAt = b.updatedAt
+        return a == b
     }
 
     /// File-system-safe, collision-resistant name for an id.

@@ -118,6 +118,68 @@ final class HttpClientFactory: Sendable {
     }
 }
 
+/// A data task's response and body chunks, as [HttpClient.streamChunksAudited] hands them out.
+private final class ChunkReceiver: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private struct State {
+        var response: CheckedContinuation<HTTPURLResponse, Error>?
+        var continuation: AsyncThrowingStream<Data, Error>.Continuation?
+        var stream: AsyncThrowingStream<Data, Error>?
+    }
+
+    private let state = Mutex(State())
+
+    override init() {
+        super.init()
+        let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
+        state.withLock {
+            $0.stream = stream
+            $0.continuation = continuation
+        }
+    }
+
+    func awaitResponse(_ continuation: CheckedContinuation<HTTPURLResponse, Error>) { state.withLock { $0.response = continuation } }
+
+    func chunks(cancelling task: URLSessionTask) -> AsyncThrowingStream<Data, Error> {
+        state.withLock { s in
+            s.continuation?.onTermination = { _ in task.cancel() }
+            return s.stream!
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse) async -> URLSession.ResponseDisposition {
+        let waiting = state.withLock { s -> CheckedContinuation<HTTPURLResponse, Error>? in
+            defer { s.response = nil }
+            return s.response
+        }
+        if let http = response as? HTTPURLResponse {
+            waiting?.resume(returning: http)
+            return .allow
+        }
+        waiting?.resume(throwing: URLError(.badServerResponse))
+        return .cancel
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        _ = state.withLock { $0.continuation }?.yield(data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let (waiting, continuation) = state.withLock { s in
+            defer {
+                s.response = nil
+                s.continuation = nil
+            }
+            return (s.response, s.continuation)
+        }
+        waiting?.resume(throwing: error ?? URLError(.badServerResponse))
+        if let error { continuation?.finish(throwing: error) } else { continuation?.finish() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest) async -> URLRequest? {
+        nil
+    }
+}
+
 /// Error-free view of a response body for small JSON requests.
 struct HttpResponse: Sendable {
     let status: Int
@@ -294,6 +356,33 @@ final class HttpClient: Sendable {
             let entry = audit(a.request, tag: a.tag, route: a.route, trace: a.trace, blocked: false, status: http.statusCode, received: http.expectedContentLength)
             return (bytes, http, entry.id)
         } catch {
+            throw failure(error, a)
+        }
+    }
+
+    /**
+     [streamAudited] delivering the body as the chunks URLSession receives them (typically
+     16–64 KB) instead of one byte per async step: readers split lines themselves. Redirects are
+     refused like on every client. Cancelling the consumer's task cancels the request.
+     */
+    func streamChunksAudited(_ request: URLRequest, tag: String? = nil, trace: AuditTrace? = nil) async throws -> (AsyncThrowingStream<Data, Error>, HTTPURLResponse, Int64) {
+        let a = try admit(request, tag: tag, trace: trace)
+        let receiver = ChunkReceiver()
+        let task = a.session.dataTask(with: a.request)
+        task.delegate = receiver
+        do {
+            let http = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HTTPURLResponse, Error>) in
+                    receiver.awaitResponse(continuation)
+                    task.resume()
+                }
+            } onCancel: {
+                task.cancel()
+            }
+            let entry = audit(a.request, tag: a.tag, route: a.route, trace: a.trace, blocked: false, status: http.statusCode, received: http.expectedContentLength)
+            return (receiver.chunks(cancelling: task), http, entry.id)
+        } catch {
+            task.cancel()
             throw failure(error, a)
         }
     }

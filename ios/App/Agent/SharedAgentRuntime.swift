@@ -24,9 +24,13 @@ final class SharedAgentRuntime: AgentRuntime {
     @ObservationIgnored private let sessionStore: SessionStoreHost
     @ObservationIgnored private var sessions: [String: AgentSession] = [:]
     @ObservationIgnored private var handles: [String: any AutobotShared.Cancellable] = [:]
-    @ObservationIgnored private var sessionListeners: [String: SessionListenerBox] = [:]
+    @ObservationIgnored private var sessionListeners: [String: SessionStreamBox] = [:]
     /// Sessions whose state stream was stopped by [close]; [session] reopens it.
     @ObservationIgnored private var closed: Set<String> = []
+    /// Closed sessions, least recently closed first. Beyond [maxIdle], idle ones (no turn
+    /// running) are dropped: their objects and transcripts are not kept for every chat ever opened.
+    @ObservationIgnored private var idleOrder: [String] = []
+    static let maxIdle = 4
     /// Bridge calls waiting for a callback, failed by [shutdown] (the bridge never answers then).
     @ObservationIgnored private var waiting: [UUID: @MainActor () -> Void] = [:]
     @ObservationIgnored private var isShutDown = false
@@ -63,7 +67,13 @@ final class SharedAgentRuntime: AgentRuntime {
             audit: clients.auditLog.shared,
             journalDir: AppPaths.workspaceUndo.path,
         )
-        let listener = RunningListenerBox { [weak self] ids in self?.running = Set(ids) }
+        let listener = RunningListenerBox { [weak self] ids in
+            guard let self else { return }
+            let next = Set(ids)
+            if next != running { running = next }
+            // A closed session that just finished can go now.
+            evictIdle()
+        }
         listeners.add(listener)
         runningHandle = bridge.observeRunning(listener: listener)
         let mcpListener = McpStatusListenerBox { [weak self] list in
@@ -83,7 +93,10 @@ final class SharedAgentRuntime: AgentRuntime {
 
     func session(_ id: String) -> AgentSession {
         if let s = sessions[id] {
-            if closed.remove(id) != nil { open(s) }
+            if closed.remove(id) != nil {
+                idleOrder.removeAll { $0 == id }
+                open(s)
+            }
             return s
         }
         let s = AgentSession(id: id)
@@ -99,9 +112,12 @@ final class SharedAgentRuntime: AgentRuntime {
         let conversation = conversations.get(id)
         let provider = conversation?.providerId.flatMap(providers.get) ?? providers.providers.first
         let model = conversation?.model.flatMap { $0.isEmpty ? nil : $0 } ?? provider?.defaultModel ?? ""
-        let listener = SessionListenerBox { [weak s] state in s?.state = state }
+        // The efficient stream: the transcript only when it changes, small frames with text
+        // deltas otherwise. The handle holds the session open on the bridge until [close].
+        nonisolated(unsafe) let bridge = bridge
+        let listener = SessionStreamBox(resync: { bridge.resync(sessionId: id) }) { [weak s] update in s?.apply(update) }
         sessionListeners[id] = listener
-        handles[id] = bridge.open(sessionId: id, providerId: provider?.id ?? "", model: model, listener: listener)
+        handles[id] = bridge.openStream(sessionId: id, providerId: provider?.id ?? "", model: model, listener: listener, textDeltas: true)
     }
 
     func close(_ id: String) {
@@ -109,7 +125,30 @@ final class SharedAgentRuntime: AgentRuntime {
         handle.cancel()
         sessionListeners[id] = nil
         closed.insert(id)
+        idleOrder.removeAll { $0 == id }
+        idleOrder.append(id)
+        evictIdle()
     }
+
+    /// Drops the oldest closed sessions beyond [maxIdle] that have no turn running.
+    private func evictIdle() {
+        var excess = idleOrder.count - Self.maxIdle
+        guard excess > 0 else { return }
+        for id in idleOrder where excess > 0 && !running.contains(id) {
+            forget(id)
+            excess -= 1
+        }
+    }
+
+    /// Forgets a closed session's object (the next [session] call opens it afresh).
+    private func forget(_ id: String) {
+        sessions[id] = nil
+        closed.remove(id)
+        idleOrder.removeAll { $0 == id }
+    }
+
+    /// Sessions held in memory (tests).
+    var heldSessionIds: Set<String> { Set(sessions.keys) }
 
     func send(_ id: String, text: String, images: [String]) async {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -121,11 +160,17 @@ final class SharedAgentRuntime: AgentRuntime {
 
     func cancel(_ id: String) { bridge.cancel(sessionId: id) }
 
-    func answerApproval(callId: String, outcome: ApprovalOutcome) {
-        bridge.answerApproval(callId: callId, outcome: SharedMapping.outcome(outcome))
+    func answerApproval(_ id: String, callId: String, outcome: ApprovalOutcome) {
+        bridge.answerApproval(sessionId: id, callId: callId, outcome: SharedMapping.outcome(outcome))
     }
 
-    func answerQuestion(callId: String, answers: [String]?) { bridge.answerQuestion(callId: callId, answers: answers) }
+    func answerQuestion(_ id: String, callId: String, answers: [String]?) { bridge.answerQuestion(sessionId: id, callId: callId, answers: answers) }
+
+    /// App lifecycle: in the background no MCP list-change stream stays open or reconnects.
+    func setForeground(_ foreground: Bool) { bridge.setForeground(foreground: foreground) }
+
+    /// Providers, their model lists or the network policy changed: drop the cached model adapters.
+    func invalidateProviders() { bridge.invalidateProviders() }
 
     func setToolsEnabled(_ id: String, _ enabled: Bool) {
         _ = session(id)
@@ -176,11 +221,9 @@ final class SharedAgentRuntime: AgentRuntime {
     func discard(_ id: String) {
         handles.removeValue(forKey: id)?.cancel()
         sessionListeners[id] = nil
-        closed.remove(id)
-        sessions[id] = nil
+        forget(id)
         bridge.discard(sessionId: id)
         sessionStore.forget(sessionId: id)
-        store.delete(id)
     }
 
     func shutdown() {
@@ -189,6 +232,7 @@ final class SharedAgentRuntime: AgentRuntime {
         handles.removeAll()
         sessionListeners.removeAll()
         closed.removeAll()
+        idleOrder.removeAll()
         runningHandle?.cancel()
         mcpHandle?.cancel()
         sessions.removeAll()
@@ -292,47 +336,205 @@ private final class ResumeOnce<T: Sendable>: Sendable {
 }
 
 /**
- Decodes `SessionState` JSON off the main thread and delivers it on the main actor, latest wins:
- while one state is on its way to the main actor, newer ones replace each other and only the
- last is decoded and delivered after it. A streaming answer (~30 states a second) never queues
- work faster than the screen takes it.
+ Turns the bridge's session stream ([AgentBridge.openStream]) into [SessionUpdate]s, off the main
+ thread (one instance per session, used serially). Transcripts (`TranscriptState`) come only
+ when the transcript changed and are decoded then, with tool outputs capped to what the screen
+ shows; frames (`LiveFrame`) are small and carry the streamed answer as text deltas, which are
+ applied to the text kept here. A delta that does not continue that text (a lost frame) asks the
+ bridge to resync, which sends the full text again.
  */
-final class SessionListenerBox: NSObject, SessionListener, @unchecked Sendable {
-    private let deliver: @MainActor (ChatSessionState) -> Void
-    /// The newest JSON not decoded yet, and whether a decode → deliver pass is under way.
-    private let slot = Mutex<(json: String?, busy: Bool)>((nil, false))
-    private let queue = DispatchQueue(label: "autobot.session-state", qos: .userInitiated)
+final class SessionStreamDecoder {
+    /// Characters of a tool's output kept for the transcript (it shows at most this many).
+    static let outputCap = 4000
 
-    init(_ deliver: @escaping @MainActor (ChatSessionState) -> Void) { self.deliver = deliver }
+    private struct TranscriptState: Decodable {
+        var projection: SessionProjection
+    }
 
-    func onState(json: String) {
-        let start = slot.withLock { s -> Bool in
-            s.json = json
-            defer { s.busy = true }
-            return !s.busy
+    fileprivate struct LiveFrameStream: Decodable {
+        var turn: Int
+        var step: Int
+        var textFrom: Int
+        var text: String
+        var reasoningFrom: Int
+        var reasoning: String
+        var toolNames: [String]
+        var tokensPerSecond: Double?
+    }
+
+    /// The frame fields (lenient, so a frame from a newer or older bridge still renders).
+    struct Frame: Decodable {
+        fileprivate var live: LiveFrameStream?
+        var running = false
+        var approvals: [ApprovalState] = []
+        var question: QuestionState?
+        var toolsEnabled = true
+        var permission = PermissionPreset.workspace.label
+        var provider = ""
+        var model = ""
+
+        private enum K: String, CodingKey { case live, running, approvals, question, toolsEnabled, permission, provider, model }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: K.self)
+            live = try c.decodeIfPresent(LiveFrameStream.self, forKey: .live)
+            running = try c.decodeIfPresent(Bool.self, forKey: .running) ?? false
+            approvals = try c.decodeIfPresent([ApprovalState].self, forKey: .approvals) ?? []
+            question = try c.decodeIfPresent(QuestionState.self, forKey: .question)
+            toolsEnabled = try c.decodeIfPresent(Bool.self, forKey: .toolsEnabled) ?? true
+            permission = try c.decodeIfPresent(String.self, forKey: .permission) ?? PermissionPreset.workspace.label
+            provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? ""
+            model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+        }
+    }
+
+    /// The streamed answer as applied so far: its stream (turn, step), text and reasoning, with
+    /// their lengths in UTF-16 units (the bridge's offsets are Kotlin string offsets).
+    private var stream: (turn: Int, step: Int)?
+    private var text = ""
+    private var textLength = 0
+    private var reasoning = ""
+    private var reasoningLength = 0
+
+    func transcript(_ json: String) throws -> SessionTranscript {
+        let state = try JSONDecoder().decode(TranscriptState.self, from: Data(json.utf8))
+        return SessionTranscript(Self.capped(state.projection))
+    }
+
+    /// Applies a frame. Returns the update fields and whether the bridge must resync.
+    func frame(_ json: String) throws -> (update: SessionUpdate, resync: Bool) {
+        let frame = try JSONDecoder().decode(Frame.self, from: Data(json.utf8))
+        var resync = false
+        var live: LiveState?
+        if let l = frame.live {
+            if stream.map({ $0 != (l.turn, l.step) }) ?? true { (text, textLength, reasoning, reasoningLength) = ("", 0, "", 0) }
+            stream = (l.turn, l.step)
+            resync = !Self.apply(l.text, from: l.textFrom, to: &text, length: &textLength)
+            resync = !Self.apply(l.reasoning, from: l.reasoningFrom, to: &reasoning, length: &reasoningLength) || resync
+            live = LiveState(text: text, reasoning: reasoning, toolNames: l.toolNames, tokensPerSecond: l.tokensPerSecond)
+        } else {
+            stream = nil
+            (text, textLength, reasoning, reasoningLength) = ("", 0, "", 0)
+        }
+        let update = SessionUpdate(
+            transcript: nil, live: live, running: frame.running, approvals: frame.approvals, question: frame.question,
+            settings: SessionSettings(toolsEnabled: frame.toolsEnabled, permission: frame.permission, provider: frame.provider, model: frame.model),
+        )
+        return (update, resync)
+    }
+
+    /// The delta rule: from 0 replaces, from the current length appends; anything else is a gap
+    /// (false: keep what is shown and resync).
+    private static func apply(_ delta: String, from: Int, to text: inout String, length: inout Int) -> Bool {
+        if from == 0 {
+            text = delta
+            length = delta.utf16.count
+        } else if from == length {
+            text += delta
+            length += delta.utf16.count
+        } else {
+            return false
+        }
+        return true
+    }
+
+    /// [projection] with tool outputs cut to [outputCap] characters.
+    static func capped(_ projection: SessionProjection) -> SessionProjection {
+        var p = projection
+        for (i, item) in p.items.enumerated() {
+            guard case .tool(var t) = item, let output = t.output, output.utf8.count > outputCap else { continue }
+            t.output = String(output.prefix(outputCap))
+            p.items[i] = .tool(t)
+        }
+        return p
+    }
+}
+
+/**
+ Receives a session's stream on the bridge's thread, decodes it on its own queue and delivers to
+ the main actor, coalescing: while one update is on its way, newer transcripts replace each other
+ (each is complete) and frames queue up; the next pass decodes the latest transcript, applies all
+ queued frames' deltas in order and delivers one update. A streaming answer never queues work
+ faster than the screen takes it, and no delta is lost.
+ */
+final class SessionStreamBox: NSObject, SessionStreamListener, @unchecked Sendable {
+    private struct Pending {
+        var transcript: String?
+        var frames: [String] = []
+        var busy = false
+    }
+
+    private let deliver: @MainActor (SessionUpdate) -> Void
+    private let resync: @Sendable () -> Void
+    private let slot = Mutex(Pending())
+    private let queue = DispatchQueue(label: "autobot.session-stream", qos: .userInitiated)
+    /// Used on [queue] only.
+    private let decoder = SessionStreamDecoder()
+
+    init(resync: @escaping @Sendable () -> Void, _ deliver: @escaping @MainActor (SessionUpdate) -> Void) {
+        self.resync = resync
+        self.deliver = deliver
+    }
+
+    func onTranscript(json: String) { enqueue { $0.transcript = json } }
+
+    func onFrame(json: String) { enqueue { $0.frames.append(json) } }
+
+    private func enqueue(_ change: (inout Pending) -> Void) {
+        let start = slot.withLock { p -> Bool in
+            change(&p)
+            defer { p.busy = true }
+            return !p.busy
         }
         if start { queue.async { self.drain() } }
     }
 
-    /// Decodes the newest JSON and hands it to the main actor; runs again if more arrived.
+    /// Decodes what arrived and hands one update to the main actor; runs again if more came.
     private func drain() {
-        guard let json = slot.withLock({ s -> String? in
-            defer { s.json = nil }
-            if s.json == nil { s.busy = false }
-            return s.json
-        }) else { return }
-        let state: ChatSessionState
+        let batch = slot.withLock { p -> (transcript: String?, frames: [String])? in
+            guard p.transcript != nil || !p.frames.isEmpty else {
+                p.busy = false
+                return nil
+            }
+            defer {
+                p.transcript = nil
+                p.frames = []
+            }
+            return (p.transcript, p.frames)
+        }
+        guard let batch else { return }
+        var update: SessionUpdate?
+        var transcript: SessionTranscript?
+        var needsResync = false
         do {
-            state = try JSONDecoder().decode(ChatSessionState.self, from: Data(json.utf8))
+            if let json = batch.transcript { transcript = try decoder.transcript(json) }
+            for json in batch.frames {
+                let (u, resync) = try decoder.frame(json)
+                update = u
+                needsResync = needsResync || resync
+            }
         } catch {
             // A shared/Swift mismatch would otherwise freeze the chat with no trace.
-            EngineErrors.record("session state decode: \(error)")
+            EngineErrors.record("session stream decode: \(error)")
+            needsResync = true
+        }
+        if needsResync { resync() }
+        guard transcript != nil || update != nil else {
             queue.async { self.drain() }
             return
         }
         let deliver = deliver
+        let delivered = update
         DispatchQueue.main.async {
-            MainActor.assumeIsolated { deliver(state) }
+            MainActor.assumeIsolated {
+                // A transcript alone keeps the rest of the screen as it is.
+                if var u = delivered {
+                    u.transcript = transcript
+                    deliver(u)
+                } else if let transcript {
+                    deliver(SessionUpdate(transcriptOnly: transcript))
+                }
+            }
             // Delivered: the next pass picks up whatever arrived meanwhile (or ends).
             self.queue.async { self.drain() }
         }

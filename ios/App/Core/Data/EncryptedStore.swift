@@ -19,12 +19,15 @@ struct StoreError: LocalizedError {
  `secure_delete` overwrites deleted content.
 
  Two tables: `documents` (collection, id → payload) and `session_events` (agent session logs,
- append-only by sequence number).
+ append-only by sequence number). The database runs in WAL mode with two connections: writes go
+ through one, reads through the other, so a read (a screen loading a log) never waits for a
+ write (the agent appending events) and the other way round. Each keeps its prepared statements.
  */
 final class EncryptedStore: Sendable {
     private let url: URL
     private let keys: KeyManager
-    private let db = Mutex<OpaquePointer?>(nil)
+    private let writeConnection = Mutex(Connection())
+    private let readConnection = Mutex(Connection())
     /// Set by [close] (panic wipe): nothing may recreate the database afterwards.
     private let closed = Atomic<Bool>(false)
 
@@ -48,15 +51,36 @@ final class EncryptedStore: Sendable {
 
     /// Every readable document of [collection]; undecryptable rows are skipped.
     func all<T: Decodable>(_ collection: String, as type: T.Type = T.self) throws -> [T] {
-        let rows = try query("SELECT id, payload FROM documents WHERE collection = ?", [.text(collection)])
-        return rows.compactMap { row in
-            guard row.count == 2, let id = String(data: row[0], encoding: .utf8) else { return nil }
-            return try? JSONDecoder.store.decode(T.self, from: open(row[1], aad: "\(collection):\(id)"))
+        try entries(collection, as: T.self).map(\.value)
+    }
+
+    /// Every readable document of [collection] with its id (ids starting with [idPrefix] only,
+    /// when given), in id order; undecryptable rows are skipped.
+    func entries<T: Decodable>(_ collection: String, idPrefix: String? = nil, as type: T.Type = T.self) throws -> [(id: String, value: T)] {
+        let rows = if let idPrefix {
+            try query("SELECT id, payload FROM documents WHERE collection = ? AND substr(id, 1, ?) = ? ORDER BY id", [.text(collection), .int(Int64(idPrefix.utf8.count)), .text(idPrefix)])
+        } else {
+            try query("SELECT id, payload FROM documents WHERE collection = ? ORDER BY id", [.text(collection)])
         }
+        return rows.compactMap { row in
+            guard row.count == 2, let id = String(data: row[0], encoding: .utf8),
+                  let value = try? JSONDecoder.store.decode(T.self, from: open(row[1], aad: "\(collection):\(id)")) else { return nil }
+            return (id, value)
+        }
+    }
+
+    /// The ids of [collection] (nothing is decrypted).
+    func ids(_ collection: String) throws -> [String] {
+        try query("SELECT id FROM documents WHERE collection = ?", [.text(collection)]).compactMap { $0.first.flatMap { String(data: $0, encoding: .utf8) } }
     }
 
     func delete(_ collection: String, id: String) throws {
         try execute("DELETE FROM documents WHERE collection = ? AND id = ?", [.text(collection), .text(id)])
+    }
+
+    /// Deletes the documents of [collection] whose id starts with [idPrefix].
+    func delete(_ collection: String, idPrefix: String) throws {
+        try execute("DELETE FROM documents WHERE collection = ? AND substr(id, 1, ?) = ?", [.text(collection), .int(Int64(idPrefix.utf8.count)), .text(idPrefix)])
     }
 
     // MARK: Session logs
@@ -82,17 +106,20 @@ final class EncryptedStore: Sendable {
         }
     }
 
+    /// Whether the session has a stored entry below [seq] (nothing is decrypted).
+    func hasEvents(sessionId: String, before seq: Int64) throws -> Bool {
+        try !query("SELECT 1 FROM session_events WHERE session_id = ? AND seq < ? LIMIT 1", [.text(sessionId), .int(seq)]).isEmpty
+    }
+
     func deleteEvents(sessionId: String) throws {
         try execute("DELETE FROM session_events WHERE session_id = ?", [.text(sessionId)])
     }
 
-    /// Closes the connection (before a panic wipe deletes the file).
+    /// Closes the connections (before a panic wipe deletes the file).
     func close() {
         closed.store(true, ordering: .sequentiallyConsistent)
-        db.withLock { handle in
-            if let h = handle { sqlite3_close_v2(h) }
-            handle = nil
-        }
+        writeConnection.withLock { $0.close() }
+        readConnection.withLock { $0.close() }
     }
 
     // MARK: Crypto
@@ -113,18 +140,51 @@ final class EncryptedStore: Sendable {
 
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-    private func connection(_ handle: inout OpaquePointer?) throws -> OpaquePointer {
-        if let h = handle { return h }
+    /**
+     One SQLite connection with its prepared statements (reused: preparing costs more than most
+     of the statements it runs). Guarded by the [Mutex] that holds it.
+     */
+    private struct Connection {
+        var handle: OpaquePointer?
+        var statements: [String: OpaquePointer] = [:]
+
+        mutating func statement(_ sql: String) throws -> OpaquePointer {
+            if let s = statements[sql] { return s }
+            guard let h = handle else { throw StoreError(message: "The database is not open") }
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v3(h, sql, -1, UInt32(SQLITE_PREPARE_PERSISTENT), &statement, nil) == SQLITE_OK, let s = statement else {
+                throw StoreError(message: "SQL prepare failed: \(String(cString: sqlite3_errmsg(h)))")
+            }
+            statements[sql] = s
+            return s
+        }
+
+        mutating func close() {
+            statements.values.forEach { sqlite3_finalize($0) }
+            statements.removeAll()
+            if let h = handle { sqlite3_close_v2(h) }
+            handle = nil
+        }
+    }
+
+    /// The writer: opens (and creates) the database and the schema, in WAL mode.
+    private func writer(_ c: inout Connection) throws {
+        if c.handle != nil { return }
         guard !closed.load(ordering: .sequentiallyConsistent) else { throw StoreError(message: "The database was closed") }
         var h: OpaquePointer?
-        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_FILEPROTECTION_COMPLETE
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_FILEPROTECTION_COMPLETE
         guard sqlite3_open_v2(url.path, &h, flags, nil) == SQLITE_OK, let opened = h else {
             if let h { sqlite3_close_v2(h) }
             throw StoreError(message: "Cannot open the database")
         }
+        // WAL: readers (the reader connection) never wait for a writer and a commit is one
+        // append instead of a rollback journal; NORMAL syncs at checkpoints (a power cut can
+        // lose the last commits, never corrupt). secure_delete stays on: deleted rows are
+        // overwritten (in the WAL too, and in the database at checkpoint).
         let schema = """
         PRAGMA secure_delete = ON;
-        PRAGMA journal_mode = DELETE;
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
         CREATE TABLE IF NOT EXISTS documents (collection TEXT NOT NULL, id TEXT NOT NULL, payload BLOB NOT NULL, PRIMARY KEY (collection, id));
         CREATE TABLE IF NOT EXISTS session_events (session_id TEXT NOT NULL, seq INTEGER NOT NULL, payload BLOB NOT NULL, PRIMARY KEY (session_id, seq));
         """
@@ -132,8 +192,24 @@ final class EncryptedStore: Sendable {
             sqlite3_close_v2(opened)
             throw StoreError(message: "Cannot create the schema")
         }
-        handle = opened
-        return opened
+        sqlite3_busy_timeout(opened, 5_000)
+        c.handle = opened
+    }
+
+    /// The reader: a second connection, so reads do not queue behind writes (WAL snapshots).
+    private func reader(_ c: inout Connection) throws {
+        if c.handle != nil { return }
+        // The writer creates the file and the schema first.
+        try writeConnection.withLock { try writer(&$0) }
+        guard !closed.load(ordering: .sequentiallyConsistent) else { throw StoreError(message: "The database was closed") }
+        var h: OpaquePointer?
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_FILEPROTECTION_COMPLETE
+        guard sqlite3_open_v2(url.path, &h, flags, nil) == SQLITE_OK, let opened = h else {
+            if let h { sqlite3_close_v2(h) }
+            throw StoreError(message: "Cannot open the database")
+        }
+        sqlite3_busy_timeout(opened, 5_000)
+        c.handle = opened
     }
 
     private func bind(_ statement: OpaquePointer, _ values: [Value]) {
@@ -148,32 +224,38 @@ final class EncryptedStore: Sendable {
     }
 
     private func execute(_ sql: String, _ values: [Value] = []) throws {
-        try db.withLock { handle in try run(connection(&handle), sql, values) }
-    }
-
-    /// One statement on [h]; the caller holds [db].
-    private func run(_ h: OpaquePointer, _ sql: String, _ values: [Value]) throws {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(h, sql, -1, &statement, nil) == SQLITE_OK, let s = statement else {
-            throw StoreError(message: "SQL prepare failed: \(String(cString: sqlite3_errmsg(h)))")
+        try writeConnection.withLock { c in
+            try writer(&c)
+            try run(&c, sql, values)
         }
-        defer { sqlite3_finalize(s) }
-        bind(s, values)
-        guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError(message: "SQL failed: \(String(cString: sqlite3_errmsg(h)))") }
     }
 
-    /// Rows of column values as raw bytes (text columns as UTF-8).
+    /// One statement on [c] (the caller holds its lock and opened it).
+    private func run(_ c: inout Connection, _ sql: String, _ values: [Value]) throws {
+        let s = try c.statement(sql)
+        defer {
+            sqlite3_reset(s)
+            sqlite3_clear_bindings(s)
+        }
+        bind(s, values)
+        guard sqlite3_step(s) == SQLITE_DONE else { throw StoreError(message: "SQL failed: \(String(cString: sqlite3_errmsg(c.handle)))") }
+    }
+
+    /// Rows of column values as raw bytes (text columns as UTF-8), on the reader connection.
     private func query(_ sql: String, _ values: [Value]) throws -> [[Data]] {
-        try db.withLock { handle in
-            let h = try connection(&handle)
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(h, sql, -1, &statement, nil) == SQLITE_OK, let s = statement else {
-                throw StoreError(message: "SQL prepare failed: \(String(cString: sqlite3_errmsg(h)))")
+        try readConnection.withLock { c in
+            try reader(&c)
+            let s = try c.statement(sql)
+            defer {
+                sqlite3_reset(s)
+                sqlite3_clear_bindings(s)
             }
-            defer { sqlite3_finalize(s) }
             bind(s, values)
             var rows: [[Data]] = []
-            while sqlite3_step(s) == SQLITE_ROW {
+            while true {
+                let step = sqlite3_step(s)
+                if step == SQLITE_DONE { break }
+                guard step == SQLITE_ROW else { throw StoreError(message: "SQL failed: \(String(cString: sqlite3_errmsg(c.handle)))") }
                 var row: [Data] = []
                 for column in 0 ..< sqlite3_column_count(s) {
                     switch sqlite3_column_type(s, column) {
@@ -193,19 +275,19 @@ final class EncryptedStore: Sendable {
     }
 
     /**
-     Runs [body] in one transaction with the connection held throughout, so no statement from
-     another thread lands inside it (or starts a second BEGIN on the shared connection).
-     [body] gets the statement runner to use instead of [execute].
+     Runs [body] in one transaction with the writer held throughout, so no statement from
+     another thread lands inside it (or starts a second BEGIN on the connection). [body] gets
+     the statement runner to use instead of [execute].
      */
     private func transaction(_ body: (_ execute: (String, [Value]) throws -> Void) throws -> Void) throws {
-        try db.withLock { handle in
-            let h = try connection(&handle)
-            try run(h, "BEGIN IMMEDIATE", [])
+        try writeConnection.withLock { c in
+            try writer(&c)
+            try run(&c, "BEGIN IMMEDIATE", [])
             do {
-                try body { sql, values in try run(h, sql, values) }
-                try run(h, "COMMIT", [])
+                try body { sql, values in try run(&c, sql, values) }
+                try run(&c, "COMMIT", [])
             } catch {
-                try? run(h, "ROLLBACK", [])
+                try? run(&c, "ROLLBACK", [])
                 throw error
             }
         }

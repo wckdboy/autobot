@@ -61,6 +61,9 @@ final class ImageGenerator {
     private(set) var lastError: String?
     /// What the running job is doing before its first step (model loading), or nil.
     private(set) var phase: String?
+    /// A job runs. Stored apart from [state] (which changes every step) so views that only need
+    /// "busy" (the root, Run, the studio's layout) are not re-rendered per step.
+    private(set) var isBusy = false
 
     @ObservationIgnored private let engines: DiffusionEngineFactory
     @ObservationIgnored private let gallery: GalleryRepository
@@ -74,8 +77,6 @@ final class ImageGenerator {
         self.backends = backends
         self.library = library
     }
-
-    var isBusy: Bool { state.isRunning }
 
     func engine(for backend: DiffusionBackend) -> any DiffusionEngine { engines.create(backend, library: library) }
 
@@ -115,10 +116,12 @@ final class ImageGenerator {
         let engine = engines.create(backend, library: library)
         let started = Date()
         var saved: [GeneratedImage] = []
+        isBusy = true
         state = .running(source: source, backend: backend.name, request: request, image: 0, step: 0, totalSteps: request.steps, preview: nil, startedAt: started)
         defer {
             state = .idle
             phase = nil
+            isBusy = false
         }
         for try await event in engine.generate(request, inputs: inputs) {
             switch event {

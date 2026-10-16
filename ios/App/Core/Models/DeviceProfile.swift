@@ -58,26 +58,53 @@ struct DeviceProfile: Equatable, Sendable {
         Fit(capabilities.fit(kind: kind.kotlin, bytes: bytes, engine: engine.kotlin, contextTokens: 0))
     }
 
-    static func current() -> DeviceProfile {
+    /// What never changes while the app runs (identifier, chip, RAM, cores, GPU, ANE), read once:
+    /// creating the Metal device and asking the engines package is not free.
+    private struct Hardware: Sendable {
+        let machine: String
+        let chip: String?
+        let totalRamBytes: Int64
+        let cores: Int
+        let gpu: String?
+        let neuralEngine: Bool
+        let gpuWorkingSetBytes: Int64
+    }
+
+    private static let hardware: Hardware = {
         var info = utsname()
         uname(&info)
         let machine = withUnsafeBytes(of: &info.machine) { raw in
             String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
         }
         let identifier = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? machine
-        let free = (try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
-            .volumeAvailableCapacityForImportantUsage ?? 0
         let metal = MTLCreateSystemDefaultDevice()
-        return DeviceProfile(
-            machine: identifier,
-            chip: chipName(identifier),
-            totalRamBytes: Int64(ProcessInfo.processInfo.physicalMemory),
-            freeStorageBytes: Int64(free),
-            cores: ProcessInfo.processInfo.activeProcessorCount,
-            gpu: metal?.name,
-            thermal: ProcessInfo.processInfo.thermalState,
-            neuralEngine: LocalDeviceInfo.hasNeuralEngine,
+        return Hardware(
+            machine: identifier, chip: chipName(identifier), totalRamBytes: Int64(ProcessInfo.processInfo.physicalMemory),
+            cores: ProcessInfo.processInfo.activeProcessorCount, gpu: metal?.name, neuralEngine: LocalDeviceInfo.hasNeuralEngine,
             gpuWorkingSetBytes: Int64(metal?.recommendedMaxWorkingSetSize ?? 0),
+        )
+    }()
+
+    /// Free space on the app's volume (a file system query; the only part that changes with thermal state).
+    static func freeStorage() -> Int64 {
+        Int64((try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage ?? 0)
+    }
+
+    /// The device now: cached hardware facts, current free storage and thermal state.
+    static func current() -> DeviceProfile {
+        let h = hardware
+        return DeviceProfile(
+            machine: h.machine, chip: h.chip, totalRamBytes: h.totalRamBytes, freeStorageBytes: freeStorage(), cores: h.cores, gpu: h.gpu,
+            thermal: ProcessInfo.processInfo.thermalState, neuralEngine: h.neuralEngine, gpuWorkingSetBytes: h.gpuWorkingSetBytes,
+        )
+    }
+
+    /// This profile with fresh free storage and thermal state (hardware facts kept).
+    func refreshed() -> DeviceProfile {
+        DeviceProfile(
+            machine: machine, chip: chip, totalRamBytes: totalRamBytes, freeStorageBytes: Self.freeStorage(), cores: cores, gpu: gpu,
+            thermal: ProcessInfo.processInfo.thermalState, neuralEngine: neuralEngine, gpuWorkingSetBytes: gpuWorkingSetBytes,
         )
     }
 

@@ -19,9 +19,17 @@ final class Preferences: Sendable {
 
     private let url: URL
     private let state: Mutex<State>
+    /// With [background], writes run here, coalesced: a burst of changes (a slider, a settings
+    /// screen) is one file write, and the caller (usually the main thread) never waits for it.
+    private let writer: DispatchQueue?
+    private let saveScheduled = Atomic<Bool>(false)
+    /// Set by [close] (panic wipe): nothing is written any more.
+    private let closed = Atomic<Bool>(false)
 
-    init(url: URL = AppPaths.preferences) {
+    /// [background]: write off the caller's thread, coalesced (the app); off: write at once (tests).
+    init(url: URL = AppPaths.preferences, background: Bool = false) {
         self.url = url
+        writer = background ? DispatchQueue(label: "autobot.preferences", qos: .utility) : nil
         let read = Self.read(url)
         state = Mutex(State(values: read ?? [:], loaded: read != nil))
     }
@@ -62,9 +70,32 @@ final class Preferences: Sendable {
     }
 
     private func save() {
-        guard let snapshot = state.withLock({ $0.loaded ? $0.values : nil }), let data = try? JSONEncoder.store.encode(snapshot) else { return }
+        guard let writer else { return write() }
+        guard saveScheduled.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
+        writer.asyncAfter(deadline: .now() + Self.coalesce) { [self] in
+            // Cleared before the snapshot: a change after it schedules another write.
+            saveScheduled.store(false, ordering: .releasing)
+            write()
+        }
+    }
+
+    /// Changes within this window share one write.
+    private static let coalesce: DispatchTimeInterval = .milliseconds(200)
+
+    private func write() {
+        guard !closed.load(ordering: .acquiring),
+              let snapshot = state.withLock({ $0.loaded ? $0.values : nil }), let data = try? JSONEncoder.store.encode(snapshot) else { return }
         try? AppPaths.write(data, to: url, protection: .completeFileProtectionUntilFirstUserAuthentication)
     }
+
+    /// Writes pending changes now (backgrounding, tests).
+    func flush() {
+        guard let writer else { return }
+        writer.sync { write() }
+    }
+
+    /// Stops writing (panic wipe: a late write must not recreate the deleted file).
+    func close() { closed.store(true, ordering: .releasing) }
 
     /// The stored values: empty when there is no file or it is damaged, nil when it exists but cannot be read now.
     private static func read(_ url: URL) -> [String: String]? {

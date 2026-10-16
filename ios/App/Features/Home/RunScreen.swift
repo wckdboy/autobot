@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -85,7 +86,7 @@ struct RunState {
         lastImageId = app.gallery.items.first?.id
 
         let running = app.agent.running
-        let genRunning = app.generator.state.isRunning
+        let genRunning = app.generator.isBusy
         let localBusy = genRunning || running.contains { id in app.conversations.get(id)?.providerId == local?.id }
         var parts = ["this phone"]
         if let chip = device?.chip { parts.append(chip) }
@@ -146,12 +147,13 @@ struct RunScreen: View {
             }
         }
         .background(c.background)
-        .task {
-            while !Task.isCancelled {
-                device = DeviceProfile.current()
-                try? await Task.sleep(for: .seconds(5))
-            }
+        // Hardware facts once; thermal state and free space when they can have changed (no polling).
+        .task { device = DeviceProfile.current() }
+        .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification).receive(on: RunLoop.main)) { _ in
+            device = device?.refreshed()
         }
+        .onChange(of: app.library.models.count) { _, _ in device = device?.refreshed() }
+        .onChange(of: app.gallery.items.count) { _, _ in device = device?.refreshed() }
         .task(id: state.lastImageId) {
             guard let id = state.lastImageId, let bytes = await app.gallery.thumbnail(id) else {
                 lastImage = nil

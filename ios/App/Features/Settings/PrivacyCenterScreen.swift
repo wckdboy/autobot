@@ -17,6 +17,7 @@ struct AuditRow: Identifiable, Equatable {
         host = e.host
         path = e.path
         var parts = [e.route]
+        if e.count > 1 { parts.append("×\(e.count)") }
         if let tag = e.tag { parts.append(tag) }
         if let status = e.status { parts.append("HTTP \(status)") }
         if let sent = e.bytesSent { parts.append("↑\(sent)B") }

@@ -64,6 +64,8 @@ final class ModelsModel {
     var civitaiCursor: String?
     var message: String?
     var device: DeviceProfile?
+    /// The engines package's hardware facts, read once (not on every render of the profile).
+    @ObservationIgnored private(set) var deviceInfo: (machine: String, name: String?, chip: String?, neuralEngine: Bool, gpu: String?, availableRam: Int64?)?
 
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var app: AppContainer?
@@ -78,6 +80,7 @@ final class ModelsModel {
         civitai = CivitaiClient(clients: app.clients, accounts: app.accounts)
         previews = PreviewImages(clients: app.clients)
         device = DeviceProfile.current()
+        deviceInfo = LocalDeviceInfo.current()
     }
 
     func install(_ plan: ModelPlan) {
@@ -257,8 +260,7 @@ struct ModelsScreen: View {
     }
 
     @ViewBuilder private var profile: some View {
-        if let d = model.device {
-            let info = LocalDeviceInfo.current()
+        if let d = model.device, let info = model.deviceInfo {
             let name = [info.name ?? d.machine, info.chip ?? d.chip].compactMap { $0 }.joined(separator: " · ")
             SectionLabel("this phone · \(name)")
             Spacer().frame(height: 4)

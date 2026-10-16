@@ -77,9 +77,9 @@ final class InterimAgentRuntime: AgentRuntime {
         tasks[id]?.cancel()
     }
 
-    func answerApproval(callId: String, outcome: ApprovalOutcome) {}
+    func answerApproval(_ id: String, callId: String, outcome: ApprovalOutcome) {}
 
-    func answerQuestion(callId: String, answers: [String]?) {}
+    func answerQuestion(_ id: String, callId: String, answers: [String]?) {}
 
     func setToolsEnabled(_ id: String, _ enabled: Bool) {
         let s = session(id)
@@ -119,7 +119,6 @@ final class InterimAgentRuntime: AgentRuntime {
         sessions[id] = nil
         logs[id] = nil
         running.remove(id)
-        store.delete(id)
     }
 
     func shutdown() {

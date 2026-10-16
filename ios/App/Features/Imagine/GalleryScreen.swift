@@ -3,10 +3,31 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Decrypted thumbnails, kept for the process (they are small; the source stays encrypted).
+/**
+ Decrypted gallery thumbnails, decoded at about twice the grid cell and bounded by their pixel
+ bytes (the system also evicts under memory pressure). Cleared by a delete and by a panic wipe:
+ nothing decrypted outlives the item.
+ */
 @MainActor
-private enum ThumbCache {
-    static var images: [String: UIImage] = [:]
+enum GalleryThumbs {
+    /// Longest side decoded, in pixels (cells are ~112–130 pt; 3x screens).
+    static let maxSide: CGFloat = 384
+    private static let cache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.totalCostLimit = 48 * 1024 * 1024
+        return c
+    }()
+
+    static func get(_ id: String) -> UIImage? { cache.object(forKey: id as NSString) }
+
+    static func put(_ id: String, _ image: UIImage) {
+        let pixels = image.size.width * image.scale * image.size.height * image.scale
+        cache.setObject(image, forKey: id as NSString, cost: Int(pixels) * 4)
+    }
+
+    static func remove(_ id: String) { cache.removeObject(forKey: id as NSString) }
+
+    static func removeAll() { cache.removeAllObjects() }
 }
 
 /// The encrypted gallery (port of `GalleryScreen.kt` / `GalleryViewModel.kt`).
@@ -103,12 +124,12 @@ private struct Thumb: View {
         .contentShape(Rectangle())
         .accessibilityLabel(String(item.prompt.prefix(60)))
         .task(id: item.id) {
-            if let cached = ThumbCache.images[item.id] {
+            if let cached = GalleryThumbs.get(item.id) {
                 image = cached
                 return
             }
-            guard let bytes = await app.gallery.thumbnail(item.id), let decoded = await decodeImage(bytes) else { return }
-            ThumbCache.images[item.id] = decoded
+            guard let bytes = await app.gallery.thumbnail(item.id), let decoded = await decodeImage(bytes, maxSide: GalleryThumbs.maxSide) else { return }
+            GalleryThumbs.put(item.id, decoded)
             withAnimation(.inkReduced) { image = decoded }
         }
     }
@@ -241,7 +262,7 @@ private struct DetailView: View {
         .risoAlert($confirmDelete, title: "Delete image?", message: "The encrypted file and its parameters are removed. This cannot be undone.",
                    confirm: "Delete") {
             app.gallery.delete(item.id)
-            ThumbCache.images[item.id] = nil
+            GalleryThumbs.remove(item.id)
             onMessage("Deleted")
             onClose()
         }

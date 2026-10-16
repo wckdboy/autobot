@@ -1,19 +1,150 @@
 import Foundation
 import Observation
 
+/// Session settings the chat screen shows (tools, permission preset, route).
+struct SessionSettings: Equatable, Sendable {
+    var toolsEnabled = true
+    /// `read-only`, `workspace-write` or `full-access`.
+    var permission = PermissionPreset.workspace.label
+    var provider = ""
+    var model = ""
+
+    var permissionPreset: PermissionPreset { PermissionPreset.fromLabel(permission) ?? .workspace }
+}
+
+/**
+ A projected transcript with what the chat screen derives from it, computed once per projection
+ change (off the main thread for the shared runtime) instead of on every render.
+ */
+struct SessionTranscript: Equatable, Sendable {
+    let projection: SessionProjection
+    /// [projection]'s items with each key once (`ForEach` ids).
+    let items: [SessionItem]
+    /// Item keys in order (the ink ledger).
+    let keys: [String]
+    /// Tool step numbers by item key (1-based; a repeated key keeps its first number).
+    let stepNumbers: [String: Int]
+    /// Key of the first prompt (it renders as the run header).
+    let firstPrompt: String?
+    /// Tokens in the context after the last call.
+    let contextUsed: Int?
+
+    init(_ projection: SessionProjection) {
+        self.projection = projection
+        items = projection.items.uniqueKeys
+        keys = items.map(\.key)
+        var numbers: [String: Int] = [:]
+        var n = 0
+        for item in projection.items {
+            guard case .tool(let t) = item else { continue }
+            n += 1
+            if numbers[t.key] == nil { numbers[t.key] = n }
+        }
+        stepNumbers = numbers
+        firstPrompt = projection.items.first { if case .user = $0 { true } else { false } }?.key
+        contextUsed = projection.lastUsage.map { ($0.inputTokens ?? 0) + ($0.cacheReadTokens ?? 0) + ($0.outputTokens ?? 0) }
+    }
+
+    static func == (a: Self, b: Self) -> Bool { a.projection == b.projection }
+}
+
+/**
+ One state change of a session, as the runtime delivers it: [transcript] is nil when the
+ projection did not change (a streamed chunk), so the transcript and everything rendered from it
+ stay untouched.
+ */
+struct SessionUpdate: Sendable {
+    var transcript: SessionTranscript?
+    var live: LiveState?
+    var running: Bool
+    var approvals: [ApprovalState]
+    var question: QuestionState?
+    var settings: SessionSettings
+
+    init(transcript: SessionTranscript?, live: LiveState?, running: Bool, approvals: [ApprovalState], question: QuestionState?, settings: SessionSettings) {
+        (self.transcript, self.live, self.running, self.approvals, self.question, self.settings) = (transcript, live, running, approvals, question, settings)
+    }
+
+    /// Only a new transcript: everything else stays as it is.
+    init(transcriptOnly transcript: SessionTranscript) {
+        self.init(transcript: transcript, live: nil, running: false, approvals: [], question: nil, settings: SessionSettings())
+        onlyTranscript = true
+    }
+
+    /// Set by [init(transcriptOnly:)].
+    private(set) var onlyTranscript = false
+
+    init(_ state: ChatSessionState) {
+        self.init(
+            transcript: SessionTranscript(state.projection), live: state.live, running: state.running, approvals: state.approvals, question: state.question,
+            settings: SessionSettings(toolsEnabled: state.toolsEnabled, permission: state.permission, provider: state.provider, model: state.model),
+        )
+    }
+}
+
 /**
  Observable state of one agent session, as the chat screen renders it (the bridge's
- `SessionState`: projected transcript, live frame, approvals, question, settings).
+ `SessionState`). Each part is observed on its own and only assigned when it changed, so a
+ streamed chunk invalidates only what reads [live], not the transcript or the screen around it.
  */
 @MainActor
 @Observable
 final class AgentSession {
     let id: String
-    var state: ChatSessionState
+    private(set) var transcript = SessionTranscript(SessionProjection())
+    /// The in-flight model output (read only by the live message).
+    private(set) var live: LiveState?
+    /// Whether [live] is set (what the screen around the live message needs).
+    private(set) var isLive = false
+    private(set) var running = false
+    private(set) var approvals: [ApprovalState] = []
+    private(set) var question: QuestionState?
+    private(set) var settings = SessionSettings()
+    /// Called after every applied update (voice mode follows its turn with it). Not observed.
+    @ObservationIgnored var onUpdate: (@MainActor (AgentSession) -> Void)?
 
-    init(id: String) {
-        self.id = id
-        state = ChatSessionState(sessionId: id)
+    init(id: String) { self.id = id }
+
+    /// The whole state (composed; prefer the parts in views). Setting it applies the changes.
+    var state: ChatSessionState {
+        get {
+            var s = ChatSessionState(sessionId: id)
+            s.projection = transcript.projection
+            s.live = live
+            s.running = running
+            s.approvals = approvals
+            s.question = question
+            s.toolsEnabled = settings.toolsEnabled
+            s.permission = settings.permission
+            s.provider = settings.provider
+            s.model = settings.model
+            return s
+        }
+        set {
+            let projectionChanged = newValue.projection != transcript.projection
+            var update = SessionUpdate(
+                transcript: nil, live: newValue.live, running: newValue.running, approvals: newValue.approvals, question: newValue.question,
+                settings: SessionSettings(toolsEnabled: newValue.toolsEnabled, permission: newValue.permission, provider: newValue.provider, model: newValue.model),
+            )
+            if projectionChanged { update.transcript = SessionTranscript(newValue.projection) }
+            apply(update)
+        }
+    }
+
+    /// Applies [update], assigning only the parts that changed.
+    func apply(_ update: SessionUpdate) {
+        if let t = update.transcript, t != transcript { transcript = t }
+        if update.onlyTranscript {
+            onUpdate?(self)
+            return
+        }
+        if update.live != live { live = update.live }
+        if (update.live != nil) != isLive { isLive = update.live != nil }
+        if update.running != running { running = update.running }
+        if update.approvals != approvals { approvals = update.approvals }
+        if update.question != question { question = update.question }
+        if update.settings != settings { settings = update.settings }
+        onUpdate?(self)
     }
 }
 
@@ -44,8 +175,9 @@ protocol AgentRuntime: AnyObject {
     /// Sends a prompt (with attached image ids): a new turn, or queued behind the running one.
     func send(_ conversationId: String, text: String, images: [String]) async
     func cancel(_ conversationId: String)
-    func answerApproval(callId: String, outcome: ApprovalOutcome)
-    func answerQuestion(callId: String, answers: [String]?)
+    /// Answers [conversationId]'s approval [callId] (call ids repeat across chats).
+    func answerApproval(_ conversationId: String, callId: String, outcome: ApprovalOutcome)
+    func answerQuestion(_ conversationId: String, callId: String, answers: [String]?)
     func setToolsEnabled(_ conversationId: String, _ enabled: Bool)
     func setPermission(_ conversationId: String, _ preset: PermissionPreset)
     /// Switches the session's provider / model.
@@ -55,7 +187,7 @@ protocol AgentRuntime: AnyObject {
     func providersChanged(_ providers: [Provider])
     /// Manual `/compact`.
     func compact(_ conversationId: String)
-    /// Stops and forgets the agent (before deleting its conversation).
+    /// Stops and forgets the agent (before deleting its conversation; [ChatLibrary] deletes the log).
     func discard(_ conversationId: String)
     /// Panic wipe: stop everything and drop in-memory logs.
     func shutdown()

@@ -18,24 +18,52 @@ final class ConversationRepository {
 
     /// Persistent conversations and in-memory incognito ones, newest first.
     private(set) var conversations: [Conversation] = []
+    /// Bumped on every change of [conversations] (cheap memo keys for derived lists).
+    @ObservationIgnored private(set) var revision = 0
     /// Chat folders by name.
     private(set) var folders: [ChatFolder] = []
     @ObservationIgnored private var stored: [String: Conversation] = [:]
     @ObservationIgnored private var incognito: [String: Conversation] = [:]
     @ObservationIgnored private let store: EncryptedStore
-    /// Saves that failed while the device was locked, retried in order ([PendingWrites]).
-    @ObservationIgnored private let unsaved: PendingWrites<Conversation>
+    /// Row writes, in order on a background queue; those that failed while the device was locked
+    /// are retried in order ([PendingWrites]).
+    @ObservationIgnored private let unsaved: PendingWrites<Write>
+
+    enum Write: Sendable {
+        case put(Conversation)
+        case delete(id: String, events: Bool)
+
+        var id: String {
+            switch self {
+            case .put(let c): c.id
+            case .delete(let id, _): id
+            }
+        }
+    }
 
     init(store: EncryptedStore) {
         self.store = store
-        unsaved = PendingWrites { [store] c in try store.put(Self.collection, id: c.id, c) }
+        unsaved = PendingWrites(queue: DispatchQueue(label: "autobot.conversation-writes", qos: .userInitiated)) { [store] write in
+            switch write {
+            case .put(let c): try store.put(Self.collection, id: c.id, c)
+            case .delete(let id, let events):
+                try store.delete(Self.collection, id: id)
+                if events { try store.deleteEvents(sessionId: id) }
+            }
+        }
         NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { [weak unsaved] _ in
-            unsaved?.flush()
+            unsaved?.retry()
         }
     }
 
     /// Loads persisted conversations (needs the device to be unlocked).
-    func load() { load(Self.read(store)) }
+    func load() {
+        unsaved.waitUntilWritten()
+        load(Self.read(store))
+    }
+
+    /// Blocks until the row writes submitted so far were attempted (tests, export).
+    func waitForWrites() { unsaved.waitUntilWritten() }
 
     /// The persisted rows and folders (decrypting: call off the main thread when there are many).
     nonisolated static func read(_ store: EncryptedStore) -> (conversations: [Conversation], folders: [ChatFolder]) {
@@ -66,9 +94,9 @@ final class ConversationRepository {
             incognito[conversation.id] = conversation
         } else {
             stored[conversation.id] = conversation
-            unsaved.submit(conversation)
+            unsaved.submit(.put(conversation))
         }
-        publish()
+        place(conversation)
     }
 
     /// Titles a new conversation from its first prompt and bumps it to the top.
@@ -147,16 +175,25 @@ final class ConversationRepository {
         update(c)
     }
 
-    func delete(_ id: String) {
-        if isIncognito(id) {
-            incognito.removeValue(forKey: id)
-        } else {
-            stored.removeValue(forKey: id)
-            unsaved.discard { $0.id == id }
-            try? store.delete(Self.collection, id: id)
-            try? store.deleteEvents(sessionId: id)
+    func delete(_ id: String) { remove([id], events: true) }
+
+    /// Drops [ids] from the list now and deletes their rows in the background (their logs are
+    /// [ChatLibrary]'s to delete).
+    func forget(_ ids: [String]) { remove(ids, events: false) }
+
+    private func remove(_ ids: [String], events: Bool) {
+        let gone = Set(ids)
+        for id in ids {
+            if isIncognito(id) {
+                incognito.removeValue(forKey: id)
+            } else {
+                stored.removeValue(forKey: id)
+                unsaved.discard { $0.id == id }
+                unsaved.submit(.delete(id: id, events: events))
+            }
         }
-        publish()
+        conversations.removeAll { gone.contains($0.id) }
+        revision += 1
     }
 
     /**
@@ -187,6 +224,22 @@ final class ConversationRepository {
 
     private func publish() {
         conversations = (Array(incognito.values) + Array(stored.values)).sorted { $0.updatedAt > $1.updatedAt }
+        revision += 1
+    }
+
+    /// Puts one changed conversation in its place (newest first) without resorting the rest.
+    private func place(_ conversation: Conversation) {
+        var list = conversations
+        if let old = list.firstIndex(where: { $0.id == conversation.id }) { list.remove(at: old) }
+        // First index whose row is older: binary search over the descending order.
+        var low = 0, high = list.count
+        while low < high {
+            let mid = (low + high) / 2
+            if list[mid].updatedAt > conversation.updatedAt { low = mid + 1 } else { high = mid }
+        }
+        list.insert(conversation, at: low)
+        conversations = list
+        revision += 1
     }
 }
 

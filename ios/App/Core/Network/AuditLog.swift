@@ -31,6 +31,9 @@ struct AuditEntry: Identifiable, Equatable, Sendable {
     var session: String? = nil
     /// That session's turn number.
     var turn: Int? = nil
+    /// Requests this entry stands for: identical requests in a row (a progress poll) collapse
+    /// into one entry whose count grows.
+    var count: Int = 1
 }
 
 /**
@@ -114,9 +117,12 @@ final class AuditLog: Sendable {
         notify()
     }
 
+    /// Hands observers a snapshot; with none (no privacy screen open) nothing is copied.
     private func notify() {
+        let targets = observers.withLock { Array($0.values) }
+        guard !targets.isEmpty else { return }
         let snapshot = entries
-        observers.withLock { Array($0.values) }.forEach { $0.yield(snapshot) }
+        targets.forEach { $0.yield(snapshot) }
     }
 }
 
@@ -137,6 +143,7 @@ extension AuditEntry {
             error: e.error,
             session: e.session,
             turn: e.turn.map { Int($0.int32Value) },
+            count: Int(e.count),
         )
     }
 }

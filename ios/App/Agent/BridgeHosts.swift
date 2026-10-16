@@ -119,7 +119,7 @@ final class URLSessionTransport: NSObject, HttpTransport, @unchecked Sendable {
             spec.headers.forEach { http.setValue($0.value, forHTTPHeaderField: $0.key) }
             http.httpBody = spec.body.map { Data($0.utf8) }
             do {
-                let (bytes, response, entry) = try await client.streamAudited(http, tag: spec.tag, trace: spec.trace)
+                let (chunks, response, entry) = try await client.streamChunksAudited(http, tag: spec.tag, trace: spec.trace)
                 // The body bytes read go into the audit entry (privacy receipts) before the
                 // caller hears the end of the stream, and on every early exit.
                 var read: Int64 = 0
@@ -128,24 +128,33 @@ final class URLSessionTransport: NSObject, HttpTransport, @unchecked Sendable {
                 response.allHeaderFields.forEach { headers["\($0.key)".lowercased()] = "\($0.value)" }
                 let status = response.statusCode
                 guard (200 ..< 300).contains(status) else {
-                    let body = await bytes.prefixData(Self.errorBodyLimit)
+                    var body = Data()
+                    for try await chunk in chunks {
+                        body.append(chunk.prefix(Self.errorBodyLimit - body.count))
+                        if body.count >= Self.errorBodyLimit { break }
+                    }
                     read = Int64(body.count)
                     audit.received(id: entry, bytes: read)
                     sink.onResponse(status: Int32(status), headers: headers, errorBody: String(decoding: body, as: UTF8.self))
                     return
                 }
                 sink.onResponse(status: Int32(status), headers: headers, errorBody: nil)
+                // Whole chunks, split at newlines (memchr), empty lines kept (SSE event ends).
                 var line = Data()
-                for try await byte in bytes {
-                    read += 1
-                    if read > spec.maxBytes { break }
-                    if byte == 0x0A {
+                for try await chunk in chunks {
+                    let room = Int(max(spec.maxBytes - read, 0))
+                    let data = chunk.count > room ? chunk.prefix(room) : chunk
+                    read += Int64(data.count)
+                    var start = data.startIndex
+                    while let newline = data[start...].firstIndex(of: 0x0A) {
+                        line.append(data[start ..< newline])
                         if line.last == 0x0D { line.removeLast() }
                         sink.onLine(line: String(decoding: line, as: UTF8.self))
                         line.removeAll(keepingCapacity: true)
-                    } else {
-                        line.append(byte)
+                        start = data.index(after: newline)
                     }
+                    line.append(data[start...])
+                    if chunk.count > room { break }
                 }
                 if Task.isCancelled { return }
                 if !line.isEmpty { sink.onLine(line: String(decoding: line, as: UTF8.self)) }
@@ -490,11 +499,37 @@ final class SessionStoreHost: NSObject, SessionStoreBridge, @unchecked Sendable 
     func append(sessionId: String, entries: [String]) {
         let lines = entries.compactMap { line -> (seq: Int64, json: Data)? in
             let data = Data(line.utf8)
-            guard let seq = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["seq"] as? NSNumber else { return nil }
-            return (seq.int64Value, data)
+            guard let seq = Self.seq(data) else { return nil }
+            return (seq, data)
         }
         guard !lines.isEmpty else { return }
         unsaved.submit(Batch(sessionId: sessionId, lines: lines))
+    }
+
+    /**
+     The entry's `seq`. Kotlin writes it first (`{"seq":12,"time":…`), so it is read from the
+     line's head instead of parsing a line that can hold a megabyte of tool output; any other
+     layout falls back to a full parse.
+     */
+    static func seq(_ line: Data) -> Int64? {
+        let head = Array(#"{"seq":"#.utf8)
+        if line.count > head.count, line.prefix(head.count).elementsEqual(head) {
+            var value: Int64 = 0
+            var digits = 0
+            var negative = false
+            for byte in line.dropFirst(head.count) {
+                if byte == UInt8(ascii: "-") && digits == 0 && !negative {
+                    negative = true
+                } else if byte >= 0x30 && byte <= 0x39, digits < 18 {
+                    value = value * 10 + Int64(byte - 0x30)
+                    digits += 1
+                } else {
+                    break
+                }
+            }
+            if digits > 0 { return negative ? -value : value }
+        }
+        return ((try? JSONSerialization.jsonObject(with: line)) as? [String: Any])?["seq"].flatMap { ($0 as? NSNumber)?.int64Value }
     }
 
     /// Writes what waited for the device to unlock; a failure now (disk full) is reported.

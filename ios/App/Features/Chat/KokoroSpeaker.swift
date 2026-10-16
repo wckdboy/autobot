@@ -15,7 +15,10 @@ final class KokoroSpeaker: Speaker {
     /// Created on first use: building the audio graph starts the output unit, which must not
     /// happen at launch.
     private lazy var player = VoicePlayer()
-    private var next: (text: String, task: Task<[Float], Error>)?
+    /// Pieces synthesized ahead, oldest first. [Speaker.read] prepares piece i+1 before it speaks
+    /// piece i, so a prepared piece must survive the speak of the one before it (dropping it there
+    /// synthesized every piece twice and the prefetch never hit).
+    private var prepared: [(text: String, task: Task<[Float], Error>)] = []
 
     init(library: ModelLibrary) {
         self.library = library
@@ -28,15 +31,24 @@ final class KokoroSpeaker: Speaker {
     var isAvailable: Bool { folder != nil }
 
     func prepare(_ text: String) {
-        next?.task.cancel()
-        guard let folder else { return }
-        next = (text, Task { try await LocalVoice.shared.synthesizeAll(folder: folder, text: text, voice: Self.voice) })
+        guard let folder, !prepared.contains(where: { $0.text == text }) else { return }
+        prepared.append((text, Task { try await LocalVoice.shared.synthesizeAll(folder: folder, text: text, voice: Self.voice) }))
+        // At most the next two pieces wait; an older one will not be spoken.
+        while prepared.count > 2 { prepared.removeFirst().task.cancel() }
     }
+
+    /// The prepared synthesis of [text], taken out of the queue (nil: not prepared).
+    func takePrepared(_ text: String) -> Task<[Float], Error>? {
+        guard let i = prepared.firstIndex(where: { $0.text == text }) else { return nil }
+        return prepared.remove(at: i).task
+    }
+
+    /// Texts prepared and not spoken yet (tests).
+    var preparedTexts: [String] { prepared.map(\.text) }
 
     func speak(_ text: String) async throws {
         guard let folder else { throw SpeakerUnavailable(message: "The voice model is missing. Get one in Models › voice") }
-        let ready = next?.text == text ? next?.task : nil
-        next = nil
+        let ready = takePrepared(text)
         let audio: AsyncThrowingStream<[Float], Error>
         if let ready {
             audio = AsyncThrowingStream { continuation in
@@ -68,8 +80,8 @@ final class KokoroSpeaker: Speaker {
     }
 
     func stop() {
-        next?.task.cancel()
-        next = nil
+        prepared.forEach { $0.task.cancel() }
+        prepared.removeAll()
         if playerReady { player.stop() }
     }
 

@@ -13,10 +13,25 @@ enum VoicePhase { case ready, listening, transcribing, thinking, speaking }
 struct VoiceState: Equatable {
     var phase = VoicePhase.ready
     var handsFree = false
-    /// Recent microphone peaks (0…1), oldest first.
-    var levels: [Float] = []
     /// Spoken pieces started (the speaking strip pulses on each).
     var spoken = 0
+}
+
+/// Recent microphone peaks (0…1, oldest first), observed on their own: only the level meter
+/// reads them, so ~10 updates a second do not re-render the chat screen.
+@MainActor
+@Observable
+final class VoiceLevels {
+    private(set) var peaks: [Float] = []
+
+    func append(_ peak: Float, keep: Int) {
+        var next = peaks
+        if next.count >= keep { next.removeFirst(next.count - keep + 1) }
+        next.append(peak)
+        peaks = next
+    }
+
+    func clear() { if !peaks.isEmpty { peaks = [] } }
 }
 
 /// Prepares picked images for vision models (port of `ImageInput.kt`).
@@ -63,6 +78,8 @@ final class ChatModel {
     var speakingKey: String?
     /// Voice mode; nil when off.
     var voice: VoiceState?
+    /// Microphone levels while voice mode listens.
+    let levels = VoiceLevels()
 
     @ObservationIgnored private var thumbs: [String: UIImage] = [:]
     @ObservationIgnored private var readTask: Task<Void, Never>?
@@ -74,7 +91,19 @@ final class ChatModel {
 
     private static let levelHistory = 32
 
-    private var speaker: any Speaker { Speakers.pick() }
+    /// The speaker reading now (kept so stop() reaches the one that speaks even if the pick
+    /// changed meanwhile, e.g. the neural voice finished downloading).
+    @ObservationIgnored private var activeSpeaker: (any Speaker)?
+
+    /// The speaker for a new reading (picked once per reading, not on every access).
+    private func startSpeaker() -> any Speaker {
+        let s = Speakers.pick()
+        if let active = activeSpeaker, active !== s { active.stop() }
+        activeSpeaker = s
+        return s
+    }
+
+    private func stopSpeaker() { activeSpeaker?.stop() }
 
     // MARK: Attachments
 
@@ -209,8 +238,9 @@ final class ChatModel {
         } else {
             SpeechAudio.activate(.readAloud)
         }
-        speaker.stop()
+        stopSpeaker()
         speakingKey = key
+        let speaker = startSpeaker()
         readTask = Task {
             do {
                 try await speaker.read(text)
@@ -225,7 +255,7 @@ final class ChatModel {
 
     func stopSpeaking() {
         readTask?.cancel()
-        speaker.stop()
+        stopSpeaker()
         if speakingKey != nil, voice == nil { SpeechAudio.deactivate() }
         speakingKey = nil
     }
@@ -237,6 +267,7 @@ final class ChatModel {
         stopVoiceWork()
         guard on else {
             voice = nil
+            app.agent.existingSession(conversationId)?.onUpdate = nil
             SpeechAudio.deactivate()
             Task { await EngineMemory.shared.release([.tts, .whisper]) }
             return
@@ -247,6 +278,7 @@ final class ChatModel {
         voiceConversation = conversationId
         SpeechAudio.activate(.voice)
         voice = VoiceState()
+        app.agent.session(conversationId).onUpdate = { [weak self] session in self?.sessionChanged(session.state) }
     }
 
     func setHandsFree(_ on: Bool) { voice?.handsFree = on }
@@ -259,7 +291,7 @@ final class ChatModel {
         case .transcribing, nil: break
         case .thinking: if let voiceApp, let voiceConversation { voiceApp.agent.cancel(voiceConversation) }
         case .speaking:
-            speaker.stop()
+            stopSpeaker()
             listen()
         }
     }
@@ -268,7 +300,7 @@ final class ChatModel {
         guard let app = voiceApp else { return }
         guard speechModelPath(app) != nil else { return voiceFailed("Get a speech model in Models › speech") }
         voiceTask?.cancel()
-        speaker.stop()
+        stopSpeaker()
         voiceTask = Task {
             // Asked only when the microphone is first needed.
             guard await app.speech.requestPermission() else { return voiceFailed("Microphone access is off — allow it in Settings to talk") }
@@ -290,7 +322,7 @@ final class ChatModel {
     /// One microphone level: the meter, and hands-free end-of-speech detection.
     private func heard(_ peak: Float) {
         guard voice?.phase == .listening, let app = voiceApp else { return }
-        voice?.levels = Array(((voice?.levels ?? []) + [peak]).suffix(Self.levelHistory))
+        levels.append(peak, keep: Self.levelHistory)
         guard let endOfSpeech else { return }
         let verdict = endOfSpeech.onLevel(peak: peak, atMs: monotonicMs())
         if verdict == .ended {
@@ -335,6 +367,7 @@ final class ChatModel {
         let waiting = state.approvals.map(\.callId) + (state.question.map { [$0.callId] } ?? [])
         if turn.needsAnnouncement(waiting) {
             let line = state.question != nil ? "The agent has a question." : "Needs your approval."
+            let speaker = startSpeaker()
             Task { try? await speaker.speak(line) }
         }
         guard let finished = turn.update(items: state.projection.items, running: state.running, nowMs: monotonicMs()) else { return }
@@ -343,6 +376,7 @@ final class ChatModel {
         voiceTask?.cancel()
         voiceTask = Task {
             setPhase(.speaking)
+            let speaker = startSpeaker()
             do {
                 try await speaker.read(reply) { [weak self] _ in self?.voice?.spoken += 1 }
             } catch let e as SpeakerUnavailable {
@@ -356,8 +390,8 @@ final class ChatModel {
     }
 
     private func setPhase(_ phase: VoicePhase) {
-        voice?.phase = phase
-        voice?.levels = []
+        if voice?.phase != phase { voice?.phase = phase }
+        levels.clear()
     }
 
     private func voiceFailed(_ message: String) {
@@ -369,7 +403,7 @@ final class ChatModel {
         voiceTask?.cancel()
         if voice?.phase == .listening, let voiceApp { _ = voiceApp.speech.stop() }
         endOfSpeech = nil
-        speaker.stop()
+        stopSpeaker()
         turn = nil
         setPhase(.ready)
     }

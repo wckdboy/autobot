@@ -27,7 +27,7 @@ struct ThinkingDisclosure: View {
                     HStack(spacing: 8) {
                         if isThinking { HalftoneStrip(color: accent, cell: 3) }
                         MicroLabel(isThinking ? "∴ thinking" : "∴ reasoning", color: accent)
-                        MicroLabel("\(reasoning.count / 4) tok", color: c.outline)
+                        MicroLabel("\(reasoning.utf8.count / 4) tok", color: c.outline)
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 12, weight: .semibold))
@@ -43,8 +43,7 @@ struct ThinkingDisclosure: View {
                 .accessibilityValue(expanded ? "Expanded" : "Collapsed")
 
                 if !expanded && isThinking {
-                    let tail = reasoning.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n").last ?? ""
-                    Text(String(tail.suffix(160)))
+                    Text(String(Self.lastLine(reasoning).suffix(160)))
                         .textStyle(.codeBlock)
                         .foregroundStyle(c.onSurfaceVariant)
                         .lineLimit(1)
@@ -64,5 +63,14 @@ struct ThinkingDisclosure: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The last non-blank line (trimmed), found from the end: the trace can be long and this runs
+    /// on every streamed chunk.
+    static func lastLine(_ text: String) -> Substring {
+        guard let end = text.lastIndex(where: { !$0.isWhitespace && !$0.isNewline }) else { return "" }
+        let upTo = text[...end]
+        let start = upTo.lastIndex(where: \.isNewline).map(text.index(after:)) ?? text.startIndex
+        return upTo[start...].drop(while: { $0.isWhitespace })
     }
 }

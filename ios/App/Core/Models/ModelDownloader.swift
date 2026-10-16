@@ -50,7 +50,6 @@ final class ModelDownloader {
     @ObservationIgnored private var lastReport = Date.distantPast
     @ObservationIgnored private var lastBytes: Int64 = -1
     @ObservationIgnored private var speed: Int64 = 0
-    @ObservationIgnored private var lastStore = Date.distantPast
     /// Tests stream bodies through the policy client instead of the background session.
     @ObservationIgnored var useBackgroundSession = true
 
@@ -97,7 +96,9 @@ final class ModelDownloader {
 
     func pause(_ id: String) {
         if currentId == id { worker?.cancel() }
-        if let model = library.get(id) { library.progress(id, downloaded: model.downloadedBytes, status: .paused) }
+        // In-flight bytes live in [progress] only; the registry gets them now.
+        let live = progress?.id == id ? progress?.downloaded : nil
+        if let model = library.get(id) { library.progress(id, downloaded: live ?? model.downloadedBytes, status: .paused) }
     }
 
     func remove(_ id: String) {
@@ -241,12 +242,18 @@ final class ModelDownloader {
         }
         lastReport = now
         lastBytes = downloaded
+        // In-flight bytes stay here (≤ 4 updates a second, read by the downloads panel); the
+        // registry is written on pause, failure and completion, and a relaunch measures the bytes
+        // on disk, so nothing is sealed, persisted or fanned out to the app per tick.
         progress = DownloadProgress(id: model.id, title: model.title, downloaded: downloaded, total: total, bytesPerSecond: speed)
-        if now.timeIntervalSince(lastStore) > 1 {
-            lastStore = now
-            library.progress(model.id, downloaded: downloaded, status: .downloading)
-        }
     }
+
+    #if DEBUG
+    /// One once-a-second progress report of [id] (perf benchmarks).
+    func benchmarkTick(_ id: String, downloaded: Int64, total: Int64) {
+        progress = DownloadProgress(id: id, title: "", downloaded: downloaded, total: total, bytesPerSecond: 1)
+    }
+    #endif
 
     private func requireSpace(_ model: InstalledModel) throws {
         let free = DeviceProfile.current().freeStorageBytes
