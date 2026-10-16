@@ -65,8 +65,8 @@ enum class Route(val glyph: String, val label: String, val local: Boolean) {
     LOCAL_GPU("●", "local · gpu", true),
     LOCAL_CPU("●", "local · cpu", true),
 
-    /** Prompt on the NPU, reply generated on the CPU. */
-    LOCAL_NPU_CPU("●", "local · npu+cpu", true),
+    /** Prompt on the NPU, reply generated on the CPU (no "local ·": the filled dot says it, and it fits a half-width card). */
+    LOCAL_NPU_CPU("●", "npu+cpu", true),
 
     /** On this phone, before the engine has said where the model loaded (llama.cpp's "auto"). */
     LOCAL("●", "local", true),

@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -374,6 +376,7 @@ private fun DeviceCard(label: String, value: String?, present: Boolean, modifier
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: ComputeViewModel) {
     val m = cm.model
@@ -385,22 +388,26 @@ private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: Compu
             if (isText) {
                 val options = listOf(Backend.AUTO, Backend.CPU, Backend.GPU, Backend.NPU) +
                     listOfNotNull(Backend.NPU_CPU.takeIf { it in state.devices?.llmBackends.orEmpty() || m.backend == it })
+                // Five segments leave no room for "auto · npu+cpu": what auto resolves to goes below.
                 Segmented(options, m.backend, { actions.setBackend(m, it) }, { b ->
-                    if (b == Backend.AUTO && cm.fastest != null) "auto · ${cm.fastest.label}" else b.label
+                    if (b == Backend.AUTO && cm.fastest != null && options.size <= 4) "auto · ${cm.fastest.label}" else b.label
                 }, Modifier.fillMaxWidth())
+                if (options.size > 4 && m.backend == Backend.AUTO && cm.fastest != null) MicroLabel("auto runs on ${cm.fastest.label}")
             } else {
                 val pkg = m.manifest.npu
                 MicroLabel(if (pkg?.runtime == "qnn") "runs on the npu (hexagon ${pkg.htpArch.orEmpty()})" else "runs on the gpu (opencl) or cpu")
             }
             if (cm.results.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.Top) {
+                // Wraps: four text backends do not fit one row on a phone.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     cm.results.entries.sortedBy { it.key.ordinal }.forEach { (backend, r) ->
                         val value = if (isText) r.generationTps?.let { fmt(it) } ?: "–" else r.stepMs?.let { fmt(it / 1000) + "s" } ?: "–"
-                        BigReadout(backend.label + if (isText) " · tok/s" else " · step", value)
+                        // Each backend's prompt speed under its own readout (one line for four got cut off).
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            BigReadout(backend.label + if (isText) " · tok/s" else " · step", value)
+                            r.promptTps?.let { MicroLabel("prefill ${fmt(it)}") }
+                        }
                     }
-                }
-                cm.results.values.firstOrNull { it.promptTps != null }?.let {
-                    MicroLabel(cm.results.entries.sortedBy { e -> e.key.ordinal }.joinToString("  ") { (b, r) -> "${b.label} prefill ${r.promptTps?.let(::fmt) ?: "–"} tok/s" })
                 }
             } else {
                 MicroLabel("not measured yet")
