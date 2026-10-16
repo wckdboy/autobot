@@ -49,7 +49,8 @@ step "iOS: engines, tests"
 rm -rf ios/Packages/AutobotEngines/Frameworks/*.xcframework
 ios/Packages/AutobotEngines/scripts/build-xcframeworks.sh > "$WORK/engines.log" 2>&1 || fail "engine frameworks (log: $WORK/engines.log)"
 (cd ios && xcodegen generate -q)
-SIM=$(xcrun simctl list devices available | grep -E "iPhone [0-9]+ Pro \(" | grep -oE "[0-9A-F-]{36}" | tail -1)
+# RELEASE_SIM picks a simulator nothing else is using (a shared one can be reset mid-run).
+SIM="${RELEASE_SIM:-$(xcrun simctl list devices available | grep -E "iPhone [0-9]+ Pro \(" | grep -oE "[0-9A-F-]{36}" | tail -1)}"
 [ -n "$SIM" ] || fail "no iPhone simulator available"
 xcodebuild -project ios/Autobot.xcodeproj -scheme Autobot -destination "id=$SIM" test > "$WORK/ios-test.log" 2>&1 ||
     { grep -E "✘|error:" "$WORK/ios-test.log" | head -20; fail "iOS tests failed (log: $WORK/ios-test.log)"; }
