@@ -51,13 +51,25 @@ struct UsageTests {
         #expect(!r.empty)
     }
 
+    @Test func windowLimitsParseLikeAndroid() {
+        #expect(UsageLimit.parse("1,000,000", unit: "TOKENS") == 1_000_000)
+        #expect(UsageLimit.parse("1.000.000", unit: "TOKENS") == 1_000_000)
+        #expect(UsageLimit.parse(" 1500 ", unit: "REQUESTS") == 1500)
+        #expect(UsageLimit.parse("1.5", unit: "REQUESTS") == nil)
+        #expect(UsageLimit.parse("12x", unit: "TOKENS") == nil)
+        #expect(UsageLimit.parse("1,000.000", unit: "TOKENS") == nil)
+        #expect(UsageLimit.parse("", unit: "TOKENS") == nil)
+        #expect(UsageLimit.parse("12.50", unit: "USD") == 12.5)
+        #expect(UsageLimit.parse("$3", unit: "USD") == 3)
+    }
+
     @Test func windowsDecodeWithTheirResetLine() throws {
         let window = SubscriptionWindow(id: "w", provider: "go", period: .fiveHours, rolling: true, unit: .requests, limit: KotlinDouble(double: 10), anchor: nil)
         let r = try report(plan: UsagePlan(prices: [], windows: [window]))
         let w = try #require(r.windows.first)
         #expect(w.period == "FIVE_HOURS" && w.unit == "REQUESTS" && w.rolling)
         #expect(w.used == 1 && w.limit == 10 && w.fraction == 0.1)
-        #expect(w.line.hasPrefix("1 requests of 10 requests · oldest use rolls off in ~5 h"))
+        #expect(w.line.hasPrefix("1 of 10 requests · oldest use rolls off in ~5 h"))
         #expect(r.plan.windows.first?.id == "w")
     }
 
@@ -106,7 +118,11 @@ struct UsageTests {
         #expect(windows.map(\.rolling) == [true, false, false])
 
         repo.saveWindow(.init(id: "w1", provider: "go", period: "WEEK", rolling: false, unit: "USD", limit: 30, anchor: 5))
-        let saved = try #require(UsageJson.shared.decodePlan(text: bridge.saved.last)?.windows.first)
+        // Edits in a row build on each other before the report catches up: nothing saved earlier is lost.
+        let plan = try #require(UsageJson.shared.decodePlan(text: bridge.saved.last))
+        #expect(plan.prices.map(\.model) == ["glm-5"])
+        #expect(plan.windows.map(\.id) == ["go-5h", "go-week", "go-month", "w1"])
+        let saved = try #require(plan.windows.first { $0.id == "w1" })
         #expect(saved.period == .week && saved.unit == .usd && saved.limit?.doubleValue == 30 && saved.anchor?.int64Value == 5)
 
         repo.clearHistory()

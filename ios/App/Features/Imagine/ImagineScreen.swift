@@ -76,7 +76,14 @@ struct ImagineScreen: View {
                             .frame(maxWidth: .infinity)
                     }
                     PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate, wildcards: m.wildcards)
-                    if !m.isRunning && !m.request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { styleRow(m) }
+                    // The row keeps its place while hidden (no prompt yet, a job running), so typing the
+                    // first letter or starting a job does not push the proofs down and back up.
+                    let styles = !m.isRunning && !m.request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    styleRow(m)
+                        .opacity(styles ? 1 : 0)
+                        .allowsHitTesting(styles)
+                        .accessibilityHidden(!styles)
+                        .animation(.inkReduced, value: styles)
                     if !m.chips.isEmpty { chipRow(m) }
                     if m.catalogStatus == .error, let error = m.catalogError {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -300,13 +307,13 @@ private struct ProofGrid: View {
         let plateInk = ink(i, running: running, result: result)
         return ZStack(alignment: .bottomLeading) {
             c.surfaceContainerLow
-            if let plateInk {
-                InkPlate(ink: plateInk, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
-            } else if model.preferInit, i == 0, let initImage = model.initImage {
+            if plateInk == nil, model.preferInit, i == 0, let initImage = model.initImage {
                 Image(uiImage: initImage).resizable().scaledToFill()
                 if model.request.mode == .inpaint { MaskOverlay(mask: model.mask) }
             } else {
-                InkPlate(ink: .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
+                // One plate whatever it shows: a job starting keeps the waiting plate (its engine and
+                // state) instead of swapping in a second one over it.
+                InkPlate(ink: plateInk ?? .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
             }
             if let running, i == running.image {
                 let loading = model.phase != nil || running.total == 0

@@ -187,7 +187,7 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
             }
 
             item { SectionLabel("prices · usd per 1m tokens", Modifier.padding(top = 8.dp)) }
-            if (report.prices.isEmpty()) item { MicroLabel("models show up here once they answered", maxLines = 3) }
+            if (report.prices.isEmpty()) item { MicroLabel("models show up here once they have answered", maxLines = 3) }
             items(report.prices, key = { "${it.provider}|${it.model}" }) { row -> PriceRowView(row, onClick = { editingPrice = row }) }
 
             item {

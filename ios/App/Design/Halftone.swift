@@ -40,19 +40,37 @@ struct LumaGrid: Sendable, Equatable {
     }
 }
 
-/// Luma grids by image identity, so redrawing a card does not resample its bitmap.
+/**
+ Luma grids by image identity, so redrawing a card does not resample its bitmap. Each entry holds
+ its image weakly and is only a hit while that same image is alive: a freed image's address can be
+ reused by a new one, which must not inherit the old image's grid.
+ */
 @MainActor
 enum LumaCache {
-    private static var grids: [ObjectIdentifier: LumaGrid] = [:]
+    private struct Entry {
+        weak var image: UIImage?
+        let grid: LumaGrid
+    }
+
+    private static var grids: [ObjectIdentifier: Entry] = [:]
+    static let capacity = 64
 
     static func grid(_ image: UIImage) -> LumaGrid? {
         let key = ObjectIdentifier(image)
-        if let cached = grids[key] { return cached }
+        if let cached = grids[key], cached.image === image { return cached.grid }
         guard let grid = image.cgImage.flatMap({ LumaGrid(image: $0) }) else { return nil }
-        if grids.count > 64 { grids.removeAll() }
-        grids[key] = grid
+        if grids.count >= capacity {
+            // Drop the entries whose images are gone first; everything if all are still alive.
+            grids = grids.filter { $0.value.image != nil }
+            if grids.count >= capacity { grids.removeAll() }
+        }
+        grids[key] = Entry(image: image, grid: grid)
         return grid
     }
+
+    #if DEBUG
+    static func reset() { grids.removeAll() }
+    #endif
 }
 
 /**

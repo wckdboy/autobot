@@ -90,6 +90,20 @@ struct MotionTests {
         #expect(InkMath.plateAlpha(elapsed: Double(Tokens.Motion.printMillis) / 1000) == 0)
     }
 
+    /// A register plate over a dot field never lands in the gaps between its dots (that reads as a
+    /// doubled grid): at most a fifth of the pitch out of register, overshoot included.
+    @Test func registerPlateStaysOnItsOwnDots() {
+        for pitch in [6.0, 9, 11, 12, 30] {
+            var worst = 0.0
+            for ms in stride(from: 0.0, through: Double(Tokens.Motion.printMillis), by: 5) {
+                worst = max(worst, abs(InkMath.registerShift(elapsed: ms / 1000, pitch: pitch)))
+            }
+            #expect(worst <= pitch * InkMath.registerPitchShare + 1e-9, "pitch \(pitch): \(worst) pt")
+        }
+        #expect(abs(InkMath.registerShift(elapsed: 0, pitch: 6) - 1.2) < 1e-9)
+        #expect(InkMath.registerOffset(pitch: 100) == Double(Tokens.Motion.registerOffset))
+    }
+
     @MainActor @Test func ledgerOnlyAnimatesLiveAdditions() {
         let ledger = InkLedger()
         ledger.observe(["a", "b"])

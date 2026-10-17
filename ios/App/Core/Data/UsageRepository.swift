@@ -183,6 +183,9 @@ final class UsageRepository {
     @ObservationIgnored weak var bridge: (any UsageBridging)?
     @ObservationIgnored private var handle: (any AutobotShared.Cancellable)?
     @ObservationIgnored private var observers = 0
+    /// The last plan saved, until a report shows it: quick edits in a row build on each other,
+    /// not on the report from before the first one (the report arrives a moment later).
+    @ObservationIgnored private var pending: UsagePlan?
 
     init(store: EncryptedStore) { host = UsageStoreHost(store: store) }
 
@@ -193,6 +196,7 @@ final class UsageRepository {
         handle = bridge.observeUsage { [weak self] next in
             guard let self, next != report else { return }
             report = next
+            if let pending, Self.plan(of: next) == pending { self.pending = nil }
         }
     }
 
@@ -201,14 +205,20 @@ final class UsageRepository {
         guard observers == 0 else { return }
         handle?.cancel()
         handle = nil
+        pending = nil
     }
 
-    private var plan: UsagePlan {
+    private var plan: UsagePlan { pending ?? Self.plan(of: report) }
+
+    private static func plan(of report: UsageReportModel?) -> UsagePlan {
         let json = (try? JSONEncoder().encode(report?.plan ?? .init())).flatMap { String(data: $0, encoding: .utf8) }
         return UsageJson.shared.decodePlan(text: json) ?? UsagePlan(prices: [], windows: [])
     }
 
-    private func save(_ plan: UsagePlan) { bridge?.saveUsagePlan(UsageJson.shared.encode(plan: plan)) }
+    private func save(_ plan: UsagePlan) {
+        pending = plan
+        bridge?.saveUsagePlan(UsageJson.shared.encode(plan: plan))
+    }
 
     /// The price of [model] on [provider] from the editor's fields (blank: unknown).
     func savePrice(provider: String, model: String, input: String, output: String, cacheRead: String, cacheWrite: String) {

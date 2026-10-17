@@ -259,7 +259,7 @@ struct InkGround: View {
             : InkField.path(grid, seconds: seconds, period: Double(Tokens.Motion.ambientCycleSeconds), seed: phase * .pi, scale: 0.4, fill: fill)
         if let plate, printing > 0 {
             let settle = 1 - InkMath.easeOutBack(printing * Double(Tokens.Motion.printMillis / Tokens.Motion.registerMillis))
-            let shift = CGFloat(Double(Tokens.Motion.registerOffset) * settle)
+            let shift = CGFloat(InkMath.registerOffset(pitch: grid.pitch) * settle)
             var shifted = context
             shifted.translateBy(x: shift, y: shift)
             shifted.fill(field, with: .color(plate.opacity(alpha * 0.6)))
