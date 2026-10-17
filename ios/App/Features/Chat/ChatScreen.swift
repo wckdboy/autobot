@@ -232,6 +232,7 @@ struct ChatScreen: View {
                 settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow,
                 onThink: { app.agent.setThinking(conversationId, settings.thinking.next) },
                 onThinkSheet: { showThink = true },
+                onRedact: { app.agent.setRedaction(conversationId, settings.redaction != "ON") },
             )
             if let voice = model.voice {
                 VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
@@ -810,10 +811,12 @@ private struct PolicyLine: View {
     let contextWindow: Int?
     var onThink: () -> Void = {}
     var onThinkSheet: () -> Void = {}
+    var onRedact: () -> Void = {}
 
     var body: some View {
         let think = settings.thinkingSupport != "NONE"
-        if settings.toolsEnabled || think {
+        let redact = settings.redaction != "NONE"
+        if settings.toolsEnabled || think || redact {
             let text = switch settings.permissionPreset {
             case .readOnly: "policy · read: auto · write: deny · network: ask"
             case .workspace: "policy · read: auto · write: auto · delete: ask · network: ask"
@@ -821,6 +824,7 @@ private struct PolicyLine: View {
             }
             HStack(spacing: 8) {
                 if think { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet) }
+                if redact { RedactChip(on: settings.redaction == "ON", onTap: onRedact) }
                 if settings.toolsEnabled {
                     MicroLabel(text).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
@@ -861,6 +865,28 @@ private struct ThinkChip: View {
         .accessibilityHint("Tap to switch auto, on or off. Hold for the budget.")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: "Budget", onLongPress)
+    }
+}
+
+/// `▮ REDACT` while personal data becomes placeholders before a cloud model sees it, `REDACT OFF`
+/// when this chat sends it as written. A tap switches it for this chat.
+private struct RedactChip: View {
+    let on: Bool
+    let onTap: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        MicroLabel(on ? "▮ redact" : "redact off", color: on ? c.primary : c.onSurfaceVariant)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .overlay(Rectangle().stroke(on ? c.primary.opacity(0.7) : c.outlineVariant, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Redaction")
+            .accessibilityValue(on ? "On: names, emails and numbers are hidden from the cloud" : "Off")
+            .accessibilityHint("Tap to switch it for this chat.")
+            .accessibilityAddTraits(.isButton)
     }
 }
 

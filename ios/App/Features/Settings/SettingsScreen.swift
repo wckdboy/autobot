@@ -62,6 +62,12 @@ struct SettingsScreen: View {
                 isOn: Binding(get: { settings.incognitoByDefault }, set: { app.settings.setIncognitoByDefault($0) }),
                 info: "New chats are kept in memory only, never written to disk.",
             )
+        case .redactCloud:
+            SwitchRow(
+                title: title,
+                isOn: Binding(get: { settings.redactCloud }, set: { app.settings.setRedactCloud($0) }),
+                info: "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
+            )
         case .panicWipe:
             DestructiveRow(title: title, info: "Destroys every key and all data on this phone, then closes the app.") { showWipe = true }
         case .memory:

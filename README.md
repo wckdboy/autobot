@@ -73,6 +73,11 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
   - Backups and device transfer are disabled.
   - HTTPS uses system CAs only. Cleartext is allowed only for `localhost`, `127.0.0.1` and `10.0.2.2`.
   - The keyboard is asked not to learn from what you type (`IME_FLAG_NO_PERSONALIZED_LEARNING`).
+- **Redaction before cloud calls.** On by default: names, emails, phone numbers, addresses,
+  card, IBAN and account numbers and memory facts become placeholders (`[PERSON_1]`) before a
+  cloud provider sees a request, and the answer gets the real values back on the phone. Each
+  chat can switch it off; the receipt counts what was hidden. Shared code
+  (`dev.wckdboy.autobot.shared.redaction`).
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,
   secrets and caches. The process is then killed.

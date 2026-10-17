@@ -204,6 +204,7 @@ final class AppContainer {
             shared.setWebSearch(searchOn ? searchSource : nil)
         }
         shared.setQuotaFallback(s.quotaFallback, onDevice: providers.get(ProviderPresets.localProviderId))
+        shared.setRedactionDefault(s.redactCloud)
         #endif
     }
 

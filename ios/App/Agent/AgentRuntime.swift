@@ -11,6 +11,8 @@ struct SessionSettings: Equatable, Sendable {
     /// The chat's Think switch, and whether its model reasons ("NONE", "SWITCH", "ALWAYS": the chip shows unless NONE).
     var thinking = ThinkingChoice()
     var thinkingSupport = "NONE"
+    /// The redaction gateway for the chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide).
+    var redaction = "NONE"
 
     var permissionPreset: PermissionPreset { PermissionPreset.fromLabel(permission) ?? .workspace }
 }
@@ -83,6 +85,7 @@ struct SessionUpdate: Sendable {
             settings: SessionSettings(
                 toolsEnabled: state.toolsEnabled, permission: state.permission, provider: state.provider, model: state.model,
                 thinking: ThinkingChoice(mode: state.thinking ?? "AUTO", budget: state.thinkingBudget), thinkingSupport: state.thinkingSupport ?? "NONE",
+                redaction: state.redaction ?? "NONE",
             ),
         )
     }
@@ -133,6 +136,7 @@ final class AgentSession {
                 settings: SessionSettings(
                     toolsEnabled: newValue.toolsEnabled, permission: newValue.permission, provider: newValue.provider, model: newValue.model,
                     thinking: ThinkingChoice(mode: newValue.thinking ?? "AUTO", budget: newValue.thinkingBudget), thinkingSupport: newValue.thinkingSupport ?? "NONE",
+                    redaction: newValue.redaction ?? "NONE",
                 ),
             )
             if projectionChanged { update.transcript = SessionTranscript(newValue.projection) }
@@ -212,6 +216,8 @@ protocol AgentRuntime: AnyObject {
     func thinkingDefault(provider: String, model: String) -> ThinkingChoice?
     /// Sets (nil: clears) [model]'s Think default; chats that never chose follow it.
     func setThinkingDefault(provider: String, model: String, _ choice: ThinkingChoice?)
+    /// This chat's redaction switch (what Settings says makes the chat follow Settings again).
+    func setRedaction(_ conversationId: String, _ enabled: Bool)
 }
 
 /// The chat's Think switch, as the shared `ThinkingSetting`: `mode` is OFF, AUTO or ON; `budget`
@@ -254,6 +260,7 @@ extension AgentRuntime {
     func setThinking(_ conversationId: String, _ choice: ThinkingChoice) {}
     func thinkingDefault(provider: String, model: String) -> ThinkingChoice? { nil }
     func setThinkingDefault(provider: String, model: String, _ choice: ThinkingChoice?) {}
+    func setRedaction(_ conversationId: String, _ enabled: Bool) {}
 }
 
 /// Runtimes without file tools have nothing to undo.

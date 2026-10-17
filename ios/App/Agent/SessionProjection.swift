@@ -185,6 +185,24 @@ struct Receipt: Codable, Equatable, Sendable {
         }
     }
 
+    /// What the redaction gateway hid: [count] distinct values of one [kind] (`PERSON`), [label] "2 names".
+    struct Redaction: Codable, Equatable, Sendable {
+        var kind: String
+        var count = 0
+        var label: String
+
+        init(kind: String, count: Int, label: String) {
+            (self.kind, self.count, self.label) = (kind, count, label)
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
+            count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 0
+            label = try c.decodeIfPresent(String.self, forKey: .label) ?? "\(count) \(kind.lowercased())"
+        }
+    }
+
     var turn: Int
     /// `on device`, or `2 hosts · 14 KB out · no retention`.
     var line: String
@@ -198,11 +216,14 @@ struct Receipt: Codable, Equatable, Sendable {
     var models: [Model] = []
     var tools: [Tool] = []
     var fallbacks: [String] = []
+    /// Whether the redaction gateway ran for this turn's cloud requests; [redactions] is what it hid.
+    var redacted = false
+    var redactions: [Redaction] = []
 
     init(turn: Int, line: String, onDevice: Bool = false, tracked: Bool = false, hosts: [Host] = [], bytesSent: Int64 = 0, bytesReceived: Int64 = 0,
-         routes: [String] = [], models: [Model] = [], tools: [Tool] = [], fallbacks: [String] = []) {
+         routes: [String] = [], models: [Model] = [], tools: [Tool] = [], fallbacks: [String] = [], redacted: Bool = false, redactions: [Redaction] = []) {
         (self.turn, self.line, self.onDevice, self.tracked, self.hosts, self.bytesSent, self.bytesReceived) = (turn, line, onDevice, tracked, hosts, bytesSent, bytesReceived)
-        (self.routes, self.models, self.tools, self.fallbacks) = (routes, models, tools, fallbacks)
+        (self.routes, self.models, self.tools, self.fallbacks, self.redacted, self.redactions) = (routes, models, tools, fallbacks, redacted, redactions)
     }
 
     init(from decoder: Decoder) throws {
@@ -218,6 +239,8 @@ struct Receipt: Codable, Equatable, Sendable {
         models = try c.decodeIfPresent([Model].self, forKey: .models) ?? []
         tools = try c.decodeIfPresent([Tool].self, forKey: .tools) ?? []
         fallbacks = try c.decodeIfPresent([String].self, forKey: .fallbacks) ?? []
+        redacted = (try? c.decodeIfPresent(Bool.self, forKey: .redacted)) ?? false
+        redactions = (try? c.decodeIfPresent([Redaction].self, forKey: .redactions)) ?? []
     }
 
     /// `0 B`, `512 B`, `14 KB`, `1.2 MB` (Kotlin `Receipts.formatBytes`).
@@ -391,6 +414,8 @@ struct ChatSessionState: Codable, Equatable, Sendable {
     var thinking: String? = nil
     var thinkingBudget: Int? = nil
     var thinkingSupport: String? = nil
+    /// ON / OFF for a cloud route, NONE on the phone.
+    var redaction: String? = nil
 
     init(sessionId: String) { self.sessionId = sessionId }
 

@@ -50,6 +50,22 @@ struct ReceiptTests {
         #expect(r.onDevice && r.hosts.isEmpty && r.models.isEmpty)
     }
 
+    @Test func redactionCountsDecodeWithoutValues() throws {
+        let json = #"""
+        {"type":"assistant","key":"e5","text":"Wrote to Hannah.","receipt":{"turn":1,"line":"1 host · 2 KB out · 3 redacted","tracked":true,
+          "redacted":true,"redactions":[{"kind":"PERSON","count":2,"label":"2 names"},{"kind":"EMAIL","count":1}]}}
+        """#
+        guard case .assistant(_, _, _, _, _, _, let r?, _, _) = try decode(json) else { Issue.record("expected a receipt"); return }
+        #expect(r.redacted)
+        #expect(r.redactions.map(\.label) == ["2 names", "1 email"])
+        #expect(r.redactions.map(\.count) == [2, 1])
+        // Gateway off (or an older build): nothing to show.
+        guard case .assistant(_, _, _, _, _, _, let old?, _, _) = try decode(#"{"type":"assistant","key":"e6","text":"x","receipt":{"turn":1,"line":"on device"}}"#) else {
+            Issue.record("expected a receipt"); return
+        }
+        #expect(!old.redacted && old.redactions.isEmpty)
+    }
+
     @Test func bytesFormatLikeKotlin() {
         #expect(Receipt.formatBytes(512) == "512 B")
         #expect(Receipt.formatBytes(14_336) == "14 KB")
