@@ -111,10 +111,22 @@ AUTOBOT_LLAMA_API char * autobot_llama_model_info(autobot_llama_session * sessio
  * left for the answer, and, with `loop_guard` (default true), when the reasoning repeats itself.
  * With thinking off, a model that opens a think span anyway gets it closed at once.
  *
+ * Speculative decoding: `draft: {path, backend?}` names a small draft model of the same family
+ * (same tokenizer), loaded next to the model on first use ("cpu", "gpu" or "auto" = the GPU on
+ * Apple when the model runs there, else the CPU) and kept until a request without `draft` frees
+ * it. `speculative`: "auto" (default; stops speculating while it does not pay), "on" (always) or
+ * "off". The output is what plain decoding produces (each token is sampled by the model from its
+ * own logits); a draft with another tokenizer is refused (usage.speculative.status "refused" and
+ * `reason`), and models whose memory cannot drop rejected drafts (hybrid/recurrent such as
+ * Qwen3.5) generate without it ("unsupported").
+ *
  * Returns JSON: {content, reasoning, tool_calls:[{id,name,arguments}], finish_reason,
  * reasoning_stop?, usage:{prompt_tokens, completion_tokens, reasoning_tokens, cached_tokens,
- * backend, prompt_ms, generation_ms, reasoning_ms}} or {error:{code,message}}. `reasoning_stop`
- * is "budget" or "loop" when the engine closed the reasoning early.
+ * backend, prompt_ms, generation_ms, reasoning_ms, speculative?}} or {error:{code,message}}.
+ * `reasoning_stop` is "budget" or "loop" when the engine closed the reasoning early.
+ * `speculative` (when a draft was requested): {status: "active"|"off"|"no_draft"|"refused"|
+ * "unsupported"|"images"|"draft_failed", reason?, draft, backend, rounds, drafted,
+ * accepted, acceptance, k, paused}.
  */
 AUTOBOT_LLAMA_API char * autobot_llama_chat(autobot_llama_session * session, const char * request, size_t request_len,
                                             autobot_llama_delta_fn on_delta, void * user);
@@ -144,6 +156,12 @@ AUTOBOT_LLAMA_API void autobot_llama_string_free(char * s);
  * app tell whether a model reasons (and whether that can be switched off) before it loads it.
  */
 AUTOBOT_LLAMA_API char * autobot_llama_chat_template(const char * path);
+
+/**
+ * Whether the GGUF at `draft_path` can draft for the one at `model_path` (same tokenizer, token
+ * for token), reading only their vocabularies. JSON: {compatible, reason?}.
+ */
+AUTOBOT_LLAMA_API char * autobot_llama_draft_check(const char * model_path, const char * draft_path);
 
 /**
  * An embedding model (the private vault), separate from chat sessions so both can be resident.

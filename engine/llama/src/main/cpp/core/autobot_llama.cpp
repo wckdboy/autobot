@@ -9,13 +9,27 @@
 // llama.cpp's reasoning-budget sampler bounds the think span: when the budget, the answer reserve
 // or the loop guard (reasoning_guard.h) says stop, it forces a short wrap-up and the end tag, and
 // the model goes on to answer instead of thinking until the output limit.
+//
+// Speculative decoding: with a small draft model of the same family attached (request field
+// `draft`), the draft proposes a few tokens and the model checks them all in one batch, keeping
+// the longest prefix it agrees with plus its own next token. Each emitted token is still sampled
+// by the model's own sampler from the model's own logits, in order, so the output is the one
+// plain decoding gives (greedy: token for token; sampled: the same distribution, and with the
+// same seed the same tokens), and the reasoning budget, the loop guard, tool-call grammars, stop
+// strings and streaming see every token one by one as before. speculative_sched.h picks how many
+// tokens to draft from the measured acceptance and costs, and stops speculating when it does not
+// pay. Rejected drafts are cut from both models' memories with llama_memory_seq_rm, so models
+// whose memory cannot be cut back (hybrid/recurrent, e.g. Qwen3.5) do not speculate: rolling
+// their state back would cost a state copy per round and per-token snapshots (see README).
 
 #include "autobot_llama.h"
 #include "reasoning_guard.h"
+#include "speculative_sched.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -33,6 +47,7 @@
 #include "mtmd-helper.h"
 #include "mtmd.h"
 #include "sampling.h"
+#include "speculative.h"
 
 // A snapshot of the part of the memory that cannot be rolled back (recurrent state), taken
 // after the first `n_tokens` tokens of `cached` were decoded.
@@ -73,7 +88,19 @@ struct autobot_llama_session {
     mtmd_context * mtmd = nullptr;  // vision projector (mmproj), loaded on the first image
     std::string mmproj;
     bool kv_dirty = false;          // KV holds image embeddings that `cached` cannot describe
+    bool dec_partial_rm = true;     // the CPU decoder's memory can drop any suffix
     ThinkingCaps thinking;
+    int n_threads = 4;
+    // Speculative decoding: a small draft model of the same family, loaded on request next to
+    // the model, with its own prompt cache.
+    llama_model * draft_model = nullptr;
+    llama_context * draft_ctx = nullptr;
+    std::vector<llama_token> draft_cached;  // tokens in the draft's memory (sequence 0, from position 0)
+    size_t draft_base = 0;                  // where draft_cached starts in the conversation (its window)
+    std::string draft_path;                 // the loaded draft
+    std::string draft_backend;              // where it runs: "cpu" or "gpu"
+    std::string draft_refused;              // a draft that could not be used, and why
+    std::string draft_refusal;
     std::mutex lock;
 };
 
@@ -446,6 +473,255 @@ std::string reasoning_status(int tokens, bool done, const std::string & stop) {
     return st.dump();
 }
 
+// ---- speculative decoding: the draft model
+
+// The draft sees a window of the most recent tokens, not the whole conversation: a small model
+// guesses the next words from the last paragraphs about as well, its KV cache is per token about
+// as large as the model's own (many layers and KV heads for its size), and catching it up on a
+// long agent prompt would cost a prefill on the CPU (Android) every new chat. The window starts
+// DRAFT_WINDOW tokens back and slides (a re-prefill of that many tokens) when it fills the
+// draft's context.
+constexpr int DRAFT_CTX = 2048;
+constexpr int DRAFT_WINDOW = 1024;
+
+// A reply catches the draft up on more than this many tokens (a new chat, a long tool result)
+// only once it has generated DRAFT_LONG_REPLY tokens: short replies (tool calls) do not pay for it.
+constexpr size_t DRAFT_CATCHUP_SHORT = 64;
+constexpr int DRAFT_LONG_REPLY = 16;
+
+// Most tokens one round drafts (SpeculativeSchedule::k_max), for the room left in the window.
+constexpr int DRAFT_K_MAX = 8;
+
+// Drafting stops at a token the draft itself is less sure of than this (after the first one):
+// such tokens are rarely accepted, and each costs a draft step.
+constexpr float DRAFT_P_MIN = 0.3f;
+
+// Draft syncs longer than this are prompt prefills, not draft steps: kept out of the timings.
+constexpr size_t DRAFT_SYNC_STEP = 16;
+
+void free_draft(Session & s) {
+    if (s.draft_ctx) llama_free(s.draft_ctx);
+    if (s.draft_model) llama_model_free(s.draft_model);
+    s.draft_ctx = nullptr;
+    s.draft_model = nullptr;
+    s.draft_cached.clear();
+    s.draft_base = 0;
+    s.draft_path.clear();
+    s.draft_backend.clear();
+}
+
+// Why `draft` cannot draft for `target` ("" when it can): speculation needs the same tokenizer,
+// token for token (llama.cpp's own check, as llama-server uses it).
+std::string vocab_mismatch(const llama_model * target, const llama_model * draft) {
+    if (common_speculative_are_compatible(target, draft)) return "";
+    const llama_vocab * vt = llama_model_get_vocab(target);
+    const llama_vocab * vd = llama_model_get_vocab(draft);
+    char buf[320];
+    std::snprintf(buf, sizeof(buf),
+                  "the draft model's tokenizer differs from the chat model's (%d vs %d tokens, vocab type %d vs %d); "
+                  "a draft model must come from the same model family",
+                  llama_vocab_n_tokens(vd), llama_vocab_n_tokens(vt), (int) llama_vocab_type(vd), (int) llama_vocab_type(vt));
+    return buf;
+}
+
+// Loads the draft model at `path` on `backend` ("cpu", "gpu" or "auto": the GPU on Apple when the
+// model is on it, else the CPU) next to the session's model. Returns "" or why it cannot be used.
+std::string load_draft(Session & s, const std::string & path, const std::string & backend) {
+    free_draft(s);
+    std::string kind = backend;
+    if (kind.empty() || kind == "auto") {
+#if defined(__APPLE__)
+        kind = s.backend.rfind("gpu", 0) == 0 ? "gpu" : "cpu";
+#else
+        kind = "cpu";
+#endif
+    }
+    std::vector<std::string> order;
+    if (kind == "gpu" || kind == "npu") order = {kind, "cpu"};
+    else order = {"cpu"};
+    for (const auto & k : order) {
+        std::vector<ggml_backend_dev_t> devs = devices_of(k);
+        if (k != "cpu" && devs.empty()) continue;
+        devs.push_back(nullptr);
+        auto mparams = llama_model_default_params();
+        mparams.load_mode = LLAMA_LOAD_MODE_MMAP;
+        mparams.devices = devs.data();
+        mparams.n_gpu_layers = k == "cpu" ? 0 : 999;
+        mparams.progress_callback = [](float, void * data) { return !cancelled(*static_cast<const Session *>(data)); };
+        mparams.progress_callback_user_data = &s;
+        llama_model * model = llama_model_load_from_file(path.c_str(), mparams);
+        if (cancelled(s)) {
+            if (model) llama_model_free(model);
+            return "cancelled";
+        }
+        if (!model) {
+            LOGE("failed to load the draft model on %s", k.c_str());
+            continue;
+        }
+        const std::string mismatch = vocab_mismatch(s.model, model);
+        if (!mismatch.empty()) {
+            llama_model_free(model);
+            return mismatch;
+        }
+        auto cparams = llama_context_default_params();
+        cparams.n_ctx = (uint32_t) std::min(s.n_ctx, DRAFT_CTX);
+        cparams.n_batch = 512;
+        cparams.n_ubatch = 512;
+        cparams.n_threads = s.n_threads;
+        cparams.n_threads_batch = s.n_threads;
+        // Halves the draft's KV cache; drafts barely change (and the model checks every token).
+        cparams.type_k = GGML_TYPE_Q8_0;
+        cparams.type_v = GGML_TYPE_Q8_0;
+        llama_context * ctx = llama_init_from_model(model, cparams);
+        if (!ctx) {
+            cparams.type_k = GGML_TYPE_F16;
+            cparams.type_v = GGML_TYPE_F16;
+            ctx = llama_init_from_model(model, cparams);
+        }
+        if (!ctx) {
+            LOGE("failed to create a draft context on %s", k.c_str());
+            llama_model_free(model);
+            continue;
+        }
+        if (common_context_can_seq_rm(ctx) != COMMON_CONTEXT_SEQ_RM_TYPE_PART) {
+            llama_free(ctx);
+            llama_model_free(model);
+            return "the draft model's memory cannot be cut back (recurrent layers); use an attention-only draft";
+        }
+        llama_set_abort_callback(ctx, abort_requested, &s);
+        s.draft_model = model;
+        s.draft_ctx = ctx;
+        s.draft_path = path;
+        s.draft_backend = k;
+        LOGI("loaded draft model %s on %s (context %u)", path.c_str(), k.c_str(), llama_n_ctx(ctx));
+        return "";
+    }
+    return "the draft model could not be loaded";
+}
+
+// Where the draft's window over `seq` starts, and how many of its cached tokens stay: the current
+// window while `seq` continues it and still fits the draft's context (with room for a round of
+// drafts), else a new one DRAFT_WINDOW tokens back.
+struct DraftPlan {
+    size_t base = 0;
+    size_t keep = 0;  // tokens of seq[base...] already in the draft's memory
+};
+
+DraftPlan draft_plan(const Session & s, const std::vector<llama_token> & seq) {
+    const size_t n_ctx = s.draft_ctx ? llama_n_ctx(s.draft_ctx) : (size_t) DRAFT_CTX;
+    const size_t window = std::min((size_t) DRAFT_WINDOW, n_ctx / 2);
+    DraftPlan plan;
+    plan.base = s.draft_base;
+    if (plan.base > seq.size() || seq.size() - plan.base + DRAFT_K_MAX + 2 > n_ctx) {
+        plan.base = seq.size() > window ? seq.size() - window : 0;
+    }
+    if (plan.base == s.draft_base) {
+        const auto & c = s.draft_cached;
+        while (plan.keep < c.size() && plan.base + plan.keep + 1 < seq.size() && c[plan.keep] == seq[plan.base + plan.keep]) ++plan.keep;
+    }
+    return plan;
+}
+
+// How many tokens draft_sync would decode now.
+size_t draft_catchup(const Session & s, const std::vector<llama_token> & seq) {
+    const DraftPlan plan = draft_plan(s, seq);
+    return seq.size() - plan.base - plan.keep;
+}
+
+// Brings the draft's memory to its window over `seq` (draft_plan), reusing what it holds, and
+// decodes the rest with logits for the last token. Returns how many tokens it decoded, or -2
+// (cancelled) / -1 (failed; the draft's memory is then cleared).
+int draft_sync(Session & s, const std::vector<llama_token> & seq) {
+    if (seq.empty()) return 0;
+    const DraftPlan plan = draft_plan(s, seq);
+    size_t keep = plan.keep;
+    llama_memory_t mem = llama_get_memory(s.draft_ctx);
+    if (plan.base != s.draft_base) {
+        llama_memory_clear(mem, true);
+        s.draft_cached.clear();
+        s.draft_base = plan.base;
+    } else if (keep < s.draft_cached.size()) {
+        if (!llama_memory_seq_rm(mem, 0, (llama_pos) keep, -1)) {
+            llama_memory_clear(mem, true);
+            keep = 0;
+        }
+        s.draft_cached.resize(keep);
+    }
+    const size_t base = s.draft_base;
+    const size_t todo = seq.size() - base - keep;
+    // A long catch-up (the prompt) may be interrupted by a cancel, as the model's prefill is.
+    const bool long_sync = todo > DRAFT_SYNC_STEP;
+    if (long_sync) s.prefilling.store(true);
+    common_batch batch(s.draft_ctx);
+    int rc = 0;
+    const size_t n = seq.size() - base;  // the window's length
+    while (s.draft_cached.size() < n) {
+        const size_t from = s.draft_cached.size();
+        const size_t to = std::min(n, from + 512);
+        batch.clear();
+        for (size_t j = from; j < to; ++j) batch.add(seq[base + j], (llama_pos) j, 0, j + 1 == n);
+        if (cancelled(s)) {
+            rc = -2;
+            break;
+        }
+        const int r = llama_process(s.draft_ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+        if (r == 2) {
+            rc = -2;
+            break;
+        }
+        if (r != 0) {
+            LOGE("draft decode failed (%d)", r);
+            llama_memory_clear(mem, true);
+            s.draft_cached.clear();
+            rc = -1;
+            break;
+        }
+        s.draft_cached.insert(s.draft_cached.end(), seq.begin() + (long) (base + from), seq.begin() + (long) (base + to));
+    }
+    if (long_sync) s.prefilling.store(false);
+    return rc != 0 ? rc : (int) todo;
+}
+
+// Drafts up to `k` tokens after the window the draft was just synced to: greedy, stopping early
+// after a token the draft is unsure of or an end-of-text token. Every drafted token but the last
+// is decoded on the draft. Returns false when a draft decode failed.
+bool draft_propose(Session & s, int k, std::vector<llama_token> & out) {
+    out.clear();
+    llama_pos pos = (llama_pos) s.draft_cached.size();
+    const llama_vocab * vocab = llama_model_get_vocab(s.draft_model);
+    const int n_vocab = llama_vocab_n_tokens(vocab);
+    common_batch batch(s.draft_ctx);
+    for (int j = 0; j < k; ++j) {
+        const float * logits = llama_get_logits_ith(s.draft_ctx, -1);
+        if (!logits) return false;
+        int best = 0;
+        float top = logits[0];
+        for (int i = 1; i < n_vocab; ++i) {
+            if (logits[i] > top) {
+                top = logits[i];
+                best = i;
+            }
+        }
+        if (j > 0) {
+            double sum = 0.0;
+            for (int i = 0; i < n_vocab; ++i) sum += std::exp((double) (logits[i] - top));
+            if (1.0 / sum < DRAFT_P_MIN) break;
+        }
+        out.push_back(best);
+        if (j + 1 == k || llama_vocab_is_eog(vocab, best)) break;
+        batch.clear();
+        batch.add(best, pos, 0, true);
+        if (llama_process(s.draft_ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+            llama_memory_clear(llama_get_memory(s.draft_ctx), true);
+            s.draft_cached.clear();
+            return false;
+        }
+        s.draft_cached.push_back(best);
+        ++pos;
+    }
+    return true;
+}
+
 std::string chat(Session * s, const std::string & request_text, Sink & sink) {
     const llama_vocab * vocab = llama_model_get_vocab(s->model);
 
@@ -481,11 +757,33 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         const common_chat_params chat = common_chat_templates_apply(s->templates.get(), inputs);
 
         const int max_tokens = req.value("max_tokens", 2048);
+
+        // ---- speculative decoding: the draft model the app picked (none: free any loaded one)
+        const std::string spec_mode = req.value("speculative", std::string("auto"));
+        std::string draft_path;
+        std::string draft_backend = "auto";
+        if (req.contains("draft") && req.at("draft").is_object()) {
+            draft_path = req.at("draft").value("path", std::string());
+            draft_backend = req.at("draft").value("backend", std::string("auto"));
+        }
+        if (draft_path.empty()) {
+            if (s->draft_model) free_draft(*s);
+        } else if (spec_mode != "off" && draft_path != s->draft_path && draft_path != s->draft_refused) {
+            const std::string why = load_draft(*s, draft_path, draft_backend);
+            if (why == "cancelled") return error_json("CANCELLED", "cancelled");
+            if (!why.empty()) {
+                LOGE("speculative decoding off: %s", why.c_str());
+                s->draft_refused = draft_path;
+                s->draft_refusal = why;
+            }
+        }
+
         llama_memory_t mem = llama_get_memory(s->ctx);
         llama_pos pos = 0;      // position of the next generated token
         size_t keep = 0;
         size_t prompt_tokens = 0;
         int64_t prompt_us = 0;
+        std::vector<llama_token> seq;  // the text prompt's tokens, then every generated token (speculation)
         if (s->kv_dirty) {
             forget_cache(*s);
             s->kv_dirty = false;
@@ -555,6 +853,7 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
             }
             prompt_tokens = prompt.size();
             pos = (llama_pos) prompt.size();
+            seq = std::move(prompt);
         }
 
         // ---- sampler (with the template's lazy tool-call grammar when tools are present)
@@ -642,26 +941,35 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         // decoder with split placement, whose tokens `ctx` and `cached` then do not hold).
         llama_context * logits_ctx = s->ctx;
         llama_context * gen = hand_off(*s);
+        const bool gen_is_ctx = gen == s->ctx;
         common_batch batch(gen);
-        while (n_gen < max_tokens) {
-            if (cancelled(*s)) {
-                finish = "cancelled";
-                break;
-            }
-            if ((int) pos + 1 >= s->n_ctx) {
-                finish = "length";
-                break;
-            }
-            const llama_token tok = common_sampler_sample(smpl, logits_ctx, -1);
+
+        // ---- speculation: on when a draft is loaded, the prompt is text and both memories can
+        // drop rejected drafts
+        SpeculativeSchedule sched;
+        sched.always = spec_mode == "on";
+        std::string spec_status;  // why this reply does not speculate ("" = it does)
+        if (spec_mode == "off") spec_status = "off";
+        else if (!s->draft_model) spec_status = !draft_path.empty() && draft_path == s->draft_refused ? "refused" : "no_draft";
+        else if (!images.empty()) spec_status = "images";
+        else if (!(gen_is_ctx ? s->partial_rm : s->dec_partial_rm)) spec_status = "unsupported";
+        bool speculating = spec_status.empty();
+        std::vector<llama_token> drafts;
+
+        // Handles one token sampled (and not yet accepted) by the model's sampler: thinking,
+        // stops, streaming, limits. Returns true when the reply ends here; that token is then not
+        // decoded.
+        auto step = [&](llama_token tok) -> bool {
             common_sampler_accept(smpl, tok, true);
             const bool was_inside = span.inside;
             const bool span_closed = span.accept(tok);
             if (llama_vocab_is_eog(vocab, tok)) {
                 finish = "stop";
-                break;
+                return true;
             }
             out += common_token_to_piece(s->ctx, tok);
             ++n_gen;
+            if (speculating) seq.push_back(tok);
 
             if (span.inside && !closing) {
                 if (budget >= 0 && span.tokens >= budget) {
@@ -688,17 +996,12 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                 sink.delta(AUTOBOT_LLAMA_DELTA_REASONING_STATUS, reasoning_status(span.tokens, span_closed, span_closed ? reasoning_stop : ""));
             }
 
-            bool stopped = false;
             for (const auto & stop : chat.additional_stops) {
                 if (!stop.empty() && out.size() >= stop.size() && out.compare(out.size() - stop.size(), stop.size(), stop) == 0) {
                     out.resize(out.size() - stop.size());
-                    stopped = true;
-                    break;
+                    finish = "stop";
+                    return true;
                 }
-            }
-            if (stopped) {
-                finish = "stop";
-                break;
             }
 
             // Streamed before this token is decoded, so text shows one step sooner; every token at
@@ -713,21 +1016,135 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                 }
                 if (sink.stop) {
                     finish = "cancelled";
-                    break;
+                    return true;
                 }
             }
+            if (n_gen >= max_tokens) {
+                finish = "length";
+                return true;
+            }
+            return false;
+        };
 
-            batch.clear();
-            batch.add(tok, pos, 0, true);
-            if (llama_process(gen, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
-                // The memory may hold part of this step: return to a consistent point.
-                if (gen == s->ctx && !s->partial_rm) truncate_cache(*s, s->cached.size(), true);
-                finish = "error";
+        // A decode on `gen` failed: the memory may hold part of the batch; return to the tokens
+        // that are known to be in it.
+        auto decode_failed = [&]() {
+            if (gen_is_ctx) {
+                if (!s->partial_rm) truncate_cache(*s, s->cached.size(), true);
+                else llama_memory_seq_rm(mem, 0, (llama_pos) s->cached.size(), -1);
+            }
+            finish = "error";
+        };
+
+        bool done = false;
+        llama_token tok = LLAMA_TOKEN_NULL;  // sampled and handled, not yet decoded (at `pos`)
+        if (cancelled(*s)) {
+            finish = "cancelled";
+            done = true;
+        } else if ((int) pos + 1 >= s->n_ctx || max_tokens <= 0) {
+            done = true;
+        } else {
+            tok = common_sampler_sample(smpl, logits_ctx, -1);
+            done = step(tok);
+        }
+        while (!done) {
+            if (cancelled(*s)) {
+                finish = "cancelled";
                 break;
             }
+            // Drafts that fit: every verified position stays inside the context (with room for
+            // the token sampled after the last of them) and the output limit. A long catch-up of
+            // the draft waits until the reply turns out not to be short.
+            const int room = std::min(s->n_ctx - 3 - (int) pos, max_tokens - n_gen - 1);
+            int k = speculating && sched.speculate_now() ? sched.next_k(room) : 0;
+            if (k > 0 && n_gen < DRAFT_LONG_REPLY && draft_catchup(*s, seq) > DRAFT_CATCHUP_SHORT) k = 0;
+            if (k > 0) {
+                // ---- speculative round: draft k tokens after `tok`, verify [tok, drafts] in one batch
+                const int64_t t0 = ggml_time_us();
+                const int synced = draft_sync(*s, seq);
+                if (synced == -2) {
+                    finish = "cancelled";
+                    break;
+                }
+                const int64_t t_synced = ggml_time_us();
+                const bool ok = synced >= 0 && draft_propose(*s, k, drafts);
+                if (!ok) {
+                    LOGE("draft failed; generating the rest without speculation");
+                    speculating = false;
+                    spec_status = "draft_failed";
+                    drafts.clear();
+                }
+                // A long sync was the prompt's prefill on the draft: not a draft step.
+                const double draft_ms = (double) (ggml_time_us() - (synced > (int) DRAFT_SYNC_STEP ? t_synced : t0)) / 1000.0;
+                if (!drafts.empty()) {
+                    batch.clear();
+                    batch.add(tok, pos, 0, true);
+                    for (size_t i = 0; i < drafts.size(); ++i) batch.add(drafts[i], pos + 1 + (llama_pos) i, 0, true);
+                    const int64_t t1 = ggml_time_us();
+                    if (llama_process(gen, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+                        decode_failed();
+                        break;
+                    }
+                    llama_synchronize(gen);
+                    const int64_t t2 = ggml_time_us();
+                    logits_ctx = gen;
+                    if (gen_is_ctx) s->cached.push_back(tok);
+                    ++pos;
+                    // Each token is sampled by the model's sampler from the model's logits at its
+                    // position, exactly as plain decoding would; a draft token is kept while the
+                    // sample equals it (its logits are then the next position's).
+                    int n_accepted = 0;
+                    int emitted = 0;
+                    bool stop = false;
+                    for (size_t i = 0; i <= drafts.size(); ++i) {
+                        const llama_token t = common_sampler_sample(smpl, gen, (int) i);
+                        ++emitted;
+                        if (step(t)) {
+                            stop = true;
+                            break;
+                        }
+                        if (i < drafts.size() && t == drafts[i]) {
+                            if (gen_is_ctx) s->cached.push_back(t);
+                            ++pos;
+                            ++n_accepted;
+                            continue;
+                        }
+                        tok = t;
+                        break;
+                    }
+                    const double verify_ms = (double) (t2 - t1) / 1000.0;
+                    const double host_ms = (double) (ggml_time_us() - t2) / 1000.0;
+                    // Rejected drafts (and a stopping token) leave the model's memory.
+                    if (n_accepted < (int) drafts.size() && !llama_memory_seq_rm(llama_get_memory(gen), 0, pos, -1)) {
+                        LOGE("could not drop rejected drafts");
+                        decode_failed();
+                        break;
+                    }
+                    sched.on_round((int) drafts.size(), n_accepted, draft_ms, verify_ms, !stop, host_ms, emitted);
+                    if (stop) break;
+                    continue;
+                }
+            }
+            // ---- plain step: decode `tok`, sample the next one
+            batch.clear();
+            batch.add(tok, pos, 0, true);
+            const int64_t t1 = ggml_time_us();
+            if (llama_process(gen, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
+                decode_failed();
+                break;
+            }
+            if (speculating) llama_synchronize(gen);
+            const int64_t t2 = ggml_time_us();
             logits_ctx = gen;
-            if (gen == s->ctx) s->cached.push_back(tok);
+            if (gen_is_ctx) s->cached.push_back(tok);
             ++pos;
+            if ((int) pos + 1 >= s->n_ctx) {
+                finish = "length";
+                break;
+            }
+            tok = common_sampler_sample(smpl, logits_ctx, -1);
+            done = step(tok);
+            if (speculating) sched.on_plain_step((double) (t2 - t1) / 1000.0, (double) (ggml_time_us() - t2) / 1000.0);
         }
         common_sampler_free(smpl);
 
@@ -767,6 +1184,31 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         usage["backend"] = s->backend;
         usage["prompt_ms"] = (double) prompt_us / 1000.0;
         usage["generation_ms"] = (double) (ggml_time_us() - t_gen) / 1000.0;
+        if (!draft_path.empty()) {
+            auto sp = common_json::object();
+            sp["status"] = spec_status.empty() ? std::string("active") : spec_status;
+            if (spec_status == "refused") sp["reason"] = s->draft_refusal;
+            if (spec_status == "unsupported") sp["reason"] = "the model's memory cannot drop rejected drafts (hybrid/recurrent layers)";
+            if (s->draft_model) {
+                char desc[256] = {0};
+                llama_model_desc(s->draft_model, desc, sizeof(desc));
+                sp["draft"] = std::string(desc);
+                sp["backend"] = s->draft_backend;
+            }
+            sp["rounds"] = sched.rounds;
+            sp["drafted"] = sched.drafted;
+            sp["accepted"] = sched.accepted;
+            sp["acceptance"] = sched.drafted > 0 ? (double) sched.accepted / sched.drafted : 0.0;
+            sp["k"] = sched.k;
+            sp["paused"] = sched.paused_once;
+            // What the schedule measured on this device (ms): it picks k and pauses from these.
+            sp["alpha"] = sched.alpha();
+            sp["plain_ms"] = sched.t_plain;
+            sp["draft_ms"] = sched.t_draft;
+            sp["extra_ms"] = sched.t_extra;
+            sp["host_ms"] = sched.t_host;
+            usage["speculative"] = sp;
+        }
         result["usage"] = usage;
         return result.dump();
     } catch (const std::exception & e) {
@@ -828,6 +1270,7 @@ void load_decoder(Session & s, const std::string & path, int n_threads, LoadAbor
     }
     s.dec_model = model;
     s.dec_ctx = ctx;
+    s.dec_partial_rm = common_context_can_seq_rm(ctx) == COMMON_CONTEXT_SEQ_RM_TYPE_PART;
     s.backend += "+cpu";
 }
 
@@ -934,6 +1377,7 @@ autobot_llama_session * autobot_llama_load_abortable(const char * path_c, int n_
         s->ctx = ctx;
         s->n_ctx = (int) llama_n_ctx(ctx);
         s->backend = kind;
+        s->n_threads = n_threads;
         s->templates = common_chat_templates_init(model, "");
         s->thinking = thinking_caps(s->templates.get());
         s->partial_rm = common_context_can_seq_rm(ctx) == COMMON_CONTEXT_SEQ_RM_TYPE_PART;
@@ -1007,12 +1451,32 @@ void autobot_llama_free(autobot_llama_session * s) {
         llama_model_free(s->model);
         if (s->dec_ctx) llama_free(s->dec_ctx);
         if (s->dec_model) llama_model_free(s->dec_model);
+        free_draft(*s);
     }
     delete s;
 }
 
 void autobot_llama_string_free(char * str) {
     std::free(str);
+}
+
+char * autobot_llama_draft_check(const char * model_path, const char * draft_path) {
+    auto out = common_json::object();
+    auto mparams = llama_model_default_params();
+    mparams.vocab_only = true;
+    llama_model * target = model_path && *model_path ? llama_model_load_from_file(model_path, mparams) : nullptr;
+    llama_model * draft = target && draft_path && *draft_path ? llama_model_load_from_file(draft_path, mparams) : nullptr;
+    if (!target || !draft) {
+        out["compatible"] = false;
+        out["reason"] = !target ? "the chat model cannot be read" : "the draft model cannot be read";
+    } else {
+        const std::string why = vocab_mismatch(target, draft);
+        out["compatible"] = why.empty();
+        if (!why.empty()) out["reason"] = why;
+    }
+    if (draft) llama_model_free(draft);
+    if (target) llama_model_free(target);
+    return dup(out.dump());
 }
 
 char * autobot_llama_chat_template(const char * path) {

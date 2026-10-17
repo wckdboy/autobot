@@ -3,6 +3,7 @@
 # CPU elsewhere) and links the core statically. Not part of the app builds:
 #   cmake -S engine/llama/bench -B <build> -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build <build>
 #   <build>/llama_bench model.gguf --backend gpu|cpu [--threads N] [--quick]
+#   <build>/spec_sched_test   (unit tests of the speculative decoding schedule)
 # With the NDK toolchain it builds the phone's configuration instead (shared, dynamically loaded
 # CPU variants + Adreno OpenCL, as engine/llama/src/main/cpp does); android.sh builds, pushes
 # and runs it on a connected phone together with the app's pinned Hexagon libraries.
@@ -74,5 +75,9 @@ if(ANDROID)
 endif()
 if(APPLE)
     # Newer core entry points are weak in the bench, so an older core still links.
-    target_link_options(llama_bench PRIVATE "-Wl,-U,_autobot_llama_load_abortable" "-Wl,-U,_autobot_llama_chat_template")
+    target_link_options(llama_bench PRIVATE "-Wl,-U,_autobot_llama_load_abortable" "-Wl,-U,_autobot_llama_chat_template" "-Wl,-U,_autobot_llama_draft_check")
 endif()
+
+# Unit tests of the speculative decoding schedule (no model needed).
+add_executable(spec_sched_test spec_sched_test.cpp)
+target_include_directories(spec_sched_test PRIVATE ${CORE_DIR})
