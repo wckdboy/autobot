@@ -396,3 +396,26 @@ class IncognitoImagesTest {
         assertTrue(IncognitoImages.toolNote(2).contains("not saved"))
     }
 }
+
+class PanicCopyTest {
+    @Test
+    fun saysWhatIsDestroyedAndThatItIsFinal() {
+        for (body in listOf(PanicCopy.wipeConfirmBody(10, eraseModels = false), PanicCopy.duressConfirmBody(eraseModels = true))) {
+            assertTrue(body.contains(PanicCopy.DESTROYED))
+            assertTrue(body.contains(PanicCopy.CANNOT_UNDO))
+        }
+        assertTrue(PanicCopy.wipeConfirmBody(10, eraseModels = false).contains("models are kept"))
+        assertTrue(PanicCopy.duressConfirmBody(eraseModels = true).contains("models are deleted"))
+        assertTrue(PanicCopy.duressConfirmBody(eraseModels = false).contains("never with biometrics"))
+    }
+
+    @Test
+    fun values() {
+        assertEquals("Off", PanicCopy.wipeValue(0))
+        assertEquals("After 15", PanicCopy.wipeValue(15))
+        assertEquals("1 attempt left before Autobot erases everything", PanicCopy.attemptsLeft(1))
+        assertEquals("2 attempts left before Autobot erases everything", PanicCopy.attemptsLeft(2))
+        assertEquals("Try again in 0:30", PanicCopy.tryAgainIn(29_001))
+        assertEquals("Try again in 5:00", PanicCopy.tryAgainIn(300_000))
+    }
+}
