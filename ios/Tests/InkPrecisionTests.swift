@@ -198,12 +198,49 @@ struct InkPrecisionTests {
 
     private var dir: String? { ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_DIR"] }
 
-    /// Renders [view] (black ink on clear) at [scale] and returns its alpha (0…1) row by row.
-    private func raster(_ view: some View, size: CGSize, scale: Double, name: String) throws -> (alpha: [Double], width: Int, height: Int) {
-        let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height).environment(\.displayScale, CGFloat(scale)))
-        renderer.scale = CGFloat(scale)
-        renderer.isOpaque = false
-        let image = try #require(renderer.cgImage)
+    /// How long a blank render is retried (see [raster]).
+    static let renderDeadline: Duration = .seconds(90)
+
+    /// Set once a render stayed blank for [renderDeadline]: later blank renders fail at once.
+    private static var rendererStuck = false
+
+    /**
+     Renders [view] (black ink on clear) at [scale] and returns its alpha (0…1) row by row.
+
+     ImageRenderer rasterises through RenderBox on the GPU. On a loaded machine (typically while
+     its pipelines are first prepared in the process) a render can block for many seconds and then
+     return a fully transparent picture: a renderer timeout, not a drawing. Every subject in this
+     suite has ink (even an empty bar's pins), so a blank picture is rendered again, for up to
+     [renderDeadline], instead of being measured; a subject that really draws nothing still fails.
+     Each render first yields the main actor, so the `@MainActor` suites running alongside are not
+     starved while this one rasterises.
+     */
+    private func raster(_ view: some View, size: CGSize, scale: Double, name: String) async throws -> (alpha: [Double], width: Int, height: Int) {
+        let clock = ContinuousClock()
+        let deadline = clock.now + Self.renderDeadline
+        var attempts = 0
+        while true {
+            await Task.yield()
+            attempts += 1
+            let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height).environment(\.displayScale, CGFloat(scale)))
+            renderer.scale = CGFloat(scale)
+            renderer.isOpaque = false
+            let image = try #require(renderer.cgImage)
+            let (alpha, w, h) = Self.alpha(image)
+            let blank = !alpha.contains { $0 > 0.004 }
+            if blank && !Self.rendererStuck && clock.now < deadline { continue }
+            if blank && !Self.rendererStuck {
+                Self.rendererStuck = true
+                Issue.record("\(name): the renderer returned a blank picture \(attempts) times in \(Self.renderDeadline)")
+            }
+            if attempts > 1 { record("blank renders retried", Double(attempts - 1)) }
+            if let dir { try UIImage(cgImage: image).pngData()?.write(to: URL(fileURLWithPath: "\(dir)/precision-\(name).png")) }
+            return (alpha, w, h)
+        }
+    }
+
+    /// The alpha channel of [image] (0…1), row by row.
+    private static func alpha(_ image: CGImage) -> (alpha: [Double], width: Int, height: Int) {
         let w = image.width, h = image.height
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         pixels.withUnsafeMutableBytes { buffer in
@@ -211,7 +248,6 @@ struct InkPrecisionTests {
                                     space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
             context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         }
-        if let dir { try UIImage(cgImage: image).pngData()?.write(to: URL(fileURLWithPath: "\(dir)/precision-\(name).png")) }
         return ((0 ..< w * h).map { Double(pixels[$0 * 4 + 3]) / 255 }, w, h)
     }
 
@@ -282,7 +318,7 @@ struct InkPrecisionTests {
         return matched
     }
 
-    @Test func barRasterIsPixelExact() throws {
+    @Test func barRasterIsPixelExact() async throws {
         let colors = InkBarColors(ink: .black, pin: .black, mark: .black)
         for scale in [1.0, 2, 3] {
             for height in [2.0, 3] {
@@ -293,7 +329,7 @@ struct InkPrecisionTests {
                         let canvas = Canvas { context, s in
                             InkBar.draw(&context, size: s, state: state, fraction: state.value, seconds: 0, colors: colors, scale: scale)
                         }
-                        let (alpha, w, h) = try raster(canvas, size: size, scale: scale, name: "bar-\(label)-\(Int(width))x\(Int(height))@\(Int(scale))x")
+                        let (alpha, w, h) = try await raster(canvas, size: size, scale: scale, name: "bar-\(label)-\(Int(width))x\(Int(height))@\(Int(scale))x")
                         let tag = "bar \(label) \(width)×\(height) @\(scale)×"
                         #expect(h == bar.diameterPx, "\(tag): height \(h) px")
                         let radii = InkBar.radii(count: bar.axis.count, fullRadius: bar.fullRadiusPx, state: state, fraction: state.value, seconds: 0)
@@ -324,7 +360,7 @@ struct InkPrecisionTests {
         }
     }
 
-    @Test func cardFieldRasterIsPixelExact() throws {
+    @Test func cardFieldRasterIsPixelExact() async throws {
         let base = Double(Tokens.Motion.cardDotPitch)
         for scale in [1.0, 2, 3] {
             for (width, height) in [(160.0, 130.0), (183, 268), (361, 100)] {
@@ -333,7 +369,7 @@ struct InkPrecisionTests {
                     let size = CGSize(width: width, height: height)
                     grid.layout(size, base: base, maxDots: Int(Tokens.Motion.cardMaxDots), fade: nil, scale: scale)
                     let canvas = Canvas { context, _ in context.fill(InkField.path(grid, cycle: cycle), with: .color(.black)) }
-                    let (alpha, w, h) = try raster(canvas, size: size, scale: scale, name: "card-\(Int(width))x\(Int(height))-\(Int(cycle * 100))@\(Int(scale))x")
+                    let (alpha, w, h) = try await raster(canvas, size: size, scale: scale, name: "card-\(Int(width))x\(Int(height))-\(Int(cycle * 100))@\(Int(scale))x")
                     let tag = "card \(width)×\(height) t\(cycle) @\(scale)×"
                     let radii = InkField.radii(grid, cycle: cycle)
                     let expected = (0 ..< grid.count).map { (x: grid.xs[$0] * scale, y: grid.ys[$0] * scale, r: radii[$0] * scale) }
@@ -375,12 +411,12 @@ struct InkPrecisionTests {
         }
     }
 
-    @Test func loaderRasterIsPixelExact() throws {
+    @Test func loaderRasterIsPixelExact() async throws {
         for scale in [1.0, 2, 3] {
             for size in [InkLoader.Size.inline, .button, .block] {
                 let frame = InkLoader.frame(size, scale: CGFloat(scale))
                 let canvas = Canvas { context, s in context.fill(InkLoader.dots(size, in: s, seconds: 0.2, scale: scale), with: .color(.black)) }
-                let (alpha, w, h) = try raster(canvas, size: frame, scale: scale, name: "loader-\(size.cols)x\(size.rows)@\(Int(scale))x")
+                let (alpha, w, h) = try await raster(canvas, size: frame, scale: scale, name: "loader-\(size.cols)x\(size.rows)@\(Int(scale))x")
                 let found = blobs(alpha, width: w, height: h)
                 let (d, cols, rows) = InkLoader.layout(size, in: frame, scale: scale)
                 try #require(found.count == cols.count * rows.count)

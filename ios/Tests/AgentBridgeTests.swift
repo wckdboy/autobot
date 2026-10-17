@@ -145,13 +145,13 @@ final class LlmStub: URLProtocol, @unchecked Sendable {
     }
 }
 
-/// Polls [condition] until it holds or [timeout] passes (any thread).
+/// Polls [condition] until it holds or [timeout] of polling passes (any thread; see [PollBudget]).
 func waitFor(_ timeout: Duration = .seconds(15), _ condition: @Sendable () -> Bool) async -> Bool {
-    let clock = ContinuousClock()
-    let end = clock.now + timeout
-    while clock.now < end {
+    var budget = PollBudget(timeout)
+    while !budget.spent {
         if condition() { return true }
-        try? await Task.sleep(for: .milliseconds(20))
+        try? await Task.sleep(for: PollBudget.interval)
+        budget.tick()
     }
     return condition()
 }
