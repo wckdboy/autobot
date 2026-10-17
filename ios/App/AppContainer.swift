@@ -67,10 +67,12 @@ final class AppContainer {
     @ObservationIgnored private let engineRelease = EngineReleaseScheduler()
 
     init() {
+        LaunchTrace.mark("container.start")
         AppPaths.prepare()
         preferences = Preferences(background: true)
         settings = SettingsStore(preferences: preferences, policy: policy, lock: lock)
         clients = HttpClientFactory(policy: policy, auditLog: auditLog)
+        LaunchTrace.mark("container.settings")
         store = EncryptedStore(keys: keys)
         conversations = ConversationRepository(store: store)
         providers = ProviderRepository(store: store, secrets: secrets)
@@ -91,7 +93,9 @@ final class AppContainer {
         engines = DiffusionEngineFactory(clients: clients, llm: llm) { [compute] in compute.resolve($0) }
         generator = ImageGenerator(engines: engines, gallery: gallery, backends: backends, library: library)
         sessions = SessionStore(store: store)
+        LaunchTrace.mark("container.repositories")
         studio = StudioHub(store: store, keys: keys, clients: clients, preferences: preferences, secrets: secrets)
+        LaunchTrace.mark("container.studio")
         #if canImport(AutobotShared)
         searchSource = WebSearchSourceHost(secrets: secrets)
         let shared = SharedAgentRuntime(
@@ -106,6 +110,7 @@ final class AppContainer {
         let runner = studio.bridge.runner
         studio.onWorkflowsChanged = { [weak shared] any in shared?.setStudio(any ? runner : nil) }
         agent = shared
+        LaunchTrace.mark("container.bridge")
         #else
         agent = InterimAgentRuntime(store: sessions, conversations: conversations, providers: providers, factory: providerFactory, attachments: attachments)
         #endif
@@ -179,6 +184,7 @@ final class AppContainer {
         observers.append(center.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: nil) { _ in
             preferences.reloadIfNeeded()
         })
+        LaunchTrace.mark("container.done")
     }
 
     /// Drops decrypted content cached for rendering (gallery thumbnails, parsed chat text): panic wipe.
@@ -306,6 +312,7 @@ final class AppContainer {
         guard !dataLoaded else { return }
         conversations.load(first.conversations)
         providers.load(first.providers)
+        LaunchTrace.mark("data.first")
         let rows = await Task.detached(priority: .userInitiated) {
             (
                 mcpServers: McpServerRepository.read(store),
@@ -329,7 +336,9 @@ final class AppContainer {
         #endif
         dataLoaded = true
         modelsChanged()
+        LaunchTrace.mark("data.loaded")
         await studio.load()
+        LaunchTrace.mark("studio.loaded")
     }
 
     /**

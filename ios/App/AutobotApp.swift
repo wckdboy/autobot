@@ -6,6 +6,10 @@ struct AutobotApp: App {
     @State private var container = AppDelegate.makeContainer()
     @State private var navigator = Navigator()
 
+    init() {
+        LaunchTrace.mark("app.init")
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -62,6 +66,10 @@ struct RootView: View {
         .onChange(of: busy) { _, now in grace.workChanged(busy: now) }
         .onChange(of: app.lock.state) { _, state in
             if state == .unlocked { Task { await app.unlockData() } }
+        }
+        .onAppear {
+            LaunchTrace.mark("root.appear")
+            LaunchTrace.watchFrames { [app] in app.dataLoaded }
         }
         .task {
             if let inbox = SharedInbox.defaultRoot { SharedInbox.sweep(root: inbox) }
