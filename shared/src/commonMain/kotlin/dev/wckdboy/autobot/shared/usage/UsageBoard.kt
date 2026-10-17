@@ -275,8 +275,7 @@ object UsageBoard {
         val over = limit != null && used >= limit
         val resetsIn = resetsAt?.let { (it - now).coerceAtLeast(0) }
         val line = buildString {
-            append(UsageFormat.amount(used, window.unit))
-            limit?.let { append(" of ").append(UsageFormat.amount(it, window.unit)) }
+            append(limit?.let { UsageFormat.amountOf(used, it, window.unit) } ?: UsageFormat.amount(used, window.unit))
             when {
                 fixed -> append(" · resets ").append(QuotaErrors.inWords(resetsIn ?: 0))
                 resetsIn != null -> append(if (over) " · frees up " else " · oldest use rolls off ").append(QuotaErrors.inWords(resetsIn))
@@ -340,8 +339,15 @@ object UsageFormat {
     /** A window amount: `1.2M tokens`, `420 requests`, `$3.10`. */
     fun amount(value: Double, unit: LimitUnit): String = when (unit) {
         LimitUnit.TOKENS -> tokens(value.roundToLong()) + " tokens"
-        LimitUnit.REQUESTS -> value.roundToLong().toString() + " requests"
+        LimitUnit.REQUESTS -> value.roundToLong().let { if (it == 1L) "1 request" else "$it requests" }
         LimitUnit.USD -> usd(value)
+    }
+
+    /** [value] of [limit], the unit said once: `3 of 10 requests`, `1.2k of 5M tokens`, `$1.20 of $5.00`. */
+    fun amountOf(value: Double, limit: Double, unit: LimitUnit): String = when (unit) {
+        LimitUnit.TOKENS -> tokens(value.roundToLong()) + " of " + amount(limit, unit)
+        LimitUnit.REQUESTS -> value.roundToLong().toString() + " of " + amount(limit, unit)
+        LimitUnit.USD -> usd(value) + " of " + usd(limit)
     }
 
     /** A price per 1M tokens for the editor: `3`, `0.3`, `1.25`; blank when unknown. */

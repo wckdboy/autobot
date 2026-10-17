@@ -124,7 +124,7 @@ class UsageMathTest {
         assertTrue(status.over)
         assertEquals(1.0, status.fraction!!, 1e-9)
         assertEquals(now - 4 * h + UsageLedger.FINE_SPAN + 5 * h, status.resetsAt)
-        assertEquals("2 requests of 2 requests · frees up in ~1 h", status.line)
+        assertEquals("2 of 2 requests · frees up in ~1 h", status.line)
     }
 
     @Test
@@ -135,7 +135,15 @@ class UsageMathTest {
         assertEquals(150.0, status.used, 0.0) // only the bucket since 10:00
         assertEquals(15 * h, status.resetsAt)
         assertFalse(status.over)
-        assertEquals("150 tokens of 1.0k tokens · resets in ~3 h", status.line)
+        assertEquals("150 of 1.0k tokens · resets in ~3 h", status.line)
+    }
+
+    @Test
+    fun amountsSayTheUnitOnceAndCountOneRequestInTheSingular() {
+        assertEquals("1 request", UsageFormat.amount(1.0, LimitUnit.REQUESTS))
+        assertEquals("0 requests", UsageFormat.amount(0.0, LimitUnit.REQUESTS))
+        assertEquals("1 of 10 requests", UsageFormat.amountOf(1.0, 10.0, LimitUnit.REQUESTS))
+        assertEquals("0 of 1 request", UsageFormat.amountOf(0.0, 1.0, LimitUnit.REQUESTS))
     }
 
     @Test

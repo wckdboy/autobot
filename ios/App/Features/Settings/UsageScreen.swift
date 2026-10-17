@@ -256,6 +256,8 @@ private struct PriceEditorSheet: View {
     @State private var output: String
     @State private var cacheRead: String
     @State private var cacheWrite: String
+    /// Saved once: a quick second tap while the sheet closes does nothing.
+    @State private var saved = false
     @Environment(\.scheme) private var c
 
     init(row: UsageReportModel.PriceRow, onSave: @escaping (String, String, String, String) -> Void, onCancel: @escaping () -> Void) {
@@ -280,7 +282,13 @@ private struct PriceEditorSheet: View {
                 ConsoleTextField(text: $cacheWrite, placeholder: "= input", label: "Cache write", kind: .decimal)
                 Text("From the provider's pricing page. Blank stays unknown; blank cache prices count at the input price.")
                     .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                PrimaryButton("Save") { onSave(input, output, cacheRead, cacheWrite) }
+                // A mistyped price is not saved as unknown.
+                let valid = [input, output, cacheRead, cacheWrite].allSatisfy { Self.isPrice($0) }
+                PrimaryButton("Save", enabled: valid && !saved) {
+                    guard valid, !saved else { return }
+                    saved = true
+                    onSave(input, output, cacheRead, cacheWrite)
+                }
                 TextAction("Cancel", color: c.onSurfaceVariant, action: onCancel).frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 24)
@@ -288,6 +296,11 @@ private struct PriceEditorSheet: View {
         }
         .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
+    }
+
+    /// Blank (unknown) or a price [UsageFormat.parsePrice] reads.
+    static func isPrice(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespaces).isEmpty || UsageFormat.shared.parsePrice(text: text) != nil
     }
 }
 
@@ -299,6 +312,7 @@ private struct WindowEditorSheet: View {
     let onCancel: () -> Void
     @State private var window: UsageReportModel.Plan.Window
     @State private var limit: String
+    @State private var saved = false
     @Environment(\.scheme) private var c
 
     init(initial: WindowDraft, providers: [Provider], onSave: @escaping (UsageReportModel.Plan.Window) -> Void, onDelete: @escaping () -> Void, onCancel: @escaping () -> Void) {
@@ -351,12 +365,24 @@ private struct WindowEditorSheet: View {
                 ConsoleTextField(text: $limit, placeholder: "none", label: "Limit", kind: .decimal)
                 Text("Enter the limit from your plan's page. Rolling counts the last \(short); fixed starts over at the same time each \(short).")
                     .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                PrimaryButton("Save") {
+                // Blank is no limit; a mistyped limit is not (Android's `parseLimit`).
+                let blank = limit.trimmingCharacters(in: .whitespaces).isEmpty
+                let parsed = UsageLimit.parse(limit, unit: window.unit)
+                PrimaryButton("Save", enabled: (blank || parsed != nil) && !saved) {
+                    guard blank || parsed != nil, !saved else { return }
+                    saved = true
                     var w = window
-                    w.limit = UsageFormat.shared.parsePrice(text: limit)?.doubleValue
+                    w.limit = parsed
                     onSave(w)
                 }
-                if !isNew { TextAction("Delete window", color: c.error, action: onDelete).frame(maxWidth: .infinity) }
+                if !isNew {
+                    TextAction("Delete window", color: c.error) {
+                        guard !saved else { return }
+                        saved = true
+                        onDelete()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
                 TextAction("Cancel", color: c.onSurfaceVariant, action: onCancel).frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 24)
@@ -367,3 +393,19 @@ private struct WindowEditorSheet: View {
     }
 }
 
+/**
+ A window limit as typed (port of Android's `parseLimit`): dollars like a price, token and request
+ counts as whole numbers that may carry grouping (`1,000,000`, `1.000.000`, `1 000 000`). Nil: not
+ a number (blank included).
+ */
+enum UsageLimit {
+    static func parse(_ text: String, unit: String) -> Double? {
+        if unit == "USD" { return UsageFormat.shared.parsePrice(text: text)?.doubleValue }
+        let t = text.trimmingCharacters(in: .whitespaces)
+        guard t.wholeMatch(of: wholeCount) != nil else { return nil }
+        return Int64(String(t.filter { $0.isASCII && $0.isNumber })).map(Double.init)
+    }
+
+    /// `1500000`, or digits grouped by threes with one separator (`1,500,000`); `1.5` is not a count.
+    nonisolated(unsafe) private static let wholeCount = /[0-9]+|[0-9]{1,3}([,. _'\u{00A0}\u{202F}])[0-9]{3}(\1[0-9]{3})*/
+}
