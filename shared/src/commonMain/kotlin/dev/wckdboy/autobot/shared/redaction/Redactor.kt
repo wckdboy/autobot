@@ -25,8 +25,18 @@ class Redacted(val text: String, val placeholders: Set<String>)
  */
 class RedactionVault {
 
-    /** [forms]: how the value was written so far ("DE89 3704 …" and "DE893704…" are one IBAN). */
-    private class Entry(val kind: PiiKind, val value: String, val placeholder: String?, val digits: String?, val forms: MutableSet<String> = mutableSetOf(value))
+    /**
+     * [forms]: how the value was written so far ("DE89 3704 …" and "DE893704…" are one IBAN).
+     * [literal]: the value is placeholder-shaped text the user wrote themselves ("[PERSON_1]").
+     */
+    private class Entry(
+        val kind: PiiKind,
+        val value: String,
+        val placeholder: String?,
+        val digits: String?,
+        val forms: MutableSet<String> = mutableSetOf(value),
+        val literal: Boolean = false,
+    )
 
     private val lock = Lock()
     /** Normalised value → entry ([key]). Candidates have no placeholder yet. */
@@ -44,8 +54,11 @@ class RedactionVault {
     /** Placeholders handed out so far. */
     val size: Int get() = lock.withLock { byPlaceholder.size }
 
-    /** The kind of [placeholder] (`[EMAIL_1]`), if this vault handed it out. */
-    fun kindOf(placeholder: String): PiiKind? = lock.withLock { byPlaceholder[placeholder]?.kind }
+    /**
+     * The kind of [placeholder] (`[EMAIL_1]`), if this vault handed it out for personal data
+     * (not for placeholder-shaped text the user wrote, which hides nothing).
+     */
+    fun kindOf(placeholder: String): PiiKind? = lock.withLock { byPlaceholder[placeholder]?.takeUnless { it.literal }?.kind }
 
     /** The value behind [placeholder], if this vault handed it out. */
     fun valueOf(placeholder: String): String? = lock.withLock { byPlaceholder[placeholder]?.value }
@@ -61,7 +74,10 @@ class RedactionVault {
         lock.withLock { cache[text]?.takeIf { it.version == version }?.let { return it.result } }
         // Detection is pure and runs outside the lock; numbering and replacement run under it.
         val spans = PiiDetector.detect(text, names)
+        val literals = if ('[' in text || '%' in text) PLACEHOLDER.findAll(text).toList() else emptyList()
         return lock.withLock {
+            // Placeholder-shaped text the user wrote comes first: its numbers are never handed out.
+            for (m in literals) literal(m)
             for (span in spans) register(span.kind, span.value)
             val result = replace(text)
             if (cache.size >= MAX_CACHED) cache.clear()
@@ -136,9 +152,35 @@ class RedactionVault {
         return entry
     }
 
+    /**
+     * Placeholder-shaped text in the input ([m], `[PERSON_1]` in a template the user pasted).
+     * Its number is reserved so no personal value gets it; when it already names a value, the
+     * text gets a placeholder of its own, so the model can tell the two apart and the answer
+     * restores each to what it was. URL-encoded ones only reserve their number. Call under [lock].
+     */
+    private fun literal(m: MatchResult) {
+        val kind = PiiKind.of(m.groupValues[2]) ?: return
+        val n = m.groupValues[3].toIntOrNull() ?: return
+        val bracket = "[${kind.tag}_$n]"
+        val owner = byPlaceholder[bracket]
+        if (owner == null && counters[kind.ordinal] < n) counters[kind.ordinal] = n
+        if (m.groupValues[1] != "[") return
+        val k = "l:$bracket"
+        if (k in entries) return
+        if (owner == null) {
+            // Kept as written: it stands for itself.
+            val entry = Entry(kind, bracket, bracket, null, literal = true)
+            entries[k] = entry
+            byPlaceholder[bracket] = entry
+            version++
+        } else if (!owner.literal) {
+            number(k, Entry(kind, bracket, null, null, literal = true))
+        }
+    }
+
     private fun number(k: String, entry: Entry): Entry {
         val n = ++counters[entry.kind.ordinal]
-        val numbered = Entry(entry.kind, entry.value, "[${entry.kind.tag}_$n]", entry.digits, entry.forms)
+        val numbered = Entry(entry.kind, entry.value, "[${entry.kind.tag}_$n]", entry.digits, entry.forms, entry.literal)
         entries[k] = numbered
         byPlaceholder[numbered.placeholder!!] = numbered
         version++
@@ -168,6 +210,11 @@ class RedactionVault {
                 if (at < 0) break
                 from = at + 1
                 val end = at + form.length
+                // A literal placeholder is bracketed: it counts wherever it is written.
+                if (e.literal) {
+                    hits += Hit(at, end, k)
+                    continue
+                }
                 if (!bounded(text, at, end)) continue
                 if (e.kind.wordy || (e.kind == PiiKind.PRIVATE && e.digits == null)) {
                     if (guards.blocked(at, end)) continue
