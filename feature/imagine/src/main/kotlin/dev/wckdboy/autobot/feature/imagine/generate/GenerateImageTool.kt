@@ -34,13 +34,13 @@ class GenerateImageTool(
             "visual tags or a short scene description (subject, style, lighting, composition). Omitted parameters reuse " +
             "the user's current Imagine settings. Images are saved to the user's private gallery."
     override val parameters = schema {
-        string("prompt", "Positive prompt", required = true)
+        string("prompt", "Positive prompt; {a|b} makes one image per option (same seed)", required = true)
         string("negative_prompt", "What to avoid")
         integer("width", "Width in px (multiple of 8)", minimum = 256, maximum = 2048)
         integer("height", "Height in px (multiple of 8)", minimum = 256, maximum = 2048)
         integer("steps", "Sampling steps", minimum = 1, maximum = 100)
         integer("seed", "Seed, or -1 for random", minimum = -1)
-        integer("count", "Number of images (1–4)", minimum = 1, maximum = 4)
+        integer("count", "Images per prompt (1–4)", minimum = 1, maximum = 4)
     }
     override val timeoutMs: Long = 15 * 60_000L
 
@@ -62,7 +62,7 @@ class GenerateImageTool(
             batchCount = args.int("count") ?: 1,
         )
         return try {
-            val images = generator.generate(backend, request, source = GenerationSource.AGENT)
+            val images = generator.generate(backend, request.calls(), source = GenerationSource.AGENT)
             ToolOutput(
                 content = "Generated ${images.size} image(s) on ${backend.name}: " +
                     images.joinToString { "gallery:${it.galleryId} (seed ${it.seed}, ${it.width}×${it.height}, ${it.durationMs / 1000.0}s)" } +

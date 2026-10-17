@@ -150,12 +150,12 @@ class ImageGenerator @Inject constructor(
     ): List<GeneratedImage> = generate(backend, listOf(request), inputs, source, onResult)
 
     /** Runs [calls] one after another as one job (one slot, one progress state). */
-    private suspend fun generate(
+    suspend fun generate(
         backend: DiffusionBackend,
         calls: List<DiffusionRequest>,
-        inputs: DiffusionInputs,
-        source: GenerationSource,
-        onResult: (GeneratedImage) -> Unit,
+        inputs: DiffusionInputs = DiffusionInputs(),
+        source: GenerationSource = GenerationSource.USER,
+        onResult: (GeneratedImage) -> Unit = {},
     ): List<GeneratedImage> = mutex.withLock {
         val engine = engines.create(backend)
         val started = System.currentTimeMillis()

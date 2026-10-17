@@ -19,13 +19,13 @@ final class GenerateImageTool: NSObject, HostTool, @unchecked Sendable {
     /// The JSON the Kotlin `schema { … }` DSL builds for Android's tool.
     let parametersJson = """
     {"type":"object","properties":{\
-    "prompt":{"type":"string","description":"Positive prompt"},\
+    "prompt":{"type":"string","description":"Positive prompt; {a|b} makes one image per option (same seed)"},\
     "negative_prompt":{"type":"string","description":"What to avoid"},\
     "width":{"type":"integer","minimum":256,"maximum":2048,"description":"Width in px (multiple of 8)"},\
     "height":{"type":"integer","minimum":256,"maximum":2048,"description":"Height in px (multiple of 8)"},\
     "steps":{"type":"integer","minimum":1,"maximum":100,"description":"Sampling steps"},\
     "seed":{"type":"integer","minimum":-1,"description":"Seed, or -1 for random"},\
-    "count":{"type":"integer","minimum":1,"maximum":4,"description":"Number of images (1–4)"}},\
+    "count":{"type":"integer","minimum":1,"maximum":4,"description":"Images per prompt (1–4)"}},\
     "required":["prompt"],"additionalProperties":false}
     """
     let timeoutMs_: Int64 = 15 * 60_000
@@ -68,7 +68,7 @@ final class GenerateImageTool: NSObject, HostTool, @unchecked Sendable {
         if generator.isBusy { return .error("the image backend is busy with another job; try again shortly", "BUSY") }
         let request = request(args, base: backends.lastRequest)
         do {
-            let images = try await generator.generate(backend, request, source: .agent)
+            let images = try await generator.generate(backend, request.calls(), DiffusionInputs(), source: .agent, onResult: { _ in })
             let list = images.map { "gallery:\($0.galleryId) (seed \($0.seed), \($0.width)×\($0.height), \(Double($0.durationMs) / 1000)s)" }
             let meta = try? JSONSerialization.data(withJSONObject: ["gallery": images.map(\.galleryId)])
             return Output(

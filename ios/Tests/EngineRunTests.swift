@@ -231,6 +231,28 @@ struct EngineRunTests {
         #expect(generator.lastError == nil)
     }
 
+    @Test func theAgentsWildcardPromptRunsOneCallPerPromptToo() async throws {
+        let base = "/\(run)/sdapi/v1/"
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).pngData { ctx in
+            UIColor.red.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        let answer = #"{"images":["\#(png.base64EncodedString())"],"info":"{\"seed\":7,\"width\":8,\"height\":8}"}"#
+        ServeStub.on(base + "txt2img") { _ in .body(status: 200, headers: ["Content-Type": "application/json"], data: Data(answer.utf8)) }
+        ServeStub.on(base + "progress") { _ in .body(status: 200, headers: [:], data: Data(#"{"state":{"sampling_step":0}}"#.utf8)) }
+        let clients = HttpClientFactory(policy: NetworkPolicy(), auditLog: AuditLog(), protocolClasses: [ServeStub.self])
+        let gallery = GalleryRepository(store: store, keys: KeyManager())
+        let backends = DiffusionBackendRepository(preferences: Preferences(url: dir.appendingPathComponent("p.json")))
+        backends.save(DiffusionBackend(id: "pc", kind: .sdApi, name: "PC", baseUrl: "http://127.0.0.1/\(run)"))
+        let generator = ImageGenerator(engines: DiffusionEngineFactory(clients: clients, llm: LocalLlm()), gallery: gallery, backends: backends, library: library)
+
+        let out = await GenerateImageTool.run(["prompt": "a {red|blue} tram", "seed": 7], generator: generator, backends: backends)
+        #expect(!out.isError)
+        #expect(ServeStub.requests(base + "txt2img").count == 2)
+        #expect(Set(gallery.items.map(\.prompt)) == ["a red tram", "a blue tram"])
+        #expect(out.content.hasPrefix("Generated 2 image(s)"))
+    }
+
     // MARK: Engine memory
 
     private final class Unloads: Sendable {
