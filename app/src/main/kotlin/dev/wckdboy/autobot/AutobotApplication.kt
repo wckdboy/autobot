@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot
 
 import android.app.Application
+import android.os.Trace
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import dev.wckdboy.autobot.core.data.AttachmentRepository
@@ -60,24 +61,36 @@ class AutobotApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         if (getProcessName() != packageName) return
+        // A trace section, so startup traces (Perfetto, Macrobenchmark) show what this costs.
+        Trace.beginSection("Autobot.onCreate")
         // Before any activity starts: download notifications are only posted while the app is not on screen.
         visibility.get().install(this)
         val started = System.currentTimeMillis()
+        val scope = scope.get()
         // Open (decrypt, migrate) the database now, in parallel with the settings DataStore load,
         // instead of after the activity's first frame: MainActivity's gate then finds it ready.
         // Failures land in DatabaseHolder.state, which the activity shows as before.
-        scope.get().launch(Dispatchers.IO) {
+        scope.launch(Dispatchers.IO) {
             database.get().check()
             // Decrypted attachment copies a crashed request left behind (privacy).
             runCatching { attachments.get().clearPlainCopies(before = started) }
         }
+        // On the main thread, before the first activity: the lock observes the process lifecycle
+        // and must be armed (it starts locked) before anything shows; engines get their memory
+        // hooks before any job can start.
         appLockManager.get().install()
         engineMemory.get().install()
         settingsSync.get().start()
-        localProviderSync.get().start(scope.get())
-        onDeviceBackendSync.get().start(scope.get())
-        scope.get().launch { downloader.get().recoverAfterRestart() }
-        // The Studio queue: engines registered, then jobs queued before the app closed run on.
-        studio.get().start()
+        // The rest only follows data in the background: building those objects (the provider,
+        // model, backend and Studio repositories, HTTP clients, Studio engines) is not main-thread
+        // work and does not need to finish before the first frame.
+        scope.launch {
+            localProviderSync.get().start(scope)
+            onDeviceBackendSync.get().start(scope)
+            launch { downloader.get().recoverAfterRestart() }
+            // The Studio queue: engines registered, then jobs queued before the app closed run on.
+            studio.get().start()
+        }
+        Trace.endSection()
     }
 }

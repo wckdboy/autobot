@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.ReportDrawn
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -99,6 +100,9 @@ class MainActivity : FragmentActivity() {
         // Not on recreation (rotation): the request was already taken or is still pending.
         if (savedInstanceState == null) entry.receive(intent)
 
+        // The first frame is blank while settings load and the database opens; the activity reports
+        // itself fully drawn (logcat "Fully drawn", Macrobenchmark's time to full display) when a
+        // real screen shows: the startup time a person sees.
         setContent {
             val loaded by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
             val settings = loaded ?: AppSettings()
@@ -126,6 +130,7 @@ class MainActivity : FragmentActivity() {
                     if (!lockReady) {
                         // Settings not loaded yet: render nothing rather than risk showing content.
                     } else if (lockState is LockState.Locked) {
+                        ReportDrawn()
                         LockScreen(
                             message = lockMessage,
                             onUnlock = {
@@ -139,6 +144,7 @@ class MainActivity : FragmentActivity() {
                             },
                         )
                     } else if (databaseState is DatabaseState.Failed) {
+                        ReportDrawn()
                         DatabaseErrorScreen(
                             reason = (databaseState as DatabaseState.Failed).reason,
                             resetting = resetting,
@@ -153,6 +159,7 @@ class MainActivity : FragmentActivity() {
                     } else if (databaseState != DatabaseState.Open) {
                         // Opening the database (a moment): screens must not query it before it is known to work.
                     } else if (loaded?.onboarded == false) {
+                        ReportDrawn()
                         WelcomeScreen(
                             onSetUp = {
                                 backStack.clear()
@@ -185,6 +192,7 @@ class MainActivity : FragmentActivity() {
                             }
                         }
                         AutobotNavDisplay(backStack)
+                        ReportDrawn()
                     }
                     // On unlock, the lock screen's paper prints away over the app.
                     if (lockReady) InkPrintAway(locked = lockState is LockState.Locked)
