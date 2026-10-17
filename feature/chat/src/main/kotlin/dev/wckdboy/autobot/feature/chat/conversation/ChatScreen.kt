@@ -913,7 +913,7 @@ private fun InputBar(
                 ) {
                     when (state.dictation) {
                         Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
-                        Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary))
+                        Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary).semantics { contentDescription = "Stop dictating" })
                         Dictation.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, contentDescription = "Transcribing")
                     }
                 }
@@ -1022,9 +1022,9 @@ private fun VoicePanel(
                 ) {
                     when (voice.phase) {
                         VoicePhase.READY -> Icon(AutobotIcons.Mic, contentDescription = "Talk")
-                        VoicePhase.LISTENING -> Box(Modifier.size(16.dp).background(MaterialTheme.colorScheme.onPrimary))
+                        VoicePhase.LISTENING -> Box(Modifier.size(16.dp).background(MaterialTheme.colorScheme.onPrimary).semantics { contentDescription = "Send now" })
                         VoicePhase.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, color = LocalContentColor.current, contentDescription = "Transcribing")
-                        VoicePhase.THINKING -> Box(Modifier.size(14.dp).background(primary))
+                        VoicePhase.THINKING -> Box(Modifier.size(14.dp).background(primary).semantics { contentDescription = "Stop the agent" })
                         VoicePhase.SPEAKING -> Icon(AutobotIcons.Mic, contentDescription = "Interrupt")
                     }
                 }
@@ -1284,7 +1284,7 @@ private fun ThinkChip(setting: ThinkingSetting, onTap: () -> Unit, onMore: () ->
 
 /**
  * The redaction switch of a cloud chat: `▮ redact` while personal data becomes placeholders
- * before the provider sees it, struck through when off. A tap switches it for this chat.
+ * before the provider sees it, `redact off` dimmed (like an off Think chip) otherwise. A tap switches it for this chat.
  */
 @Composable
 private fun RedactChip(on: Boolean, onTap: () -> Unit) {

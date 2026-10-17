@@ -592,7 +592,7 @@ class ChatViewModel @AssistedInject constructor(
             Dictation.IDLE -> viewModelScope.launch {
                 val path = speechModelPath()
                 if (path == null) {
-                    notice.value = "Get a speech model in Models → speech to dictate"
+                    notice.value = "Get a speech model in Models › speech to dictate"
                     return@launch
                 }
                 missingSpeechModel(path)?.let {

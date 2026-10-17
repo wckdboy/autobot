@@ -14,7 +14,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 4× upscaling on the Hexagon NPU with an installed upscaler model (Models → upscale · npu). */
+/** 4× upscaling on the Hexagon NPU with an installed upscaler model (Models › upscale · npu). */
 @Singleton
 class Upscaler @Inject constructor(
     @ApplicationContext context: Context,
@@ -30,7 +30,7 @@ class Upscaler @Inject constructor(
     suspend fun upscale(image: ByteArray, modelId: String? = null, onProgress: (Int, Int) -> Unit = { _, _ -> }): ByteArray {
         val all = available()
         val model = all.firstOrNull { it.id == modelId } ?: all.firstOrNull()
-            ?: throw DiffusionException("No upscaler installed — get one in Models → upscale · npu", DiffusionException.Code.UNSUPPORTED)
+            ?: throw DiffusionException("No upscaler installed — get one in Models › upscale · npu", DiffusionException.Code.UNSUPPORTED)
         return withContext(Dispatchers.IO) { images.upscale(model, image, onProgress) }
     }
 }
