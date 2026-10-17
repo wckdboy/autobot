@@ -366,7 +366,7 @@ private struct StudioBar: View {
 
     /// The model loading (no steps yet) is indeterminate; sampling fills the bar.
     private var barState: InkBarState {
-        guard case .running(_, _, _, _, _, let total, _, _) = model.running else { return .progress(0, running: false) }
+        guard case .running(_, _, _, _, _, let total, _, _) = model.running else { return model.warming != nil ? .indeterminate : .progress(0, running: false) }
         return model.phase != nil || total == 0 ? .indeterminate : .progress(Double(progress), running: true)
     }
 
@@ -383,6 +383,7 @@ private struct StudioBar: View {
             if source == .agent { return "Agent is generating · \(seconds) s" }
             return "Running \(model.backend?.kind == .onDevice ? "on device" : "on \(backend)") · \(seconds) s"
         }
+        if let warming = model.warming { return warming }
         if !model.results.isEmpty { return "Done · \(model.results.count) image\(model.results.count == 1 ? "" : "s")" }
         if let blocker = model.generateBlocker, !blocker.isEmpty { return blocker }
         return "\(r.mode.label) · \(r.sampler.isEmpty ? "default sampler" : r.sampler) · cfg \(String(format: "%.1f", r.cfgScale))"

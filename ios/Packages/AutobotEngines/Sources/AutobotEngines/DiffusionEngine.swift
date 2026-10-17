@@ -195,6 +195,24 @@ public actor DiffusionEngine {
         })
     }
 
+    /**
+     * Loads [model]'s pipeline for [backend] ahead of the first image (the user is writing a
+     * prompt), so Generate starts sampling instead of loading; on a phone that never ran the model
+     * this is where the minutes-long first Neural Engine compile happens. [onEvent] gets
+     * `.loading(firstRun:)` when a load starts (nothing when the pipeline is already loaded). A
+     * generate issued meanwhile waits for the load on the same thread and reuses it.
+     */
+    public func prepare(
+        model: CoreMLDiffusionModel,
+        backend: ComputeBackend = .auto,
+        onEvent: @escaping @Sendable (DiffusionEvent) -> Void = { _ in },
+    ) async throws {
+        try Task.checkCancellation()
+        let state = state
+        let units = Self.computeUnits(model, backend: backend)
+        try await worker.run { _ = try state.load(model, units: units, onEvent: onEvent) }
+    }
+
     /// Stops the running generation and those waiting to run.
     public nonisolated func cancel() {
         state.cancelAll()
@@ -274,7 +292,7 @@ private final class PipelineState: @unchecked Sendable {
         key = nil
     }
 
-    private func load(
+    fileprivate func load(
         _ model: CoreMLDiffusionModel, units: MLComputeUnits, onEvent: @Sendable (DiffusionEvent) -> Void,
     ) throws -> any StableDiffusionPipelineProtocol {
         if let pipeline, let key, key.0 == model.folder, key.1 == units { return pipeline }

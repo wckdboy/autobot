@@ -78,6 +78,28 @@ struct EngineRunTests {
         library.remove(wrong)
     }
 
+    @Test func warmingUpLoadsOnlyWhenAPromptIsWrittenForAnOnDeviceModel() async throws {
+        #expect(ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: nil, busy: false, prompt: "a lighthouse"))
+        // Once per model, never during a job, never for a PC, never on an empty prompt.
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: "m", busy: false, prompt: "a lighthouse"))
+        #expect(ImagineModel.shouldWarm(onDevice: true, model: "n", warmed: "m", busy: false, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: nil, busy: true, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: false, model: "m", warmed: nil, busy: false, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: nil, warmed: nil, busy: false, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: nil, busy: false, prompt: "  \n"))
+
+        // Without a usable model a warm-up does nothing (no error, no memory taken).
+        let engine = OnDeviceEngine(library: library, llm: LocalLlm(), diffusion: LocalDiffusion())
+        var request = DiffusionRequest()
+        request.model = "test:\(run)-missing"
+        try await engine.prepare(request)
+        let gone = try imageModel("warm-gone", files: ["merges.txt"])
+        request.model = gone
+        try await engine.prepare(request)
+        #expect(!LocalDiffusion.isPreparing)
+        library.remove(gone)
+    }
+
     @Test func imageGenerationRunsWhereTheBenchmarkWasFastest() throws {
         let id = try imageModel("bench", files: ["VAEDecoder.mlmodelc/model.mil"])
         let compute = ComputeProfile(store: store, library: library)
