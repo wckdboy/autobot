@@ -70,6 +70,8 @@ add_subdirectory(${LLAMA_SRC} build-llama)
 add_executable(llama_bench llama_bench.cpp ${CORE_DIR}/autobot_llama.cpp)
 target_include_directories(llama_bench PRIVATE ${CORE_DIR} ${LLAMA_SRC}/common ${LLAMA_SRC}/include ${LLAMA_SRC}/tools/mtmd)
 target_link_libraries(llama_bench PRIVATE llama llama-common mtmd)
+# Test hooks in the core (fault injection for the speculative fallbacks), never in the apps.
+target_compile_definitions(llama_bench PRIVATE AUTOBOT_LLAMA_TESTING=1)
 if(ANDROID)
     target_link_libraries(llama_bench PRIVATE log)
 endif()

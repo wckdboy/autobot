@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -172,6 +174,49 @@ int main() {
         // The first request (nothing cached yet).
         p = draft_window_plan<int>(0, std::vector<int>(), n_ctx, window, 8, range(0, 40));
         check("window: first request from 0", p.base == 0 && p.keep == 0);
+    }
+
+    std::printf("draft pick (greedy token and confidence over a vocabulary):\n");
+    {
+        // Against the full computation: argmax (first of equal maxima) and softmax(top) >= p_min.
+        auto full = [](const std::vector<float> & l, float p_min) {
+            int best = 0;
+            for (int i = 1; i < (int) l.size(); ++i) if (l[i] > l[best]) best = i;
+            double sum = 0;
+            for (float v : l) sum += std::exp((double) v - l[best]);
+            return std::make_pair(best, 1.0 / sum >= p_min);
+        };
+        std::mt19937 rng(11);
+        std::normal_distribution<float> noise(0.0f, 3.0f);
+        int same_token = 0, same_sure = 0, close_calls = 0, cases = 0;
+        for (int n : {1, 7, 8, 9, 1000, 151936}) {
+            for (int t = 0; t < 60; ++t) {
+                std::vector<float> l(n);
+                for (auto & v : l) v = noise(rng);
+                // From flat to sure: a boosted token, sometimes two tied or near-tied ones.
+                const int a = (int) (rng() % n);
+                l[a] += (float) (t % 12) * 3.0f;
+                if (t % 5 == 0) l[(a + n / 2) % n] = l[a];
+                for (float p : {0.3f, 0.5f}) {
+                    const auto [tok, sure] = full(l, p);
+                    const DraftPick pick = draft_pick(l.data(), n, true, p);
+                    ++cases;
+                    same_token += pick.token == tok;
+                    // A softmax within 1e-3 of the threshold may land either side (float sums).
+                    double sum = 0;
+                    for (float v : l) sum += std::exp((double) v - l[tok]);
+                    const bool close = std::fabs(1.0 / sum - p) < 1e-3;
+                    close_calls += close;
+                    same_sure += pick.sure == sure || close;
+                    if (!draft_pick(l.data(), n, false, p).sure) --same_sure;  // unchecked picks are sure
+                }
+            }
+        }
+        check("draft pick: same token as a full argmax", same_token == cases, same_token);
+        check("draft pick: same confidence verdict as a full softmax", same_sure == cases, same_sure);
+        std::vector<float> tie = {1.0f, 5.0f, 2.0f, 5.0f};
+        check("draft pick: ties go to the first token", draft_pick(tie.data(), 4, true, 0.3f).token == 1);
+        check("draft pick: an even tie is not sure at 0.5", !draft_pick(tie.data(), 4, true, 0.5f).sure);
     }
 
     std::printf("\n%s\n", failures == 0 ? "all checks passed" : "CHECKS FAILED");

@@ -187,4 +187,50 @@ DraftPlan draft_window_plan(size_t draft_base, const std::vector<Token> & cached
     return plan;
 }
 
+// The draft's greedy token over its `n` logits and, when `check` is set, whether the draft gives
+// that token at least `p_min` of its probability (softmax). Called for every drafted token, so
+// it stays cheap on a 150k-token vocabulary: the maximum is found in eight independent lanes
+// (vectorised), and the softmax denominator sum(exp(l - top)) is only summed over the logits
+// within PICK_CUT of the top (each of the others adds less than exp(-PICK_CUT) ~ 2e-9, at most
+// ~3e-4 over the whole vocabulary against a limit of 1 / p_min) and stops as soon as it exceeds
+// 1 / p_min. The token is the first one with the largest logit, as a plain argmax picks it.
+struct DraftPick {
+    int token = 0;
+    bool sure = true;
+};
+
+constexpr float PICK_CUT = 20.0f;
+
+inline DraftPick draft_pick(const float * logits, int n, bool check, float p_min) {
+    DraftPick pick;
+    if (n <= 0) return pick;
+    constexpr int L = 8;
+    float lane[L];
+    for (int j = 0; j < L; ++j) lane[j] = logits[0];
+    int i = 0;
+    for (; i + L <= n; i += L) {
+        for (int j = 0; j < L; ++j) lane[j] = logits[i + j] > lane[j] ? logits[i + j] : lane[j];
+    }
+    float top = lane[0];
+    for (int j = 1; j < L; ++j) top = lane[j] > top ? lane[j] : top;
+    for (; i < n; ++i) top = logits[i] > top ? logits[i] : top;
+    int best = 0;
+    while (best < n - 1 && !(logits[best] >= top)) ++best;  // NaN-free logits: stops at the top
+    pick.token = best;
+    if (!check) return pick;
+    const float cut = top - PICK_CUT;
+    const float limit = 1.0f / p_min;
+    float sum = 0.0f;
+    for (int k = 0; k < n; ++k) {
+        if (logits[k] > cut) {
+            sum += std::exp(logits[k] - top);
+            if (sum > limit) {
+                pick.sure = false;
+                break;
+            }
+        }
+    }
+    return pick;
+}
+
 #endif  // AUTOBOT_SPECULATIVE_SCHED_H

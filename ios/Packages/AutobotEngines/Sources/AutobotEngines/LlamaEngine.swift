@@ -42,7 +42,7 @@ public struct LlamaUsage: Sendable, Codable, Hashable {
 
 /// `usage.speculative` of a result: the draft model's work in one reply.
 public struct SpeculativeUsage: Sendable, Codable, Hashable {
-    /// "active", or why it did not speculate: "off", "no_draft", "refused", "unsupported", "images", "draft_failed".
+    /// "active", or why it did not speculate: "off", "no_draft", "refused", "unsupported", "images", "draft_failed", "verify_failed".
     public let status: String
     /// Why, for "refused" (another tokenizer) and "unsupported" (hybrid/recurrent model).
     public var reason: String? = nil

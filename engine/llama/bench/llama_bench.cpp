@@ -43,6 +43,8 @@
 #include <thread>
 #include <vector>
 
+#include <unistd.h>
+
 #include "json.h"
 #include "reasoning_guard.h"
 
@@ -666,6 +668,50 @@ int speculative_checks(const Options & o) {
         Run after = chat(s, with_draft(request(cases[2].messages, gen, false), d, db, "on"));
         Run plain = chat(s, with_draft(request(cases[2].messages, gen, false), d, db, "off"));
         check_identical("usable and identical after cancel", after, plain);
+    }
+
+    // ---- a verify step that fails: the reply goes on with plain decoding (test hook in the core)
+    {
+        json base = request(cases[2].messages, gen, false);
+        setenv("AUTOBOT_TEST_FAIL_VERIFY_ROUND", "3", 1);
+        Run spec = chat(s, with_draft(base, d, db, "on"));
+        unsetenv("AUTOBOT_TEST_FAIL_VERIFY_ROUND");
+        Run plain = chat(s, with_draft(base, d, db, "off"));
+        const json su = spec_usage(spec);
+        std::printf("verify failure in round 3: %s, finish %s, %d tok\n", su.value("status", std::string()).c_str(),
+                    spec.result.value("finish_reason", std::string()).c_str(), usage(spec).value("completion_tokens", 0));
+        check("verify failure: falls back to plain decoding", su.value("status", std::string()) == "verify_failed" &&
+              spec.result.value("finish_reason", std::string()) != "error");
+        check_identical("verify failure: same reply as plain", spec, plain);
+        Run after = chat(s, with_draft(base, d, db, "on"));
+        check("verify failure: the next reply speculates", spec_usage(after).value("status", std::string()) == "active");
+        check_identical("verify failure: next reply identical", after, plain);
+    }
+
+    // ---- a draft that did not load is tried again later (not refused until the model reloads)
+    {
+        // A link next to the draft that does not exist yet, then does.
+        const std::string late = d + ".late-" + std::to_string(getpid()) + ".gguf";
+        unlink(late.c_str());
+        setenv("AUTOBOT_TEST_DRAFT_RETRY_MS", "2000", 1);
+        // Short replies, so the second request comes before the retry is due.
+        json base = request(cases[2].messages, 16, false);
+        Run missing = chat(s, with_draft(base, late, db, "on"));
+        const bool ok_link = symlink(d.c_str(), late.c_str()) == 0;
+        Run waiting = chat(s, with_draft(base, late, db, "on"));
+        std::this_thread::sleep_for(std::chrono::milliseconds(2100));
+        Run retried = chat(s, with_draft(base, late, db, "on"));
+        unsetenv("AUTOBOT_TEST_DRAFT_RETRY_MS");
+        unlink(late.c_str());
+        Run plain = chat(s, with_draft(base, d, db, "off"));
+        std::printf("draft load retry: %s, then %s, then %s%s\n", spec_usage(missing).value("status", std::string()).c_str(),
+                    spec_usage(waiting).value("status", std::string()).c_str(), spec_usage(retried).value("status", std::string()).c_str(),
+                    ok_link ? "" : " (could not create the link)");
+        check("draft retry: a draft that does not load is refused", spec_usage(missing).value("status", std::string()) == "refused");
+        check("draft retry: not retried before the wait", spec_usage(waiting).value("status", std::string()) == "refused");
+        check("draft retry: loads once it can", ok_link && spec_usage(retried).value("status", std::string()) == "active");
+        check_identical("draft retry: replies identical", retried, plain);
+        check_identical("draft retry: refused reply identical", missing, plain);
     }
 
     // ---- a draft with another tokenizer is refused, the reply is still plain and correct

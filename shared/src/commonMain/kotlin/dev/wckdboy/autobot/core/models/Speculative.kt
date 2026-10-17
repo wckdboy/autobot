@@ -129,7 +129,7 @@ object SpeculativeDrafts {
 
 /** What the engine reported about speculation in one reply (`usage.speculative`). */
 data class SpeculativeStats(
-    /** "active", "off", "no_draft", "refused", "unsupported", "images" or "draft_failed". */
+    /** "active", "off", "no_draft", "refused", "unsupported", "images", "draft_failed" or "verify_failed". */
     val status: String,
     val draft: String? = null,
     val drafted: Int = 0,
