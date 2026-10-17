@@ -106,11 +106,14 @@ class UsageLedger(
     /**
      * Joins imported buckets and plan: buckets with a new id are added, ones this phone has are
      * kept as they are; the plan merges as in [UsagePlan.merge]. Returns how many were added.
+     * Imported buckets are compacted like this phone's first, so an old backup's fine buckets
+     * meet the day buckets they were folded into here (and are not added a second time).
      */
     suspend fun import(records: List<UsageRecord>, plan: UsagePlan?): Int = mutex.withLock {
         val state = loaded()
         val ids = state.records.map { it.id }.toHashSet()
-        val fresh = records.filter { it.id !in ids && it.provider.isNotBlank() && it.model.isNotBlank() && it.span > 0 }.distinctBy { it.id }
+        val valid = records.filter { it.provider.isNotBlank() && it.model.isNotBlank() && it.span > 0 }.distinctBy { it.id }
+        val fresh = compact(valid, clock(), zone()).first.filter { it.id !in ids }
         if (fresh.isNotEmpty()) store.put(fresh)
         val mergedPlan = plan?.let { UsagePlan.merge(state.plan, it) } ?: state.plan
         if (mergedPlan != state.plan) store.savePlan(mergedPlan)

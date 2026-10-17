@@ -166,6 +166,25 @@ class UsageLedgerTest {
     }
 
     @Test
+    fun importingABackupAgainAfterItsDaysFoldedDoesNotCountThemTwice() = runTest {
+        // A backup with two 5-minute buckets of 1 October, imported, then again 40 days later.
+        val backup = listOf(rec(utc("2026-10-01T09:00"), "go", "glm-5", 100, 10), rec(utc("2026-10-01T09:05"), "go", "glm-5", 50, 5))
+        val store = MemoryStore()
+        var clock = utc("2026-10-02T12:00")
+        assertEquals(2, UsageLedger(store, this, clock = { clock }, zone = { ZoneRules.UTC }).import(backup, null))
+
+        clock = utc("2026-11-10T12:00")
+        val later = UsageLedger(store, this, clock = { clock }, zone = { ZoneRules.UTC })
+        later.load() // the buckets are folded into 1 October now
+        assertEquals(0, later.import(backup, null))
+        assertEquals(150L, later.state.value!!.records.sumOf { it.input })
+        // A new phone imports the same backup as one folded day.
+        val fresh = UsageLedger(MemoryStore(), this, clock = { clock }, zone = { ZoneRules.UTC })
+        assertEquals(1, fresh.import(backup, null))
+        assertEquals(150L, fresh.state.value!!.records.single().input)
+    }
+
+    @Test
     fun exportManifestCarriesUsageAndOlderManifestsDecode() {
         val manifest = BackupManifest(usage = listOf(rec(0, "go", "glm-5", 1, 2)), usagePlan = UsagePlan(windows = UsagePlan.openCodeGoWindows("go", 5)))
         val back = BackupManifest.decode(BackupManifest.encode(manifest))
