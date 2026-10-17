@@ -3,7 +3,8 @@
 
 #include <jni.h>
 
-#include <cstdio>
+#include <unistd.h>
+
 #include <string>
 #include <vector>
 
@@ -30,21 +31,31 @@ jbyteArray owned_bytes(JNIEnv * env, char * s) {
 }  // namespace
 
 /**
- * Transcribes 16 kHz mono float PCM from [pcm_path] with the model at [model_path] (kept loaded
- * between calls). [language] is a code like "en", or "auto". Returns {text, language} or {error}.
+ * Transcribes [n_samples] 16 kHz mono float samples read from the file descriptor [fd] (an
+ * anonymous memfd from the app process; nothing on storage) with the model at [model_path] (kept
+ * loaded between calls). [language] is a code like "en", or "auto". Returns {text, language} or
+ * {error}.
  */
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_dev_wckdboy_autobot_engine_speech_NativeWhisper_transcribe(JNIEnv * env, jobject, jstring jmodel, jstring jpcm, jstring jlang) {
+Java_dev_wckdboy_autobot_engine_speech_NativeWhisper_transcribeFd(JNIEnv * env, jobject, jstring jmodel, jint fd, jint n_samples, jstring jlang) {
     const std::string model = jstr(env, jmodel);
     const std::string lang = jstr(env, jlang);
-    std::vector<float> pcm;
-    if (FILE * f = std::fopen(jstr(env, jpcm).c_str(), "rb")) {
-        float buf[4096];
-        size_t n;
-        while ((n = std::fread(buf, sizeof(float), 4096, f)) > 0) pcm.insert(pcm.end(), buf, buf + n);
-        std::fclose(f);
+    std::vector<float> pcm(n_samples > 0 ? (size_t) n_samples : 0);
+    const size_t want = pcm.size() * sizeof(float);
+    size_t got = 0;
+    auto * bytes = reinterpret_cast<char *>(pcm.data());
+    while (got < want) {
+        const ssize_t n = pread(fd, bytes + got, want - got, (off_t) got);
+        if (n <= 0) break;
+        got += (size_t) n;
     }
+    pcm.resize(got / sizeof(float));
     return owned_bytes(env, autobot_whisper_transcribe(model.c_str(), pcm.data(), pcm.size(), lang.c_str(), 0));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_dev_wckdboy_autobot_engine_speech_NativeWhisper_cancel(JNIEnv *, jobject) {
+    autobot_whisper_cancel();
 }
 
 extern "C" JNIEXPORT void JNICALL

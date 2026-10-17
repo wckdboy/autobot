@@ -195,4 +195,11 @@ class VoiceTurnTest {
         assertTrue(turn.needsAnnouncement(listOf("c1", "c2")))
         assertFalse(turn.needsAnnouncement(emptyList()))
     }
+
+    @Test
+    fun knowsWhenItsPromptIsIn() {
+        val turn = VoiceTurn(setOf("e1", "e2"), 0)
+        assertFalse(turn.promptSeen(listOf(user("e1"), answer("e2", "old"))))
+        assertTrue(turn.promptSeen(listOf(user("e1"), answer("e2", "old"), user("e3"))))
+    }
 }

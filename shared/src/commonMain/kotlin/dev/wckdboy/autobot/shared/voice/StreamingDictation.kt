@@ -123,6 +123,9 @@ class VoiceActivity(private val threshold: Float = 0.05f) {
  * window (≤ ~25 s) and each pass costs at most one window, however long the user talks.
  */
 class StreamingDictation(private val config: Config = Config()) {
+    /** The default configuration (Swift sees no default arguments). */
+    constructor() : this(Config())
+
     data class Config(
         val sampleRate: Int = 16_000,
         /** Speech heard before the first partial transcription (whisper needs a word or two). */

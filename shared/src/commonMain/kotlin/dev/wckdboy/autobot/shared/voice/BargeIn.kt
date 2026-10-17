@@ -24,6 +24,9 @@ class BargeIn(
     private val echoRatio: Float = 2.5f,
     private val maxGate: Float = 0.6f,
 ) {
+    /** The default tuning (Swift sees no default arguments). */
+    constructor() : this(0.12f)
+
     enum class State { IDLE, SETTLING, ARMED, TRIGGERED }
 
     var state: State = State.IDLE

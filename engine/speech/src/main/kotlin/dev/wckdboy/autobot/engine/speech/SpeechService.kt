@@ -3,6 +3,7 @@ package dev.wckdboy.autobot.engine.speech
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import kotlin.concurrent.thread
 import org.json.JSONObject
 
@@ -12,7 +13,9 @@ internal object NativeWhisper {
         System.loadLibrary("autobot_whisper")
     }
 
-    external fun transcribe(modelPath: String, pcmPath: String, language: String): ByteArray
+    external fun transcribeFd(modelPath: String, fd: Int, samples: Int, language: String): ByteArray
+
+    external fun cancel()
 
     external fun free()
 }
@@ -31,15 +34,20 @@ class SpeechService : Service() {
     private val lock = Any()
 
     private val binder = object : ISpeechEngine.Stub() {
-        override fun transcribe(modelPath: String, pcmPath: String, language: String): String = synchronized(lock) {
+        override fun unload() = synchronized(lock) { runCatching { NativeWhisper.free() }; Unit }
+
+        override fun transcribeMemory(modelPath: String, pcm: ParcelFileDescriptor, samples: Int, language: String): String = synchronized(lock) {
             try {
-                String(NativeWhisper.transcribe(modelPath, pcmPath, language), Charsets.UTF_8)
+                pcm.use { String(NativeWhisper.transcribeFd(modelPath, it.fd, samples, language), Charsets.UTF_8) }
             } catch (t: Throwable) {
                 // Library missing on this phone, out of memory, …: an answer, not a crashed process.
                 JSONObject().put("error", "Speech engine failed: ${t.message ?: t.javaClass.simpleName}").toString()
             }
         }
 
-        override fun unload() = synchronized(lock) { runCatching { NativeWhisper.free() }; Unit }
+        // Not under the lock: it must reach the transcription that holds it.
+        override fun cancel() {
+            runCatching { NativeWhisper.cancel() }
+        }
     }
 }

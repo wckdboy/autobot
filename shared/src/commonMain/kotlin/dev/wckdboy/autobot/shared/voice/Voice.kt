@@ -278,6 +278,9 @@ class VoiceTurn(private val baseline: Set<String>, private val startedAtMs: Long
         return Finished(answer?.text)
     }
 
+    /** Whether this turn's prompt is in [items] (a reply streaming before it belongs to an earlier turn). */
+    fun promptSeen(items: List<SessionItem>): Boolean = items.any { it is SessionItem.User && it.key !in baseline }
+
     /** True when [waiting] (approval / question call ids) holds one not announced yet. */
     fun needsAnnouncement(waiting: Collection<String>): Boolean = announced.addAll(waiting)
 
