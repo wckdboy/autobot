@@ -62,6 +62,10 @@ import dev.wckdboy.autobot.shared.search.SearchProvider
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.redaction.RedactionGateway
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.cascade.LocalFirstCascade
+import dev.wckdboy.autobot.agent.core.loop.chooseCascade
+import dev.wckdboy.autobot.agent.core.loop.restoreCascade
 import dev.wckdboy.autobot.agent.core.loop.chooseRedaction
 import dev.wckdboy.autobot.agent.core.loop.restoreRedaction
 import dev.wckdboy.autobot.core.data.settings.AppSettings
@@ -214,6 +218,22 @@ class AgentHost @Inject constructor(
         enabled = { redactionDefault.value },
     )
 
+    /** Settings → "Phone first" (off by default): what plain chats on a cloud model without their own choice do. */
+    val cascadeDefault: StateFlow<CascadePolicy> = settings.settings.map { it.cascade }
+        .stateIn(scope, SharingStarted.Eagerly, AppSettings().cascade)
+
+    private val cascade = LocalFirstCascade(
+        defaultPolicy = { cascadeDefault.value },
+        onDevice = { onDeviceRoute() },
+        // An unknown provider counts as cloud, as for redaction.
+        cloud = { id -> providers.getProvider(id)?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
+    )
+
+    /** The on-device chat route: the first "This phone" provider with a default model, if any. */
+    private suspend fun onDeviceRoute(): LlmCallConfig? =
+        providers.observeProviders().first().firstOrNull { it.kind == ProviderKind.LOCAL && it.defaultModel.isNotBlank() }
+            ?.let { LlmCallConfig(it.id, it.defaultModel) }
+
     /** Sessions with a turn in progress (for list indicators). */
     val running: StateFlow<Set<String>> = _running.asStateFlow()
 
@@ -244,10 +264,7 @@ class AgentHost @Inject constructor(
         root.plugin(
             quotaFallbackPlugin(
                 enabled = { quotaFallback.value },
-                onDevice = {
-                    providers.observeProviders().first().firstOrNull { it.kind == ProviderKind.LOCAL && it.defaultModel.isNotBlank() }
-                        ?.let { LlmCallConfig(it.id, it.defaultModel) }
-                },
+                onDevice = { onDeviceRoute() },
                 eligible = { cfg -> providers.getProvider(cfg.provider)?.let { ModelDataPolicies.autoPickable(it.preset().id, cfg.model) } ?: true },
             ),
         )
@@ -259,6 +276,8 @@ class AgentHost @Inject constructor(
         )
         // Redaction gateway (Settings, on by default): personal data becomes placeholders before a cloud request.
         root.plugin(redaction.plugin)
+        // Local-first cascade (Settings, off by default): this phone answers plain chats first.
+        root.plugin(cascade.plugin)
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))
         root.plugin(contexts.plugin)
@@ -356,6 +375,7 @@ class AgentHost @Inject constructor(
         agent.log.latest<SessionEvent.AgentSettingsChanged>()?.let { s -> agent.updateConfig { it.copy(toolsEnabled = s.toolsEnabled) } }
         agent.restoreThinking(thinkingDefault(provider?.id.orEmpty(), model))
         agent.restoreRedaction()
+        agent.restoreCascade()
         watchers[conversationId] = scope.launch {
             agent.status.collect { status ->
                 _running.update { if (status == AgentStatus.RUNNING) it + conversationId else it - conversationId }
@@ -464,6 +484,12 @@ class AgentHost @Inject constructor(
 
     /** This chat's redaction switch; choosing what Settings says makes the chat follow Settings again. */
     suspend fun setRedaction(conversationId: String, enabled: Boolean) = agent(conversationId).chooseRedaction(redaction.override(enabled))
+
+    /** This chat's cascade policy; choosing what Settings says makes the chat follow Settings again. */
+    suspend fun setCascade(conversationId: String, policy: CascadePolicy) = agent(conversationId).chooseCascade(cascade.override(policy))
+
+    /** "Ask <cloud model>" under the phone's answer: that prompt goes to the chat's cloud model as a follow-up. */
+    suspend fun escalate(conversationId: String): Boolean = cascade.escalate(agent(conversationId))
 
     /** Manual `/compact`. */
     fun compact(conversationId: String, onError: (Throwable) -> Unit = {}) {

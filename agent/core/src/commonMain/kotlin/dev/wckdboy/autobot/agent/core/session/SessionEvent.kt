@@ -36,6 +36,9 @@ sealed interface SessionEvent {
      * @property redacted what the redaction gateway hid from the cloud in this turn's requests:
      *   distinct values by kind (`PERSON` → 2, `EMAIL` → 1), never the values themselves; empty
      *   when it was on and found nothing, null when no request of the turn went through it.
+     * @property cascade what the local-first cascade did in this turn (the phone answered first,
+     *   the judge's verdict, the policy, whether it went to the cloud), never any content; null
+     *   when the cascade was not in play.
      */
     @Serializable
     @SerialName("turn/receipt")
@@ -46,6 +49,7 @@ sealed interface SessionEvent {
         val fallbacks: List<String> = emptyList(),
         val network: List<ReceiptHost>? = null,
         val redacted: Map<String, Int>? = null,
+        val cascade: ReceiptCascade? = null,
     ) : SessionEvent
 
     @Serializable
@@ -145,6 +149,14 @@ sealed interface SessionEvent {
     @Serializable
     @SerialName("agent/redaction")
     data class RedactionChanged(val enabled: Boolean? = null) : SessionEvent
+
+    /**
+     * The chat's own local-first cascade policy (`OFF`, `ASK`, `AUTO`, `NEVER`; restored when the
+     * session is reopened), or null to follow Settings again. Not model-visible.
+     */
+    @Serializable
+    @SerialName("agent/cascade")
+    data class CascadeChanged(val policy: String? = null) : SessionEvent
 
     /** The chat's Think switch (restored when the session is reopened). Not model-visible. */
     @Serializable
@@ -264,6 +276,36 @@ data class ReceiptModel(
     val requests: Int? = null,
     /** What those tokens cost by the price table when the turn ended, in US dollars; null: no price known. On device: 0. */
     val costUsd: Double? = null,
+)
+
+/**
+ * The local-first cascade in a turn's receipt: codes only, never content.
+ *
+ * @property role `local` when this phone answered first, `cloud` for the follow-up the cascade
+ *   sent to the chat's cloud model.
+ * @property policy the chat's policy then (`ASK`, `AUTO`, `NEVER`).
+ * @property verdict the judge's verdict on the phone's answer (`GOOD`, `UNSURE`, `WEAK`), or
+ *   `NONE` when it never judged (no on-device model, a prompt too long for it).
+ * @property reasons why, as codes (`refusal`, `unsure`, `fresh`, `truncated`, `self-check`, …).
+ * @property action `KEPT` (the phone's answer stands), `OFFERED` (the user may ask the cloud),
+ *   `ESCALATED` (sent to the cloud), `DIRECT` (the cloud answered, the phone could not).
+ * @property risk why the prompt counts as sensitive (`personal`, `health`, `finance`,
+ *   `attachment`, `memory`); empty when it is low-risk.
+ * @property judge `self-check` (the on-device model graded its own answer) or `heuristic`.
+ * @property judgeMs what judging added to the turn, in milliseconds.
+ * @property trigger for a `cloud` follow-up: `auto` (the policy sent it) or `asked` (the user did).
+ */
+@Serializable
+data class ReceiptCascade(
+    val role: String,
+    val policy: String,
+    val verdict: String,
+    val reasons: List<String> = emptyList(),
+    val action: String,
+    val risk: List<String> = emptyList(),
+    val judge: String? = null,
+    val judgeMs: Long? = null,
+    val trigger: String? = null,
 )
 
 /**

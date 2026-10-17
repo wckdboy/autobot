@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data.settings
 
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
@@ -45,6 +46,13 @@ data class AppSettings(
      */
     val redactCloud: Boolean = true,
     /**
+     * Local-first cascade ("Phone first"): in plain chats on a cloud model, this phone answers
+     * first and a judge decides whether to offer (ASK) or send (AUTO) the prompt to the cloud;
+     * NEVER keeps every answer on the phone. OFF by default: chats behave as before. Chats can
+     * choose their own.
+     */
+    val cascade: CascadePolicy = CascadePolicy.DEFAULT,
+    /**
      * Speculative decoding for on-device chat: a small draft model of the same family, when one
      * is installed and the pair fits ([SpeculativeMode.AUTO]), speeds replies up with the same text.
      */
@@ -80,6 +88,7 @@ object SettingsSchema {
     const val SEARCH_ROUTE = "search_route"
     const val QUOTA_FALLBACK = "quota_fallback"
     const val REDACT_CLOUD = "redact_cloud"
+    const val CASCADE = "cascade"
     const val SPECULATIVE = "speculative_decoding"
 
     /** Lock timeouts offered in Settings; anything else read from storage is clamped to these bounds. */
@@ -112,6 +121,7 @@ object SettingsSchema {
         SEARCH_ROUTE to settings.searchRoute.name,
         QUOTA_FALLBACK to settings.quotaFallback.toString(),
         REDACT_CLOUD to settings.redactCloud.toString(),
+        CASCADE to settings.cascade.name,
         SPECULATIVE to settings.speculativeMode.id,
     )
 
@@ -135,6 +145,7 @@ object SettingsSchema {
             searchRoute = searchRoute(values[SEARCH_ROUTE]),
             quotaFallback = bool(QUOTA_FALLBACK, defaults.quotaFallback),
             redactCloud = bool(REDACT_CLOUD, defaults.redactCloud),
+            cascade = CascadePolicy.parse(values[CASCADE]) ?: defaults.cascade,
             speculativeMode = speculativeMode(values[SPECULATIVE]),
         )
     }

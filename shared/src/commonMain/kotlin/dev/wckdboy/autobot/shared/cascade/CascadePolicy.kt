@@ -1,0 +1,113 @@
+package dev.wckdboy.autobot.shared.cascade
+
+/**
+ * The local-first cascade policy of a chat (ROADMAP Phase 2.5, item 3): whether "This phone"
+ * answers before the chat's cloud model, and what happens when the judge finds the phone's
+ * answer wanting.
+ */
+enum class CascadePolicy(
+    /** The chip on the chat bar (micro label, upper-cased by the platforms). */
+    val chip: String,
+    /** The option's name in Settings and in the chip's menu. */
+    val title: String,
+    /** One line under the option. */
+    val detail: String,
+) {
+    /** No cascade: the chat's own model answers, as before. The default. */
+    OFF("phone first off", "Off", "The chat's model answers, as before."),
+
+    /** The phone answers; when the judge is unsure, an "Ask" button offers the cloud model. */
+    ASK("phone first · ask", "Ask", "This phone answers first. When its answer looks weak, you can ask the cloud model."),
+
+    /** The phone answers; a weak answer to a low-risk prompt goes to the cloud model on its own. */
+    AUTO("phone first · auto", "Auto", "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks."),
+
+    /** The phone answers and nothing goes to the cloud, even when its answer is weak. */
+    NEVER("phone only", "Never", "This phone answers. Nothing goes to the cloud."),
+    ;
+
+    /** Whether the phone answers first under this policy. */
+    val localFirst: Boolean get() = this != OFF
+
+    companion object {
+        /** Settings and chats start with the cascade off: nothing changes until the user opts in. */
+        val DEFAULT = OFF
+
+        /** A stored value; unknown or damaged values are null (callers fall back to the default). */
+        fun parse(value: String?): CascadePolicy? = entries.firstOrNull { it.name.equals(value?.trim(), ignoreCase = true) }
+
+        /** The policy a chat uses: its own choice, else the app's default. */
+        fun resolve(chat: String?, default: CascadePolicy): CascadePolicy = parse(chat) ?: default
+
+        /**
+         * What a chat stores when the user picks [chosen]: null (follow Settings) when that is
+         * what Settings says anyway, else the policy's name.
+         */
+        fun override(chosen: CascadePolicy, default: CascadePolicy): String? = if (chosen == default) null else chosen.name
+    }
+}
+
+/** How a turn is routed under the cascade, decided before its first step ([CascadeRoutes.route]). */
+sealed interface CascadeRoute {
+    /** The cascade is not in play: agent runs, on-device or loopback chats, the policy is off. */
+    data object NotApplicable : CascadeRoute
+
+    /** The phone answers first. */
+    data object Local : CascadeRoute
+
+    /** The cloud model answers directly, because the phone cannot ([reason]: `no-local-model`, `too-long`). */
+    data class Direct(val reason: String) : CascadeRoute
+
+    /** The turn does not run: "Never" with no on-device model ([message] says so). */
+    data class Blocked(val message: String) : CascadeRoute
+}
+
+/** The routing and escalation rules of the cascade, pure so they are unit tested. */
+object CascadeRoutes {
+
+    /** Above this share of the on-device model's context window, the phone does not try. */
+    const val LOCAL_WINDOW_SHARE = 0.75
+
+    const val NO_LOCAL_MODEL = "no-local-model"
+    const val TOO_LONG = "too-long"
+
+    const val BLOCKED_MESSAGE =
+        "Phone only: no on-device chat model is installed. Download one under Models, or change \"phone first\" for this chat."
+
+    /**
+     * @param policy the chat's policy ([CascadePolicy.resolve]).
+     * @param cloudRoute whether the chat's model is a cloud one (not "This phone", not loopback).
+     * @param toolsEnabled agent runs (tools on) never cascade in this version: plain chat only.
+     * @param hasLocalModel whether an on-device chat model is installed.
+     * @param promptTokens the request's estimated size; [localWindow] the on-device model's window (null: unknown).
+     */
+    fun route(
+        policy: CascadePolicy,
+        cloudRoute: Boolean,
+        toolsEnabled: Boolean,
+        hasLocalModel: Boolean,
+        promptTokens: Int = 0,
+        localWindow: Int? = null,
+    ): CascadeRoute = when {
+        !policy.localFirst || !cloudRoute || toolsEnabled -> CascadeRoute.NotApplicable
+        !hasLocalModel -> if (policy == CascadePolicy.NEVER) CascadeRoute.Blocked(BLOCKED_MESSAGE) else CascadeRoute.Direct(NO_LOCAL_MODEL)
+        // "Never" still lets the phone try a long chat: the user ruled the cloud out.
+        policy != CascadePolicy.NEVER && localWindow != null && promptTokens > localWindow * LOCAL_WINDOW_SHARE -> CascadeRoute.Direct(TOO_LONG)
+        else -> CascadeRoute.Local
+    }
+
+    /**
+     * What follows a judged answer: keep it, offer the cloud, or escalate. "Auto" escalates only
+     * a [CascadeVerdict.WEAK] answer to a prompt the risk classifier calls low-risk; a sensitive
+     * prompt, or an answer the judge is merely unsure about, is offered instead.
+     */
+    fun action(policy: CascadePolicy, verdict: CascadeVerdict, risk: CascadeRisk): CascadeAction = when {
+        verdict == CascadeVerdict.GOOD -> CascadeAction.KEPT
+        policy == CascadePolicy.NEVER || policy == CascadePolicy.OFF -> CascadeAction.KEPT
+        policy == CascadePolicy.AUTO && verdict == CascadeVerdict.WEAK && !risk.sensitive -> CascadeAction.ESCALATED
+        else -> CascadeAction.OFFERED
+    }
+}
+
+/** What the cascade did with the phone's answer (stored in receipts by name). */
+enum class CascadeAction { KEPT, OFFERED, ESCALATED, DIRECT }

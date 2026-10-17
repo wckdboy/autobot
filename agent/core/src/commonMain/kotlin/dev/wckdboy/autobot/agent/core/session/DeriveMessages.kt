@@ -8,6 +8,15 @@ const val TOOL_OUTCOME_UNKNOWN = "Error: tool outcome unknown (the call was inte
 const val ABORTED_BEFORE_DISPATCH = "Error: tool call aborted before dispatch."
 
 /**
+ * The [SessionEvent.UserMessage.contextId] of a local-first cascade escalation: a
+ * [UserMessageKind.CONTEXT] message that opens the cloud follow-up turn. It never reaches the
+ * model; instead the answers since the user's last prompt (the phone's) leave the model surface,
+ * so the cloud model answers that prompt afresh and later requests carry only its answer. Its
+ * text is the trigger (`auto` or `asked`).
+ */
+const val CASCADE_ESCALATION = "cascade/escalate"
+
+/**
  * Derives the model request history from a session log (DSH `deriveMessages()`):
  *
  * - the latest [SessionEvent.SystemMessage] becomes message 0;
@@ -17,6 +26,9 @@ const val ABORTED_BEFORE_DISPATCH = "Error: tool call aborted before dispatch."
  *   telling the model the user undid file changes ([SessionEvent.WorkspaceRevert]);
  * - every assistant tool call is answered: a missing result becomes [TOOL_OUTCOME_UNKNOWN] so the
  *   history stays valid for providers that require call/result pairing.
+ *
+ * - a cascade escalation ([CASCADE_ESCALATION]) drops the answers since the last prompt and is
+ *   itself not sent.
  *
  * Each assistant message is tagged with [ModelMessage.inCurrentTurn] when it comes after the last
  * user prompt, which adapters use to decide whether reasoning must be echoed back.
@@ -29,6 +41,7 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
     if (system != null) out += ModelMessage(ModelRole.SYSTEM, system.text)
 
     val open = mutableListOf<Pair<String, String>>() // calls awaiting a result: (id, name)
+    var lastPrompt = -1 // index in [out] of the latest prompt (or summary)
 
     fun closeOpenCalls() {
         open.forEach { (id, name) -> out += ModelMessage(ModelRole.TOOL, TOOL_OUTCOME_UNKNOWN, toolCallId = id, toolName = name) }
@@ -39,6 +52,7 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
         summaryAt[entry.seq]?.let { summary ->
             closeOpenCalls()
             out += ModelMessage(ModelRole.USER, summaryText((summary.event as SessionEvent.UserMessage).text))
+            lastPrompt = out.lastIndex
         }
         if (entry.surface is SurfaceOp.Replace) continue
         if (activeRanges.any { entry.seq in it }) continue
@@ -46,6 +60,13 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
         when (val event = entry.event) {
             is SessionEvent.UserMessage -> {
                 closeOpenCalls()
+                if (event.kind == UserMessageKind.CONTEXT && event.contextId == CASCADE_ESCALATION) {
+                    val kept = out.filterIndexed { i, m -> i <= lastPrompt || (m.role != ModelRole.ASSISTANT && m.role != ModelRole.TOOL) }
+                    out.clear()
+                    out += kept
+                    continue
+                }
+                if (event.kind != UserMessageKind.CONTEXT) lastPrompt = out.size
                 out += ModelMessage(
                     ModelRole.USER,
                     when (event.kind) {
@@ -81,9 +102,9 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
     }
     closeOpenCalls()
 
-    val lastPrompt = out.indexOfLast { it.role == ModelRole.USER }
+    val lastUser = out.indexOfLast { it.role == ModelRole.USER }
     return out.mapIndexed { index, message ->
-        if (message.role == ModelRole.ASSISTANT && index > lastPrompt) message.copy(inCurrentTurn = true) else message
+        if (message.role == ModelRole.ASSISTANT && index > lastUser) message.copy(inCurrentTurn = true) else message
     }
 }
 

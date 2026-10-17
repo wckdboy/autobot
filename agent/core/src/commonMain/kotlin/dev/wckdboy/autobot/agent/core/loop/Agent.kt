@@ -71,6 +71,11 @@ data class AgentConfig(
      * this chat or not, null follows the app setting (see the host's redaction gateway).
      */
     val redaction: Boolean? = null,
+    /**
+     * The chat's local-first cascade override (`OFF`, `ASK`, `AUTO`, `NEVER`), null follows the
+     * app setting (see the host's cascade plugin).
+     */
+    val cascade: String? = null,
 ) {
     companion object {
         const val DEFAULT_MAX_PARALLEL_TOOL_CALLS = 10
@@ -203,6 +208,15 @@ class Agent(
     /** Queues [text] (with optional attached [images]) as a new turn. */
     fun followup(text: String, images: List<String> = emptyList()) {
         inboxLock.withLock { nextTurn.addLast(SessionEvent.UserMessage(text, images = images)) }
+        wake.trySend(Unit)
+    }
+
+    /**
+     * Queues [message] as a turn of its own, ahead of queued prompts when [first]: a turn the
+     * runtime starts itself (the local-first cascade's cloud follow-up) rather than the user.
+     */
+    fun queueTurn(message: SessionEvent.UserMessage, first: Boolean = false) {
+        inboxLock.withLock { if (first) nextTurn.addFirst(message) else nextTurn.addLast(message) }
         wake.trySend(Unit)
     }
 
