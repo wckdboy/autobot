@@ -59,6 +59,8 @@ final class ImagineModel {
     @ObservationIgnored private var capabilityCache: [BackendKind: EngineCapabilities] = [:]
     /// The on-device model last loaded ahead of time (or tried): one warm-up per model.
     @ObservationIgnored private var warmedModel: String?
+    /// The ahead-of-time load whose phases [warming] shows (see [warmPhase]).
+    @ObservationIgnored private var warmGeneration = 0
     /// Settings the user changed by hand this session: choosing a model keeps them.
     @ObservationIgnored private(set) var userEdited: Set<ImageSetting> = []
 
@@ -217,13 +219,36 @@ final class ImagineModel {
               let engine = app.generator.engine(for: backend) as? OnDeviceEngine else { return }
         warmedModel = model
         let r = request
+        let generation = beginWarm()
         Task { [weak self] in
             guard await !EngineMemory.shared.isBusy(any: [.llm, .whisper, .tts, .upscaler, .audio, .diffusion]) else { return }
             try? await engine.prepare(r) { phase in
-                Task { @MainActor in self?.warming = phase }
+                Task { @MainActor in self?.warmPhase(phase, generation: generation) }
             }
-            self?.warming = nil
+            self?.warmEnded(generation: generation)
         }
+    }
+
+    /// Starts a new ahead-of-time load: phases of an older one no longer show.
+    func beginWarm() -> Int {
+        warmGeneration += 1
+        return warmGeneration
+    }
+
+    /**
+     A phase of load [generation]. Phases hop to the main actor in their own tasks, so one can land
+     after its load ended (or after a newer load began): only the current, unfinished load shows,
+     else the status line and the indeterminate bar stayed on "Loading…" for good.
+     */
+    func warmPhase(_ phase: String, generation: Int) {
+        guard generation == warmGeneration else { return }
+        warming = phase
+    }
+
+    func warmEnded(generation: Int) {
+        guard generation == warmGeneration else { return }
+        warmGeneration += 1
+        warming = nil
     }
 
     /// Wraps the prompt in [style] (`{prompt}` placeholder) and merges its negatives.
