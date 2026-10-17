@@ -74,6 +74,7 @@ data class SettingsUiState(
     val memoryEnabled: Boolean = false,
     val vaultEnabled: Boolean = false,
     val quotaFallback: Boolean = false,
+    val redactCloud: Boolean = true,
     val searchProvider: SearchProvider = SearchProvider.NONE,
     val offline: Boolean = false,
     /** "Offline", "Direct", "Tor", "SOCKS5": the Privacy Center row's value. */
@@ -117,6 +118,7 @@ class SettingsViewModel @Inject constructor(
             memoryEnabled = it.memoryEnabled,
             vaultEnabled = it.vaultEnabled,
             quotaFallback = it.quotaFallback,
+            redactCloud = it.redactCloud,
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
             networkLabel = networkLabel(it.networkMode),
@@ -131,6 +133,7 @@ class SettingsViewModel @Inject constructor(
     fun setIncognitoByDefault(enabled: Boolean) = launch { settings.setIncognitoByDefault(enabled) }
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
+    fun setRedactCloud(enabled: Boolean) = launch { settings.setRedactCloud(enabled) }
 
     /** Deletes every chat, stored and incognito, for good (running turns are stopped first). */
     fun deleteAllChats() = launch { chats.deleteAll() }
@@ -208,6 +211,7 @@ fun SettingsRoute(
         onOpenVault = onOpenVault,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
+        onRedactCloud = viewModel::setRedactCloud,
         onDeleteAllChats = { confirmDeleteChats = true },
         onOpenAbout = onOpenAbout,
         about = about,
@@ -235,6 +239,7 @@ fun SettingsScreen(
     onOpenVault: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
+    onRedactCloud: (Boolean) -> Unit = {},
     onDeleteAllChats: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     about: String = "About",
@@ -285,6 +290,12 @@ fun SettingsScreen(
                 }
             }
             SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = "New chats are kept in memory only, never written to disk.")
+            SwitchRow(
+                "Redact before cloud",
+                state.redactCloud,
+                onRedactCloud,
+                info = "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
+            )
             NavRow(
                 "Panic wipe",
                 onPanicWipe,

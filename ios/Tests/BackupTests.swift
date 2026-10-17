@@ -122,6 +122,12 @@ struct BackupTests {
         agent.searchRoute = .tor
         #expect(AppSettings(values: agent.values) == agent)
         #expect(AppSettings(values: ["search_provider": "GOOGLE"]).searchProvider == "NONE")
+        // Redaction before cloud calls: on by default and for stores from before the key; off round-trips.
+        #expect(s.redactCloud && values["redact_cloud"] == "true")
+        #expect(AppSettings(values: ["theme_mode": "LIGHT"]).redactCloud)
+        var plain = s
+        plain.redactCloud = false
+        #expect(AppSettings(values: plain.values) == plain)
         #expect(AppSettings(values: ["lock_timeout_ms": "99999999", "theme_mode": "PURPLE"]).lockTimeoutMillis == 900_000)
         #expect(lockTimeoutOptions.map(\.millis) == [0, 30_000, 60_000, 300_000, 900_000])
         #expect(lockTimeoutOptions.map(\.label) == ["Immediately", "30 s", "1 min", "5 min", "15 min"])

@@ -33,6 +33,9 @@ sealed interface SessionEvent {
      *
      * @property network the turn's requests by host; null when the host app does not track
      *   traffic (the receipt then cannot say whether anything left the phone).
+     * @property redacted what the redaction gateway hid from the cloud in this turn's requests:
+     *   distinct values by kind (`PERSON` → 2, `EMAIL` → 1), never the values themselves; empty
+     *   when it was on and found nothing, null when no request of the turn went through it.
      */
     @Serializable
     @SerialName("turn/receipt")
@@ -42,6 +45,7 @@ sealed interface SessionEvent {
         val tools: List<String> = emptyList(),
         val fallbacks: List<String> = emptyList(),
         val network: List<ReceiptHost>? = null,
+        val redacted: Map<String, Int>? = null,
     ) : SessionEvent
 
     @Serializable
@@ -133,6 +137,14 @@ sealed interface SessionEvent {
     @Serializable
     @SerialName("agent/config")
     data class AgentSettingsChanged(val toolsEnabled: Boolean) : SessionEvent
+
+    /**
+     * The chat's own redaction choice (restored when the session is reopened): on or off for
+     * this chat, or null to follow Settings again. Not model-visible.
+     */
+    @Serializable
+    @SerialName("agent/redaction")
+    data class RedactionChanged(val enabled: Boolean? = null) : SessionEvent
 
     /** The chat's Think switch (restored when the session is reopened). Not model-visible. */
     @Serializable

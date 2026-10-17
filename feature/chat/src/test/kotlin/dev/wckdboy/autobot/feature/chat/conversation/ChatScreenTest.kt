@@ -14,7 +14,10 @@ import androidx.compose.ui.test.performScrollTo
 import dev.wckdboy.autobot.core.designsystem.motion.InkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.agent.core.session.ReceiptHost
+import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.shared.session.NoticeKind
+import dev.wckdboy.autobot.shared.session.Receipts
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.ToolState
 import java.lang.reflect.Proxy
@@ -114,5 +117,33 @@ class ChatScreenTest {
         update(ChatUiState(loaded = true, providers = listOf(provider), running = false, items = listOf(SessionItem.User("u1", "Write a poem"))))
         compose.onNodeWithContentDescription("Stop the reply").assertDoesNotExist()
         compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
+    }
+
+    @Test
+    fun aCloudChatShowsTheRedactionSwitchAndTheReceiptCountsWhatWasHidden() {
+        val receipt = Receipts.summarize(
+            SessionEvent.TurnReceipt(
+                turn = 1,
+                network = listOf(ReceiptHost("api.deepseek.com", "direct", 1, bytesSent = 2048)),
+                redacted = mapOf("PERSON" to 2, "EMAIL" to 1),
+            ),
+        )
+        val answer = SessionItem.Assistant("a1", "Wrote to Hannah.", null, false, null, null, receipt = receipt)
+        val update = show(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.ON, items = listOf(SessionItem.User("u1", "hi"), answer)))
+        compose.onNodeWithText("\u25AE REDACT").performClick()
+        assertTrue(calls.toString(), "setRedaction(false)" in calls)
+        update(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.OFF, items = listOf(SessionItem.User("u1", "hi"), answer)))
+        compose.onNodeWithText("REDACT OFF").performClick()
+        assertTrue(calls.toString(), "setRedaction(true)" in calls)
+
+        // The receipt line says how much was hidden; the sheet says what kind, never the values.
+        compose.onNodeWithText("3 redacted", substring = true, ignoreCase = true).performClick()
+        compose.onNodeWithText("2 names", ignoreCase = true).assertIsDisplayed()
+        compose.onNodeWithText("1 email", ignoreCase = true).assertIsDisplayed()
+
+        // On this phone there is nothing to hide: no switch.
+        update(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.NONE))
+        compose.onNodeWithText("REDACT OFF").assertDoesNotExist()
+        compose.onNodeWithText("\u25AE REDACT").assertDoesNotExist()
     }
 }

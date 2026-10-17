@@ -11,8 +11,13 @@ import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicy
 import dev.wckdboy.autobot.providers.remote.SystemModels
+import dev.wckdboy.autobot.shared.redaction.PiiKind
 import kotlin.math.roundToLong
 import kotlinx.serialization.Serializable
+
+/** What the redaction gateway hid in a turn: [count] distinct values of one [kind] (`PERSON`), [label] "2 names". */
+@Serializable
+data class ReceiptRedaction(val kind: String, val count: Int, val label: String)
 
 /** A tool that ran in a turn; [network] tools (`web_fetch`, `web_search`, MCP) reach other hosts. */
 @Serializable
@@ -27,6 +32,8 @@ data class ReceiptTool(val name: String, val network: Boolean)
  * @property tracked whether the host tracked the turn's traffic at all.
  * @property hosts every host contacted (or refused), with bytes and route.
  * @property routes the routes used off the device (`direct`, `tor`, `socks5`).
+ * @property redacted whether the redaction gateway ran for this turn's cloud requests;
+ *   [redactions] is what it hid (empty: nothing found).
  */
 @Serializable
 data class Receipt(
@@ -41,6 +48,8 @@ data class Receipt(
     val models: List<ReceiptModel>,
     val tools: List<ReceiptTool>,
     val fallbacks: List<String>,
+    val redacted: Boolean = false,
+    val redactions: List<ReceiptRedaction> = emptyList(),
 )
 
 /** What a host knows about a provider for a receipt. */
@@ -107,6 +116,8 @@ object Receipts {
         val onDevice = tracked && off.isEmpty()
         val sent = off.sumOf { it.bytesSent }
         val routes = off.map { it.route }.distinct()
+        val redactions = redactions(event.redacted)
+        val hidden = redactions.sumOf { it.count }
         val line = when {
             onDevice && hosts.any { it.blocked > 0 } -> "on device · ${hosts.sumOf { it.blocked }} blocked"
             onDevice -> "on device"
@@ -115,6 +126,7 @@ object Receipts {
                 if (tracked) "${formatBytes(sent)} out" else null,
                 routes.filter { it != "direct" }.joinToString(" + ").ifEmpty { null },
                 policyWord(remote),
+                if (hidden > 0) "$hidden redacted" else null,
             ).joinToString(" · ").ifEmpty { "receipt" }
         }
         return Receipt(
@@ -129,7 +141,18 @@ object Receipts {
             models = event.models,
             tools = event.tools.map { ReceiptTool(it, isNetworkTool(it)) },
             fallbacks = event.fallbacks,
+            redacted = event.redacted != null,
+            redactions = redactions,
         )
+    }
+
+    /** The receipt's redaction counts in a fixed order ([PiiKind] order; unknown kinds last). */
+    fun redactions(counts: Map<String, Int>?): List<ReceiptRedaction> {
+        if (counts.isNullOrEmpty()) return emptyList()
+        val order = PiiKind.entries.map { it.tag }
+        return counts.filterValues { it > 0 }.entries
+            .sortedBy { (kind, _) -> order.indexOf(kind).takeIf { it >= 0 } ?: order.size }
+            .map { (kind, n) -> ReceiptRedaction(kind, n, PiiKind.of(kind)?.count(n) ?: "$n ${kind.lowercase()}") }
     }
 
     /**

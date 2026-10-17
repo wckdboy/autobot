@@ -36,6 +36,13 @@ data class AppSettings(
      * on-device model), with a notice. Off by default: switching models is the user's call.
      */
     val quotaFallback: Boolean = false,
+    /**
+     * Redaction gateway: before a request goes to a cloud provider, names, emails, phone numbers,
+     * addresses, account numbers and memory facts become placeholders, restored on the device.
+     * On by default (an existing install without the key gets it on too): it only hides data
+     * from providers, never from the user. Chats can opt out on their own.
+     */
+    val redactCloud: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_LOCK_TIMEOUT_MILLIS = 60_000L
@@ -66,6 +73,7 @@ object SettingsSchema {
     const val SEARCH_BASE_URL = "search_base_url"
     const val SEARCH_ROUTE = "search_route"
     const val QUOTA_FALLBACK = "quota_fallback"
+    const val REDACT_CLOUD = "redact_cloud"
 
     /** Lock timeouts offered in Settings; anything else read from storage is clamped to these bounds. */
     val LOCK_TIMEOUTS_MILLIS = listOf(0L, 30_000L, 60_000L, 300_000L, 900_000L)
@@ -94,6 +102,7 @@ object SettingsSchema {
         SEARCH_BASE_URL to settings.searchBaseUrl,
         SEARCH_ROUTE to settings.searchRoute.name,
         QUOTA_FALLBACK to settings.quotaFallback.toString(),
+        REDACT_CLOUD to settings.redactCloud.toString(),
     )
 
     fun decode(values: Map<String, String>): AppSettings {
@@ -115,6 +124,7 @@ object SettingsSchema {
             searchBaseUrl = values[SEARCH_BASE_URL]?.trim().orEmpty(),
             searchRoute = searchRoute(values[SEARCH_ROUTE]),
             quotaFallback = bool(QUOTA_FALLBACK, defaults.quotaFallback),
+            redactCloud = bool(REDACT_CLOUD, defaults.redactCloud),
         )
     }
 }

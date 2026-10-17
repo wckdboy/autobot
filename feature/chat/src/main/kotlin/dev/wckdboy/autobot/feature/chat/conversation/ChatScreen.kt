@@ -309,7 +309,12 @@ fun ChatScreen(
 
             if (state.todos.isNotEmpty() && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
             state.question?.let { QuestionCard(it, actions::answer) }
-            PolicyLine(state, onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) }, onThinkMore = { showThink = true })
+            PolicyLine(
+                state,
+                onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) },
+                onThinkMore = { showThink = true },
+                onRedact = { actions.setRedaction(state.redaction != RedactionUi.ON) },
+            )
             val voice = state.voice
             if (voice != null) {
                 VoicePanel(voice, micLevels, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
@@ -710,9 +715,10 @@ private fun EmptySession(state: ChatUiState) {
 
 /** `POLICY · WORKSPACE · ASKS: DELETE, NETWORK`: what runs without asking, in a few words. */
 @Composable
-private fun PolicyLine(state: ChatUiState, onThink: () -> Unit = {}, onThinkMore: () -> Unit = {}) {
+private fun PolicyLine(state: ChatUiState, onThink: () -> Unit = {}, onThinkMore: () -> Unit = {}, onRedact: () -> Unit = {}) {
     val think = state.thinkingSupport.shown
-    if (!state.toolsEnabled && !think) return
+    val redact = state.redaction != RedactionUi.NONE
+    if (!state.toolsEnabled && !think && !redact) return
     val text = when {
         !state.toolsEnabled -> ""
         state.permission == PermissionPreset.READ_ONLY -> "policy · read-only · asks: network"
@@ -725,6 +731,7 @@ private fun PolicyLine(state: ChatUiState, onThink: () -> Unit = {}, onThinkMore
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (think) ThinkChip(state.thinking, onThink, onThinkMore)
+        if (redact) RedactChip(state.redaction == RedactionUi.ON, onRedact)
         MicroLabel(text, Modifier.weight(1f))
         val used = state.contextUsed
         val window = state.contextWindow
@@ -1218,6 +1225,27 @@ private fun ThinkChip(setting: ThinkingSetting, onTap: () -> Unit, onMore: () ->
             .semantics { contentDescription = "Thinking ${setting.mode.name.lowercase()}" + (setting.budget?.let { ", budget $it tokens" } ?: "") }
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) { MicroLabel("\u2234 " + ThinkingLabels.chip(setting), color = color) }
+}
+
+/**
+ * The redaction switch of a cloud chat: `▮ redact` while personal data becomes placeholders
+ * before the provider sees it, struck through when off. A tap switches it for this chat.
+ */
+@Composable
+private fun RedactChip(on: Boolean, onTap: () -> Unit) {
+    val color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    Box(
+        Modifier
+            .border(1.dp, color.copy(alpha = 0.6f))
+            .clickable(onClickLabel = if (on) "Stop redacting" else "Redact personal data", onClick = onTap)
+            .semantics { contentDescription = if (on) "Redaction on: names, emails and numbers are hidden from the cloud" else "Redaction off" }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        MicroLabel(
+            if (on) "\u25AE redact" else "redact off",
+            color = color,
+        )
+    }
 }
 
 /** Long press on the Think chip: mode, budget for On, and the default for this model. */

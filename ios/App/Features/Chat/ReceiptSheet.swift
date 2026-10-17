@@ -63,6 +63,20 @@ struct ReceiptSheet: View {
                     }
                 }
 
+                if receipt.redacted {
+                    Hairline().padding(.vertical, 2)
+                    MicroLabel("redacted")
+                    if receipt.redactions.isEmpty {
+                        Text("Nothing personal found").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+                    } else {
+                        ChatFlow(spacing: 6) {
+                            ForEach(Array(receipt.redactions.enumerated()), id: \.offset) { _, r in Tag(r.label, accent: c.primary) }
+                        }
+                        Text("The provider saw placeholders like [PERSON_1]. The real values were put back on this phone.")
+                            .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
                 if !receipt.tools.isEmpty {
                     Hairline().padding(.vertical, 2)
                     MicroLabel("tools")

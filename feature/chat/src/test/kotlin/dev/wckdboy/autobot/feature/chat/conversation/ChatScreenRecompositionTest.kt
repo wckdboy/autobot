@@ -144,6 +144,7 @@ class ChatScreenRecompositionTest {
         override fun setPermission(preset: PermissionPreset) = Unit
         override fun setThinking(setting: dev.wckdboy.autobot.agent.core.llm.ThinkingSetting) = Unit
         override fun setThinkingDefault(setting: dev.wckdboy.autobot.agent.core.llm.ThinkingSetting?) = Unit
+        override fun setRedaction(enabled: Boolean) = Unit
         override fun compact() = Unit
         override fun rename(title: String) = Unit
         override fun setPinned(pinned: Boolean) = Unit

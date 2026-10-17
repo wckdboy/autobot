@@ -24,6 +24,7 @@ class SettingsSchemaTest {
             searchBaseUrl = "https://search.example.org",
             searchRoute = RouteOverride.TOR,
             quotaFallback = true,
+            redactCloud = false,
         )
         assertEquals(settings, SettingsSchema.decode(SettingsSchema.encode(settings)))
     }
@@ -40,8 +41,11 @@ class SettingsSchemaTest {
                 SettingsSchema.SEARCH_PROVIDER to "GOOGLE",
                 SettingsSchema.SEARCH_ROUTE to "VPN",
                 SettingsSchema.QUOTA_FALLBACK to "maybe",
+                SettingsSchema.REDACT_CLOUD to "nah",
             ),
         )
+        // Redaction fails safe to on: a damaged value never sends personal data in the clear.
+        assertEquals(true, decoded.redactCloud)
         assertEquals(false, decoded.quotaFallback)
         assertEquals(false, decoded.memoryEnabled)
         assertEquals(SearchProvider.NONE, decoded.searchProvider)
@@ -51,5 +55,13 @@ class SettingsSchemaTest {
         assertEquals(true, decoded.appLockEnabled)
         assertEquals(900_000L, decoded.lockTimeoutMillis)
         assertEquals(AppSettings(), SettingsSchema.decode(emptyMap()))
+    }
+
+    @Test
+    fun redactionIsOnForStoresFromBeforeTheSetting() {
+        // A store written by an older version has no key: the gateway is on.
+        val old = SettingsSchema.encode(AppSettings()) - SettingsSchema.REDACT_CLOUD
+        assertEquals(true, SettingsSchema.decode(old).redactCloud)
+        assertEquals(false, SettingsSchema.decode(old + (SettingsSchema.REDACT_CLOUD to "false")).redactCloud)
     }
 }

@@ -30,6 +30,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var searchRoute: ProviderRouting = .inherit
     /// When a provider's usage limit is used up, answer once with its helper model, else the on-device one (off by default).
     var quotaFallback = false
+    /// Redaction gateway: personal data becomes placeholders before a cloud request (on by default).
+    var redactCloud = true
 
     var webSearchOn: Bool { searchProvider != "NONE" }
 
@@ -68,6 +70,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             searchBaseUrl: searchBaseUrl,
             searchRoute: SettingsSchema.shared.searchRoute(value: searchRoute.rawValue),
             quotaFallback: quotaFallback,
+            redactCloud: redactCloud,
         )
         return SettingsSchema.shared.encode(settings: shared)
     }
@@ -90,6 +93,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         searchBaseUrl = s.searchBaseUrl
         searchRoute = ProviderRouting(rawValue: s.searchRoute.name) ?? .inherit
         quotaFallback = s.quotaFallback
+        redactCloud = s.redactCloud
     }
 }
 
@@ -156,6 +160,7 @@ final class SettingsStore {
     func setMemoryEnabled(_ enabled: Bool) { update { $0.memoryEnabled = enabled } }
     func setVaultEnabled(_ enabled: Bool) { update { $0.vaultEnabled = enabled } }
     func setQuotaFallback(_ enabled: Bool) { update { $0.quotaFallback = enabled } }
+    func setRedactCloud(_ enabled: Bool) { update { $0.redactCloud = enabled } }
 
     func setWebSearch(provider: String, baseUrl: String, route: ProviderRouting) {
         update {

@@ -107,10 +107,19 @@ models, shared core). Ordered by value.
    message; built from the audit log, never sent anywhere. *(done on both platforms: requests
    carry their agent turn into the audit log, receipts are `turn/receipt` events in the session
    log)*
-2. **Redaction gateway.** Before a cloud call, an on-device model finds names, emails, phone
+2. ✅ **Redaction gateway.** Before a cloud call, an on-device model finds names, emails, phone
    numbers, addresses, account numbers and the user's own memory facts, swaps them for stable
    placeholders, and puts the real values back into the answer locally. The provider sees
-   `[PERSON_1]`, the user sees their own words. Visible in the receipt.
+   `[PERSON_1]`, the user sees their own words. Visible in the receipt. *(done, both apps, on by
+   default ("Redact before cloud" in Settings, a `redact` chip per chat): shared rules find emails,
+   IBANs (mod-97), Luhn-checked cards, phones, cued account numbers, street addresses and names
+   (honorifics, relation and naming cues, greetings, sign-offs, a first-name list), plus memory
+   facts from the taint index; code, links, dates and version numbers are left alone. Every part
+   of a cloud request is redacted (history, tool calls and results, reasoning, compaction
+   summaries) with per-chat placeholders; the streamed answer, reasoning and tool arguments are
+   restored on the device, also across chunk boundaries, so tools and the log only see real
+   values. The receipt counts what was hidden by kind, never the values. Not yet: an on-device
+   model tier for names the rules miss.)*
 3. **Local-first cascade.** "This phone" answers first; a small on-device judge decides whether the
    answer is good enough, and only then offers to escalate to the cloud (with the redacted prompt).
    Per-chat policy: never / ask / auto for low-risk prompts.

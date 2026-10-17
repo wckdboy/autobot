@@ -38,6 +38,11 @@ class PrivateSource(
     val clean: (String) -> String = { it },
 )
 
+/** A private fragment of the taint index ([TaintTracker.privateTerms]), as it reads in its source. */
+data class PrivateTerm(val text: String, val kind: Kind, val source: String) {
+    enum class Kind { EMAIL, NUMBER, ID, NAME }
+}
+
 /** One private fragment found in a network tool's arguments. */
 data class TaintHit(
     /** The fragment as it reads (shown and highlighted on the approval card). */
@@ -234,6 +239,26 @@ class TaintTracker {
         lock.withLock { indexes.remove(rootId(sessionId)) }
     }
 
+    /**
+     * The private fragments indexed for [sessionId]'s root session from sources whose label
+     * passes [labels] (e.g. only "memory"), for the redaction gateway: emails, numbers, id-like
+     * tokens and (from prose sources) capitalised names, as they read. Unlike [check], fragments
+     * the user typed or allowed are included: hiding them from a model provider is still right.
+     */
+    fun privateTerms(sessionId: String, labels: (String) -> Boolean = { true }): List<PrivateTerm> = lock.withLock {
+        val index = indexes[rootId(sessionId)] ?: return@withLock emptyList()
+        index.fragments.mapNotNull { (key, hit) ->
+            if (!labels(hit.source)) return@mapNotNull null
+            val kind = when {
+                key.startsWith("e:") -> PrivateTerm.Kind.EMAIL
+                key.startsWith("n:") -> PrivateTerm.Kind.NUMBER
+                Fragments.isStrict(key) -> PrivateTerm.Kind.ID
+                else -> PrivateTerm.Kind.NAME
+            }
+            PrivateTerm(hit.text, kind, hit.source)
+        }
+    }
+
     private fun Index.merge(delta: Delta) {
         when (delta) {
             is Delta.Prompt -> {
@@ -318,6 +343,9 @@ class TaintTracker {
     }
 
     companion object {
+        /** The tracker [TaintTrackingPlugin] installed, for other plugins (the redaction gateway). */
+        val Key = dev.wckdboy.autobot.agent.core.ServiceKey<TaintTracker>("taint-tracker")
+
         /** Outside the MCP gate (200) and the permission presets (100): taint asks even when they allow. */
         const val PRIORITY = 300
         const val META_KEY = "private"
@@ -369,6 +397,7 @@ val TaintTrackingPlugin: Plugin = taintTrackingPlugin { TaintTracker() }
 /** [TaintTrackingPlugin] with the tracker from [tracker] (one per install; tests inspect it). */
 internal fun taintTrackingPlugin(priority: Int = TaintTracker.PRIORITY, tracker: () -> TaintTracker): Plugin = plugin("taint-tracking") { ctx ->
     val tracker = tracker()
+    ctx.provide(TaintTracker.Key, tracker)
     ctx.intercept(Hooks.ToolPreExecute, priority = priority) { input, next ->
         val agent: Agent = input.agent
         tracker.track(agent)
