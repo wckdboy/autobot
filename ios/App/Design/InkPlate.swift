@@ -356,7 +356,7 @@ final class PlateEngine {
             }
         }
         if isPrint {
-            let shift = CGFloat(InkMath.registerShift(elapsed: elapsed))
+            let shift = CGFloat(InkMath.registerShift(elapsed: elapsed, pitch: Double(pitch)))
             let alpha = 0.5 * InkMath.plateAlpha(elapsed: elapsed)
             if alpha > 0 {
                 var shifted = context

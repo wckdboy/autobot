@@ -102,8 +102,22 @@ enum InkMath {
     static func printImageAlpha(_ t: Double) -> Double { smoothstep((t - 0.5) / 0.5) }
 
     /// Offset (pt) of the register plate [elapsed] seconds into the print (settles with overshoot).
-    static func registerShift(elapsed: Double) -> Double {
-        Double(Tokens.Motion.registerOffset) * (1 - easeOutBack(elapsed / (Double(Tokens.Motion.registerMillis) / 1000)))
+    /// On a dot field of [pitch] points the offset is capped at `registerPitchShare` of the pitch.
+    static func registerShift(elapsed: Double, pitch: Double = .infinity) -> Double {
+        registerOffset(pitch: pitch) * (1 - easeOutBack(elapsed / (Double(Tokens.Motion.registerMillis) / 1000)))
+    }
+
+    /// The largest share of a dot field's pitch its register plate may sit out of register.
+    static let registerPitchShare = 0.2
+
+    /**
+     How far (pt) a register plate of a dot field of [pitch] points starts out of register:
+     `registerOffset`, capped at a fifth of the pitch. A copy of the dots offset by half a pitch
+     (3 pt on the 6 pt proof grid) lands in the gaps and reads as a second, doubled grid; a
+     fifth of a pitch stays a misregistered rim on the same dots.
+     */
+    static func registerOffset(pitch: Double) -> Double {
+        min(Double(Tokens.Motion.registerOffset), max(pitch, 0) * registerPitchShare)
     }
 
     /// The register plate fades out once it has settled, by the end of the print.
