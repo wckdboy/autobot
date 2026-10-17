@@ -365,6 +365,32 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// Skills found in the workspace (`name: description`).
     func skills() -> [String] { bridge.skills() }
+
+    /// The spend and quota board's encrypted storage: every model call is counted into it.
+    func setUsage(_ store: UsageStoreHost?) { bridge.setUsage(store: store) }
+
+    /// Current provider names (the board labels rows with them).
+    func setUsageNames(_ providers: [Provider]) {
+        bridge.setUsageNames(names: Dictionary(providers.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a }))
+    }
+
+    /// Joins usage from an export; returns how many buckets were added.
+    func importUsage(_ records: [UsageRecord], plan: UsagePlan?) async -> Int {
+        await withCheckedContinuation { (done: CheckedContinuation<Int, Never>) in
+            bridge.importUsage(records: records, plan: plan) { @Sendable n in done.resume(returning: Int(n.int32Value)) }
+        }
+    }
+}
+
+extension SharedAgentRuntime: UsageBridging {
+    func observeUsage(_ deliver: @escaping @MainActor (String) -> Void) -> any AutobotShared.Cancellable {
+        // The bridge's observing coroutine keeps the box alive until cancelled.
+        bridge.observeUsage(listener: UsageListenerBox(deliver))
+    }
+
+    func saveUsagePlan(_ json: String) { bridge.saveUsagePlan(json: json) }
+
+    func clearUsageHistory() { bridge.clearUsageHistory() }
 }
 
 /**
@@ -597,6 +623,18 @@ private final class McpStatusListenerBox: NSObject, McpStatusListener, @unchecke
         let deliver = deliver
         nonisolated(unsafe) let servers = servers
         DispatchQueue.main.async { MainActor.assumeIsolated { deliver(servers) } }
+    }
+}
+
+/// Hands the board's report JSON to the main actor.
+private final class UsageListenerBox: NSObject, UsageListener, @unchecked Sendable {
+    private let deliver: @MainActor (String) -> Void
+
+    init(_ deliver: @escaping @MainActor (String) -> Void) { self.deliver = deliver }
+
+    func onReport(json: String) {
+        let deliver = deliver
+        DispatchQueue.main.async { MainActor.assumeIsolated { deliver(json) } }
     }
 }
 

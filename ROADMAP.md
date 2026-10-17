@@ -161,8 +161,9 @@ models, shared core). Ordered by value.
     groups the session's changes by turn. Undoing a step also undoes later edits to the same file;
     a revert is journaled so it can be redone, and a `workspace/revert` event tells the model
     which files moved back. Subagent changes count for the parent's turn.)*
-12. **Spend and quota board.** Tokens, money and subscription windows (OpenCode Go 5 h / week /
-    month) per provider, computed locally from responses.
+12. ✅ **Spend and quota board.** Tokens, money and subscription windows (OpenCode Go 5 h / week /
+    month) per provider, computed locally from responses: Settings › Usage, tokens and cost on each
+    receipt, a user-editable price table (only published prices ship; the rest stays "unknown").
 
 **Exit:** a cloud answer comes with a receipt and a redacted prompt by default; the vault and the
 cascade work fully offline on the 8 Elite Gen 5 and a current iPhone.

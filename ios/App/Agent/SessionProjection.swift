@@ -198,12 +198,25 @@ struct Receipt: Codable, Equatable, Sendable {
     var models: [Model] = []
     var tools: [Tool] = []
     var fallbacks: [String] = []
+    /// The turn's tokens and cost in one line (`12k in · 410 out · 8.1k cached · $0.0042`); nil when not counted.
+    var usage: String? = nil
+    /// The same per model.
+    var usageRows: [UsageRow] = []
+
+    /// One model's tokens and cost (Kotlin `ReceiptUsageRow`).
+    struct UsageRow: Codable, Equatable, Sendable {
+        var model: String
+        var line: String
+    }
 
     init(turn: Int, line: String, onDevice: Bool = false, tracked: Bool = false, hosts: [Host] = [], bytesSent: Int64 = 0, bytesReceived: Int64 = 0,
-         routes: [String] = [], models: [Model] = [], tools: [Tool] = [], fallbacks: [String] = []) {
+         routes: [String] = [], models: [Model] = [], tools: [Tool] = [], fallbacks: [String] = [], usage: String? = nil, usageRows: [UsageRow] = []) {
         (self.turn, self.line, self.onDevice, self.tracked, self.hosts, self.bytesSent, self.bytesReceived) = (turn, line, onDevice, tracked, hosts, bytesSent, bytesReceived)
-        (self.routes, self.models, self.tools, self.fallbacks) = (routes, models, tools, fallbacks)
+        (self.routes, self.models, self.tools, self.fallbacks, self.usage, self.usageRows) = (routes, models, tools, fallbacks, usage, usageRows)
     }
+
+    /// The line of [model]'s tokens and cost, if counted.
+    func usageLine(_ model: String) -> String? { usageRows.first { $0.model == model }?.line }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -218,6 +231,8 @@ struct Receipt: Codable, Equatable, Sendable {
         models = try c.decodeIfPresent([Model].self, forKey: .models) ?? []
         tools = try c.decodeIfPresent([Tool].self, forKey: .tools) ?? []
         fallbacks = try c.decodeIfPresent([String].self, forKey: .fallbacks) ?? []
+        usage = try c.decodeIfPresent(String.self, forKey: .usage)
+        usageRows = (try? c.decodeIfPresent([UsageRow].self, forKey: .usageRows)) ?? []
     }
 
     /// `0 B`, `512 B`, `14 KB`, `1.2 MB` (Kotlin `Receipts.formatBytes`).

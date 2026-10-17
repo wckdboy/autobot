@@ -249,7 +249,12 @@ struct ChatScreen: View {
                 showChanges = true
             }) { showSession = false }
         }
-        .sheet(item: $openReceipt) { ReceiptSheet(receipt: $0) }
+        .sheet(item: $openReceipt) { r in
+            ReceiptSheet(receipt: r) {
+                openReceipt = nil
+                nav.push(.usage)
+            }
+        }
         .sheet(isPresented: $showThink) {
             ThinkSheet(
                 choice: settings.thinking,

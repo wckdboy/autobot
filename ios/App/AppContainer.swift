@@ -33,6 +33,8 @@ final class AppContainer {
     let downloader: ModelDownloader
     let backends: DiffusionBackendRepository
     let memory: MemoryRepository
+    /// The spend and quota board (usage buckets, prices, subscription windows).
+    let usage: UsageRepository
     let vault: VaultRepository
     /// The Creative Studio (projects, assets, queue, engines, ComfyUI, workflows).
     let studio: StudioHub
@@ -81,6 +83,7 @@ final class AppContainer {
         downloader = ModelDownloader(library: library, clients: clients, accounts: accounts)
         backends = DiffusionBackendRepository(preferences: preferences)
         memory = MemoryRepository(store: store)
+        usage = UsageRepository(store: store)
         vault = VaultRepository(store: store, llm: llm)
         providerFactory = ProviderFactory(clients: clients, providers: providers, library: library, compute: compute, llm: llm)
         engines = DiffusionEngineFactory(clients: clients, llm: llm) { [compute] in compute.resolve($0) }
@@ -94,6 +97,9 @@ final class AppContainer {
             attachments: attachments, secrets: secrets, snapshots: snapshots,
         )
         shared.registerTool(GenerateImageTool(generator: generator, backends: backends))
+        // Every model call is counted into the encrypted usage store (read on first use, after unlock).
+        shared.setUsage(usage.host)
+        usage.bridge = shared
         // `run_workflow` while there is a saved Studio workflow to run.
         let runner = studio.bridge.runner
         studio.onWorkflowsChanged = { [weak shared] any in shared?.setStudio(any ? runner : nil) }
@@ -211,6 +217,7 @@ final class AppContainer {
         #if canImport(AutobotShared)
         snapshots.setProviders(list)
         snapshots.setModelLists(providers.modelLists.mapValues(\.json))
+        (agent as? SharedAgentRuntime)?.setUsageNames(list)
         // Providers or their model lists changed: the bridge's cached model adapters go.
         (agent as? SharedAgentRuntime)?.invalidateProviders()
         (agent as? SharedAgentRuntime)?.setQuotaFallback(settings.settings.quotaFallback, onDevice: list.first { $0.id == ProviderPresets.localProviderId })
