@@ -89,7 +89,6 @@ import dev.wckdboy.autobot.core.designsystem.component.Stepper
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
 import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
@@ -159,9 +158,8 @@ fun ImagineScreen(
     var showMask by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableIntStateOf(-1) }
     val request = state.request
-    // An empty studio is living paper; it holds still while an image is being made.
+    // The empty proofs are living paper; they hold still while an image is being made.
     val ambient = rememberInkAmbient(heavyWork = state.running != null)
-    val empty = state.running == null && state.results.isEmpty()
     // The engine the selected model actually runs on (the shown chip, also before one is tapped).
     val route = imageRoute(state.backend, state.selectedChip?.takeIf { it.onDevice }?.accelerator)
 
@@ -186,7 +184,10 @@ fun ImagineScreen(
                 // The bottom bar rides above the keyboard (below), so the scaffold padding already clears it.
                 .padding(padding)
                 .fillMaxSize()
-                .then(if (empty) Modifier.inkGround(ambient = ambient) else Modifier.ambientTouch(ambient))
+                // No paper ground here (as on iOS): the prompt and readouts fill the screen, dots must
+                // not sit behind text, and a ground around the proofs' own finer grid read as two
+                // misaligned dot screens.
+                .ambientTouch(ambient)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -232,13 +233,7 @@ fun ImagineScreen(
             }
 
             Hairline(color = MaterialTheme.colorScheme.onBackground)
-            // The paper's living dots stop at the readouts: the band between the hairlines is plain paper.
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .then(if (empty) Modifier.background(MaterialTheme.colorScheme.background) else Modifier),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 BigReadout("Steps", request.steps.toString(), onClick = { showTune = true })
                 BigReadout("Seed", if (request.seed < 0) "rnd" else request.seed.toString().takeLast(6), onClick = { showTune = true })
                 BigReadout("Size", sizeLabel(request.width, request.height), onClick = { showTune = true })

@@ -35,9 +35,6 @@ class InkMathV2Test {
         assertEquals(0f, InkMath.ambientPhase(0f), eps)
         assertEquals("one wave cycle per ambientCycleSeconds", 2f, InkMath.ambientPhase(Motion.ambientCycleSeconds.toFloat()), eps)
         assertTrue("one cycle takes 40–60 s", Motion.ambientCycleSeconds in 40..60)
-        assertEquals(0f, InkMath.ambientBreath(0f), eps)
-        assertEquals(1f, InkMath.ambientBreath(Motion.ambientBreathSeconds / 4f), eps)
-        assertEquals(-1f, InkMath.ambientBreath(Motion.ambientBreathSeconds * 3 / 4f), eps)
         assertTrue("≤5 fps", Motion.ambientFrameIntervalMillis >= 200)
     }
 

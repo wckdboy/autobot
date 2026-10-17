@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkLoaderSize
@@ -211,12 +212,81 @@ class InkRasterTest {
         }
     }
 
+    /**
+     * The paper is one plate: every inked pixel is the dot colour (a second, offset copy of the
+     * field in the primary read as a doubled, misprinted grid at rest), and the dots sit on the
+     * ground's own whole-pixel grid.
+     */
+    @Test
+    fun paperGroundIsASinglePlateOnItsGrid() {
+        for (d in densities) {
+            val w = Math.round(320 * d)
+            val h = Math.round(200 * d)
+            val bitmap = render(w, h, d) { Box(Modifier.size((w / d).dp, (h / d).dp).inkGround(dot = ink)) }
+            val px = IntArray(w * h).also { bitmap.getPixels(it, 0, w, 0, 0, w, h) }
+            val foreign = px.count { c -> (c ushr 24 and 0xFF) > 0 && ((c ushr 8 and 0xFF) > 8 || (c and 0xFF) > 8) }
+            assertTrue("ground d=$d: $foreign pixels in another ink than the dots'", foreign == 0)
+            val cell = InkMath.cappedCell(w.toFloat(), h.toFloat(), 14 * d)
+            assertOnGrid("ground d=$d", coverage(bitmap, Motion.ambientOpacity.toDouble()), DotGeometry.ground(w.toFloat(), h.toFloat(), cell, 0.6f * 0.75f))
+        }
+    }
+
+    /**
+     * The proof plate (develop, print and halftone images share its grid) has a square,
+     * whole-pixel pitch, centred, like every other field, so it never beats against a stretched
+     * or sub-pixel grid. Includes slots large enough for the dot cap to grow the pitch.
+     */
+    @Test
+    fun proofPlateSitsOnAWholePixelGrid() {
+        for (d in densities) for ((wDp, hDp) in listOf(170 to 170, 361 to 361, 170 to 255)) {
+            val w = Math.round(wDp * d)
+            val h = Math.round(hDp * d)
+            val bitmap = render(w, h, d) { DevelopingHalftone(null, Modifier.size((w / d).dp, (h / d).dp), dot = ink, progress = 0.3f, fieldAlpha = 1f) }
+            val cell = InkMath.cappedCell(w.toFloat(), h.toFloat(), 5 * d)
+            val grid = DotGeometry.ground(w.toFloat(), h.toFloat(), cell, 0.62f)
+            assertTrue("proof d=$d ${wDp}x$hDp: square pitch", grid.x.pitch == grid.y.pitch)
+            assertTrue("proof d=$d ${wDp}x$hDp: dot cap", grid.x.count * grid.y.count <= InkMath.MAX_DOTS)
+            assertOnGrid("proof d=$d ${wDp}x$hDp", coverage(bitmap, 1.0), grid)
+        }
+    }
+
+    /** Every resolvable dot's centroid (pixels assigned to their nearest grid centre) is within 0.5 px of its centre. */
+    private fun assertOnGrid(what: String, cov: Array<DoubleArray>, grid: DotGeometry.Ground) {
+        val n = grid.x.count * grid.y.count
+        val sums = Array(n) { DoubleArray(3) }
+        var stray = 0.0
+        for (y in cov.indices) for (x in cov[0].indices) {
+            val c = cov[y][x]
+            if (c < 0.01) continue
+            val cx = x + 0.5
+            val cy = y + 0.5
+            val col = Math.round((cx - grid.x.first) / grid.x.pitch).toInt()
+            val row = Math.round((cy - grid.y.first) / grid.y.pitch).toInt()
+            if (col !in 0 until grid.x.count || row !in 0 until grid.y.count) { stray += c; continue }
+            val s = sums[row * grid.x.count + col]
+            s[0] += c
+            s[1] += c * cx
+            s[2] += c * cy
+        }
+        assertTrue("$what: ink outside the grid ($stray px)", stray < 1.0)
+        var compared = 0
+        for (i in 0 until n) {
+            val (a, sx, sy) = sums[i]
+            if (sqrt(a / PI) < 1.5) continue
+            val ex = grid.x.at(i % grid.x.count)
+            val ey = grid.y.at(i / grid.x.count)
+            assertTrue("$what: dot $i at (${sx / a}, ${sy / a}) vs ($ex, $ey)", abs(sx / a - ex) < 0.5 && abs(sy / a - ey) < 0.5)
+            compared++
+        }
+        assertTrue("$what: compared only $compared dots", compared >= 10)
+    }
+
     @Test
     fun paperGroundStaysInsideItsBox() {
         for (d in densities) {
             val w = Math.round(320 * d)
             val h = Math.round(160 * d)
-            val bitmap = render(w, h, d) { Box(Modifier.size((w / d).dp, (h / d).dp).inkGround(dot = ink, plate = Color.Transparent)) }
+            val bitmap = render(w, h, d) { Box(Modifier.size((w / d).dp, (h / d).dp).inkGround(dot = ink)) }
             assertTrue("ground d=$d: a dot is cut by the bounds", !touchesEdge(coverage(bitmap, Motion.ambientOpacity.toDouble())))
         }
     }

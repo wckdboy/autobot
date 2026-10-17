@@ -125,8 +125,10 @@ private struct StillPlate: View {
     private func field(_ color: Color, fill: Double) -> some View {
         Canvas { context, size in
             InkProbe.hit("ink.draw")
-            let pitch = InkMath.dotCell(width: size.width, height: size.height, base: cell)
-            context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase, fill: fill, displayScale: Double(context.environment.displayScale)), with: .color(color))
+            // The live plate's whole-pixel pitch ([PlateEngine.layout]), so a still lands on the same dots.
+            let scale = Double(context.environment.displayScale)
+            let pitch = Double(InkGrid.fieldPitchPx(width: size.width, height: size.height, base: Double(cell), maxDots: InkMath.maxDots, scale: scale)) / scale
+            context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase, fill: fill, displayScale: scale), with: .color(color))
         }
     }
 }
@@ -176,6 +178,10 @@ final class PlateEngine {
     private var cols = 0, rows = 0
     private var pitch: CGFloat = 0
     private var size = CGSize.zero
+    private var scale = 0.0
+    /// Dot centres (points) on the whole-pixel grid ([InkGrid.field]), and as fractions of the plate.
+    private var xs: [CGFloat] = [], ys: [CGFloat] = []
+    private var us: [Double] = [], vs: [Double] = []
     private var target: [Float] = []
     private var waveArg: [Double] = []
     private var fieldStatic: [Double] = []
@@ -315,7 +321,7 @@ final class PlateEngine {
 
     func draw(_ context: inout GraphicsContext, size: CGSize, at now: Date, cell: CGFloat, phase: Double, dot: Color, idleDot: Color, plate: Color) {
         basePhase = phase
-        layout(size, base: cell)
+        layout(size, base: cell, scale: Double(context.environment.displayScale))
         tick(now)
         advanceStage(now)
         guard cols > 0, stage != .printed else { return }
@@ -328,17 +334,14 @@ final class PlateEngine {
         let isPrint: Bool = if case .print = stage { true } else { false }
         let scale = isPrint ? InkMath.printScale(printT) : 1
         let maxRadius = Double(pitch * Tokens.Halftone.imageRadiusFactor)
-        let ox = (size.width - CGFloat(cols) * pitch) / 2, oy = (size.height - CGFloat(rows) * pitch) / 2
 
         var dots = Path()
         var register = Path()
         for r in 0 ..< rows {
-            let y = (Double(r) + 0.5) / Double(rows)
-            let cy = oy + (CGFloat(r) + 0.5) * pitch
+            let y = vs[r], cy = ys[r]
             for c in 0 ..< cols {
                 let i = r * cols + c
-                let x = (Double(c) + 0.5) / Double(cols)
-                let cx = ox + (CGFloat(c) + 0.5) * pitch
+                let x = us[c], cx = xs[c]
                 let v = value(i, x: x, y: y, at: now, phase: phase)
                 let radius = CGFloat(v * maxRadius * scale)
                 if radius > Tokens.Halftone.imageMinRadius {
@@ -414,19 +417,31 @@ final class PlateEngine {
     private func snapshot(at now: Date) {
         guard cols > 0, from.count == cols * rows else { return }
         for r in 0 ..< rows {
-            let y = (Double(r) + 0.5) / Double(rows)
             for c in 0 ..< cols {
-                from[r * cols + c] = Float(value(r * cols + c, x: (Double(c) + 0.5) / Double(cols), y: y, at: now, phase: basePhase))
+                from[r * cols + c] = Float(value(r * cols + c, x: us[c], y: vs[r], at: now, phase: basePhase))
             }
         }
     }
 
-    private func layout(_ newSize: CGSize, base: CGFloat) {
-        guard newSize != size else { return }
+    /**
+     The plate's grid for [newSize] at [newScale]: the same rules as every other dot field
+     ([InkGrid.field]: a whole-pixel pitch, centred, half a pitch from the edges), so its dots sit
+     where the still plate's and the halftone image's do and antialias alike. Rebuilt only when the
+     size or scale changes.
+     */
+    private func layout(_ newSize: CGSize, base: CGFloat, scale newScale: Double) {
+        guard newSize != size || newScale != scale else { return }
         size = newSize
-        pitch = CGFloat(InkMath.dotCell(width: newSize.width, height: newSize.height, base: base))
-        cols = max(0, Int(newSize.width / pitch))
-        rows = max(0, Int(newSize.height / pitch))
+        scale = newScale
+        let w = Double(newSize.width), h = Double(newSize.height)
+        let (colAxis, rowAxis) = InkGrid.field(width: w, height: h, base: Double(base), maxDots: InkMath.maxDots, scale: newScale)
+        pitch = CGFloat(Double(colAxis.pitchPx) / newScale)
+        cols = colAxis.count
+        rows = rowAxis.count
+        xs = (0 ..< cols).map { CGFloat(colAxis.center($0, scale: newScale)) }
+        ys = (0 ..< rows).map { CGFloat(rowAxis.center($0, scale: newScale)) }
+        us = xs.map { Double($0) / max(w, 1) }
+        vs = ys.map { Double($0) / max(h, 1) }
         target = [Float](repeating: 0, count: cols * rows)
         // The field's per-dot constants: the wave's argument and the blob/falloff part.
         typealias H = Tokens.Halftone
@@ -435,9 +450,9 @@ final class PlateEngine {
         waveArg.reserveCapacity(cols * rows)
         fieldStatic.reserveCapacity(cols * rows)
         for r in 0 ..< rows {
-            let y = (Double(r) + 0.5) / Double(rows)
+            let y = vs[r]
             for c in 0 ..< cols {
-                let x = (Double(c) + 0.5) / Double(cols)
+                let x = us[c]
                 waveArg.append((x * Double(H.fieldWaveX) + y * Double(H.fieldWaveY)) * .pi)
                 let dx = x - Double(H.fieldBlobX), dy = y - Double(H.fieldBlobY)
                 let blob = 1 - min(1, (dx * dx * Double(H.fieldBlobWeightX) + dy * dy * Double(H.fieldBlobWeightY)).squareRoot())
@@ -457,13 +472,13 @@ final class PlateEngine {
             return
         }
         let imageAspect = Double(grid.width) / Double(max(grid.height, 1))
-        let viewAspect = Double(cols) / Double(rows)
+        let viewAspect = Double(size.width) / Double(max(size.height, 1))
         let sx = imageAspect > viewAspect ? viewAspect / imageAspect : 1
         let sy = imageAspect > viewAspect ? 1 : imageAspect / viewAspect
         for r in 0 ..< rows {
-            let v = 0.5 + ((Double(r) + 0.5) / Double(rows) - 0.5) * sy
+            let v = 0.5 + (vs[r] - 0.5) * sy
             for c in 0 ..< cols {
-                let u = 0.5 + ((Double(c) + 0.5) / Double(cols) - 0.5) * sx
+                let u = 0.5 + (us[c] - 0.5) * sx
                 target[r * cols + c] = 1 - grid.sample(Float(u), Float(v))
             }
         }

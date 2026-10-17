@@ -279,7 +279,9 @@ fun ChatScreen(
             val empty = state.loaded && state.items.isEmpty() && !hasLive
             LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth().then(if (empty) Modifier.inkGround(heavyWork = state.running) else Modifier),
+                // One ground per screen: with the voice panel up, its own paper is the ground (two fields
+                // with their own grids would meet at the panel's edge).
+                modifier = Modifier.weight(1f).fillMaxWidth().then(if (empty && state.voice == null) Modifier.inkGround(heavyWork = state.running) else Modifier),
                 reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -996,8 +998,15 @@ private fun VoicePanel(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (voice.phase == VoicePhase.SPEAKING) {
-                        // A slow flow strip while the answer is read aloud.
-                        HalftoneField(Modifier.fillMaxWidth().height(36.dp), cell = 6.dp, flowing = true, fill = 0.8f, speed = 1.5f)
+                        // A slow flow strip while the answer is read aloud, on plain paper: its 6dp
+                        // screen over the ground's 14dp one read as two misaligned dot grids.
+                        HalftoneField(
+                            Modifier.fillMaxWidth().height(36.dp).background(MaterialTheme.colorScheme.background),
+                            cell = 6.dp,
+                            flowing = true,
+                            fill = 0.8f,
+                            speed = 1.5f,
+                        )
                     } else {
                         LevelMeter(levels, Modifier.fillMaxWidth().height(36.dp), live = voice.phase == VoicePhase.LISTENING)
                     }
