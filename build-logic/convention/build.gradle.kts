@@ -25,6 +25,7 @@ dependencies {
     implementation(libs.ksp.gradlePlugin)
     implementation(libs.hilt.gradlePlugin)
     implementation(libs.room.gradlePlugin)
+    implementation(libs.baselineprofile.gradlePlugin)
 }
 
 tasks {

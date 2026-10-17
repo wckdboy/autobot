@@ -210,7 +210,10 @@ CPU-only 1.1.
 - **Incognito upgrades**: incognito image runs, no gallery writes.
 - **Reproducible Android builds** and an F-Droid listing; signed CI releases.
 - **App Store release** after TestFlight hardening.
-- **Baseline profiles** and startup time budgets.
+- **Baseline profiles** and startup time budgets. *(Android: Baseline and startup profiles
+  generated on an emulator by `:baselineprofile` and committed as text (the APK stays
+  reproducible); the app reports itself fully drawn when a real screen shows. Still to do: budgets
+  measured on a phone and enforced, the chat screen in the profile journey, iOS.)*
 
 ## Later / experimental
 
