@@ -86,6 +86,37 @@ struct MotionPerfTests {
         }
     }
 
+    /// The app under an open Studio is hidden, not removed: its living cards (four on Run, 5 fps
+    /// each) must stop drawing while the Studio is shown.
+    @Test(.timeLimit(.minutes(2))) func appUnderTheStudioStopsItsInk() async throws {
+        let app = AppContainer()
+        let nav = Navigator()
+        nav.reset(.run, [])
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: AutobotNavHost().environment(\.scenePhase, .active).environment(app).environment(nav).autobotTheme(.dark))
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        // Ambient ink sleeps after a minute without a touch.
+        InkIdleClock.shared.touch(at: Date().addingTimeInterval(2))
+        func draws() async throws -> Int {
+            try await Task.sleep(for: .milliseconds(1200))
+            InkProbe.reset()
+            try await Task.sleep(for: .seconds(2))
+            return InkProbe.snapshot()["ink.draw", default: 0]
+        }
+        let run = try await draws()
+        nav.studio = .image
+        let studio = try await draws()
+        nav.studio = nil
+        // Whatever else draws (the test host's own hidden window) draws in both; Run's four
+        // cards (~40 draws in 2 s) must not, the Studio's empty canvas adds one field (~10).
+        #expect(studio < run - 15, "Run: \(run) draws, Studio over Run: \(studio)")
+    }
+
     /// The image studio while sampling: four proof plates (one flowing, three waiting), the step
     /// tag with its loader and the running bar.
     private struct GeneratingProof: View {
