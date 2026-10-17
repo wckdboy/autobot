@@ -3,6 +3,7 @@ package dev.wckdboy.autobot.feature.imagine.generate
 import android.app.Application
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.SystemClock
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -29,12 +30,14 @@ import dev.wckdboy.autobot.feature.imagine.mask.MaskStroke
 import dev.wckdboy.autobot.shared.studio.PromptLibrary
 import dev.wckdboy.autobot.shared.studio.PromptRuns
 import dev.wckdboy.autobot.shared.studio.PromptSnippet
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +49,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -145,8 +150,16 @@ class ImagineViewModel @Inject constructor(
 
     private val local = MutableStateFlow(Local())
 
-    /** The on-device model last loaded ahead of time (or tried): one warm-up per model. */
+    /** The on-device model of the last warm-up and when it was asked for (see [warmUp]). */
     private var warmedModel: String? = null
+    private var warmedAtMs = 0L
+    private var warmJob: Job? = null
+
+    /** Whether [warmJob] has reached the engine (before that, a switch to another model cancels it). */
+    private var warmSent = AtomicBoolean(true)
+
+    /** Keeps the on-device image model resident while this screen is open (see [uiState]). */
+    private var residentHold: AutoCloseable? = null
     private var initSource: Bitmap? = null
     private var catalogJob: Job? = null
 
@@ -212,7 +225,16 @@ class ImagineViewModel @Inject constructor(
             loaded = true,
             chips = chips,
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImagineUiState())
+    }.flowOn(Dispatchers.Default)
+        // Collected while the screen is open and in the foreground: the on-device model stays
+        // loaded meanwhile instead of being let go minutes after the last image (the memory
+        // coordinator still frees it when another engine needs the memory or the app goes away).
+        .onStart { residentHold = engines.keepOnDeviceResident() }
+        .onCompletion {
+            residentHold?.close()
+            residentHold = null
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ImagineUiState())
 
     /** Picks a backend + model; on-device models bring their recommended settings. */
     fun selectChip(chip: ModelChip) {
@@ -331,16 +353,31 @@ class ImagineViewModel @Inject constructor(
     /**
      * Loads the selected on-device model while the prompt is written (see [shouldWarm]): time to
      * the first image is mostly the model load. The engine skips it while another engine works
-     * and frees the others' memory first, like a job.
+     * and frees the others' memory first, like a job, and sends nothing while it holds the model.
+     * A warm-up is asked again [WARM_RECHECK_MS] after the last one, so a model freed since (the
+     * memory coordinator, the idle unbind) is loaded again. It starts [WARM_DELAY_MS] after the
+     * choice: a quick switch to another model cancels it before the first model loads for nothing.
      */
     private fun warmUp(prompt: String, chip: ModelChip? = uiState.value.selectedChip) {
         val state = uiState.value
         val backend = state.backends.firstOrNull { it.id == chip?.backendId } ?: return
         val model = chip?.takeIf { it.onDevice }?.model
-        if (!shouldWarm(backend.kind == BackendKind.ON_DEVICE, model, warmedModel, generator.isBusy || state.running != null, prompt)) return
+        val now = SystemClock.elapsedRealtime()
+        val recent = warmedModel.takeIf { warmJob?.isActive == true || now - warmedAtMs < WARM_RECHECK_MS }
+        if (!shouldWarm(backend.kind == BackendKind.ON_DEVICE, model, recent, generator.isBusy || state.running != null, prompt)) return
+        // Not once the engine has it: cancelling a sent request would stop whatever job it runs.
+        if (!warmSent.get()) warmJob?.cancel()
         warmedModel = model
+        warmedAtMs = now
         val request = state.request.copy(model = model)
-        viewModelScope.launch(Dispatchers.IO) { runCatching { engines.create(backend).prepare(request) } }
+        val sent = AtomicBoolean(false).also { warmSent = it }
+        warmJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(WARM_DELAY_MS)
+            sent.set(true)
+            val ready = runCatching { engines.create(backend).prepare(request) }.getOrDefault(false)
+            // Skipped (another engine worked) or failed: tried again soon, not in WARM_RECHECK_MS.
+            warmedAtMs = SystemClock.elapsedRealtime() - if (ready) 0 else WARM_RECHECK_MS - WARM_RETRY_MS
+        }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -460,6 +497,14 @@ class ImagineViewModel @Inject constructor(
     }
 
     companion object {
+        /** A warm-up starts this long after the model is chosen (or the prompt first typed). */
+        const val WARM_DELAY_MS = 500L
+
+        /** The engine is asked again for the model this long after the last warm-up (cheap when it holds it). */
+        const val WARM_RECHECK_MS = 20_000L
+
+        /** After a warm-up that could not load the model: tried again this long after. */
+        const val WARM_RETRY_MS = 2_000L
         private const val PREVIEW_SIDE = 768
         private const val RESULT_SIDE = 1536
         private const val MAX_INIT_SIDE = 2048

@@ -145,6 +145,12 @@ class DiffusionEngineFactory @Inject constructor(
             BackendKind.ON_DEVICE -> OnDeviceEngine(library, localSd, localLlm, File(context.cacheDir, "sd-in"), localNpu)
         }
     }
+
+    /**
+     * Keeps the on-device image engine's model resident until closed, instead of letting it go
+     * minutes after the last image (see [LocalSd.keepResident]); the memory coordinator still frees it.
+     */
+    fun keepOnDeviceResident(): AutoCloseable = localSd.keepResident()
 }
 
 /**

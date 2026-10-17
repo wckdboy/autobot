@@ -36,7 +36,9 @@ class SdEngineException(message: String) : Exception(message)
 
 /**
  * Client for [SdService]. Binds on demand and unbinds after [idleMillis] so Android can reclaim
- * the model's memory. Output files are read and deleted as they arrive; nothing generated
+ * the model's memory, unless someone [keepResident]s it (the Image screen while it is open: the
+ * next image starts sampling instead of reloading the model); the memory coordinator can still
+ * free it at any time. Output files are read and deleted as they arrive; nothing generated
  * lingers in the cache.
  */
 class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, private val connectTimeoutMillis: Long = CONNECT_TIMEOUT_MS) {
@@ -50,7 +52,27 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
 
     /** Calls and jobs in flight; guarded by `this`, as are [engine] and [connection] changes. */
     private var active = 0
-    private val unbindLater = Runnable { unbindIfIdle() }
+
+    /** [keepResident] handles open; guarded by `this`. */
+    private var holds = 0
+
+    /** The idle unbind: skipped while someone keeps the engine resident. */
+    private val unbindLater = Runnable { synchronized(this) { if (holds == 0) unbindIfIdle() } }
+
+    /** [releaseIfIdle]: the memory coordinator's, whoever keeps the engine resident. */
+    private val releaseNow = Runnable { unbindIfIdle() }
+
+    /**
+     * The bundle the engine holds loaded, as far as this client knows (the last job that finished
+     * without an error loaded it); null when unknown or gone (unbound, unloaded, process died).
+     */
+    @Volatile
+    private var resident: SdBundle? = null
+
+    /** The bundle the latest [prepare] asked for: an older warm-up still waiting is skipped. */
+    @Volatile
+    private var wanted: SdBundle? = null
+    private val prepareLock = Mutex()
 
     /** Called before each job so the app can free other engines' memory first. */
     @Volatile
@@ -65,6 +87,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     /** Connects and counts one use; pair with [done]. */
     private suspend fun acquire(): ISdEngine = mutex.withLock {
         main.removeCallbacks(unbindLater)
+        main.removeCallbacks(releaseNow)
         synchronized(this) {
             engine?.takeIf { it.asBinder().isBinderAlive }?.let {
                 active++
@@ -88,6 +111,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
                 // process and hold it forever, out of reach of the idle unbind and the memory
                 // coordinator. The next request binds afresh.
                 engine = null
+                resident = null
                 if (!released) {
                     released = true
                     runCatching { app.unbindService(this) }
@@ -97,6 +121,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
 
             override fun onBindingDied(name: ComponentName) {
                 engine = null
+                resident = null
                 runCatching { app.unbindService(this) }
                 synchronized(this@LocalSd) { if (connection === this) connection = null }
             }
@@ -120,9 +145,35 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     private fun done() {
         synchronized(this) {
             active--
-            if (active == 0) main.postDelayed(unbindLater, idleMillis)
+            if (active == 0 && holds == 0) main.postDelayed(unbindLater, idleMillis)
         }
     }
+
+    /**
+     * Keeps the engine process and its model resident until the handle is closed, instead of
+     * unbinding [idleMillis] after the last job: the Image screen holds it while it is open, so an
+     * image made minutes after the last one does not reload the model. Nothing is loaded by this
+     * alone, and the memory coordinator still frees the engine when another one needs the memory,
+     * under memory pressure or when the app goes to the background ([releaseIfIdle]).
+     */
+    fun keepResident(): AutoCloseable {
+        synchronized(this) {
+            holds++
+            main.removeCallbacks(unbindLater)
+        }
+        val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        return AutoCloseable {
+            if (closed.compareAndSet(false, true)) {
+                synchronized(this) {
+                    holds--
+                    if (holds == 0 && active == 0) main.postDelayed(unbindLater, idleMillis)
+                }
+            }
+        }
+    }
+
+    /** Whether the engine holds [bundle] loaded (as far as this client knows). */
+    fun isResident(bundle: SdBundle): Boolean = resident == bundle && engine?.asBinder()?.isBinderAlive == true
 
     suspend fun systemInfo(): String {
         val e = acquire()
@@ -139,6 +190,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
         val e = acquire()
         val binder = e.asBinder()
         val death = IBinder.DeathRecipient {
+            resident = null
             close(SdEngineException("The image engine stopped (likely out of memory). Try a smaller size or model."))
         }
         // The engine's cancel stops whatever it runs now: once this job ended, that is the next
@@ -163,6 +215,8 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
 
             override fun onDone(error: String?) {
                 finished.set(true)
+                // A job that finished loaded its bundle; after an error the engine may hold anything.
+                resident = if (error == null) request.bundle else null
                 if (error == null) close() else close(SdEngineException(error))
             }
         }
@@ -177,7 +231,10 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
         }
         awaitClose {
             runCatching { binder.unlinkToDeath(death, 0) }
-            if (!finished.get()) runCatching { if (binder.isBinderAlive) e.cancel() }
+            if (!finished.get()) {
+                resident = null
+                runCatching { if (binder.isBinderAlive) e.cancel() }
+            }
             done()
         }
     }.buffer(Channel.UNLIMITED) // never drop an image
@@ -185,14 +242,24 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     /**
      * Loads [bundle] ahead of the first image (the prompt is being written) so Generate starts
      * sampling instead of loading. Frees the other engines' memory first like a job would, and is
-     * skipped while one of them works. The model stays resident until the idle unbind or memory
-     * pressure. Returns whether it ran.
+     * skipped while one of them works. Nothing is sent when the engine already holds [bundle]
+     * (cheap to call again: a model freed since then is loaded again). Warm-ups run one at a
+     * time, and one still waiting when a newer warm-up asks for another bundle is skipped (the
+     * user switched models: loading the old one would be wasted). The model stays resident until
+     * the idle unbind, the memory coordinator or memory pressure. Returns whether [bundle] is
+     * loaded now.
      */
     suspend fun prepare(bundle: SdBundle): Boolean {
+        wanted = bundle
+        if (isResident(bundle)) return true
         if (!mayPrepare()) return false
         preparing.incrementAndGet()
         try {
-            generate(SdRequest(bundle = bundle, prompt = "", prepareOnly = true)).collect {}
+            prepareLock.withLock {
+                if (wanted != bundle) return false
+                if (isResident(bundle)) return true
+                generate(SdRequest(bundle = bundle, prompt = "", prepareOnly = true)).collect {}
+            }
         } finally {
             preparing.decrementAndGet()
         }
@@ -205,6 +272,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     val isPreparing: Boolean get() = preparing.get() > 0
 
     fun unloadModel() {
+        resident = null
         runCatching { engine?.unload() }
     }
 
@@ -224,7 +292,8 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     /** Ends the engine process now if nothing runs (memory pressure); the next job restarts it. */
     fun releaseIfIdle() {
         main.removeCallbacks(unbindLater)
-        main.post(unbindLater)
+        main.removeCallbacks(releaseNow)
+        main.post(releaseNow)
     }
 
     private fun unbindIfIdle() = synchronized(this) {
@@ -232,6 +301,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
         connection?.let { runCatching { app.unbindService(it) } }
         connection = null
         engine = null
+        resident = null
     }
 
     private companion object {
