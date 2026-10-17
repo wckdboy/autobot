@@ -110,6 +110,7 @@ fun ModelsRoute(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: () -> Unit, onOpenCompute: () -> Unit, onOpenNetwork: () -> Unit = {}) {
+    modelsCompositionProbe?.invoke("screen")
     val snackbar = remember { SnackbarHostState() }
     val dissolve = rememberInkDissolve()
     // An empty search tab is a large empty area: living paper behind it (downloads may run).
@@ -346,8 +347,12 @@ internal fun installedEngine(model: InstalledModel): String = when (model.engine
 internal fun installedSubtitle(model: InstalledModel): String =
     listOfNotNull(model.kind.label, installedEngine(model), installedSize(model)).joinToString(" · ")
 
+/** Tests: counts compositions ("screen", "installedRow", "catalogRow") to check what download ticks and list re-reads redraw. */
+internal var modelsCompositionProbe: ((String) -> Unit)? = null
+
 @Composable
 private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove: () -> Unit = { actions.remove(model.id) }) {
+    modelsCompositionProbe?.invoke("installedRow")
     var confirm by remember { mutableStateOf(false) }
     // Tapping a ready model opens the task it runs (the × tag still removes it).
     val task = remember(model.kind, model.engine, model.isReady) { launchOf(model.kind, model.engine, model.isReady).task }
@@ -376,6 +381,7 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove
 
 @Composable
 private fun CatalogRow(plan: ModelPlan, fit: Fit?, installed: Boolean, onGet: () -> Unit) {
+    modelsCompositionProbe?.invoke("catalogRow")
     RunRow(
         title = plan.title,
         subtitle = listOfNotNull(formatBytes(plan.totalBytes), plan.subtitle).joinToString(" · "),
