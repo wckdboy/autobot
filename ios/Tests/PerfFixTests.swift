@@ -476,3 +476,11 @@ struct BlankChatRegressionTests {
         #expect((InkProbe.snapshot()["body.stepRow"] ?? 0) > 0)
     }
 }
+
+/// Catalog previews are bounded by bytes, not by count (64 × 3 MB could hold 192 MB).
+@MainActor
+struct PreviewCacheBoundTests {
+    @Test func previewCacheHasAByteBudget() {
+        #expect(PreviewImages.cacheBytes <= 16 * 1024 * 1024)
+    }
+}

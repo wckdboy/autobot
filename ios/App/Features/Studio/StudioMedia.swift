@@ -244,14 +244,16 @@ struct StudioVideoPlayer: View {
             }
         }
         .onAppear {
-            player.replaceCurrentItem(with: AVPlayerItem(url: url))
+            let item = AVPlayerItem(url: url)
+            player.replaceCurrentItem(with: item)
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.05, preferredTimescale: 600), queue: .main) { time in
                 MainActor.assumeIsolated {
                     position = time.seconds
                     if let d = player.currentItem?.duration.seconds, d.isFinite { duration = d }
                 }
             }
-            looper = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { _ in
+            // This player's item only: another player ending must not seek or stop this one.
+            looper = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { _ in
                 MainActor.assumeIsolated {
                     if loop {
                         player.seek(to: .zero)
@@ -266,6 +268,8 @@ struct StudioVideoPlayer: View {
             player.pause()
             if let observer { player.removeTimeObserver(observer) }
             if let looper { NotificationCenter.default.removeObserver(looper) }
+            observer = nil
+            looper = nil
         }
     }
 }
