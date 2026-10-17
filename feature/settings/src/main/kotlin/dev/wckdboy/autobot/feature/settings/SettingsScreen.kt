@@ -159,6 +159,7 @@ fun SettingsRoute(
     onOpenVault: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onOpenUsage: () -> Unit = {},
+    onOpenRecipes: () -> Unit = {},
     about: String = "About",
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -214,6 +215,7 @@ fun SettingsRoute(
         onQuotaFallback = viewModel::setQuotaFallback,
         onRedactCloud = viewModel::setRedactCloud,
         onOpenUsage = onOpenUsage,
+        onOpenRecipes = onOpenRecipes,
         onDeleteAllChats = { confirmDeleteChats = true },
         onOpenAbout = onOpenAbout,
         about = about,
@@ -243,6 +245,7 @@ fun SettingsScreen(
     onQuotaFallback: (Boolean) -> Unit = {},
     onRedactCloud: (Boolean) -> Unit = {},
     onOpenUsage: () -> Unit = {},
+    onOpenRecipes: () -> Unit = {},
     onDeleteAllChats: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     about: String = "About",
@@ -327,6 +330,7 @@ fun SettingsScreen(
             )
             NavRow("Usage", onOpenUsage, info = "Tokens, cost and subscription windows, counted on this phone from each provider's reports.")
             NavRow("MCP servers", onOpenMcpServers)
+            NavRow("Recipes", onOpenRecipes, info = "Scheduled on-device agents: a prompt that runs on this phone's model at set times.")
             Divider()
 
             SectionHeader(appearance)

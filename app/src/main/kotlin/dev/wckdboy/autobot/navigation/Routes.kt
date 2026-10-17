@@ -72,3 +72,7 @@ data object Usage : NavKey
 
 @Serializable
 data object Vault : NavKey
+
+/** Scheduled on-device recipes (Settings › Recipes). */
+@Serializable
+data object Recipes : NavKey
