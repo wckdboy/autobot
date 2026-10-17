@@ -472,7 +472,8 @@ struct RunRow<Leading: View, Trailing: View>: View {
                         .foregroundStyle(c.onSurface)
                         .lineLimit(1)
                     if !subtitle.isEmpty {
-                        Text(subtitle)
+                        // Separators hold to both neighbours: a wrap never leaves a `·` dangling at a line end.
+                        Text(subtitle.replacingOccurrences(of: " · ", with: "\u{00A0}·\u{00A0}"))
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
                             // A status line wraps once instead of losing its end on narrow phones.

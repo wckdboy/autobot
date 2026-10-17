@@ -138,7 +138,7 @@ struct UsageBoardView: View {
             }
 
             SectionLabel("prices · usd per 1m tokens").padding(.top, 8)
-            if report.prices.isEmpty { MicroLabel("models show up here once they answered") }
+            if report.prices.isEmpty { MicroLabel("models show up here once they have answered") }
             ForEach(report.prices) { priceRow($0) }
 
             Hairline().padding(.vertical, 4)
