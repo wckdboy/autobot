@@ -122,7 +122,8 @@ struct ChatOrganizationTests {
     }
 
     @Test(.timeLimit(.minutes(3))) func deletionWaitsForTheUndoWindow() async throws {
-        let f = fixture(window: .milliseconds(100))
+        let window = Duration.milliseconds(100)
+        let f = fixture(window: window)
         let keep = f.conversations.create(incognito: false, providerId: nil, model: nil)
         let gone = f.conversations.create(incognito: false, providerId: nil, model: nil)
         try f.sessions.appendJSON(gone.id, [line(1, "user", "secret")])
@@ -133,9 +134,14 @@ struct ChatOrganizationTests {
         f.chats.undo(undone)
         #expect(f.chats.hidden.isEmpty)
 
+        let trashed = ContinuousClock.now
         f.chats.trash([gone.id], label: "y")
         #expect(f.conversations.get(gone.id) != nil)
-        try await Task.sleep(for: .milliseconds(400))
+        // The window's timer commits the batch (never before the window, however late under load);
+        // the log, search text and images then go on a background task, awaited here.
+        #expect(await eventually(.seconds(60)) { f.chats.pending.isEmpty })
+        #expect(ContinuousClock.now - trashed >= window)
+        await f.chats.waitForPurges()
         #expect(f.conversations.get(gone.id) == nil)
         #expect(f.sessions.loadJSON(gone.id).isEmpty)
         #expect(f.agent.discarded == [gone.id])
@@ -144,5 +150,6 @@ struct ChatOrganizationTests {
 
         f.chats.deleteAll()
         #expect(f.conversations.conversations.isEmpty)
+        await f.chats.waitForPurges()
     }
 }

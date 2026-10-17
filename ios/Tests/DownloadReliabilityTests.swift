@@ -64,16 +64,46 @@ final class ServeStub: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-/// Polls [condition] on the main actor until it holds or [timeout] passes.
+/// Polls [condition] on the main actor until it holds or [timeout] of polling passes (see [PollBudget]).
 @MainActor
 func eventually(_ timeout: Duration = .seconds(15), _ condition: () -> Bool) async -> Bool {
-    let clock = ContinuousClock()
-    let end = clock.now + timeout
-    while clock.now < end {
+    var budget = PollBudget(timeout)
+    while !budget.spent {
         if condition() { return true }
-        try? await Task.sleep(for: .milliseconds(20))
+        try? await Task.sleep(for: PollBudget.interval)
+        budget.tick()
     }
     return condition()
+}
+
+/**
+ The time a polling wait may use. Only time the poller was awake counts: each poll charges the
+ time since the previous one, but at most [maxCharge]. When the thread (often the main actor,
+ shared by every `@MainActor` suite running in parallel) or the whole machine stalls for seconds,
+ the code under test could not run either, so the stall does not use up the wait; a wait that
+ never succeeds still ends after [timeout] of polling.
+ */
+struct PollBudget {
+    static let interval: Duration = .milliseconds(20)
+    static let maxCharge: Duration = .milliseconds(250)
+
+    private let clock = ContinuousClock()
+    private let timeout: Duration
+    private var used: Duration = .zero
+    private var last: ContinuousClock.Instant
+
+    init(_ timeout: Duration) {
+        self.timeout = timeout
+        last = clock.now
+    }
+
+    var spent: Bool { used >= timeout }
+
+    mutating func tick() {
+        let now = clock.now
+        used += min(now - last, Self.maxCharge)
+        last = now
+    }
 }
 
 func sha256Hex(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
