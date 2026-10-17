@@ -132,6 +132,8 @@ final class BackupService {
             studioAssets: studio.assets,
             studioWorkflows: studio.workflows,
             studioSnippets: studio.snippets,
+            usage: app.usage.host.records(),
+            usagePlan: app.usage.host.planObject(),
         )
         let version = Bundle.main.infoDictionary
         let label = "Autobot \(version?["CFBundleShortVersionString"] as? String ?? "?") (\(version?["CFBundleVersion"] as? String ?? "0"))"
@@ -221,6 +223,9 @@ final class BackupService {
         }
         added.conversations = newConversations.count
         added.memories = app.memory.merge(manifest.memory)
+        #if canImport(AutobotShared)
+        _ = await (app.agent as? SharedAgentRuntime)?.importUsage(manifest.usage, plan: manifest.usagePlan)
+        #endif
         // Studio: records that are not here yet (by id); asset records only with their file.
         let studio = app.studio
         for p in manifest.studioProjects where studio.library.project(p.id) == nil && Self.isSafe(p.id) {

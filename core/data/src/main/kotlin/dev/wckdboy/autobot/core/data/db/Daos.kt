@@ -18,6 +18,8 @@ import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
+import dev.wckdboy.autobot.core.data.model.UsagePlanRow
+import dev.wckdboy.autobot.core.data.model.UsageRecordRow
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -279,4 +281,25 @@ interface ProviderModelsDao {
 
     @Query("DELETE FROM provider_models WHERE providerId = :providerId")
     suspend fun delete(providerId: String)
+}
+
+@Dao
+interface UsageDao {
+    @Query("SELECT * FROM usage_records")
+    suspend fun all(): List<UsageRecordRow>
+
+    @Upsert
+    suspend fun upsert(rows: List<UsageRecordRow>)
+
+    @Query("DELETE FROM usage_records WHERE id IN (:ids)")
+    suspend fun delete(ids: List<String>)
+
+    @Query("DELETE FROM usage_records")
+    suspend fun deleteAll()
+
+    @Query("SELECT * FROM usage_plan WHERE id = :id")
+    suspend fun plan(id: String): UsagePlanRow?
+
+    @Upsert
+    suspend fun savePlan(row: UsagePlanRow)
 }

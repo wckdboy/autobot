@@ -91,6 +91,8 @@ struct SettingsScreen: View {
                 isOn: Binding(get: { settings.quotaFallback }, set: { app.settings.setQuotaFallback($0) }),
                 info: "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
             )
+        case .usage:
+            NavigationRow(title: title) { nav.push(.usage) }
         case .mcpServers:
             NavigationRow(title: title) { nav.push(.mcpServers) }
         case .theme:

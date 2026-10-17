@@ -148,6 +148,7 @@ fun ChatRoute(
     onOpenPrivacyCenter: () -> Unit,
     onOpenProviders: () -> Unit,
     onOpenGallery: () -> Unit = {},
+    onOpenUsage: () -> Unit = {},
 ) {
     val viewModel = hiltViewModel<ChatViewModel, ChatViewModel.Factory>(key = conversationId) { factory ->
         factory.create(conversationId)
@@ -156,7 +157,7 @@ fun ChatRoute(
     // Streamed frames and microphone levels are read only where they show (see ChatScreen).
     val live = viewModel.live.collectAsStateWithLifecycle()
     val levels = viewModel.micLevels.collectAsStateWithLifecycle()
-    ChatScreen(state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery, live = { live.value }, micLevels = { levels.value })
+    ChatScreen(state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery, live = { live.value }, micLevels = { levels.value }, onOpenUsage = onOpenUsage)
 }
 
 private const val MAX_ATTACHMENTS = 4
@@ -216,6 +217,8 @@ fun ChatScreen(
     live: () -> LiveUi? = { null },
     /** Voice mode's microphone levels: read by the level meter only. */
     micLevels: () -> List<Float> = { emptyList() },
+    /** The spend and quota board (from a receipt's token line). */
+    onOpenUsage: () -> Unit = {},
 ) {
     chatCompositionProbe?.invoke("screen")
     var showModels by rememberSaveable { mutableStateOf(false) }
@@ -343,7 +346,12 @@ fun ChatScreen(
             onRefreshModels = actions::refreshModels,
         )
     }
-    openReceipt?.let { ReceiptSheet(it) { openReceipt = null } }
+    openReceipt?.let {
+        ReceiptSheet(it, onDismiss = { openReceipt = null }, onOpenUsage = {
+            openReceipt = null
+            onOpenUsage()
+        })
+    }
     if (showThink) ThinkSheet(state, actions::setThinking, actions::setThinkingDefault) { showThink = false }
     if (renaming) {
         NameDialog(

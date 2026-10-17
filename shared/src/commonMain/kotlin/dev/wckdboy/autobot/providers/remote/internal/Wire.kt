@@ -92,12 +92,31 @@ internal data class WireChoice(
     @SerialName("finish_reason") val finishReason: String? = null,
 )
 
+/**
+ * `usage` of an OpenAI-compatible response. Cached input is reported as
+ * `prompt_tokens_details.cached_tokens` (OpenAI, Gemini, xAI, most hosts),
+ * `prompt_cache_hit_tokens` (DeepSeek) or a top-level `cached_tokens` (Moonshot); reasoning as
+ * `completion_tokens_details.reasoning_tokens`.
+ */
 @Serializable
 internal data class WireUsage(
     @SerialName("prompt_tokens") val promptTokens: Int? = null,
     @SerialName("completion_tokens") val completionTokens: Int? = null,
     @SerialName("total_tokens") val totalTokens: Int? = null,
-)
+    @SerialName("prompt_tokens_details") val promptDetails: WirePromptDetails? = null,
+    @SerialName("completion_tokens_details") val completionDetails: WireCompletionDetails? = null,
+    @SerialName("prompt_cache_hit_tokens") val promptCacheHitTokens: Int? = null,
+    @SerialName("cached_tokens") val cachedTokens: Int? = null,
+) {
+    val cacheRead: Int? get() = promptDetails?.cachedTokens ?: promptCacheHitTokens ?: cachedTokens
+    val reasoning: Int? get() = completionDetails?.reasoningTokens
+}
+
+@Serializable
+internal data class WirePromptDetails(@SerialName("cached_tokens") val cachedTokens: Int? = null)
+
+@Serializable
+internal data class WireCompletionDetails(@SerialName("reasoning_tokens") val reasoningTokens: Int? = null)
 
 @Serializable
 internal data class WireError(val message: String? = null, val type: String? = null, val code: JsonElement? = null)

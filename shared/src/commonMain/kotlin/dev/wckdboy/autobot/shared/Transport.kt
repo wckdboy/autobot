@@ -125,7 +125,7 @@ class TransportChatProvider(
                     if (status in 200..299) return
                     failed = true
                     val text = errorBody.orEmpty()
-                    trySend(QuotaErrors.refine(wire.httpError(status, text), status, text, headers["retry-after"], ProviderSessions.name(preset)))
+                    trySend(QuotaErrors.refine(wire.httpError(status, text), status, text, headers, ProviderSessions.name(preset)))
                     close()
                 }
 

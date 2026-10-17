@@ -53,6 +53,7 @@ import dev.wckdboy.autobot.feature.settings.about.AboutRoute
 import dev.wckdboy.autobot.feature.settings.aboutRowTitle
 import dev.wckdboy.autobot.feature.settings.mcp.McpServersRoute
 import dev.wckdboy.autobot.feature.settings.memory.MemoryRoute
+import dev.wckdboy.autobot.feature.settings.usage.UsageRoute
 import dev.wckdboy.autobot.feature.settings.vault.VaultRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
 import dev.wckdboy.autobot.feature.settings.providers.ProvidersRoute
@@ -185,6 +186,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onBack = null,
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                             onOpenMemory = { navigate(Memory) },
+                            onOpenUsage = { navigate(Usage) },
                             onOpenVault = { navigate(Vault) },
                             onOpenMcpServers = { navigate(McpServers) },
                             onOpenAbout = { navigate(About) },
@@ -206,6 +208,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                             onOpenProviders = { navigate(Providers) },
                             onOpenGallery = { navigate(Gallery()) },
+                            onOpenUsage = { navigate(Usage) },
                         )
                     }
                     entry<Imagine>(metadata = mapOf(PAPER to true)) { key ->
@@ -252,6 +255,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                         )
                     }
                     entry<Memory> { MemoryRoute(onBack = ::back) }
+                    entry<Usage> { UsageRoute(onBack = ::back) }
                     entry<Vault> { VaultRoute(onBack = ::back, onOpenModels = { switchTo(Models) }) }
                 },
             )

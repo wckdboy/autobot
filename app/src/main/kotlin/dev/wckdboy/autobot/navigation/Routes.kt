@@ -66,5 +66,9 @@ data object About : NavKey
 @Serializable
 data object Memory : NavKey
 
+/** The spend and quota board: tokens, cost and subscription windows, counted on this phone. */
+@Serializable
+data object Usage : NavKey
+
 @Serializable
 data object Vault : NavKey

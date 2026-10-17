@@ -99,7 +99,7 @@ class WireTest {
                 ChatEvent.ToolCallDelta(0, null, null, ""),
                 ChatEvent.ToolCallDelta(0, null, null, """{"city":"Oslo"}"""),
                 ChatEvent.Finish("tool_calls"),
-                ChatEvent.Usage(125, 15, 140),
+                ChatEvent.Usage(125, 15, 140, cacheReadTokens = 100),
             ),
             events,
         )

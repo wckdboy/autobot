@@ -29,6 +29,8 @@ enum Destination: Hashable {
     case about
     case memory
     case vault
+    /// The spend and quota board.
+    case usage
 }
 
 /// The Creative Studio's rooms (its own bar while the Studio is open).
@@ -200,6 +202,7 @@ struct AutobotNavHost: View {
         case .about: AboutScreen()
         case .memory: MemoryScreen()
         case .vault: VaultScreen()
+        case .usage: UsageScreen()
         }
     }
 }

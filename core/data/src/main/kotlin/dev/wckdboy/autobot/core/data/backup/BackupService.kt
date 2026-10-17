@@ -8,6 +8,7 @@ import dev.wckdboy.autobot.agent.core.session.SessionJson
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.MemoryRepository
+import dev.wckdboy.autobot.core.data.UsageRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.SessionEventRepository
 import dev.wckdboy.autobot.core.data.StudioRepository
@@ -74,6 +75,7 @@ class BackupService @Inject constructor(
     private val settings: SettingsRepository,
     private val memory: MemoryRepository,
     private val studio: StudioRepository,
+    private val usage: UsageRepository,
     @IoDispatcher private val io: CoroutineDispatcher,
 ) {
     suspend fun export(out: OutputStream, passphrase: String, app: String, onProgress: (String) -> Unit = {}) = withContext(io) {
@@ -106,6 +108,8 @@ class BackupService @Inject constructor(
             studioAssets = studioAssets,
             studioWorkflows = studio.workflows(),
             studioSnippets = studio.snippets(),
+            usage = usage.ledger.load().records,
+            usagePlan = usage.ledger.plan.takeIf { it.prices.isNotEmpty() || it.windows.isNotEmpty() },
         )
         val sink = out.sink().buffer()
         onProgress("deriving key…")
@@ -160,6 +164,7 @@ class BackupService @Inject constructor(
                         }
                         added = added.copy(conversations = newConversations.size, memories = importMemory(m))
                         importStudioRecords(m)
+                        usage.ledger.import(m.usage, m.usagePlan)
                     }
                     manifest == null -> throw BackupException("Damaged export: manifest missing")
                     name.startsWith("sessions/") -> {

@@ -80,7 +80,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -99,6 +101,15 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import okio.Path.Companion.toPath
+import dev.wckdboy.autobot.shared.usage.BridgedUsageStore
+import dev.wckdboy.autobot.shared.usage.UsageJson
+import dev.wckdboy.autobot.shared.usage.UsageLedger
+import dev.wckdboy.autobot.shared.usage.UsageListener
+import dev.wckdboy.autobot.shared.usage.UsageMeter
+import dev.wckdboy.autobot.shared.usage.UsagePlan
+import dev.wckdboy.autobot.shared.usage.UsageProvider
+import dev.wckdboy.autobot.shared.usage.UsageRecord
+import dev.wckdboy.autobot.shared.usage.UsageStoreBridge
 
 /**
  * A configured chat provider as the host stores it. [route] is `INHERIT`, `DIRECT`, `TOR` or
@@ -367,6 +378,9 @@ class AgentBridge(
         }
     }
 
+    /** Counts every model call ([setUsage] adds the encrypted ledger behind it). */
+    private val usage = UsageMeter()
+
     private val mutex = Mutex()
     /** Agents as they are created, for calls that arrive while [open] is still creating one. */
     private val created = MutableStateFlow<Map<String, Agent>>(emptyMap())
@@ -429,7 +443,7 @@ class AgentBridge(
             ),
         )
         root.plugin(
-            receiptsPlugin(audit) { id ->
+            receiptsPlugin(audit, usage) { id ->
                 withContext(IoDispatcher) { providers.provider(id) }?.let {
                     ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset.id, it.preset.privacyNote)
                 }
@@ -464,9 +478,12 @@ class AgentBridge(
         val now = monotonicNanos()
         adapterLock.withLock { adapterCache[id] }?.takeIf { now - it.at < ADAPTER_TTL_MS * 1_000_000 }?.let { return it.adapter }
         val spec = providers.provider(id) ?: return null
-        val built = ProviderLlmAdapter(
-            spec.id, chatProvider(spec), spec.kind, attachments, spec.preset::echoesReasoning, ModelCache.decode(spec.modelsJson),
-            helperModel = spec.helperModel?.takeIf { m -> m.isNotBlank() },
+        val built = usage.wrap(
+            ProviderLlmAdapter(
+                spec.id, chatProvider(spec), spec.kind, attachments, spec.preset::echoesReasoning, ModelCache.decode(spec.modelsJson),
+                helperModel = spec.helperModel?.takeIf { m -> m.isNotBlank() },
+            ),
+            UsageProvider(spec.id, spec.displayName, spec.preset.id, spec.kind == ProviderKind.LOCAL),
         )
         adapterLock.withLock {
             adapterBuilds++
@@ -1050,6 +1067,66 @@ class AgentBridge(
         studioHandle = runner?.let { harness.root.plugin(studioPlugin(it)) }
     }
 
+    /**
+     * The spend and quota board's storage ([store] = the host's encrypted usage rows). Without
+     * it, calls are still counted for receipts but nothing is kept.
+     */
+    fun setUsage(store: UsageStoreBridge?) {
+        usage.ledger = store?.let { UsageLedger(BridgedUsageStore(it), scope) }
+        usageEpoch.update { it + 1 }
+    }
+
+    private val usageEpoch = MutableStateFlow(0)
+
+    private val usageNames = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /** Current provider names by id, for the board (rows keep the name they were recorded with). */
+    fun setUsageNames(names: Map<String, String>) {
+        usageNames.value = names
+    }
+
+    /**
+     * The Usage screen's report ([UsageReport] JSON) now and whenever usage, the plan or the
+     * provider names change, and once a minute for the "resets in" times.
+     */
+    fun observeUsage(listener: UsageListener): Cancellable {
+        val job = scope.launch {
+            combine(usageNames, usageEpoch) { names, _ -> names }.collectLatest { names ->
+                val ledger = usage.ledger ?: return@collectLatest
+                ledger.load()
+                val ticks = flow {
+                    while (true) {
+                        emit(Unit)
+                        delay(USAGE_TICK_MS)
+                    }
+                }
+                combine(ledger.state.filterNotNull(), ticks) { state, _ -> state }.collect { state ->
+                    listener.onReport(UsageJson.encode(ledger.report(state, names)))
+                }
+            }
+        }
+        return Cancellable { job.cancel() }
+    }
+
+    /** Saves the price table and windows ([UsagePlan] JSON); invalid JSON is ignored. */
+    fun saveUsagePlan(json: String) {
+        val plan = UsageJson.decodePlan(json) ?: return
+        val ledger = usage.ledger ?: return
+        scope.launch { ledger.savePlan(plan) }
+    }
+
+    /** Forgets the counted usage (the price table and windows stay). */
+    fun clearUsageHistory() {
+        val ledger = usage.ledger ?: return
+        scope.launch { ledger.clearHistory() }
+    }
+
+    /** Joins usage from an export ([callback] gets how many buckets were added). */
+    fun importUsage(records: List<UsageRecord>, plan: UsagePlan?, callback: (Int) -> Unit) {
+        val ledger = usage.ledger ?: return callback(0)
+        scope.launch { callback(runCatching { ledger.import(records, plan) }.getOrDefault(0)) }
+    }
+
     /** Skills found in the workspace, as `name: description` lines. */
     fun skills(): List<String> = runCatching { contexts.skills().map { "${it.name}: ${it.description}" } }.getOrDefault(emptyList())
 
@@ -1117,6 +1194,8 @@ class AgentBridge(
     }
 
     companion object {
+        private const val USAGE_TICK_MS = 60_000L
+
         /** Idle agents kept open beyond the ones running, waiting on the user, streaming or retained. */
         const val MAX_OPEN_AGENTS = 4
 

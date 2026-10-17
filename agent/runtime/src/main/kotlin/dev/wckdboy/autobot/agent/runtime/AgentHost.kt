@@ -32,6 +32,9 @@ import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.McpServerRepository
 import dev.wckdboy.autobot.core.data.MemoryRepository
+import dev.wckdboy.autobot.core.data.UsageRepository
+import dev.wckdboy.autobot.shared.usage.UsageMeter
+import dev.wckdboy.autobot.shared.usage.UsageProvider
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.MessageRole
@@ -132,6 +135,7 @@ class AgentHost @Inject constructor(
     private val attachments: AttachmentRepository,
     mcpServers: McpServerRepository,
     memory: MemoryRepository,
+    usage: UsageRepository,
     vault: OnDeviceVault,
     private val settings: SettingsRepository,
     private val thinkingSupport: LocalThinkingSupport,
@@ -185,12 +189,18 @@ class AgentHost @Inject constructor(
     /** One adapter per provider, shared by every step and agent until the provider, its models or the route change. */
     private val adapters = AdapterCache { id ->
         providers.getProvider(id)?.let {
-            ProviderLlmAdapter(
-                it.id, providerFactory.create(it), it.kind, images, it.preset()::echoesReasoning, providers.modelCache(it.id),
-                helperModel = it.helperModel?.takeIf { m -> m.isNotBlank() },
+            meter.wrap(
+                ProviderLlmAdapter(
+                    it.id, providerFactory.create(it), it.kind, images, it.preset()::echoesReasoning, providers.modelCache(it.id),
+                    helperModel = it.helperModel?.takeIf { m -> m.isNotBlank() },
+                ),
+                UsageProvider(it.id, it.displayName, it.preset().id, it.kind == ProviderKind.LOCAL),
             )
         }
     }
+
+    /** Counts every model call into the encrypted usage ledger (spend and quota board) and the receipts. */
+    private val meter = UsageMeter(usage.ledger)
 
     private val _running = MutableStateFlow<Set<String>>(emptySet())
 
@@ -243,7 +253,7 @@ class AgentHost @Inject constructor(
         )
         // Each turn's privacy receipt: the traffic the audit log tied to it, models and policies.
         root.plugin(
-            receiptsPlugin(audit) { id ->
+            receiptsPlugin(audit, meter) { id ->
                 providers.getProvider(id)?.let { ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset().id, it.preset().privacyNote) }
             },
         )

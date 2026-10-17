@@ -38,8 +38,25 @@ object QuotaErrors {
         retryAfter: String?,
         provider: String,
         nowMs: Long = Clock.System.now().toEpochMilliseconds(),
+    ): ChatEvent.Error = refine(error, status, body, retryAfter?.let { mapOf("retry-after" to it) }.orEmpty(), provider, nowMs)
+
+    /**
+     * [refine] with all the response's [headers] (lower-case names): besides `Retry-After`, a
+     * throttled request learns when to come back from the rate-limit reset headers (OpenAI-style
+     * `x-ratelimit-reset-requests: 6m0s`, Anthropic's `anthropic-ratelimit-*-reset` times). A
+     * plan's usage limit only trusts `Retry-After` and the body: those headers describe the
+     * per-minute limits, not the plan's window.
+     */
+    @OptIn(ExperimentalTime::class)
+    fun refine(
+        error: ChatEvent.Error,
+        status: Int,
+        body: String,
+        headers: Map<String, String>,
+        provider: String,
+        nowMs: Long = Clock.System.now().toEpochMilliseconds(),
     ): ChatEvent.Error {
-        val retryMs = retryAfterMs(retryAfter, nowMs)
+        val retryMs = retryAfterMs(headers["retry-after"], nowMs)
         val candidate = status == 402 || status == 403 || status == 429
         return when {
             candidate && LIMIT.containsMatchIn(body) -> {
@@ -47,8 +64,43 @@ object QuotaErrors {
                 ChatEvent.Error(ErrorKind.QUOTA, message(provider, window(body), resetIn), httpCode = status, retryAfterMs = resetIn)
             }
             candidate && CREDIT.containsMatchIn(body) -> error.copy(kind = ErrorKind.QUOTA, retryAfterMs = retryMs)
-            else -> error.copy(retryAfterMs = retryMs ?: error.retryAfterMs)
+            else -> error.copy(retryAfterMs = retryMs ?: (if (status == 429) rateLimitResetMs(headers, nowMs) else null) ?: error.retryAfterMs)
         }
+    }
+
+    /**
+     * When a rate limit resets, from the provider's reset headers: the limit that is used up
+     * (`…-remaining: 0`) if one is, else the latest of them. Null without such headers.
+     */
+    fun rateLimitResetMs(headers: Map<String, String>, nowMs: Long): Long? {
+        val resets = RESET_HEADERS.mapNotNull { (remaining, reset) ->
+            val value = headers[reset]?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val ms = goDurationMs(value) ?: isoInMs(value, nowMs) ?: return@mapNotNull null
+            (headers[remaining]?.trim() == "0") to ms
+        }
+        return (resets.filter { it.first }.ifEmpty { resets }).maxOfOrNull { it.second }
+    }
+
+    /** A Go-style duration (`1s`, `6m0s`, `1h2m3.5s`, `250ms`) in milliseconds. */
+    fun goDurationMs(value: String): Long? {
+        if (!GO_DURATION.matches(value)) return null
+        return GO_PART.findAll(value).sumOf { m ->
+            val n = m.groupValues[1].toDouble()
+            val unit = when (m.groupValues[2]) {
+                "h" -> 3_600_000.0
+                "m" -> 60_000.0
+                "s" -> 1000.0
+                else -> 1.0 // ms
+            }
+            (n * unit).toLong()
+        }
+    }
+
+    /** An absolute time with a zone (`2026-10-17T12:00:00Z`), as milliseconds from [nowMs]. */
+    @OptIn(ExperimentalTime::class)
+    private fun isoInMs(value: String, nowMs: Long): Long? {
+        val at = runCatching { Instant.parse(value).toEpochMilliseconds() }.getOrNull() ?: return null
+        return (at - nowMs).coerceAtLeast(0)
     }
 
     /** `OpenCode Go's 5-hour limit is used up; it resets in ~2 h.` */
@@ -139,5 +191,15 @@ object QuotaErrors {
     private val UNIT = Regex("(\\d+)\\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\\b", I)
     private val ISO = Regex("\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})")
     private val HTTP_DATE = Regex("(\\d{1,2}) ([A-Za-z]{3}) (\\d{4}) (\\d{2}:\\d{2}:\\d{2}) GMT")
+    private val GO_DURATION = Regex("(\\d+(\\.\\d+)?(ms|h|m|s))+")
+    private val GO_PART = Regex("(\\d+(?:\\.\\d+)?)(ms|h|m|s)")
+    private val RESET_HEADERS = listOf(
+        "x-ratelimit-remaining-requests" to "x-ratelimit-reset-requests",
+        "x-ratelimit-remaining-tokens" to "x-ratelimit-reset-tokens",
+        "anthropic-ratelimit-requests-remaining" to "anthropic-ratelimit-requests-reset",
+        "anthropic-ratelimit-tokens-remaining" to "anthropic-ratelimit-tokens-reset",
+        "anthropic-ratelimit-input-tokens-remaining" to "anthropic-ratelimit-input-tokens-reset",
+        "anthropic-ratelimit-output-tokens-remaining" to "anthropic-ratelimit-output-tokens-reset",
+    )
     private val MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 }

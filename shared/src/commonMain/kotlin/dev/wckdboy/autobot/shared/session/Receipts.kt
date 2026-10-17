@@ -12,6 +12,13 @@ import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicy
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.shared.redaction.PiiKind
+import dev.wckdboy.autobot.agent.core.session.TokenUsage
+import dev.wckdboy.autobot.shared.usage.UsageCost
+import dev.wckdboy.autobot.shared.usage.UsageFormat
+import dev.wckdboy.autobot.shared.usage.UsageMeter
+import dev.wckdboy.autobot.shared.usage.UsageProvider
+import dev.wckdboy.autobot.shared.usage.TurnUsage
+import dev.wckdboy.autobot.shared.usage.UsagePlan
 import kotlin.math.roundToLong
 import kotlinx.serialization.Serializable
 
@@ -50,7 +57,15 @@ data class Receipt(
     val fallbacks: List<String>,
     val redacted: Boolean = false,
     val redactions: List<ReceiptRedaction> = emptyList(),
+    /** The turn's tokens and cost in one line (`12k in · 410 out · 8.1k cached · $0.0042`); null when not counted. */
+    val usage: String? = null,
+    /** The same per model, in [models] order. */
+    val usageRows: List<ReceiptUsageRow> = emptyList(),
 )
+
+/** One model's line of a receipt's usage. */
+@Serializable
+data class ReceiptUsageRow(val model: String, val line: String)
 
 /** What a host knows about a provider for a receipt. */
 class ReceiptProvider(val name: String, val onDevice: Boolean, val presetId: String?, val privacyNote: String?)
@@ -143,6 +158,10 @@ object Receipts {
             fallbacks = event.fallbacks,
             redacted = event.redacted != null,
             redactions = redactions,
+            usage = usageLine(event.models),
+            usageRows = event.models.filter { it.usage != null }.map { m ->
+                ReceiptUsageRow(m.model, usageLine(listOf(m)).orEmpty())
+            },
         )
     }
 
@@ -154,6 +173,48 @@ object Receipts {
             .sortedBy { (kind, _) -> order.indexOf(kind).takeIf { it >= 0 } ?: order.size }
             .map { (kind, n) -> ReceiptRedaction(kind, n, PiiKind.of(kind)?.count(n) ?: "$n ${kind.lowercase()}") }
     }
+
+    /**
+     * `12k in · 410 out · 8.1k cached · $0.0042`: the tokens of [models] that were counted and
+     * their cost (`cost unknown` for a model without a price; on device `$0`). Null when none was
+     * counted.
+     */
+    fun usageLine(models: List<ReceiptModel>): String? {
+        val counted = models.filter { it.usage != null }
+        if (counted.isEmpty()) return null
+        fun total(f: (TokenUsage) -> Int?) = counted.sumOf { (f(it.usage!!) ?: 0).toLong() }
+        val input = total { it.inputTokens }
+        val output = total { it.outputTokens }
+        val cached = total { it.cacheReadTokens }
+        val cost = counted.sumOf { it.costUsd ?: 0.0 }
+        val unknown = counted.any { m -> m.costUsd == null && m.usage!!.let { (it.inputTokens ?: 0) + (it.outputTokens ?: 0) } > 0 }
+        return listOfNotNull(
+            "${UsageFormat.tokens(input)} in",
+            "${UsageFormat.tokens(output)} out",
+            if (cached > 0) "${UsageFormat.tokens(cached)} cached" else null,
+            UsageFormat.cost(cost, unknown),
+        ).joinToString(" · ")
+    }
+
+    /**
+     * [models] with the turn's counted [usage] (from the [UsageMeter]) and its cost by [plan]
+     * prices; a model that answered only inside a subagent or summary is added.
+     */
+    fun withUsage(models: List<ReceiptModel>, usage: List<TurnUsage>, plan: UsagePlan): List<ReceiptModel> {
+        if (usage.isEmpty()) return models
+        val byKey = usage.associateBy { it.provider.id to it.model }
+        val out = models.map { m ->
+            val u = byKey[m.provider to m.model] ?: return@map m
+            m.copy(usage = u.usage, requests = u.requests, costUsd = cost(u, plan))
+        }
+        val extra = usage.filter { u -> models.none { it.provider == u.provider.id && it.model == u.model } }.map { u ->
+            ReceiptModel(u.provider.id, u.model, usage = u.usage, requests = u.requests, costUsd = cost(u, plan))
+        }
+        return out + extra
+    }
+
+    private fun cost(u: TurnUsage, plan: UsagePlan): Double? =
+        UsageCost.cost(plan, UsageProvider(u.provider.id, u.provider.name, u.provider.presetId, u.provider.onDevice || SystemModels.isSystem(u.model)), u.model, u.usage)
 
     /**
      * The policy word of the line: the least private of the remote [models] (training, then the
@@ -180,15 +241,20 @@ object Receipts {
 }
 
 /**
- * Fills each turn's receipt with the traffic the [audit] log tied to it and the data policy of
- * each model ([provider] by id; null when unknown). Without an audit log the network part stays
- * unknown.
+ * Fills each turn's receipt with the traffic the [audit] log tied to it, the data policy of
+ * each model ([provider] by id; null when unknown) and, with a [meter], the tokens each model used
+ * and their cost. Without an audit log the network part stays unknown.
  */
-fun receiptsPlugin(audit: AuditLog?, provider: suspend (id: String) -> ReceiptProvider?): Plugin = plugin("privacy-receipts") { ctx ->
+fun receiptsPlugin(
+    audit: AuditLog?,
+    meter: UsageMeter? = null,
+    provider: suspend (id: String) -> ReceiptProvider?,
+): Plugin = plugin("privacy-receipts") { ctx ->
     ctx.intercept(Hooks.TurnReceipt) { input, next ->
         val base = next(input)
+        val counted = meter?.let { Receipts.withUsage(base.models, it.takeTurn(input.agent.id, input.turn), it.plan) } ?: base.models
         val receipt = base.copy(
-            models = base.models.map { Receipts.describe(it, runCatching { provider(it.provider) }.getOrNull()) },
+            models = counted.map { Receipts.describe(it, runCatching { provider(it.provider) }.getOrNull()) },
             network = audit?.let { Receipts.network(it.forTurn(input.agent.id, input.turn)) },
         )
         // The turn's entries were kept apart from the ring until now.

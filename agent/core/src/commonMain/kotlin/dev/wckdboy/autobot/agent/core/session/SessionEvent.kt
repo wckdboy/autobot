@@ -231,6 +231,11 @@ enum class ApprovalOutcome { ALLOWED_ONCE, ALLOWED_FOR_SESSION, REJECTED, CANCEL
 @Serializable
 data class ToolCallRecord(val id: String, val name: String, val arguments: String)
 
+/**
+ * One model call's token counts. [inputTokens] is the whole input, cached parts included;
+ * [cacheReadTokens] / [cacheWriteTokens] are the parts read from / written to the provider's
+ * prompt cache. [outputTokens] includes [reasoningTokens] where the provider reports both.
+ */
 @Serializable
 data class TokenUsage(
     val inputTokens: Int? = null,
@@ -238,6 +243,7 @@ data class TokenUsage(
     val totalTokens: Int? = null,
     val cacheReadTokens: Int? = null,
     val reasoningTokens: Int? = null,
+    val cacheWriteTokens: Int? = null,
 )
 
 /**
@@ -253,6 +259,11 @@ data class ReceiptModel(
     val onDevice: Boolean = false,
     val policy: String? = null,
     val policyNote: String? = null,
+    /** The turn's tokens on this model (its subagents' and summaries' included), summed over [requests] calls. */
+    val usage: TokenUsage? = null,
+    val requests: Int? = null,
+    /** What those tokens cost by the price table when the turn ended, in US dollars; null: no price known. On device: 0. */
+    val costUsd: Double? = null,
 )
 
 /**

@@ -240,3 +240,30 @@ data class MemoryNoteRow(
     val updatedAt: Long,
     val sessionId: String?,
 )
+
+/**
+ * A usage bucket of the spend and quota board (see `:shared` `UsageRecord`): tokens one provider
+ * and model used in one time bucket. No prompts, no chat ids.
+ */
+@Entity(tableName = "usage_records", indices = [Index("start")])
+data class UsageRecordRow(
+    @PrimaryKey val id: String,
+    val start: Long,
+    val span: Long,
+    val provider: String,
+    val model: String,
+    val providerName: String?,
+    val presetId: String?,
+    val onDevice: Boolean,
+    val input: Long,
+    val output: Long,
+    val cacheRead: Long,
+    val cacheWrite: Long,
+    val reasoning: Long,
+    val requests: Int,
+    val unreported: Int,
+)
+
+/** The board's price table and subscription windows (`:shared` `UsagePlan` JSON), one row. */
+@Entity(tableName = "usage_plan")
+data class UsagePlanRow(@PrimaryKey val id: String, val json: String)

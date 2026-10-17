@@ -32,6 +32,8 @@ struct ReceiptLine: View {
 /// Everything one turn shared, and with whom. Built on this phone; never sent anywhere.
 struct ReceiptSheet: View {
     let receipt: Receipt
+    /// Opens the spend and quota board (nil: no link).
+    var onOpenUsage: (() -> Void)? = nil
     @Environment(\.scheme) private var c
 
     var body: some View {
@@ -59,6 +61,7 @@ struct ReceiptSheet: View {
                             }
                             Text([m.name, m.policyNote ?? (m.policy == nil ? "data policy not documented" : nil)].compactMap { $0 }.joined(separator: " · "))
                                 .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                            if let line = receipt.usageLine(m.model) { MicroLabel(line, lines: 2) }
                         }
                     }
                 }
@@ -75,6 +78,17 @@ struct ReceiptSheet: View {
                         Text("The provider saw placeholders like [PERSON_1]. The real values were put back on this phone.")
                             .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                     }
+                }
+
+                if let usage = receipt.usage {
+                    Hairline().padding(.vertical, 2)
+                    HStack(spacing: 8) {
+                        MicroLabel("tokens").frame(maxWidth: .infinity, alignment: .leading)
+                        if let onOpenUsage { Tag("usage", action: onOpenUsage) }
+                    }
+                    Text(usage).textStyle(.code).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+                    Text("Counted from the provider's own usage report. Cost uses your price table; models without a price stay unknown.")
+                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                 }
 
                 if !receipt.tools.isEmpty {
