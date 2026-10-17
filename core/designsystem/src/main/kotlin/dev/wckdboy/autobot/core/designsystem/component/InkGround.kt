@@ -270,8 +270,9 @@ fun InkPrintAway(
         val ms = if (playing) progress.value * Motion.printMillis else 0f
         val lift = InkMath.printDotsAlpha(ms)
         drawRect(paper, alpha = lift)
-        buildField(batch, GROUND_CELL.toPx(), 0f, InkMath.printMerge(ms))
-        val offset = Motion.registerOffset.dp.toPx() * InkMath.registerOffset(ms)
+        val pitch = GROUND_CELL.toPx()
+        buildField(batch, pitch, 0f, InkMath.printMerge(ms))
+        val offset = InkMath.registerReach(Motion.registerOffset.dp.toPx(), pitch) * InkMath.registerOffset(ms)
         translate(offset, offset) { batch.draw(this, plate, max(0f, 0.35f * InkMath.plateAlpha(ms))) }
         batch.draw(this, dot, Motion.ambientOpacity * 2f * lift)
     }

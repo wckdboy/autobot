@@ -112,6 +112,17 @@ object InkMath {
     /** Register settle (print plate, approval ghost): offset fraction 1 → 0 with an overshoot. */
     fun registerOffset(millis: Float): Float = 1f - easeOutBack(millis / Motion.registerMillis)
 
+    /** The largest share of a dot field's pitch its register plate may sit out of register. */
+    const val REGISTER_PITCH_SHARE = 0.2f
+
+    /**
+     * How far (px) a register plate over a dot field of [pitch] px starts out of register:
+     * [registerOffsetPx] capped at a fifth of the pitch. A copy offset by about half a pitch lands
+     * in the gaps and reads as a second, doubled grid; a fifth stays a rim on the same dots.
+     */
+    fun registerReach(registerOffsetPx: Float, pitch: Float): Float =
+        min(registerOffsetPx, max(pitch, 0f) * REGISTER_PITCH_SHARE)
+
     /** Print plate: fully inked until it is in register, then fades out by the end of the print. */
     fun plateAlpha(millis: Float): Float =
         1f - clamp01((millis - Motion.registerMillis) / (Motion.printMillis - Motion.registerMillis))

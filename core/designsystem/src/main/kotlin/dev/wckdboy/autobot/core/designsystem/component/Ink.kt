@@ -368,7 +368,7 @@ fun PrintReveal(
                     val v = 1f - g.sample((cx - art.left) / art.width, (cy - art.top) / art.height)
                     batch.dot(cx, cy, v * c * PROOF_DOT * merge)
                 }
-                val offset = Motion.registerOffset.dp.toPx() * InkMath.registerOffset(ms)
+                val offset = InkMath.registerReach(Motion.registerOffset.dp.toPx(), c) * InkMath.registerOffset(ms)
                 translate(offset, offset) { batch.draw(this, plate, 0.5f * InkMath.plateAlpha(ms)) }
                 batch.draw(this, dot, InkMath.printDotsAlpha(ms))
             }

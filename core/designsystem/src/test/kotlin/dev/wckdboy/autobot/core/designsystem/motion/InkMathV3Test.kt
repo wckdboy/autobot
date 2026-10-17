@@ -10,6 +10,15 @@ class InkMathV3Test {
     private val eps = 1e-4f
 
     @Test
+    fun registerPlateStaysOnItsOwnDots() {
+        // 3 dp over a 9 px proof grid would sit in the gaps (a second grid): capped to a fifth.
+        assertEquals(1.8f, InkMath.registerReach(registerOffsetPx = 7.875f, pitch = 9f), eps)
+        // A coarse field keeps the full register offset.
+        assertEquals(7.875f, InkMath.registerReach(registerOffsetPx = 7.875f, pitch = 60f), eps)
+        assertEquals(0f, InkMath.registerReach(registerOffsetPx = 7.875f, pitch = -1f), eps)
+    }
+
+    @Test
     fun barSlotsFollowThePitch() {
         assertEquals(0, InkMath.barSlots(0f, 6f))
         assertEquals(0, InkMath.barSlots(100f, 0f))
