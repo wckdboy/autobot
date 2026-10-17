@@ -54,6 +54,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ImageBitmap
@@ -203,7 +206,9 @@ fun ImagineScreen(
 
             // An engine is ready and nothing is written yet: the keyboard comes up, one tap fewer to a first image.
             PromptField(request.prompt, actions::setPrompt, state.tokenEstimate, state.wildcards, autoFocus = state.loaded && state.backends.isNotEmpty())
-            if (request.prompt.isNotBlank() && state.running == null) StyleRow(actions::applyStyle)
+            // Always there, dimmed while it cannot apply: the row coming and going with the first
+            // letter typed and with each run moved everything under it (the proofs jumped).
+            StyleRow(actions::applyStyle, enabled = request.prompt.isNotBlank() && state.running == null)
 
             // Model chips: on-device models and each PC backend's checkpoints.
             if (state.chips.isNotEmpty()) {
@@ -313,14 +318,26 @@ private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, 
     }
 }
 
-/** Built-in styles: one tap wraps the prompt (and adds the style's negatives). */
+/** Built-in styles: one tap wraps the prompt (and adds the style's negatives). Dimmed and inert unless [enabled]. */
 @Composable
-private fun StyleRow(onApply: (PromptSnippet) -> Unit) {
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun StyleRow(onApply: (PromptSnippet) -> Unit, enabled: Boolean) {
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()).alpha(if (enabled) 1f else DISABLED_ALPHA),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         MicroLabel("style")
-        PromptLibrary.builtInStyles.forEach { style -> Tag(style.name, onClick = { onApply(style) }) }
+        PromptLibrary.builtInStyles.forEach { style ->
+            Tag(
+                style.name,
+                Modifier.semantics { contentDescription = "Apply the ${style.name} style" },
+                onClick = if (enabled) ({ onApply(style) }) else null,
+            )
+        }
     }
 }
+
+private const val DISABLED_ALPHA = 0.38f
 
 /** 2×2 proofs: halftone while sampling, the image when done. */
 @Composable
