@@ -113,12 +113,6 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
     modelsCompositionProbe?.invoke("screen")
     val snackbar = remember { SnackbarHostState() }
     val dissolve = rememberInkDissolve()
-    // An empty search tab is a large empty area: living paper behind it (downloads may run).
-    val emptyTab = when (state.tab) {
-        ModelsTab.HUGGING_FACE -> state.hf.results.isEmpty()
-        ModelsTab.CIVITAI -> state.civitai.results.isEmpty()
-        else -> false
-    }
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
@@ -148,7 +142,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         LazyColumn(
-            Modifier.padding(padding).fillMaxSize().then(if (emptyTab) Modifier.inkGround() else Modifier),
+            Modifier.padding(padding).fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
             item {
@@ -225,6 +219,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                         item(key = "hf-empty") {
                             SearchEmpty("Hugging Face", state.offline, state.hf.searched, state.hf.failure, state.hf.query, onOpenNetwork, actions::searchHf)
                         }
+                        item(key = "hf-paper") { EmptyResults() }
                     }
                     items(state.hf.results, key = { "hf-${it.id}" }) { m ->
                         RunRow(
@@ -240,6 +235,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                         item(key = "cv-empty") {
                             SearchEmpty("Civitai", state.offline, state.civitai.searched, state.civitai.failure, state.civitai.query, onOpenNetwork) { actions.searchCivitai(reset = true) }
                         }
+                        item(key = "cv-paper") { EmptyResults() }
                     }
                     items(state.civitai.results, key = { "cv-${it.id}" }) { m -> CivitaiRow(m, actions, state.installedIds()) { actions.installCivitai(m) } }
                     // A failed "more" says so under the results it could not extend.
@@ -261,6 +257,15 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
             RepoSheet(repo, state, actions)
         }
     }
+}
+
+/**
+ * No search results yet: a patch of living paper under the notice (as on iOS). Not the whole list:
+ * the ground ran behind the device header, the installed rows and the search field's text.
+ */
+@Composable
+private fun EmptyResults() {
+    Spacer(Modifier.fillMaxWidth().height(180.dp).inkGround())
 }
 
 /**
