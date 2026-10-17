@@ -147,6 +147,7 @@ private val IMAGE_NEGATIVES = setOf("neg-general", "neg-anatomy", "neg-photo")
 private val DEFAULT_SAMPLERS = listOf("DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "LCM", "DDIM", "UniPC")
 
 /** The image studio (mockup 04): paper surface, big prompt, model chips, readouts, 2×2 proofs. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ImagineScreen(
     state: ImagineUiState,
@@ -238,7 +239,9 @@ fun ImagineScreen(
             }
 
             Hairline(color = MaterialTheme.colorScheme.onBackground)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            // Wraps at a large font size: four display-face numbers ("1024×576", a six-digit seed)
+            // overran the row and the last readouts were squeezed to nothing.
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BigReadout("Steps", request.steps.toString(), onClick = { showTune = true })
                 BigReadout("Seed", if (request.seed < 0) "rnd" else request.seed.toString().takeLast(6), onClick = { showTune = true })
                 BigReadout("Size", sizeLabel(request.width, request.height), onClick = { showTune = true })
