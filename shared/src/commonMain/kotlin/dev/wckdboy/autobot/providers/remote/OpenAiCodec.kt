@@ -186,7 +186,13 @@ class SseDecoder : StreamDecoder {
             }
             choice.finishReason?.let { events += ChatEvent.Finish(it) }
         }
-        (chunk.usage ?: chunk.xGroq?.usage)?.let { events += ChatEvent.Usage(it.promptTokens, it.completionTokens, it.totalTokens) }
+        (chunk.usage ?: chunk.xGroq?.usage)?.let {
+            events += ChatEvent.Usage(
+                it.promptTokens, it.completionTokens, it.totalTokens,
+                reasoningTokens = it.reasoning?.takeIf { n -> n > 0 },
+                cacheReadTokens = it.cacheRead?.takeIf { n -> n > 0 },
+            )
+        }
         return events
     }
 

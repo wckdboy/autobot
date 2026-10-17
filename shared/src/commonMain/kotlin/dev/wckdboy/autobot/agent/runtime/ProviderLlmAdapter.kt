@@ -91,7 +91,14 @@ class ProviderLlmAdapter(
                     is ChatEvent.ReasoningDelta -> emit(StreamChunk.ReasoningDelta(event.text))
                     is ChatEvent.ToolCallDelta -> emit(StreamChunk.ToolCallDelta(event.index, event.id, event.name, event.argumentsDelta))
                     is ChatEvent.Usage -> emit(
-                        StreamChunk.Usage(TokenUsage(event.promptTokens, event.completionTokens, event.totalTokens, reasoningTokens = event.reasoningTokens)),
+                        StreamChunk.Usage(
+                            TokenUsage(
+                                event.promptTokens, event.completionTokens, event.totalTokens,
+                                cacheReadTokens = event.cacheReadTokens,
+                                reasoningTokens = event.reasoningTokens,
+                                cacheWriteTokens = event.cacheWriteTokens,
+                            ),
+                        ),
                     )
                     is ChatEvent.Finish -> emit(StreamChunk.Finish(event.reason))
                     // A stopped engine stops the turn: what streamed so far is kept as interrupted.

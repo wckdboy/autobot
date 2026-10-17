@@ -7,6 +7,8 @@ import dev.wckdboy.autobot.shared.studio.StudioAsset
 import dev.wckdboy.autobot.shared.studio.StudioCodec
 import dev.wckdboy.autobot.shared.studio.StudioProject
 import dev.wckdboy.autobot.shared.studio.StudioWorkflow
+import dev.wckdboy.autobot.shared.usage.UsagePlan
+import dev.wckdboy.autobot.shared.usage.UsageRecord
 import kotlinx.serialization.Serializable
 
 /**
@@ -36,6 +38,9 @@ class BackupManifest(
     val studioAssets: List<StudioAsset> = emptyList(),
     val studioWorkflows: List<StudioWorkflow> = emptyList(),
     val studioSnippets: List<PromptSnippet> = emptyList(),
+    /** Spend and quota board: counted usage buckets and the price table and windows (absent in older exports, which import with none). */
+    val usage: List<UsageRecord> = emptyList(),
+    val usagePlan: UsagePlan? = null,
 ) {
     companion object {
         fun sessionEntry(conversationId: String) = "sessions/$conversationId.jsonl"

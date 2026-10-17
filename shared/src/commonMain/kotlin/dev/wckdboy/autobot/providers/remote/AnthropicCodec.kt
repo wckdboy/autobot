@@ -185,7 +185,9 @@ class AnthropicSseDecoder : StreamDecoder {
     override var done: Boolean = false
         private set
 
-    private var inputTokens: Int? = null
+    private var uncached: Int? = null
+    private var cacheRead: Int? = null
+    private var cacheWrite: Int? = null
     private val toolOrdinals = HashMap<Int, Int>()
 
     /** Thinking blocks of this message, rebuilt for replay: block index → (type, text, signature / data). */
@@ -220,7 +222,7 @@ class AnthropicSseDecoder : StreamDecoder {
         } ?: return listOf(ChatEvent.Error(ErrorKind.PROTOCOL, "Malformed stream chunk"))
         return when (event.string("type")) {
             "message_start" -> {
-                (event.obj("message")?.obj("usage"))?.let { usage -> inputTokens = usage.inputTotal() }
+                (event.obj("message")?.obj("usage"))?.let { usage -> readInput(usage) }
                 emptyList()
             }
             "content_block_start" -> {
@@ -274,10 +276,16 @@ class AnthropicSseDecoder : StreamDecoder {
             "message_delta" -> buildList {
                 event.obj("delta")?.string("stop_reason")?.let { add(ChatEvent.Finish(AnthropicCodec.finishReason(it))) }
                 event.obj("usage")?.let { usage ->
-                    usage.inputTotal()?.let { inputTokens = it }
+                    readInput(usage)
                     val output = usage.int("output_tokens")
                     val input = inputTokens
-                    add(ChatEvent.Usage(input, output, if (input != null && output != null) input + output else null))
+                    add(
+                        ChatEvent.Usage(
+                            input, output, if (input != null && output != null) input + output else null,
+                            cacheReadTokens = cacheRead?.takeIf { it > 0 },
+                            cacheWriteTokens = cacheWrite?.takeIf { it > 0 },
+                        ),
+                    )
                 }
             }
             "message_stop" -> {
@@ -298,10 +306,20 @@ class AnthropicSseDecoder : StreamDecoder {
         }
     }
 
-    private fun JsonObject.inputTotal(): Int? {
-        val parts = listOf("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens").mapNotNull { int(it) }
-        return if (parts.isEmpty()) null else parts.sum()
+    /** The input counts of a `usage` object (`message_start`, and cumulative in `message_delta`). */
+    private fun readInput(usage: JsonObject) {
+        usage.int("input_tokens")?.let { uncached = it }
+        usage.int("cache_read_input_tokens")?.let { cacheRead = it }
+        usage.int("cache_creation_input_tokens")?.let { cacheWrite = it }
     }
+
+    /** The whole input: uncached, cache reads and cache writes (null until one is known). */
+    private val inputTokens: Int?
+        get() {
+            val parts = listOfNotNull(uncached, cacheRead, cacheWrite)
+            return if (parts.isEmpty()) null else parts.sum()
+        }
+
 }
 
 private fun JsonObject.obj(key: String): JsonObject? = this[key] as? JsonObject

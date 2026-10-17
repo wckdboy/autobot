@@ -66,7 +66,20 @@ sealed interface ChatEvent {
      * [id] and [name] arrive first, [argumentsDelta] is appended across fragments.
      */
     data class ToolCallDelta(val index: Int, val id: String?, val name: String?, val argumentsDelta: String) : ChatEvent
-    data class Usage(val promptTokens: Int?, val completionTokens: Int?, val totalTokens: Int?, val reasoningTokens: Int? = null) : ChatEvent
+    /**
+     * Token counts as the provider reported them. [promptTokens] is the whole input, cached parts
+     * included (Anthropic's `input_tokens` + cache reads + cache writes; OpenAI's `prompt_tokens`);
+     * [cacheReadTokens] and [cacheWriteTokens] say how much of it was read from or written to the
+     * provider's prompt cache. [completionTokens] includes [reasoningTokens] where both are given.
+     */
+    data class Usage(
+        val promptTokens: Int?,
+        val completionTokens: Int?,
+        val totalTokens: Int?,
+        val reasoningTokens: Int? = null,
+        val cacheReadTokens: Int? = null,
+        val cacheWriteTokens: Int? = null,
+    ) : ChatEvent
 
     /** Reasoning progress counted by the engine (on-device): see [dev.wckdboy.autobot.agent.core.llm.StreamChunk.ReasoningStatus]. */
     data class ReasoningStatus(val tokens: Int, val done: Boolean = false, val stop: String? = null) : ChatEvent
