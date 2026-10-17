@@ -747,7 +747,8 @@ private fun PolicyLine(state: ChatUiState, onThink: () -> Unit = {}, onThinkMore
     ) {
         if (think) ThinkChip(state.thinking, onThink, onThinkMore)
         if (redact) RedactChip(state.redaction == RedactionUi.ON, onRedact)
-        MicroLabel(text, Modifier.weight(1f))
+        // Two lines: with the Think and redact chips, a narrow phone cuts the policy to "POLICY · WORKS…".
+        MicroLabel(text, Modifier.weight(1f), maxLines = 2)
         val used = state.contextUsed
         val window = state.contextWindow
         if (used != null && window != null && window > 0) MicroLabel("${compact(used)}/${compact(window)}")
