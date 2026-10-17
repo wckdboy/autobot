@@ -275,8 +275,12 @@ object UsageBoard {
         val over = limit != null && used >= limit
         val resetsIn = resetsAt?.let { (it - now).coerceAtLeast(0) }
         val line = buildString {
-            append(UsageFormat.amount(used, window.unit))
-            limit?.let { append(" of ").append(UsageFormat.amount(it, window.unit)) }
+            // `2 of 10 requests`, `150 of 1.0k tokens`, `$1.20 of $5.00`: the unit once, after the limit.
+            if (limit == null) {
+                append(UsageFormat.amount(used, window.unit))
+            } else {
+                append(UsageFormat.figure(used, window.unit)).append(" of ").append(UsageFormat.amount(limit, window.unit))
+            }
             when {
                 fixed -> append(" · resets ").append(QuotaErrors.inWords(resetsIn ?: 0))
                 resetsIn != null -> append(if (over) " · frees up " else " · oldest use rolls off ").append(QuotaErrors.inWords(resetsIn))
@@ -337,10 +341,17 @@ object UsageFormat {
         else -> usd(usd)
     }
 
-    /** A window amount: `1.2M tokens`, `420 requests`, `$3.10`. */
+    /** A window amount: `1.2M tokens`, `420 requests`, `1 request`, `$3.10`. */
     fun amount(value: Double, unit: LimitUnit): String = when (unit) {
-        LimitUnit.TOKENS -> tokens(value.roundToLong()) + " tokens"
-        LimitUnit.REQUESTS -> value.roundToLong().toString() + " requests"
+        LimitUnit.TOKENS -> figure(value, unit) + if (value.roundToLong() == 1L) " token" else " tokens"
+        LimitUnit.REQUESTS -> figure(value, unit) + if (value.roundToLong() == 1L) " request" else " requests"
+        LimitUnit.USD -> usd(value)
+    }
+
+    /** [amount] without the unit word: `1.2M`, `420`, `$3.10`. */
+    fun figure(value: Double, unit: LimitUnit): String = when (unit) {
+        LimitUnit.TOKENS -> tokens(value.roundToLong())
+        LimitUnit.REQUESTS -> value.roundToLong().toString()
         LimitUnit.USD -> usd(value)
     }
 
