@@ -3,11 +3,15 @@
 A privacy-first AI agent for Android and iOS. Autobot is built to run models **on the device** (NPU/GPU) and
 treats every network request as something the user has to opt into, can see, and can switch off.
 
-> Status: **1.3 — one core, two apps.** Chats, agent and code sessions run on the device through
-> llama.cpp: on Android on the CPU, the Adreno GPU (OpenCL) or the Hexagon NPU, on iOS on Metal.
-> Images run through stable-diffusion.cpp, QNN on the Snapdragon NPU or MNN on its GPU (Android),
-> and Core ML on the Apple Neural Engine (iOS). Both apps run the same Kotlin Multiplatform core:
-> the agent runtime, network policy, settings, model management and the encrypted export format.
+> Status: **1.7 — private by default, fast on the metal.** Chats, agent and code sessions run on the
+> device through llama.cpp: on Android on the CPU, the Adreno GPU (OpenCL) or the Hexagon NPU, on iOS
+> on Metal, with speculative decoding from a small draft model. Images run through
+> stable-diffusion.cpp, QNN on the Snapdragon NPU or MNN on its GPU (Android), and Core ML on the
+> Apple Neural Engine (iOS). Voice is streaming dictation and spoken answers with barge-in. Cloud
+> providers are optional: chats are redacted before they leave, every answer carries a privacy
+> receipt, and Settings › Usage counts tokens and cost on the phone. Both apps run the same Kotlin
+> Multiplatform core: the agent runtime, network policy, redaction, settings, model management and
+> the encrypted export format.
 >
 > **Needs verification on real hardware:** the Snapdragon accelerator paths were built for the
 > 8 Elite Gen 5 (Hexagon V81, Adreno 840) but have not yet been run on one. Models → Compute →
