@@ -56,6 +56,10 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     @Volatile
     var beforeJob: () -> Unit = {}
 
+    /** Whether loading a model ahead of time may evict the others now (none of them is working). */
+    @Volatile
+    var mayPrepare: () -> Boolean = { true }
+
     val isBusy: Boolean get() = synchronized(this) { active > 0 }
 
     /** Connects and counts one use; pair with [done]. */
@@ -173,6 +177,28 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
             done()
         }
     }.buffer(Channel.UNLIMITED) // never drop an image
+
+    /**
+     * Loads [bundle] ahead of the first image (the prompt is being written) so Generate starts
+     * sampling instead of loading. Frees the other engines' memory first like a job would, and is
+     * skipped while one of them works. The model stays resident until the idle unbind or memory
+     * pressure. Returns whether it ran.
+     */
+    suspend fun prepare(bundle: SdBundle): Boolean {
+        if (!mayPrepare()) return false
+        preparing.incrementAndGet()
+        try {
+            generate(SdRequest(bundle = bundle, prompt = "", prepareOnly = true)).collect {}
+        } finally {
+            preparing.decrementAndGet()
+        }
+        return true
+    }
+
+    private val preparing = java.util.concurrent.atomic.AtomicInteger()
+
+    /** A [prepare] runs: a job sent now waits for that load (the engine runs requests in order). */
+    val isPreparing: Boolean get() = preparing.get() > 0
 
     fun unloadModel() {
         runCatching { engine?.unload() }

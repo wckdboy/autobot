@@ -40,6 +40,8 @@ data class SdRequest(
     val initImagePath: String? = null,
     /** PNG mask, white = repaint. */
     val maskPath: String? = null,
+    /** Only load [bundle] (ahead of the first image) and finish without sampling. */
+    val prepareOnly: Boolean = false,
 ) {
     fun toBundle(): Bundle = Bundle().apply {
         putString(K_MODEL, bundle.model)
@@ -67,6 +69,7 @@ data class SdRequest(
         putFloatArray(K_LORA_WEIGHTS, loras.map { it.weight }.toFloatArray())
         putString(K_INIT, initImagePath)
         putString(K_MASK, maskPath)
+        putBoolean(K_PREPARE, prepareOnly)
     }
 
     internal companion object {
@@ -95,6 +98,7 @@ data class SdRequest(
         const val K_LORA_WEIGHTS = "lora_weights"
         const val K_INIT = "init"
         const val K_MASK = "mask"
+        const val K_PREPARE = "prepare_only"
 
         val BUNDLE_KEYS = listOf(K_MODEL, K_DIFFUSION, K_LLM, K_CLIP_L, K_CLIP_G, K_T5, K_VAE, K_TAESD)
 

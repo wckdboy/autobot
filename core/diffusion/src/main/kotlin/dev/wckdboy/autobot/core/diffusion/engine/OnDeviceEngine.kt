@@ -89,6 +89,8 @@ class OnDeviceEngine(
         val maskFile = inputs.mask?.takeIf { request.mode == DiffusionMode.INPAINT }?.let { write("mask", it) }
         llm.unloadModel()
         val events = SdEvents(clock)
+        // Waits for the model being loaded ahead of time (the engine runs requests in order).
+        if (sd.isPreparing) emit(DiffusionEvent.Phase(LOADING))
         try {
             sd.generate(
                 SdRequest(
@@ -136,6 +138,21 @@ class OnDeviceEngine(
                 DiffusionEvent.Result(event.index, event.png, event.seed, event.width, event.height, clock() - started)
             }
             is LocalSdEvent.Status -> phaseOf(event.status)?.let(DiffusionEvent::Phase)
+        }
+    }
+
+    /**
+     * Loads the model [request] would run ahead of Generate (stable-diffusion.cpp models; the NPU
+     * engine loads per job). Does nothing without one, or while another engine works.
+     */
+    override suspend fun prepare(request: DiffusionRequest) {
+        val images = library.all().filter { runnable(it) && it.kind == ModelKind.IMAGE }
+        val model = images.firstOrNull { it.id == request.model } ?: images.firstOrNull() ?: return
+        if (model.engine != EngineKind.DIFFUSION) return
+        try {
+            sd.prepare(bundleOf(model))
+        } catch (e: SdEngineException) {
+            // A warm-up that fails says nothing: Generate reports the problem properly.
         }
     }
 

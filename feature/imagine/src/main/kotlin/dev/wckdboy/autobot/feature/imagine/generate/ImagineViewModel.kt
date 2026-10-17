@@ -144,6 +144,9 @@ class ImagineViewModel @Inject constructor(
     )
 
     private val local = MutableStateFlow(Local())
+
+    /** The on-device model last loaded ahead of time (or tried): one warm-up per model. */
+    private var warmedModel: String? = null
     private var initSource: Bitmap? = null
     private var catalogJob: Job? = null
 
@@ -215,6 +218,7 @@ class ImagineViewModel @Inject constructor(
     fun selectChip(chip: ModelChip) {
         if (uiState.value.backend?.id != chip.backendId) selectBackend(chip.backendId)
         setModel(chip.model)
+        if (chip.onDevice) warmUp(uiState.value.request.prompt, chip)
         if (chip.onDevice && chip.model != null) {
             viewModelScope.launch {
                 val rec = library.get(chip.model)?.let(::recommendedFor) ?: return@launch
@@ -286,7 +290,10 @@ class ImagineViewModel @Inject constructor(
         edit { it.copy(mode = mode) }
         local.update { it.copy(preferInit = mode != DiffusionMode.TXT2IMG) }
     }
-    fun setPrompt(text: String) = edit { it.copy(prompt = text) }
+    fun setPrompt(text: String) {
+        edit { it.copy(prompt = text) }
+        warmUp(text)
+    }
     fun setNegative(text: String) = edit { it.copy(negativePrompt = text) }
     fun setSteps(steps: Int) = edit { it.copy(steps = steps) }
     fun setCfg(cfg: Float) = edit { it.copy(cfgScale = (cfg * 2).toInt() / 2f) }
@@ -320,6 +327,21 @@ class ImagineViewModel @Inject constructor(
         r.copy(loras = r.loras.map { if (it.name == name) it.copy(weight = (weight * 20).toInt() / 20f) else it })
     }
     fun removeLora(name: String) = edit { r -> r.copy(loras = r.loras.filterNot { it.name == name }) }
+
+    /**
+     * Loads the selected on-device model while the prompt is written (see [shouldWarm]): time to
+     * the first image is mostly the model load. The engine skips it while another engine works
+     * and frees the others' memory first, like a job.
+     */
+    private fun warmUp(prompt: String, chip: ModelChip? = uiState.value.selectedChip) {
+        val state = uiState.value
+        val backend = state.backends.firstOrNull { it.id == chip?.backendId } ?: return
+        val model = chip?.takeIf { it.onDevice }?.model
+        if (!shouldWarm(backend.kind == BackendKind.ON_DEVICE, model, warmedModel, generator.isBusy || state.running != null, prompt)) return
+        warmedModel = model
+        val request = state.request.copy(model = model)
+        viewModelScope.launch(Dispatchers.IO) { runCatching { engines.create(backend).prepare(request) } }
+    }
 
     // ---------------------------------------------------------------------------------------
     // Backend
@@ -461,6 +483,13 @@ internal fun buildChips(backends: List<DiffusionBackend>, models: List<Installed
         }
     }
 }
+
+/**
+ * Whether to load the on-device model ahead of Generate: a prompt is being written for an
+ * on-device model not warmed yet, and no image job runs.
+ */
+internal fun shouldWarm(onDevice: Boolean, model: String?, warmed: String?, busy: Boolean, prompt: String): Boolean =
+    onDevice && model != null && model != warmed && !busy && prompt.isNotBlank()
 
 /** Capabilities per backend (by value: an edited backend is a new key), created once each. */
 internal class CapabilityCache(private val create: (DiffusionBackend) -> EngineCapabilities) {
