@@ -100,7 +100,7 @@ struct RootView: View {
                     }
                     // On unlock the paper prints away.
                     .transition(.inkPrintAway)
-                } else if !app.settings.settings.onboarded {
+                } else if !app.settings.settings.onboarded && !DebugFlags.skipWelcome {
                     WelcomeScreen(
                         onSetUp: {
                             nav.reset(.models)
