@@ -174,6 +174,18 @@ internal fun rememberLumaGrid(image: ImageBitmap?): State<LumaGrid?> =
         value = grid
     }
 
+/** A proof dot at full darkness fills this fraction of its pitch (as a radius). */
+internal const val PROOF_DOT = 0.62f
+
+/**
+ * The proof plates' grid (develop, print, halftone images) over this canvas: a square, whole-pixel
+ * pitch ([InkMath.cappedCell] of [cell]), centred, every dot inside the bounds — the same rules as
+ * every other dot field ([DotGeometry.ground]), so neighbouring fields never beat against a
+ * stretched or sub-pixel grid.
+ */
+internal fun DrawScope.proofGrid(cell: Float): DotGeometry.Ground =
+    DotGeometry.ground(size.width, size.height, InkMath.cappedCell(size.width, size.height, cell), PROOF_DOT)
+
 /** Clock time without subscribing the caller (for effects and composition-time bookkeeping). */
 private val InkClock.now: Float get() = Snapshot.withoutReadObservation { time }
 
@@ -239,16 +251,15 @@ fun DevelopingHalftone(
         val phase = flow.at(t, speed)
         val dev = if (reduced) blend.value else InkMath.clamp01((t - start) * 1000f / Motion.developMillis)
         val f = fill.value(t)
-        val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
-        val cols = max(1, (size.width / c).toInt())
-        val rows = max(1, (size.height / c).toInt())
-        val cw = size.width / cols
-        val ch = size.height / rows
+        val grid = proofGrid(cell.toPx())
+        val c = grid.x.pitch
         val shimmer = cur != null && flowing && !reduced
         batch.reset()
-        for (r in 0 until rows) for (col in 0 until cols) {
-            val x = (col + 0.5f) / cols
-            val y = (r + 0.5f) / rows
+        for (r in 0 until grid.y.count) for (col in 0 until grid.x.count) {
+            val cx = grid.x.at(col)
+            val cy = grid.y.at(r)
+            val x = cx / size.width
+            val y = cy / size.height
             var v = when {
                 cur == null -> InkMath.field(x, y, phase) * f
                 dev >= 1f -> 1f - cur.sample(x, y)
@@ -259,7 +270,7 @@ fun DevelopingHalftone(
                 }
             }
             if (shimmer) v *= 1f - InkMath.SHIMMER_DEPTH * InkMath.wave(x, y, phase)
-            batch.dot((col + 0.5f) * cw, (r + 0.5f) * ch, v * c * 0.62f)
+            batch.dot(cx, cy, v * c * PROOF_DOT)
         }
         val alpha = when {
             cur == null -> fieldAlpha
@@ -330,15 +341,14 @@ fun PrintReveal(
             Canvas(Modifier.matchParentSize().clipToBounds()) {
                 val ms = if (start.isNaN()) 0f else (clock.time - start) * 1000f
                 val merge = InkMath.printMerge(ms)
-                val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
-                val cols = max(1, (size.width / c).toInt())
-                val rows = max(1, (size.height / c).toInt())
-                val cw = size.width / cols
-                val ch = size.height / rows
+                val grid = proofGrid(cell.toPx())
+                val c = grid.x.pitch
                 batch.reset()
-                for (r in 0 until rows) for (col in 0 until cols) {
-                    val v = 1f - g.sample((col + 0.5f) / cols, (r + 0.5f) / rows)
-                    batch.dot((col + 0.5f) * cw, (r + 0.5f) * ch, v * c * 0.62f * merge)
+                for (r in 0 until grid.y.count) for (col in 0 until grid.x.count) {
+                    val cx = grid.x.at(col)
+                    val cy = grid.y.at(r)
+                    val v = 1f - g.sample(cx / size.width, cy / size.height)
+                    batch.dot(cx, cy, v * c * PROOF_DOT * merge)
                 }
                 val offset = Motion.registerOffset.dp.toPx() * InkMath.registerOffset(ms)
                 translate(offset, offset) { batch.draw(this, plate, 0.5f * InkMath.plateAlpha(ms)) }

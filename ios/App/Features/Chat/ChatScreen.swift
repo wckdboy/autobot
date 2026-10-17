@@ -217,7 +217,9 @@ struct ChatScreen: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
-                .inkGround(app.dataLoaded && transcript.items.isEmpty && !isLive, fade: UnitPoint(x: 0.3, y: 0.15))
+                // One ground per screen: with the voice panel up, its own paper is the ground (two fields
+                // with their own grids would meet at the panel's edge).
+                .inkGround(app.dataLoaded && transcript.items.isEmpty && !isLive && model.voice == nil, fade: UnitPoint(x: 0.3, y: 0.15))
                 .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isLive) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
@@ -1247,7 +1249,9 @@ private struct VoicePanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Group {
                         if voice.phase == .speaking {
-                            SpeechStrip(spoken: voice.spoken)
+                            // On plain paper: its 6 pt screen over the ground's own grid read as two
+                            // misaligned dot grids.
+                            SpeechStrip(spoken: voice.spoken).background(c.background)
                         } else {
                             LevelMeter(levels: model.levels, listening: voice.phase == .listening)
                         }

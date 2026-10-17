@@ -118,16 +118,16 @@ fun Modifier.ambientTouch(ambient: InkAmbient): Modifier = pointerInput(ambient)
 
 /**
  * Living paper behind a large empty area: the hero halftone field drifting one cycle per
- * `ambientCycleSeconds` in a low-contrast [dot] colour at `ambientOpacity`, with a [plate]
- * registration plate at half that strength breathing ±1dp every `ambientBreathSeconds`.
- * Runs on [rememberInkAmbient]'s budget; one dot path per frame, drawn twice. Touches inside
- * this element keep it awake; pass a screen-level [ambient] to share one clock.
+ * `ambientCycleSeconds` in a low-contrast [dot] colour at `ambientOpacity`, one plate only (as on
+ * iOS): a second, offset copy of the same dots read as a doubled, misprinted grid at rest. The
+ * register plate belongs to the print-away ([InkPrintAway]), where it settles and goes.
+ * Runs on [rememberInkAmbient]'s budget; one dot batch per frame. Touches inside this element
+ * keep it awake; pass a screen-level [ambient] to share one clock.
  */
 @Composable
 fun Modifier.inkGround(
     heavyWork: Boolean = false,
     dot: Color = MaterialTheme.colorScheme.outline,
-    plate: Color = MaterialTheme.colorScheme.primary,
     cell: Dp = GROUND_CELL,
     seed: Float = 0f,
     ambient: InkAmbient = LocalInkAmbient.current ?: rememberInkAmbient(heavyWork),
@@ -136,10 +136,7 @@ fun Modifier.inkGround(
     return this
         .ambientTouch(ambient)
         .drawBehind {
-            val t = ambient.time
-            buildField(batch, cell.toPx(), seed + InkMath.ambientPhase(t), GROUND_DOT)
-            val shift = (Motion.registerOffset * 0.5f + InkMath.ambientBreath(t)).dp.toPx()
-            translate(shift, shift) { batch.draw(this, plate, Motion.ambientOpacity * 0.5f) }
+            buildField(batch, cell.toPx(), seed + InkMath.ambientPhase(ambient.time), GROUND_DOT)
             batch.draw(this, dot, Motion.ambientOpacity)
         }
 }

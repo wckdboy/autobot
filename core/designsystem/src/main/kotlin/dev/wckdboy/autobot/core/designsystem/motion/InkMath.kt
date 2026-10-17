@@ -147,9 +147,6 @@ object InkMath {
     /** Ambient ground: flow phase at [seconds] (one wave cycle = 2 phase units per `ambientCycleSeconds`). */
     fun ambientPhase(seconds: Float): Float = 2f * seconds / Motion.ambientCycleSeconds
 
-    /** Ambient ground: the second plate's breath (−1…1) at [seconds], one breath per `ambientBreathSeconds`. */
-    fun ambientBreath(seconds: Float): Float = sin(2f * PI.toFloat() * seconds / Motion.ambientBreathSeconds)
-
     /** Whether an ambient ground may move: never with reduced motion, in Battery Saver, during heavy work or once idle. */
     fun ambientRuns(reduced: Boolean, lowPower: Boolean, heavyWork: Boolean, idle: Boolean): Boolean =
         !reduced && !lowPower && !heavyWork && !idle

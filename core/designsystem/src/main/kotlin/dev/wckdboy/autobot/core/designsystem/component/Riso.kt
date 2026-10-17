@@ -38,6 +38,10 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.painterResource
@@ -257,15 +261,18 @@ fun ModeCard(
                         ),
                 )
             }
+            // No dots behind the index or the route tag (as on iOS): each clears the field under it.
+            val clear = if (background != null || living) Modifier.inkClearance(card) else Modifier
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         index,
+                        modifier = clear,
                         style = AutobotTheme.styles.micro,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.weight(1f))
-                    route?.let { RouteTag(it) }
+                    route?.let { Box(clear) { RouteTag(it) } }
                 }
                 Spacer(Modifier.weight(1f, fill = true))
                 Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
@@ -280,6 +287,15 @@ fun ModeCard(
             }
         }
     }
+}
+
+/**
+ * A small paper plate in [ground] behind a label over a dot field, 4dp past its bounds with soft
+ * corners, so no dot sits behind text. Drawn behind the label; layout is unchanged.
+ */
+internal fun Modifier.inkClearance(ground: Color): Modifier = drawBehind {
+    val pad = 4.dp.toPx()
+    drawRoundRect(ground, Offset(-pad, -pad), Size(size.width + 2 * pad, size.height + 2 * pad), CornerRadius(pad))
 }
 
 /** Hairline-separated list row: title, mono subtitle, trailing slot. */
@@ -347,16 +363,15 @@ fun HalftoneImage(
     val batch = remember { DotBatch() }
     Canvas(modifier.background(paper).clipToBounds()) {
         val grid = samples ?: return@Canvas
-        val c = InkMath.cappedCell(size.width, size.height, cell.toPx())
-        val cols = max(1, (size.width / c).toInt())
-        val rows = max(1, (size.height / c).toInt())
-        // Centred: the leftover fraction of a cell is split between both edges.
-        val x0 = (size.width - cols * c) / 2f
-        val y0 = (size.height - rows * c) / 2f
+        // Whole-pixel pitch, centred, no dot cut by the edges ([proofGrid]).
+        val dots = proofGrid(cell.toPx())
+        val c = dots.x.pitch
         batch.reset()
-        for (r in 0 until rows) for (col in 0 until cols) {
-            val l = grid.sample((col + 0.5f) / cols, (r + 0.5f) / rows)
-            batch.dot(x0 + (col + 0.5f) * c, y0 + (r + 0.5f) * c, (1f - l) * c * 0.62f)
+        for (r in 0 until dots.y.count) for (col in 0 until dots.x.count) {
+            val cx = dots.x.at(col)
+            val cy = dots.y.at(r)
+            val l = grid.sample(cx / size.width, cy / size.height)
+            batch.dot(cx, cy, (1f - l) * c * PROOF_DOT)
         }
         batch.draw(this, dot)
     }

@@ -433,6 +433,58 @@ struct InkPrecisionTests {
         }
     }
 
+    /**
+     The image proof plate (idle and flowing) lands on the same whole-pixel grid as every other
+     field ([InkGrid.field]): one blob per grid dot, each within half a pixel of its centre, an
+     exact pitch both ways. Includes plates large enough for the dot cap to grow the pitch (it
+     used to become fractional there, so neighbouring dots antialiased differently and the
+     screen beat against itself).
+     */
+    @Test func plateRasterIsPixelExact() async throws {
+        let base = Double(Tokens.Halftone.imageCell)
+        let now = Date(timeIntervalSinceReferenceDate: 1000)
+        for scale in [2.0, 3] {
+            for (width, height) in [(180.0, 180.0), (366, 366), (240, 360)] {
+                for ink in [PlateInk.idle, .flow(progress: 0.3, loading: false)] {
+                    let engine = PlateEngine()
+                    _ = engine.receive(ink, at: now)
+                    let size = CGSize(width: width, height: height)
+                    let canvas = Canvas { context, s in
+                        engine.draw(&context, size: s, at: now, cell: CGFloat(base), phase: 0.3, dot: .black, idleDot: .black, plate: .black)
+                    }
+                    let tag = "plate \(ink == .idle ? "idle" : "flow") \(width)×\(height) @\(scale)×"
+                    let (alpha, w, h) = try await raster(canvas, size: size, scale: scale, name: "plate-\(ink == .idle ? "idle" : "flow")-\(Int(width))x\(Int(height))@\(Int(scale))x")
+                    let (cols, rows) = InkGrid.field(width: width, height: height, base: base, maxDots: InkMath.maxDots, scale: scale)
+                    #expect(cols.count * rows.count <= InkMath.maxDots, "\(tag): \(cols.count * rows.count) dots")
+                    // Every inked pixel goes to its nearest grid dot (dots near full size may touch):
+                    // each dot's centroid must be its grid centre. A plate off the grid, a fractional
+                    // pitch or a second, offset copy of the dots pulls centroids away.
+                    var sums = [(a: Double, x: Double, y: Double)](repeating: (0, 0, 0), count: cols.count * rows.count)
+                    var stray = 0.0
+                    for y in 0 ..< h {
+                        for x in 0 ..< w where alpha[y * w + x] > 0.004 {
+                            let px = Double(x) + 0.5, py = Double(y) + 0.5, a = alpha[y * w + x]
+                            let c = Int(((px - cols.firstPx) / Double(cols.pitchPx)).rounded()), r = Int(((py - rows.firstPx) / Double(rows.pitchPx)).rounded())
+                            guard c >= 0, c < cols.count, r >= 0, r < rows.count else { stray += a; continue }
+                            sums[r * cols.count + c].a += a
+                            sums[r * cols.count + c].x += a * px
+                            sums[r * cols.count + c].y += a * py
+                        }
+                    }
+                    #expect(stray < 1, "\(tag): ink outside the grid (\(stray) px)")
+                    var resolvable = 0
+                    for (i, s) in sums.enumerated() where (s.a / .pi).squareRoot() >= 1.5 {
+                        resolvable += 1
+                        let off = max(abs(s.x / s.a - cols.centerPx(i % cols.count)), abs(s.y / s.a - rows.centerPx(i / cols.count)))
+                        record("plate position", off)
+                        #expect(off < 0.5, "\(tag): dot \(i) is \(off) px off its grid centre")
+                    }
+                    #expect(resolvable > cols.count * rows.count / 4, "\(tag): only \(resolvable) dots")
+                }
+            }
+        }
+    }
+
     /// Runs last (alphabetically after the raster tests in this serialized suite): the report.
     @Test func zzReport() throws {
         let lines = Self.worst.sorted { $0.key < $1.key }.map { String(format: "%@: %.3f px", $0.key, $0.value) }
