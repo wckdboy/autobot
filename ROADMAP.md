@@ -173,7 +173,10 @@ cascade work fully offline on the 8 Elite Gen 5 and a current iPhone.
   benchmark-driven defaults per SoC.
 - **Speculative decoding** with a small draft model, on the GPU or NPU.
 - **Images**: LoRA on the NPU, SDXL resolutions beyond 1024, Anima packages, Core ML LoRA merge
-  tooling.
+  tooling. ✅ Faster first image *(both apps: the on-device model loads while the prompt is
+  written, under the engine memory coordinator; the load is a phase in the UI; wildcards and
+  styles on the quick Image screen. Still to do: live previews on the NPU/MNN path, measured
+  time-to-first-image on the 8 Elite Gen 5 and an iPhone.)*
 - **Speech**: whisper encoder on QNN (Android) and Core ML (iOS); streaming dictation.
 
 **Exit:** on the 8 Elite Gen 5 and a current iPhone, a 4B chat model generates ≥ 2× faster than

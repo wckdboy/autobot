@@ -313,6 +313,12 @@ The Image screen talks to diffusion **backends** through one `DiffusionEngine` i
 - **A1111 / Forge / SD.Next API** (`/sdapi/v1`) — runtime LoRA via `<lora:name:w>`, checkpoint
   switching, samplers/schedulers, inpainting, live previews, interrupt on cancel.
 
+A prompt with `{red|blue}` wildcards runs once per expanded prompt (same seed, at most 16
+images), and one tap applies a built-in style or a negative preset. While you write the prompt
+for an on-device model (stable-diffusion.cpp on Android, Core ML on iOS), the app loads it (freeing the chat model first, never while another
+engine works), so Generate starts sampling instead of loading; the status line says "Loading the
+model" until the first step.
+
 Every request goes through the kill switch and audit log. Cleartext is only allowed to loopback,
 so LAN backends need HTTPS (e.g. Tailscale). Results are stored in an **encrypted gallery**
 (AES-256-GCM files under a Keystore-wrapped media key); exporting to `Pictures/` is an explicit,
