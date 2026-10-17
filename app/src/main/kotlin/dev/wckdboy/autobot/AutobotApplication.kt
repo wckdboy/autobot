@@ -83,14 +83,13 @@ class AutobotApplication : Application() {
         settingsSync.get().start()
         // The rest only follows data in the background: building those objects (the provider,
         // model, backend and Studio repositories, HTTP clients, Studio engines) is not main-thread
-        // work and does not need to finish before the first frame.
-        scope.launch {
-            localProviderSync.get().start(scope)
-            onDeviceBackendSync.get().start(scope)
-            launch { downloader.get().recoverAfterRestart() }
-            // The Studio queue: engines registered, then jobs queued before the app closed run on.
-            studio.get().start()
-        }
+        // work and does not need to finish before the first frame. Each starts on its own, so one
+        // that fails to build does not keep the others from starting.
+        scope.launch { localProviderSync.get().start(scope) }
+        scope.launch { onDeviceBackendSync.get().start(scope) }
+        scope.launch { downloader.get().recoverAfterRestart() }
+        // The Studio queue: engines registered, then jobs queued before the app closed run on.
+        scope.launch { studio.get().start() }
         Trace.endSection()
     }
 }

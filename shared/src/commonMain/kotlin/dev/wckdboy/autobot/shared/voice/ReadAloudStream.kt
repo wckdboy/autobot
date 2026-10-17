@@ -5,7 +5,8 @@ package dev.wckdboy.autobot.shared.voice
  * complete, so read-aloud starts a sentence after the answer starts instead of after it ends.
  *
  * Feed [update] the streamed markdown of the current step (it only grows; a text that does not
- * continue the last one is a new step) and [finish] the final answer when the turn ends. Each call
+ * continue the last one is a new step), [stepDone] the committed text of each step as it ends (the
+ * live frames may skip the step's last words), and [finish] the final answer when the turn ends. Each call
  * returns the new pieces, in order, never one twice. A sentence is handed out once the text after
  * it has started (so "3." waits for "14", and "e.g." for the next word), and only outside an open
  * code fence; finished paragraphs are read whole. The markdown goes through [speakable] (the chat
@@ -34,8 +35,18 @@ class ReadAloudStream(
     var count: Int = 0
         private set
 
+    /** [source] is a step [stepDone] completed: everything in it was handed out. */
+    private var closed = false
+
     /** The streamed text of the current step so far. Returns the pieces ready to speak. */
     fun update(text: String): List<String> {
+        if (closed) {
+            // A late frame of the step that just ended says nothing new.
+            if (source.startsWith(text)) return emptyList()
+            closed = false
+            start(text)
+            return emit(advance(final = false))
+        }
         if (text.startsWith(source)) {
             source = text
             return emit(advance(final = false))
@@ -44,6 +55,26 @@ class ReadAloudStream(
         val rest = advance(final = true)
         start(text)
         return emit(rest + advance(final = false))
+    }
+
+    /**
+     * A step of the turn ended with [text] (its committed answer, which the live frames may not
+     * have shown whole: they are throttled and conflated, and the frame after the last one is the
+     * next step's). Returns the step's unread end. A step whose frames were never seen is read
+     * whole (without sentences already spoken); one older than the step streaming now is ignored
+     * (its frames ended before the next step's started, so reading it now would interrupt that one).
+     */
+    fun stepDone(text: String): List<String> {
+        if (text.isBlank()) return emptyList()
+        if (!closed && text.startsWith(source)) {
+            source = text
+            closed = true
+            return emit(advance(final = true))
+        }
+        if (!closed || source == text) return emptyList()
+        start(text)
+        closed = true
+        return emit(advance(final = true), skipSpoken = true)
     }
 
     /**
@@ -64,6 +95,7 @@ class ReadAloudStream(
     }
 
     private fun start(text: String) {
+        closed = false
         source = text
         blockStart = 0
         spokenInBlock = 0

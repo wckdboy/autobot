@@ -278,6 +278,8 @@ class ChatViewModel @AssistedInject constructor(
     private val dictation = MutableStateFlow(Dictation.IDLE)
     private val dictated = MutableStateFlow<String?>(null)
     private val stopRecording = AtomicBoolean(false)
+    /** The dictation in progress, from the tap that starts it (before it records) to its transcript. */
+    private var dictationJob: Job? = null
     private val speakingKey = MutableStateFlow<String?>(null)
     private var readJob: Job? = null
     private val voiceMode = MutableStateFlow<VoiceUi?>(null)
@@ -295,6 +297,10 @@ class ChatViewModel @AssistedInject constructor(
     private var liveWatch: Job? = null
     /** Hands-free: the microphone listening for the user to talk over the answer. */
     private var bargeJob: Job? = null
+
+    /** The running barge-in's gate (levels arrive on the capture thread: use it synchronized). */
+    @Volatile
+    private var bargeGate: BargeIn? = null
     private val stopBarge = AtomicBoolean(false)
     private val attachmentThumbs = ThumbnailCache()
     private val thumbs = ThumbnailCache()
@@ -589,7 +595,9 @@ class ChatViewModel @AssistedInject constructor(
         when (dictation.value) {
             Dictation.RECORDING -> stopRecording.set(true)
             Dictation.TRANSCRIBING -> Unit
-            Dictation.IDLE -> viewModelScope.launch {
+            // A second tap while the first is still finding the model (before RECORDING) must
+            // not start a second recording over the first.
+            Dictation.IDLE -> if (dictationJob?.isActive != true) dictationJob = viewModelScope.launch {
                 val path = speechModelPath()
                 if (path == null) {
                     notice.value = "Get a speech model in Models › speech to dictate"
@@ -773,7 +781,7 @@ class ChatViewModel @AssistedInject constructor(
     /** Queues [pieces] to speak; the first one starts the speaking phase (and barge-in). */
     private fun speakPieces(pieces: List<String>) {
         if (pieces.isEmpty()) return
-        val q = queue ?: SpeechQueue { index -> if (index == 0) startedSpeaking() }.also { q ->
+        val q = queue ?: SpeechQueue(onResume = ::speakingResumed) { index -> if (index == 0) startedSpeaking() }.also { q ->
             queue = q
             queueJob = viewModelScope.launch {
                 try {
@@ -801,6 +809,11 @@ class ChatViewModel @AssistedInject constructor(
         if (voiceMode.value?.handsFree == true) startBargeIn()
     }
 
+    /** The answer is read on after the speaker waited for more of it: barge-in learns the echo again. */
+    private fun speakingResumed() {
+        bargeGate?.let { gate -> synchronized(gate) { gate.resume(SystemClock.elapsedRealtime()) } }
+    }
+
     /**
      * Hands-free: listens while the answer plays, with the platform's echo canceller and the
      * shared [BargeIn] gate, so talking over the answer stops it and starts listening (the first
@@ -811,6 +824,7 @@ class ChatViewModel @AssistedInject constructor(
         stopBarge.set(false)
         bargeJob = viewModelScope.launch {
             val gate = BargeIn()
+            bargeGate = gate
             val ring = FloatArray(BARGE_PREROLL)
             var at = 0
             var filled = 0
@@ -826,7 +840,7 @@ class ChatViewModel @AssistedInject constructor(
                         peak = maxOf(peak, kotlin.math.abs(s))
                     }
                     filled = minOf(ring.size, filled + count)
-                    if (gate.onLevel(peak, SystemClock.elapsedRealtime())) {
+                    if (synchronized(gate) { gate.onLevel(peak, SystemClock.elapsedRealtime()) }) {
                         triggered = true
                         stopBarge.set(true)
                     }
@@ -835,6 +849,8 @@ class ChatViewModel @AssistedInject constructor(
                 throw e
             } catch (_: Exception) {
                 return@launch
+            } finally {
+                if (bargeGate === gate) bargeGate = null
             }
             if (!triggered || voiceMode.value?.phase != VoicePhase.SPEAKING) return@launch
             val preroll = FloatArray(filled) { ring[(at - filled + it + ring.size) % ring.size] }
@@ -883,6 +899,8 @@ class ChatViewModel @AssistedInject constructor(
                 }
             }
         }
+        // Each step's committed answer: its last words may never have been in a live frame.
+        reading?.let { r -> current.committedSteps(state.items).forEach { speakPieces(r.stepDone(it)) } }
         val finished = current.update(state.items, state.running, SystemClock.elapsedRealtime()) ?: return
         turn = null
         liveWatch?.cancel()

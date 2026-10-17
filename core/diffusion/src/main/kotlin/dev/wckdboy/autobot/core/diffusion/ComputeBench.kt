@@ -219,7 +219,7 @@ class ComputeBench @Inject constructor(
         val stats = spec?.toString()?.let(LocalLlmCodec::speculativeStats)
         val error = spec?.optJSONObject("error")?.optString("message")
             ?: plain?.optJSONObject("error")?.optString("message")
-            ?: stats?.takeIf { it.status != "active" }?.let { it.reason ?: it.status }
+            ?: stats?.takeIf { it.status != "active" }?.explanation
         return SpeculativeBenchmark(model.id, draft.title, backend, tps(plain), tps(spec), stats?.acceptance ?: 0.0, error)
     }
 

@@ -261,10 +261,13 @@ fun InkPrintAway(
         progress.animateTo(1f, tween(Motion.printMillis, easing = LinearEasing))
         playing = false
     }
-    if (locked || !playing) return
+    // The frame the unlock lands in, before the effect above has started: the sheet is already
+    // down (at its first frame), or the app would flash through for a frame before it covers it.
+    val pending = !locked && wasLocked && !reduced
+    if (locked || !(playing || pending)) return
     val batch = remember { DotBatch() }
     Canvas(Modifier.fillMaxSize()) {
-        val ms = progress.value * Motion.printMillis
+        val ms = if (playing) progress.value * Motion.printMillis else 0f
         val lift = InkMath.printDotsAlpha(ms)
         drawRect(paper, alpha = lift)
         buildField(batch, GROUND_CELL.toPx(), 0f, InkMath.printMerge(ms))

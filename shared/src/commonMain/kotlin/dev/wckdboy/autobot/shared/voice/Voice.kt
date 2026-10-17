@@ -293,6 +293,23 @@ class VoiceTurn(private val baseline: Set<String>, private val startedAtMs: Long
         return Finished(answer?.text)
     }
 
+    private val stepsSeen = mutableSetOf<String>()
+
+    /**
+     * The answers of this turn's steps committed to [items] since the last call, in order, each
+     * once (for [ReadAloudStream.stepDone]): a step's last words may never have been in a live
+     * frame. Interrupted answers are left out.
+     */
+    fun committedSteps(items: List<SessionItem>): List<String> {
+        val fresh = items.filter { it.key !in baseline }
+        val prompt = fresh.indexOfLast { it is SessionItem.User }
+        if (prompt < 0) return emptyList()
+        return fresh.subList(prompt + 1, fresh.size)
+            .filterIsInstance<SessionItem.Assistant>()
+            .filter { !it.interrupted && it.text.isNotBlank() && stepsSeen.add(it.key) }
+            .map { it.text }
+    }
+
     /** Whether this turn's prompt is in [items] (a reply streaming before it belongs to an earlier turn). */
     fun promptSeen(items: List<SessionItem>): Boolean = items.any { it is SessionItem.User && it.key !in baseline }
 

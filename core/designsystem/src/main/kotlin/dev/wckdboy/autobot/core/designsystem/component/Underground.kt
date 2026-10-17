@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -38,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -231,6 +234,9 @@ fun <T> Segmented(
     val n = options.size.coerceAtLeast(1)
     Row(
         modifier = modifier
+            // As tall as the tallest label: at a large font size a label wraps to a second line
+            // instead of being cut off by a fixed 34 dp height.
+            .height(IntrinsicSize.Min)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .clip(shape)
             .drawBehind {
@@ -246,7 +252,7 @@ fun <T> Segmented(
     ) {
         options.forEachIndexed { index, option ->
             val isSelected = option == selected
-            if (index > 0) Box(Modifier.width(1.dp).height(34.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            if (index > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
             val text by animateColorAsState(
                 if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 tween(if (LocalInkMotion.current.reduced) 0 else Motion.transitionMillis),
@@ -255,15 +261,19 @@ fun <T> Segmented(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(34.dp)
-                    .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(option) }),
+                    .fillMaxHeight()
+                    .heightIn(min = 34.dp)
+                    .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(option) })
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label(option).uppercase(Locale.ROOT),
                     style = AutobotTheme.styles.micro,
                     color = text,
-                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

@@ -217,6 +217,26 @@ int main() {
         std::vector<float> tie = {1.0f, 5.0f, 2.0f, 5.0f};
         check("draft pick: ties go to the first token", draft_pick(tie.data(), 4, true, 0.3f).token == 1);
         check("draft pick: an even tie is not sure at 0.5", !draft_pick(tie.data(), 4, true, 0.5f).sure);
+        // Non-finite logits: a NaN first logit does not hide the maximum; a vocabulary with no
+        // finite logit is never a confident draft.
+        const float nan = std::nanf("");
+        std::vector<float> nan_first = {nan, 1.0f, 9.0f, 2.0f, 0.5f, 0.1f, 0.2f, 0.3f, 0.4f, 8.5f};
+        const DraftPick np = draft_pick(nan_first.data(), (int) nan_first.size(), true, 0.3f);
+        check("draft pick: a NaN first logit does not hide the top", np.token == 2 && np.sure);
+        std::vector<float> nan_mid = {1.0f, nan, 30.0f, nan, 2.0f};
+        check("draft pick: NaN elsewhere is skipped", draft_pick(nan_mid.data(), 5, true, 0.3f).token == 2);
+        std::vector<float> all_nan(12, nan);
+        const DraftPick an = draft_pick(all_nan.data(), 12, true, 0.3f);
+        check("draft pick: all NaN is token 0, not sure", an.token == 0 && !an.sure);
+        std::vector<float> all_ninf(5, -INFINITY);
+        check("draft pick: all -inf is not sure", !draft_pick(all_ninf.data(), 5, true, 0.3f).sure);
+        std::vector<float> pinf = {0.0f, INFINITY, 1.0f};
+        check("draft pick: +inf is not a confident draft", !draft_pick(pinf.data(), 3, true, 0.3f).sure);
+        std::vector<float> small = {0.0f, 5.0f, 0.5f};  // fewer logits than lanes
+        const DraftPick sp = draft_pick(small.data(), 3, true, 0.3f);
+        check("draft pick: a vocabulary smaller than the lanes", sp.token == 1 && sp.sure);
+        std::vector<float> neg = {-50.0f, -40.0f, -45.0f, -41.0f, -60.0f, -70.0f, -42.0f, -43.0f, -44.0f};
+        check("draft pick: all-negative logits", draft_pick(neg.data(), 9, true, 0.3f).token == 1);
     }
 
     std::printf("\n%s\n", failures == 0 ? "all checks passed" : "CHECKS FAILED");

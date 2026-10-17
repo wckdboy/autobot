@@ -281,6 +281,22 @@ final class VoiceTurn {
         return Finished(reply: text)
     }
 
+    private var stepsSeen: Set<String> = []
+
+    /// The answers of this turn's steps committed to [items] since the last call, in order, each
+    /// once (for `ReadAloudStream.stepDone`): a step's last words may never have been in a live
+    /// frame. Interrupted answers are left out.
+    func committedSteps(items: [SessionItem]) -> [String] {
+        let fresh = items.filter { !baseline.contains($0.key) }
+        guard let prompt = fresh.lastIndex(where: { if case .user = $0 { true } else { false } }) else { return [] }
+        return fresh[(prompt + 1)...].compactMap { item in
+            guard case .assistant(let key, let text, _, let interrupted, _, _, _, _, _) = item, !interrupted,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, stepsSeen.insert(key).inserted
+            else { return nil }
+            return text
+        }
+    }
+
     /// Whether this turn's prompt is in [items] (a reply streaming before it belongs to an earlier turn).
     func promptSeen(items: [SessionItem]) -> Bool {
         items.contains { if case .user = $0 { !baseline.contains($0.key) } else { false } }

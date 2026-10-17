@@ -139,19 +139,21 @@ class UsageMathTest {
     }
 
     @Test
-    fun amountsSayTheUnitOnceAndCountOneRequestInTheSingular() {
-        assertEquals("1 request", UsageFormat.amount(1.0, LimitUnit.REQUESTS))
-        assertEquals("0 requests", UsageFormat.amount(0.0, LimitUnit.REQUESTS))
-        assertEquals("1 of 10 requests", UsageFormat.amountOf(1.0, 10.0, LimitUnit.REQUESTS))
-        assertEquals("0 of 1 request", UsageFormat.amountOf(0.0, 1.0, LimitUnit.REQUESTS))
-    }
-
-    @Test
     fun windowWithoutLimitShowsUsageOnly() {
         val window = SubscriptionWindow("w", "go", WindowPeriod.WEEK, rolling = true)
         val status = UsageBoard.status(window, emptyList(), UsagePlan(), 0, ZoneRules.UTC, "Go")
         assertNull(status.fraction)
         assertEquals("0 tokens · rolling week", status.line)
+    }
+
+    @Test
+    fun windowAmountsSayTheUnitOnceAndInTheSingularForOne() {
+        assertEquals("1 request", UsageFormat.amount(1.0, LimitUnit.REQUESTS))
+        assertEquals("10 requests", UsageFormat.amount(10.0, LimitUnit.REQUESTS))
+        assertEquals("1 token", UsageFormat.amount(1.0, LimitUnit.TOKENS))
+        assertEquals("1.2k tokens", UsageFormat.amount(1_200.0, LimitUnit.TOKENS))
+        val window = SubscriptionWindow("w", "go", WindowPeriod.WEEK, rolling = true, unit = LimitUnit.USD, limit = 5.0)
+        assertEquals("$0 of $5.00 · rolling week", UsageBoard.status(window, emptyList(), UsagePlan(), 0, ZoneRules.UTC, "Go").line)
     }
 
     // ---- cost ----------------------------------------------------------------------------------

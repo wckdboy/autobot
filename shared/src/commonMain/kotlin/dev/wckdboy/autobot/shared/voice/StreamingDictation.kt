@@ -170,7 +170,9 @@ class StreamingDictation(private val config: Config = Config()) {
         /**
          * A partial pass: its text is live text the next passes revise, so the engine may
          * transcribe it faster (whisper's encoder over the window instead of a padded 30 s). The
-         * closing and final passes, whose text is final, are never partial.
+         * closing and final passes are never partial. A partial pass's text still becomes final
+         * when it heard everything up to a pause that closes the window, or everything said before
+         * the stop ([finish] then runs no last pass); speech after it always gets a full pass.
          */
         val isPartial: Boolean get() = kind == Kind.PARTIAL
     }

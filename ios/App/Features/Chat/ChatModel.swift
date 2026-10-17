@@ -423,6 +423,10 @@ final class ChatModel {
                 Task { try? await speaker.speak(line) }
             }
         }
+        // Each step's committed answer: its last words may never have been in a live frame.
+        if let reading {
+            for step in turn.committedSteps(items: state.projection.items) { speakPieces(reading.stepDone(text: step)) }
+        }
         guard let finished = turn.update(items: state.projection.items, running: state.running, nowMs: monotonicMs()) else { return }
         self.turn = nil
         // The rest of the answer (or all of it, when it did not stream), then the queue ends.
@@ -439,7 +443,7 @@ final class ChatModel {
     private func speakPieces(_ pieces: [String]) {
         guard !pieces.isEmpty else { return }
         if queue == nil {
-            let q = SpeechQueue { [weak self] index in
+            let q = SpeechQueue(onResume: { [weak self] in self?.speakingResumed() }) { [weak self] index in
                 guard let self else { return }
                 if index == 0 { self.startedSpeaking() }
                 self.voice?.spoken += 1
@@ -468,6 +472,11 @@ final class ChatModel {
         if let answerStartedAt { lastFirstAudioMs = monotonicMs() - answerStartedAt }
         setPhase(.speaking)
         if voice?.handsFree == true { startBargeIn() }
+    }
+
+    /// The answer is read on after the speaker waited for more of it: barge-in learns the echo again.
+    private func speakingResumed() {
+        barge?.resume(atMs: monotonicMs())
     }
 
     /**
