@@ -485,6 +485,39 @@ struct InkPrecisionTests {
         }
     }
 
+    // MARK: Luma cache
+
+    /// A solid [gray] image (0 black … 1 white), [side] points square.
+    private static func solid(_ gray: CGFloat, side: CGFloat = 8) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { context in
+            UIColor(white: gray, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        }
+    }
+
+    /// A new image never gets a freed image's grid, even when it lands at the same address.
+    @Test func lumaCacheNeverServesAFreedImagesGrid() throws {
+        LumaCache.reset()
+        defer { LumaCache.reset() }
+        let kept = Self.solid(0)
+        let first = try #require(LumaCache.grid(kept))
+        #expect(LumaCache.grid(kept) == first)
+        // Allocate and free many images of alternating luma: addresses get reused, the grids must not.
+        for i in 0 ..< 200 {
+            let gray: CGFloat = i % 2 == 0 ? 1 : 0.25
+            let grid: LumaGrid? = autoreleasepool {
+                let image = Self.solid(gray)
+                return LumaCache.grid(image)
+            }
+            let value = try #require(grid?.values.first)
+            #expect(abs(Double(value) - Double(gray)) < 0.1, "image \(i) (luma \(gray)) got a grid of luma \(value)")
+        }
+        // The live image still hits its own entry.
+        #expect(LumaCache.grid(kept)?.values.first == 0)
+    }
+
     /// Runs last (alphabetically after the raster tests in this serialized suite): the report.
     @Test func zzReport() throws {
         let lines = Self.worst.sorted { $0.key < $1.key }.map { String(format: "%@: %.3f px", $0.key, $0.value) }
