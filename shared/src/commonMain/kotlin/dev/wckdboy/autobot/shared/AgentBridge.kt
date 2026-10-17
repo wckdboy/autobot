@@ -62,6 +62,10 @@ import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.receiptsPlugin
+import dev.wckdboy.autobot.shared.redaction.RedactionGateway
+import dev.wckdboy.autobot.agent.core.loop.chooseRedaction
+import dev.wckdboy.autobot.agent.core.loop.restoreRedaction
+import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.shared.session.SessionProjector
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -263,6 +267,8 @@ class LiveFrame(
     val thinkingBudget: Int? = null,
     /** Whether the Think chip shows for this model ([ThinkingSupport]): NONE, SWITCH or ALWAYS. */
     val thinkingSupport: String = "NONE",
+    /** The redaction gateway for this chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide). */
+    val redaction: String = "NONE",
 )
 
 /** A [SessionState] without its projection, which [AgentBridge.open] encodes only when it changes. */
@@ -282,6 +288,8 @@ internal class SessionFrame(
     val thinkingBudget: Int? = null,
     /** Whether the Think chip shows for this model ([ThinkingSupport]): NONE, SWITCH or ALWAYS. */
     val thinkingSupport: String = "NONE",
+    /** The redaction gateway for this chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide). */
+    val redaction: String = "NONE",
 )
 
 /** Everything a chat screen renders, computed by the same code as on Android. */
@@ -302,6 +310,8 @@ class SessionState(
     val thinkingBudget: Int? = null,
     /** Whether the Think chip shows for this model ([ThinkingSupport]): NONE, SWITCH or ALWAYS. */
     val thinkingSupport: String = "NONE",
+    /** The redaction gateway for this chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide). */
+    val redaction: String = "NONE",
 )
 
 /**
@@ -378,6 +388,15 @@ class AgentBridge(
     private val adapterCache = HashMap<String, CachedAdapter>()
     private var adapterBuilds = 0
     private val running = MutableStateFlow<Set<String>>(emptySet())
+
+    @kotlin.concurrent.Volatile
+    private var redactionDefault = AppSettings().redactCloud
+
+    private val redaction = RedactionGateway(
+        // An unknown provider counts as cloud: when in doubt, hide.
+        cloud = { id -> withContext(IoDispatcher) { providers.provider(id) }?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
+        enabled = { redactionDefault },
+    )
     private val interactions = MutableStateFlow<List<Pending>>(emptyList())
 
     private sealed interface Pending {
@@ -416,6 +435,8 @@ class AgentBridge(
                 }
             },
         )
+        // Redaction gateway: personal data becomes placeholders before a cloud request.
+        root.plugin(redaction.plugin)
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))
         root.plugin(contexts.plugin)
@@ -566,6 +587,7 @@ class AgentBridge(
         }
         agent.log.latest<SessionEvent.AgentSettingsChanged>()?.let { s -> agent.updateConfig { it.copy(toolsEnabled = s.toolsEnabled) } }
         agent.restoreThinking(ThinkingDefaults.get(thinkingDefaults, providerId, model))
+        agent.restoreRedaction()
         watchers[sessionId] = scope.launch {
             agent.status.collect { status ->
                 running.update { if (status == AgentStatus.RUNNING) it + sessionId else it - sessionId }
@@ -680,6 +702,7 @@ class AgentBridge(
                     thinking = (config.llm.thinking ?: ThinkingSetting.AUTO).mode.name,
                     thinkingBudget = config.llm.thinking?.budget,
                     thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
+                    redaction = redactionState(config),
                 ),
             )
         }.conflate().collect { json ->
@@ -758,6 +781,7 @@ class AgentBridge(
                         thinking = (config.llm.thinking ?: ThinkingSetting.AUTO).mode.name,
                         thinkingBudget = config.llm.thinking?.budget,
                         thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
+                        redaction = redactionState(config),
                     )
                     // Nothing new (e.g. a tick with an empty delta): no frame.
                     val signature = BridgeJson.encodeToString(LiveFrame.serializer(), frame.withFrame(0))
@@ -772,7 +796,7 @@ class AgentBridge(
         }
 
     private fun LiveFrame.withFrame(n: Long) =
-        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport)
+        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction)
 
     private val resyncs = HashMap<String, MutableStateFlow<Int>>()
 
@@ -891,6 +915,26 @@ class AgentBridge(
     }
 
     fun setPermission(sessionId: String, preset: PermissionPreset) = withAgent(sessionId) { it.setPermission(preset) }
+
+    /**
+     * Settings → "Redact before cloud" (on by default): personal data in cloud requests becomes
+     * placeholders, restored on the device. Chats without their own choice follow it.
+     */
+    fun setRedactionDefault(enabled: Boolean) {
+        redactionDefault = enabled
+    }
+
+    /** [sessionId]'s own redaction choice; choosing what Settings says makes the chat follow Settings again. */
+    fun setRedaction(sessionId: String, enabled: Boolean) = withAgent(sessionId) { a ->
+        a.chooseRedaction(redaction.override(enabled))
+    }
+
+    /** ON / OFF for a cloud route, NONE when the route stays on the phone. */
+    private fun redactionState(config: AgentConfig): String {
+        val spec = providers.provider(config.llm.provider)
+        if (spec != null && !RedactionGateway.isCloud(spec.kind, spec.baseUrl)) return "NONE"
+        return if (config.redaction ?: redactionDefault) "ON" else "OFF"
+    }
 
     /** Manual `/compact`. */
     fun compact(sessionId: String) = withAgent(sessionId) { a ->

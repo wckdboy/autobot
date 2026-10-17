@@ -122,7 +122,9 @@ class Compactor(private val retainRatio: Double = 0.16) {
         agent.recordModel(config)
         val messages = deriveMessages(entries) + ModelMessage(ModelRole.USER, SUMMARY_INSTRUCTION)
         val out = StringBuilder()
-        adapter.stream(LlmCall(config.copy(temperature = 0.2, thinking = ThinkingSetting.OFF), messages, emptyList(), sessionId = agent.id)).collect { chunk ->
+        // Through `llm/stream` like the agent's own requests, so request plugins (redaction) see it too.
+        val call = LlmCall(config.copy(temperature = 0.2, thinking = ThinkingSetting.OFF), messages, emptyList(), sessionId = agent.id)
+        agent.ctx.run(Hooks.LlmStream, call) { adapter.stream(it) }.collect { chunk ->
             if (chunk is StreamChunk.TextDelta) out.append(chunk.text)
         }
         return out.toString().trim()

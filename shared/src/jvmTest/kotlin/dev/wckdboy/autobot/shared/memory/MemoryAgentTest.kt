@@ -126,6 +126,8 @@ class MemoryAgentTest {
         }
         val bridge = AgentBridge(Files.createTempDirectory("memory").toString(), providers, transport, NoLocal, NoStore, null, { null })
         bridge.setMemory(notes)
+        // This test reads the notes in the request body; redaction (RedactionGatewayTest) would hide "Rex".
+        bridge.setRedactionDefault(false)
 
         val states = CopyOnWriteArrayList<SessionState>()
         val json = Json { ignoreUnknownKeys = true }

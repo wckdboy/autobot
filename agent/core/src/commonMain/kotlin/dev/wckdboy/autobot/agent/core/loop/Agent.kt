@@ -66,6 +66,11 @@ data class AgentConfig(
     val maxStepsPerTurn: Int = DEFAULT_MAX_STEPS,
     /** Send tool schemas at all (plain chat when false). */
     val toolsEnabled: Boolean = true,
+    /**
+     * The chat's redaction override: true / false hides personal data from cloud providers in
+     * this chat or not, null follows the app setting (see the host's redaction gateway).
+     */
+    val redaction: Boolean? = null,
 ) {
     companion object {
         const val DEFAULT_MAX_PARALLEL_TOOL_CALLS = 10
