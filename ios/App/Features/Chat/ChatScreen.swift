@@ -808,8 +808,8 @@ private struct EmptySession: View {
     }
 }
 
-/// `POLICY · READ: AUTO · WRITE: AUTO · DELETE: ASK · NETWORK: ASK`, with the Think chip when the
-/// chat's model reasons.
+/// `POLICY · WORKSPACE · ASKS: DELETE, NETWORK` (as on Android), with the Think chip when the
+/// chat's model reasons and the REDACT chip on a cloud route.
 private struct PolicyLine: View {
     let settings: SessionSettings
     let contextUsed: Int?
@@ -818,25 +818,42 @@ private struct PolicyLine: View {
     var onThinkSheet: () -> Void = {}
     var onRedact: () -> Void = {}
 
+    @ViewBuilder private var chips: some View {
+        if settings.thinkingSupport != "NONE" { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet).fixedSize() }
+        if settings.redaction != "NONE" { RedactChip(on: settings.redaction == "ON", onTap: onRedact).fixedSize() }
+    }
+
+    @ViewBuilder private var context: some View {
+        if settings.toolsEnabled, let used = contextUsed, let window = contextWindow, window > 0 {
+            MicroLabel("\(compactCount(used))/\(compactCount(window))").fixedSize()
+        }
+    }
+
     var body: some View {
         let think = settings.thinkingSupport != "NONE"
         let redact = settings.redaction != "NONE"
         if settings.toolsEnabled || think || redact {
             let text = switch settings.permissionPreset {
-            case .readOnly: "policy · read: auto · write: deny · network: ask"
-            case .workspace: "policy · read: auto · write: auto · delete: ask · network: ask"
-            case .fullAccess: "policy · everything: auto · kill switch still applies"
+            case .readOnly: "policy · read-only · asks: network"
+            case .workspace: "policy · workspace · asks: delete, network"
+            case .fullAccess: "policy · full access"
             }
-            HStack(spacing: 8) {
-                if think { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet) }
-                if redact { RedactChip(on: settings.redaction == "ON", onTap: onRedact) }
-                if settings.toolsEnabled {
-                    MicroLabel(text).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                } else {
+            // One row when it fits; on a narrow phone the policy moves under the chips rather than
+            // squeezing them (`THINK · AU…`) or cutting itself short.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    chips
+                    if settings.toolsEnabled { MicroLabel(text).fixedSize() }
                     Spacer(minLength: 0)
+                    context
                 }
-                if settings.toolsEnabled, let used = contextUsed, let window = contextWindow, window > 0 {
-                    MicroLabel("\(compactCount(used))/\(compactCount(window))")
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        chips
+                        Spacer(minLength: 0)
+                        context
+                    }
+                    if settings.toolsEnabled { MicroLabel(text, lines: 2) }
                 }
             }
             .padding(.horizontal, 16)
@@ -1136,7 +1153,7 @@ private struct InputBar: View, Equatable {
                 }
                 .buttonStyle(PressStyle())
                 .disabled(model.dictation == .transcribing)
-                .accessibilityLabel("Dictate")
+                .accessibilityLabel(model.dictation == .recording ? "Stop dictation" : "Dictate")
                 ConsoleTextField(text: $text, placeholder: running ? "queue a follow-up…" : "message · / for commands", maxLines: 8)
                 if running && text.trimmingCharacters(in: .whitespaces).isEmpty && model.pendingImages.isEmpty {
                     Button(action: onStop) {
