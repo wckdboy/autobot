@@ -7,10 +7,11 @@ interface ISpeechEngine {
     /**
      * Transcribes [samples] 16 kHz mono float32 samples (little-endian) read from [pcm], an
      * anonymous in-memory file (memfd), with the whisper model at [modelPath]: dictation never
-     * writes audio to storage. [language] is an ISO code or "auto". Returns {text, language} or
-     * {error}.
+     * writes audio to storage. [language] is an ISO code or "auto". [partial]: a live partial
+     * pass of streaming dictation (shorter encoder context, see autobot_whisper.h). Returns
+     * {text, language} or {error}.
      */
-    String transcribeMemory(String modelPath, in ParcelFileDescriptor pcm, int samples, String language);
+    String transcribeMemory(String modelPath, in ParcelFileDescriptor pcm, int samples, String language, boolean partial);
 
     /**
      * Asks the running transcription to stop now (it returns {error:"cancelled"}). Synchronous, so

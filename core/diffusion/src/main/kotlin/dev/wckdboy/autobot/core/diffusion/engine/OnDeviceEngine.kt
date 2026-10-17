@@ -145,14 +145,15 @@ class OnDeviceEngine(
      * Loads the model [request] would run ahead of Generate (stable-diffusion.cpp models; the NPU
      * engine loads per job). Does nothing without one, or while another engine works.
      */
-    override suspend fun prepare(request: DiffusionRequest) {
+    override suspend fun prepare(request: DiffusionRequest): Boolean {
         val images = library.all().filter { runnable(it) && it.kind == ModelKind.IMAGE }
-        val model = images.firstOrNull { it.id == request.model } ?: images.firstOrNull() ?: return
-        if (model.engine != EngineKind.DIFFUSION) return
-        try {
+        val model = images.firstOrNull { it.id == request.model } ?: images.firstOrNull() ?: return true
+        if (model.engine != EngineKind.DIFFUSION) return true
+        return try {
             sd.prepare(bundleOf(model))
         } catch (e: SdEngineException) {
             // A warm-up that fails says nothing: Generate reports the problem properly.
+            false
         }
     }
 

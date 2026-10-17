@@ -200,7 +200,9 @@ public actor DiffusionEngine {
      * prompt), so Generate starts sampling instead of loading; on a phone that never ran the model
      * this is where the minutes-long first Neural Engine compile happens. [onEvent] gets
      * `.loading(firstRun:)` when a load starts (nothing when the pipeline is already loaded). A
-     * generate issued meanwhile waits for the load on the same thread and reuses it.
+     * generate issued meanwhile waits for the load on the same thread and reuses it. A prepare
+     * still waiting when a newer one is issued does nothing (the user switched models: loading
+     * this one would be wasted); a load already under way runs to its end.
      */
     public func prepare(
         model: CoreMLDiffusionModel,
@@ -210,7 +212,11 @@ public actor DiffusionEngine {
         try Task.checkCancellation()
         let state = state
         let units = Self.computeUnits(model, backend: backend)
-        try await worker.run { _ = try state.load(model, units: units, onEvent: onEvent) }
+        let id = state.wantPrepare()
+        try await worker.run {
+            guard state.isLatestPrepare(id) else { return }
+            _ = try state.load(model, units: units, onEvent: onEvent)
+        }
     }
 
     /// Stops the running generation and those waiting to run.
@@ -256,6 +262,19 @@ private final class PipelineState: @unchecked Sendable {
     private var key: (URL, MLComputeUnits)?
     /// Requests issued and not finished, by token; true once cancelled.
     private let requests = Mutex<(next: UInt64, cancelled: [UInt64: Bool])>((1, [:]))
+    /// The latest prepare issued (see `DiffusionEngine.prepare`).
+    private let latestPrepare = Mutex<UInt64>(0)
+
+    func wantPrepare() -> UInt64 {
+        latestPrepare.withLock { id in
+            id += 1
+            return id
+        }
+    }
+
+    func isLatestPrepare(_ id: UInt64) -> Bool {
+        latestPrepare.withLock { $0 == id }
+    }
 
     func begin() -> UInt64 {
         requests.withLock { r in

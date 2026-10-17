@@ -171,6 +171,100 @@ class LocalSdTest {
     }
 
     @Test
+    fun aResidentModelIsNotLoadedAgainButOneFreedSinceIs() = runTest(timeout = 10.seconds) {
+        val engine = FakeEngine()
+        serve(engine)
+        val sd = LocalSd(app)
+        val bundle = SdBundle(model = "/m.safetensors")
+        launch { sd.prepare(bundle) }
+        pump()
+        engine.callbacks.single().onDone(null)
+        pump()
+        assertTrue(sd.isResident(bundle))
+        // Typing on: the warm-up is asked again; the engine holds the model, nothing is sent.
+        var ready: Boolean? = null
+        launch { ready = sd.prepare(bundle) }
+        pump()
+        assertEquals(true, ready)
+        assertEquals(1, engine.requests.size)
+        // The coordinator frees it (another engine, memory pressure): the next warm-up loads it again.
+        sd.unloadModel()
+        assertFalse(sd.isResident(bundle))
+        launch { sd.prepare(bundle) }
+        pump()
+        assertEquals(2, engine.requests.size)
+        engine.callbacks.last().onDone(null)
+        pump()
+        assertTrue(sd.isResident(bundle))
+        // A job that failed leaves the engine's state unknown.
+        val run = generate(sd, SdRequest(bundle, "a fox"))
+        pump()
+        engine.callbacks.last().onDone("Generation failed or was cancelled")
+        pump()
+        assertTrue(run.job!!.isCompleted)
+        assertFalse(sd.isResident(bundle))
+    }
+
+    @Test
+    fun aWarmUpOvertakenByAnotherModelIsSkipped() = runTest(timeout = 10.seconds) {
+        val engine = FakeEngine()
+        serve(engine)
+        val sd = LocalSd(app)
+        val a = SdBundle(model = "/a.safetensors")
+        val b = SdBundle(model = "/b.safetensors")
+        val c = SdBundle(model = "/c.safetensors")
+        launch { sd.prepare(a) }
+        pump()
+        // While a loads, the user picks b, then c: b is never loaded.
+        var bReady: Boolean? = null
+        launch { bReady = sd.prepare(b) }
+        launch { sd.prepare(c) }
+        pump()
+        assertEquals(1, engine.requests.size)
+        engine.callbacks.single().onDone(null)
+        pump()
+        assertEquals(false, bReady)
+        assertEquals(listOf("/a.safetensors", "/c.safetensors"), engine.requests.map { it.getString(SdRequest.K_MODEL) })
+        engine.callbacks.last().onDone(null)
+        pump()
+        assertTrue(sd.isResident(c))
+        assertEquals(0, engine.cancels)
+    }
+
+    @Test
+    fun keptResidentTheEngineSkipsTheIdleUnbindButNotTheCoordinator() = runTest(timeout = 10.seconds) {
+        val engine = FakeEngine()
+        serve(engine)
+        val sd = LocalSd(app, idleMillis = 1_000)
+        val bundle = SdBundle(model = "/m.safetensors")
+        val hold = sd.keepResident()
+        launch { sd.prepare(bundle) }
+        pump()
+        engine.callbacks.single().onDone(null)
+        pump()
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(30))
+        assertTrue("held: still bound", shadowOf(app).boundServiceConnections.isNotEmpty())
+        assertTrue(sd.isResident(bundle))
+        // Closed (the Image screen went away): the idle unbind runs again.
+        hold.close()
+        hold.close()
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1_001))
+        assertTrue(shadowOf(app).boundServiceConnections.isEmpty())
+        assertFalse(sd.isResident(bundle))
+        // Held again, the coordinator still frees it at once.
+        val again = sd.keepResident()
+        launch { sd.prepare(bundle) }
+        pump()
+        engine.callbacks.last().onDone(null)
+        pump()
+        assertTrue(shadowOf(app).boundServiceConnections.isNotEmpty())
+        sd.releaseIfIdle()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(shadowOf(app).boundServiceConnections.isEmpty())
+        again.close()
+    }
+
+    @Test
     fun cancellingMidStepsStopsTheEngine() = runTest(timeout = 10.seconds) {
         val engine = FakeEngine()
         serve(engine)

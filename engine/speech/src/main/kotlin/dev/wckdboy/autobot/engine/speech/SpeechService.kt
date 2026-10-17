@@ -13,7 +13,7 @@ internal object NativeWhisper {
         System.loadLibrary("autobot_whisper")
     }
 
-    external fun transcribeFd(modelPath: String, fd: Int, samples: Int, language: String): ByteArray
+    external fun transcribeFd(modelPath: String, fd: Int, samples: Int, language: String, partial: Boolean): ByteArray
 
     external fun cancel()
 
@@ -36,9 +36,9 @@ class SpeechService : Service() {
     private val binder = object : ISpeechEngine.Stub() {
         override fun unload() = synchronized(lock) { runCatching { NativeWhisper.free() }; Unit }
 
-        override fun transcribeMemory(modelPath: String, pcm: ParcelFileDescriptor, samples: Int, language: String): String = synchronized(lock) {
+        override fun transcribeMemory(modelPath: String, pcm: ParcelFileDescriptor, samples: Int, language: String, partial: Boolean): String = synchronized(lock) {
             try {
-                pcm.use { String(NativeWhisper.transcribeFd(modelPath, it.fd, samples, language), Charsets.UTF_8) }
+                pcm.use { String(NativeWhisper.transcribeFd(modelPath, it.fd, samples, language, partial), Charsets.UTF_8) }
             } catch (t: Throwable) {
                 // Library missing on this phone, out of memory, …: an answer, not a crashed process.
                 JSONObject().put("error", "Speech engine failed: ${t.message ?: t.javaClass.simpleName}").toString()

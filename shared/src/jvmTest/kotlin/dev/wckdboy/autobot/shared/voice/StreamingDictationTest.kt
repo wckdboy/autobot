@@ -85,6 +85,7 @@ private class Simulation(val audio: FloatArray, config: StreamingDictation.Confi
     var maxHeld = 0
     var passes = 0
     var maxPassMs = 0L
+    val kinds = mutableListOf<Pair<StreamingDictation.Kind, Boolean>>()
 
     fun run(): String {
         val chunk = RATE / 10
@@ -108,11 +109,13 @@ private class Simulation(val audio: FloatArray, config: StreamingDictation.Confi
                     inFlight = it
                     passes++
                     maxPassMs = maxOf(maxPassMs, it.durationMs)
+                    kinds += it.kind to it.isPartial
                     doneAt = now + costMs(it)
                 }
             }
         }
         val last = dictation.finish() ?: return dictation.result
+        kinds += last.kind to last.isPartial
         return dictation.onFinal(last, FakeWhisper.transcribe(last.samples))
     }
 }
@@ -169,6 +172,18 @@ class StreamingDictationTest {
         assertEquals(words.joinToString(" ") { VOCAB[it] }, final)
         // One window plus the audio that arrived while it was closed.
         assertTrue("held ${sim.maxHeld}", sim.maxHeld <= RATE * 23)
+    }
+
+    @Test
+    fun onlyLivePassesArePartial() {
+        // A window closed without a pause (CLOSE), live passes (PARTIAL) and the last one (FINAL).
+        val words = List(90) { it % VOCAB.size }
+        val sim = Simulation(Synth.speech(listOf(words))) { 150 + it.durationMs / 20 }
+        sim.run()
+        val seen = sim.kinds.map { it.first }.toSet()
+        assertTrue("kinds $seen", StreamingDictation.Kind.PARTIAL in seen && StreamingDictation.Kind.CLOSE in seen)
+        // Partial passes may be transcribed faster and less exactly; text that becomes final never is.
+        sim.kinds.forEach { (kind, partial) -> assertEquals("$kind", kind == StreamingDictation.Kind.PARTIAL, partial) }
     }
 
     @Test

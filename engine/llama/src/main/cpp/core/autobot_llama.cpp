@@ -23,6 +23,8 @@
 // pay. Rejected drafts are cut from both models' memories with llama_memory_seq_rm, so models
 // whose memory cannot be cut back (hybrid/recurrent, e.g. Qwen3.5) do not speculate: rolling
 // their state back would cost a state copy per round and per-token snapshots (see README).
+// A draft or verify step that fails ends speculation for the rest of that reply, not the reply:
+// it goes on with plain decoding.
 
 #include "autobot_llama.h"
 #include "reasoning_guard.h"
@@ -103,6 +105,9 @@ struct autobot_llama_session {
     std::string draft_backend;              // where it runs: "cpu" or "gpu"
     std::string draft_refused;              // a draft that could not be used, and why
     std::string draft_refusal;
+    bool draft_refusal_final = false;       // it can never draft for this model (tokenizer, memory)
+    int64_t draft_retry_at_us = 0;          // otherwise (it did not load: memory, storage) tried again from then
+    int64_t draft_retry_wait_us = 0;
     std::mutex lock;
 };
 
@@ -502,6 +507,45 @@ constexpr float DRAFT_P_MIN = 0.3f;
 // Draft syncs longer than this are prompt prefills, not draft steps: kept out of the timings.
 constexpr size_t DRAFT_SYNC_STEP = 16;
 
+// A draft that did not load (out of memory while another engine held it, storage) is tried
+// again by a later reply, first after DRAFT_RETRY_MIN_MS, the wait doubling up to
+// DRAFT_RETRY_MAX_MS while it keeps failing: one bad moment does not turn speculation off until
+// the chat model reloads, and a draft that cannot load does not slow every reply down.
+constexpr int64_t DRAFT_RETRY_MIN_MS = 15 * 1000;
+constexpr int64_t DRAFT_RETRY_MAX_MS = 10 * 60 * 1000;
+constexpr const char * DRAFT_LOAD_FAILED = "the draft model could not be loaded";
+
+int64_t draft_retry_min_us() {
+#if defined(AUTOBOT_LLAMA_TESTING)
+    if (const char * v = std::getenv("AUTOBOT_TEST_DRAFT_RETRY_MS")) return std::atoll(v) * 1000;
+#endif
+    return DRAFT_RETRY_MIN_MS * 1000;
+}
+
+// Whether a refused draft at `path` may be loaded again now.
+bool draft_retry_due(const Session & s, const std::string & path) {
+    if (path != s.draft_refused) return true;
+    return !s.draft_refusal_final && ggml_time_us() >= s.draft_retry_at_us;
+}
+
+// Records the outcome of loading the draft at `path` ("" = loaded, else why not).
+void note_draft_load(Session & s, const std::string & path, const std::string & why) {
+    if (why.empty()) {
+        s.draft_refused.clear();
+        s.draft_refusal.clear();
+        s.draft_refusal_final = false;
+        s.draft_retry_wait_us = 0;
+        return;
+    }
+    const bool again = s.draft_refused == path && !s.draft_refusal_final;
+    s.draft_refused = path;
+    s.draft_refusal = why;
+    s.draft_refusal_final = why != DRAFT_LOAD_FAILED;
+    s.draft_retry_wait_us = again && s.draft_retry_wait_us > 0 ? std::min(2 * s.draft_retry_wait_us, DRAFT_RETRY_MAX_MS * 1000)
+                                                               : draft_retry_min_us();
+    s.draft_retry_at_us = ggml_time_us() + s.draft_retry_wait_us;
+}
+
 void free_draft(Session & s) {
     if (s.draft_ctx) llama_free(s.draft_ctx);
     if (s.draft_model) llama_model_free(s.draft_model);
@@ -611,7 +655,7 @@ std::string load_draft(Session & s, const std::string & path, const std::string 
         LOGI("loaded draft model %s on %s (context %u)", path.c_str(), k.c_str(), llama_n_ctx(ctx));
         return "";
     }
-    return "the draft model could not be loaded";
+    return DRAFT_LOAD_FAILED;
 }
 
 // The draft's window over `seq` (draft_window_plan, speculative_sched.h).
@@ -695,19 +739,9 @@ bool draft_propose(Session & s, int k, std::vector<llama_token> & out) {
     for (int j = 0; j < k; ++j) {
         const float * logits = llama_get_logits_ith(s.draft_ctx, -1);
         if (!logits) return false;
-        int best = 0;
-        float top = logits[0];
-        for (int i = 1; i < n_vocab; ++i) {
-            if (logits[i] > top) {
-                top = logits[i];
-                best = i;
-            }
-        }
-        if (j > 0) {
-            double sum = 0.0;
-            for (int i = 0; i < n_vocab; ++i) sum += std::exp((double) (logits[i] - top));
-            if (1.0 / sum < DRAFT_P_MIN) break;
-        }
+        const DraftPick pick = draft_pick(logits, n_vocab, j > 0, DRAFT_P_MIN);
+        if (!pick.sure) break;
+        const llama_token best = pick.token;
         out.push_back(best);
         if (j + 1 == k || llama_vocab_is_eog(vocab, best)) break;
         batch.clear();
@@ -769,14 +803,11 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         }
         if (draft_path.empty()) {
             if (s->draft_model) free_draft(*s);
-        } else if (spec_mode != "off" && draft_path != s->draft_path && draft_path != s->draft_refused) {
+        } else if (spec_mode != "off" && draft_path != s->draft_path && draft_retry_due(*s, draft_path)) {
             const std::string why = load_draft(*s, draft_path, draft_backend);
             if (why == "cancelled") return error_json("CANCELLED", "cancelled");
-            if (!why.empty()) {
-                LOGE("speculative decoding off: %s", why.c_str());
-                s->draft_refused = draft_path;
-                s->draft_refusal = why;
-            }
+            if (!why.empty()) LOGE("speculative decoding off: %s", why.c_str());
+            note_draft_load(*s, draft_path, why);
         }
 
         llama_memory_t mem = llama_get_memory(s->ctx);
@@ -1081,15 +1112,38 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
                 }
                 // A long sync was the prompt's prefill on the draft: not a draft step.
                 const double draft_ms = (double) (ggml_time_us() - (synced > (int) DRAFT_SYNC_STEP ? t_synced : t0)) / 1000.0;
+                int64_t t1 = 0;
                 if (!drafts.empty()) {
                     batch.clear();
                     batch.add(tok, pos, 0, true);
                     for (size_t i = 0; i < drafts.size(); ++i) batch.add(drafts[i], pos + 1 + (llama_pos) i, 0, true);
-                    const int64_t t1 = ggml_time_us();
-                    if (llama_process(gen, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
-                        decode_failed();
-                        break;
+                    t1 = ggml_time_us();
+                    int rv = llama_process(gen, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+#if defined(AUTOBOT_LLAMA_TESTING)
+                    if (const char * f = std::getenv("AUTOBOT_TEST_FAIL_VERIFY_ROUND")) {
+                        if (rv == 0 && sched.rounds + 1 == std::atoi(f)) rv = -1;
                     }
+#endif
+                    if (rv != 0) {
+                        if (cancelled(*s) || rv == 2) {
+                            decode_failed();
+                            finish = "cancelled";
+                            break;
+                        }
+                        // The verify batch failed (e.g. no room for its extra tokens in the
+                        // memory now): drop whatever of it the memory holds and go on without
+                        // speculation, decoding `tok` as plain decoding would.
+                        LOGE("verify step failed (%d); generating the rest without speculation", rv);
+                        if (!llama_memory_seq_rm(llama_get_memory(gen), 0, pos, -1)) {
+                            decode_failed();
+                            break;
+                        }
+                        speculating = false;
+                        spec_status = "verify_failed";
+                        drafts.clear();
+                    }
+                }
+                if (!drafts.empty()) {
                     llama_synchronize(gen);
                     const int64_t t2 = ggml_time_us();
                     logits_ctx = gen;

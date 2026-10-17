@@ -48,11 +48,11 @@ struct VoiceLatencyTests {
         init(_ inner: DictationEngine) { self.inner = inner }
         func startLive(onLevel: @escaping @Sendable (Float) -> Void, onSamples: @escaping @Sendable (UnsafeBufferPointer<Float>) -> Void, onInterruption: @escaping @Sendable () -> Void) throws {}
         func stopLive() {}
-        func transcribe(_ samples: [Float], language: String?) async throws -> (text: String, language: String) {
+        func transcribe(_ samples: [Float], language: String?, partial: Bool) async throws -> (text: String, language: String) {
             let start = monotonicMs()
             do {
-                let result = try await inner.transcribe(samples, language: language)
-                log.append("\(samples.count / 16)→\(monotonicMs() - start) '\(result.text)'")
+                let result = try await inner.transcribe(samples, language: language, partial: partial)
+                log.append("\(samples.count / 16)\(partial ? "p" : "")→\(monotonicMs() - start) '\(result.text)'")
                 return result
             } catch {
                 log.append("\(samples.count / 16)→\(monotonicMs() - start) \(error is CancellationError ? "cancelled" : "error")")

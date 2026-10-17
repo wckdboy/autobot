@@ -30,7 +30,8 @@ final class HeardWords {
 protocol DictationEngine: AnyObject {
     func startLive(onLevel: @escaping @Sendable (Float) -> Void, onSamples: @escaping @Sendable (UnsafeBufferPointer<Float>) -> Void, onInterruption: @escaping @Sendable () -> Void) throws
     func stopLive()
-    func transcribe(_ samples: [Float], language: String?) async throws -> (text: String, language: String)
+    /// [partial]: a live partial pass (the engine may run it faster and less exactly).
+    func transcribe(_ samples: [Float], language: String?, partial: Bool) async throws -> (text: String, language: String)
 }
 
 /// [LocalSpeech] with the chat's speech model.
@@ -50,8 +51,8 @@ final class LocalDictationEngine: DictationEngine {
 
     func stopLive() { _ = speech.stop() }
 
-    func transcribe(_ samples: [Float], language: String?) async throws -> (text: String, language: String) {
-        try await speech.transcribeDetailed(modelPath: modelPath, samples: samples, language: language)
+    func transcribe(_ samples: [Float], language: String?, partial: Bool) async throws -> (text: String, language: String) {
+        try await speech.transcribeDetailed(modelPath: modelPath, samples: samples, language: language, partial: partial)
     }
 }
 
@@ -108,9 +109,10 @@ final class LiveDictation {
         guard inFlight == nil, !stopped, let pass = dictation.nextPass() else { return }
         let samples = Self.floats(VoiceAudio.shared.samples(pass: pass))
         let language = pass.language
+        let partial = pass.isPartial
         let engine = engine
         inFlight = Task { [weak self] in
-            let heard = try? await engine.transcribe(samples, language: language)
+            let heard = try? await engine.transcribe(samples, language: language, partial: partial)
             guard let self else { return }
             self.inFlight = nil
             guard !Task.isCancelled, !self.stopped else { return }
@@ -136,7 +138,7 @@ final class LiveDictation {
             await pass.value
         }
         guard let last = dictation.finish() else { return dictation.result }
-        let raw = (try? await engine.transcribe(Self.floats(VoiceAudio.shared.samples(pass: last)), language: last.language).text) ?? ""
+        let raw = (try? await engine.transcribe(Self.floats(VoiceAudio.shared.samples(pass: last)), language: last.language, partial: false).text) ?? ""
         return dictation.onFinal(pass: last, raw: raw)
     }
 

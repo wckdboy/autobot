@@ -57,8 +57,13 @@ final class ImagineModel {
     /// Engine capabilities by backend kind (they are constants of the engine type; building an
     /// engine to read them on every render was wasted work).
     @ObservationIgnored private var capabilityCache: [BackendKind: EngineCapabilities] = [:]
-    /// The on-device model last loaded ahead of time (or tried): one warm-up per model.
+    /// The on-device model of the last warm-up and when it was asked for (see [warmUp]).
     @ObservationIgnored private var warmedModel: String?
+    @ObservationIgnored private var warmedAt: ContinuousClock.Instant?
+    /// The warm-up under way, and whether it reached the engine (before that, a switch cancels it).
+    @ObservationIgnored private var warmTask: Task<Void, Never>?
+    @ObservationIgnored private var warmTaskID = 0
+    @ObservationIgnored private var warmSent = true
     /// The ahead-of-time load whose phases [warming] shows (see [warmPhase]).
     @ObservationIgnored private var warmGeneration = 0
     /// Settings the user changed by hand this session: choosing a model keeps them.
@@ -210,22 +215,52 @@ final class ImagineModel {
         return !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// A warm-up starts this long after the model is chosen (or the prompt first typed): a quick
+    /// switch to another model cancels it before the first one loads for nothing.
+    nonisolated static let warmDelay: Duration = .milliseconds(500)
+    /// The engine is asked again this long after the last warm-up: a model freed since (memory
+    /// warning, the background, another engine) loads again; one still loaded costs nothing.
+    nonisolated static let warmRecheck: Duration = .seconds(20)
+    /// After a warm-up that could not run (another engine held the memory) or failed.
+    nonisolated static let warmRetry: Duration = .seconds(2)
+
     /// Loads the selected on-device model while the prompt is written (see [shouldWarm]). Skipped
     /// while chat, voice, upscaling or audio hold the memory; the engine memory coordinator makes
     /// room for it like for a generation and takes it back on a memory warning or in the background.
     func warmUp() {
-        guard let backend, let model = selectedChip?.model,
-              Self.shouldWarm(onDevice: backend.kind == .onDevice, model: model, warmed: warmedModel, busy: isRunning, prompt: request.prompt),
+        guard let backend, let model = selectedChip?.model else { return }
+        let now = ContinuousClock.now
+        let recent = warmTask != nil || warmedAt.map { now - $0 < Self.warmRecheck } == true ? warmedModel : nil
+        guard Self.shouldWarm(onDevice: backend.kind == .onDevice, model: model, warmed: recent, busy: isRunning, prompt: request.prompt),
               let engine = app.generator.engine(for: backend) as? OnDeviceEngine else { return }
+        // Not once the engine has it: the load runs to its end either way, and the engine skips
+        // a warm-up still waiting behind it when a newer one asks for another model.
+        if !warmSent { warmTask?.cancel() }
         warmedModel = model
+        warmedAt = now
+        warmSent = false
+        warmTaskID += 1
+        let id = warmTaskID
         let r = request
-        let generation = beginWarm()
-        Task { [weak self] in
-            guard await !EngineMemory.shared.isBusy(any: [.llm, .whisper, .tts, .upscaler, .audio, .diffusion]) else { return }
-            try? await engine.prepare(r) { phase in
-                Task { @MainActor in self?.warmPhase(phase, generation: generation) }
+        warmTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.warmDelay)
+            guard let self, !Task.isCancelled else { return }
+            self.warmSent = true
+            var ready = false
+            if await !EngineMemory.shared.isBusy(any: [.llm, .whisper, .tts, .upscaler, .audio, .diffusion]) {
+                let generation = self.beginWarm()
+                do {
+                    try await engine.prepare(r) { phase in
+                        Task { @MainActor [weak self] in self?.warmPhase(phase, generation: generation) }
+                    }
+                    ready = true
+                } catch {}
+                self.warmEnded(generation: generation)
             }
-            self?.warmEnded(generation: generation)
+            guard id == self.warmTaskID else { return }
+            self.warmTask = nil
+            // Skipped or failed: tried again soon, not after the full recheck interval.
+            self.warmedAt = ready ? ContinuousClock.now : ContinuousClock.now - Self.warmRecheck + Self.warmRetry
         }
     }
 

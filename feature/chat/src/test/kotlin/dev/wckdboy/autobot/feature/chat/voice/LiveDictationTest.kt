@@ -25,6 +25,7 @@ class LiveDictationTest {
     ) : DictationEngine {
         val calls = AtomicInteger()
         val sizes: MutableList<Int> = Collections.synchronizedList(mutableListOf())
+        val partial: MutableList<Boolean> = Collections.synchronizedList(mutableListOf())
 
         override suspend fun capture(stopped: () -> Boolean, onAudio: (FloatArray, Int) -> Unit) {
             val total = (400 + speechMs + 1_000) / 100
@@ -40,9 +41,10 @@ class LiveDictationTest {
         }
 
         /** One word per half second of audio, like a (very) simple recognizer. */
-        override suspend fun transcribe(samples: FloatArray, language: String?): SpeechText {
+        override suspend fun transcribe(samples: FloatArray, language: String?, partial: Boolean): SpeechText {
             val call = calls.incrementAndGet()
             sizes += samples.size
+            this.partial += partial
             fail(call)?.let { throw it }
             delay(20)
             return SpeechText((1..samples.size / 8_000).joinToString(" ") { "word$it" }, "en")
@@ -74,6 +76,9 @@ class LiveDictationTest {
         }
         // ~2.6 s of speech heard before the stop.
         assertTrue(final, final.isNotBlank())
+        // Live passes run as partial passes (shorter encoder context); the last one, final, does not.
+        assertTrue(engine.partial.toString(), engine.partial.dropLast(1).isNotEmpty() && engine.partial.dropLast(1).all { it })
+        assertEquals(false, engine.partial.last())
     }
 
     @Test

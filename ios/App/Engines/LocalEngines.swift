@@ -295,11 +295,12 @@ final class LocalSpeech: Sendable {
     }
 
     /// Transcribes [samples] in [language] (nil: detect); returns the text and the language heard.
-    func transcribeDetailed(modelPath: String, samples: [Float], language: String?) async throws -> (text: String, language: String) {
+    /// [partial]: a live partial pass of streaming dictation (faster, see `SpeechEngine`).
+    func transcribeDetailed(modelPath: String, samples: [Float], language: String?, partial: Bool = false) async throws -> (text: String, language: String) {
         #if canImport(AutobotEngines)
         do {
             let t = try await EngineMemory.using(.whisper) {
-                try await SpeechEngine.shared.transcribeDetailed(modelPath: modelPath, pcm16kMono: samples, language: language)
+                try await SpeechEngine.shared.transcribeDetailed(modelPath: modelPath, pcm16kMono: samples, language: language, partial: partial)
             }
             return (t.text, t.language)
         } catch is CancellationError {

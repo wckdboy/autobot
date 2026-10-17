@@ -178,9 +178,11 @@ class LocalSpeech(context: Context, private val idleMillis: Long = 60_000L) {
     /**
      * Transcribes [samples] (16 kHz mono) in [language] ("auto" detects). The audio goes to the
      * engine process through an anonymous in-memory file, never storage. Cancelling returns at
-     * once and asks the engine to stop the run.
+     * once and asks the engine to stop the run. [partial]: a live partial pass of streaming
+     * dictation, which the engine runs with a shorter encoder context (faster, its text may
+     * differ slightly from a full pass).
      */
-    suspend fun transcribe(modelPath: String, samples: FloatArray, language: String = "auto"): SpeechText {
+    suspend fun transcribe(modelPath: String, samples: FloatArray, language: String = "auto", partial: Boolean = false): SpeechText {
         beforeJob()
         val e = acquire()
         // A cancel as withContext returns throws after the file was made: it must still be closed
@@ -196,7 +198,7 @@ class LocalSpeech(context: Context, private val idleMillis: Long = 60_000L) {
         val raw = suspendCancellableCoroutine { cont ->
             thread(name = "whisper-call") {
                 try {
-                    val result = e.transcribeMemory(modelPath, pcm, samples.size, language)
+                    val result = e.transcribeMemory(modelPath, pcm, samples.size, language, partial)
                     if (cont.isActive) cont.resume(result)
                 } catch (t: RemoteException) {
                     if (cont.isActive) cont.resumeWithException(SpeechException("The speech engine stopped (likely out of memory)"))
