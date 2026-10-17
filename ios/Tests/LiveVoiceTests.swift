@@ -30,10 +30,12 @@ struct LiveVoiceTests {
     /// One word per half second of audio; the microphone is fed by the test.
     private final class FakeEngine: DictationEngine {
         var calls = 0
+        var partial: [Bool] = []
         func startLive(onLevel: @escaping @Sendable (Float) -> Void, onSamples: @escaping @Sendable (UnsafeBufferPointer<Float>) -> Void, onInterruption: @escaping @Sendable () -> Void) throws {}
         func stopLive() {}
-        func transcribe(_ samples: [Float], language: String?) async throws -> (text: String, language: String) {
+        func transcribe(_ samples: [Float], language: String?, partial: Bool) async throws -> (text: String, language: String) {
             calls += 1
+            self.partial.append(partial)
             try await Task.sleep(for: .milliseconds(10))
             return ((0 ..< samples.count / 8_000).map { "word\($0 + 1)" }.joined(separator: " "), "en")
         }
@@ -83,6 +85,8 @@ struct LiveVoiceTests {
         #expect(final.hasPrefix("word1"))
         #expect(engine.calls >= 2)
         #expect(live.firstPartialMs != nil)
+        // Live passes run as partial passes (shorter encoder context).
+        #expect(engine.partial.first == true)
     }
 
     @Test func silenceGivesAnEmptyTranscriptWithoutAnyPass() async throws {

@@ -166,6 +166,13 @@ class StreamingDictation(private val config: Config = Config()) {
     ) {
         /** Audio length in milliseconds. */
         val durationMs: Long get() = samples.size * 1000L / 16_000
+
+        /**
+         * A partial pass: its text is live text the next passes revise, so the engine may
+         * transcribe it faster (whisper's encoder over the window instead of a padded 30 s). The
+         * closing and final passes, whose text is final, are never partial.
+         */
+        val isPartial: Boolean get() = kind == Kind.PARTIAL
     }
 
     private val frame = config.sampleRate * config.frameMs / 1000

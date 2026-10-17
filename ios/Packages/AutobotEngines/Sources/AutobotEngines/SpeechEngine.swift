@@ -45,13 +45,17 @@ public actor SpeechEngine {
         try await transcribeDetailed(modelPath: modelPath, pcm16kMono: pcm16kMono, language: language).text
     }
 
-    public func transcribeDetailed(modelPath: String, pcm16kMono: [Float], language: String? = nil, useGPU: Bool = true) async throws -> Transcript {
+    /// [partial]: a live partial pass of streaming dictation, transcribed with an encoder context
+    /// sized to the audio instead of a padded 30 s (faster; its text may differ slightly from a
+    /// full pass). Not with a Core ML encoder, which always takes 30 s.
+    public func transcribeDetailed(modelPath: String, pcm16kMono: [Float], language: String? = nil, useGPU: Bool = true, partial: Bool = false) async throws -> Transcript {
         try Task.checkCancellation()
         let useGPU = useGPU && metalUsable
+        let flags = partial ? AUTOBOT_WHISPER_PARTIAL : 0
         let json = try await worker.run({
             pcm16kMono.withUnsafeBufferPointer { samples in
                 takeString(
-                    autobot_whisper_transcribe(modelPath, samples.baseAddress, samples.count, language ?? "auto", useGPU ? 1 : 0),
+                    autobot_whisper_transcribe_ex(modelPath, samples.baseAddress, samples.count, language ?? "auto", useGPU ? 1 : 0, flags),
                     free: autobot_whisper_string_free,
                 )
             }

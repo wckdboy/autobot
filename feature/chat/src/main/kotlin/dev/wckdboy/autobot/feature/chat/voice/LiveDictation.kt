@@ -20,15 +20,16 @@ internal interface DictationEngine {
     /** Captures 16 kHz mono until [stopped]; [onAudio] gets each buffer (reused). */
     suspend fun capture(stopped: () -> Boolean, onAudio: (FloatArray, Int) -> Unit)
 
-    /** Transcribes [samples] in [language] (null: detect). */
-    suspend fun transcribe(samples: FloatArray, language: String?): SpeechText
+    /** Transcribes [samples] in [language] (null: detect); [partial]: a live partial pass. */
+    suspend fun transcribe(samples: FloatArray, language: String?, partial: Boolean = false): SpeechText
 }
 
 /** [LocalSpeech] with the chat's speech model. */
 internal class LocalDictationEngine(private val speech: LocalSpeech, private val modelPath: String) : DictationEngine {
     override suspend fun capture(stopped: () -> Boolean, onAudio: (FloatArray, Int) -> Unit) = speech.capture(stopped, onAudio = onAudio)
 
-    override suspend fun transcribe(samples: FloatArray, language: String?): SpeechText = speech.transcribe(modelPath, samples, language ?: "auto")
+    override suspend fun transcribe(samples: FloatArray, language: String?, partial: Boolean): SpeechText =
+        speech.transcribe(modelPath, samples, language ?: "auto", partial)
 }
 
 /**
@@ -70,7 +71,7 @@ internal class LiveDictation(
                 for (signal in wake) {
                     val pass = synchronized(lock) { dictation.nextPass() } ?: continue
                     val heard = try {
-                        engine.transcribe(pass.samples, pass.language)
+                        engine.transcribe(pass.samples, pass.language, pass.isPartial)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
