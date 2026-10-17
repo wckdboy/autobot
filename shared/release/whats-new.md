@@ -1,44 +1,36 @@
-Your words stay yours in the cloud, replies come faster on the device, voice answers while it thinks, and you can see what every model costs.
+Cleaner prints, a faster start, and dictation that keeps up: a polish release.
 
-## Redact before cloud (both platforms)
-- **Placeholders, not your data.** Before a chat goes to a cloud model, names, emails, phone numbers, addresses, card, IBAN and account numbers, and your memory facts become placeholders like `[PERSON_1]`. The answer comes back with your real words, put back on your phone.
-- **Tools still work.** The agent gets the real values back on the phone, so it can still write the email or fill in the file.
-- **On by default**, in Settings → Privacy & security. A `REDACT` chip turns it off for one chat. "This phone" and local servers are never redacted.
-- **On the receipt.** It shows what was hidden ("2 names · 1 email"), never the values. Code, links, dates and version numbers are left alone, so coding chats keep working.
+## Cleaner ink (both platforms)
+- **No more doubled dots.** On Android, the paper behind the Image screen, chat, voice, Models, Gallery and the lock drew every dot twice, with a faint copy a few pixels off. Paper is one plate again.
+- **Prints land on their own dots.** When a result printed, its colour plate started half a dot away and read as a second grid. It now starts as a thin rim on the same dots and settles.
+- **Pictures print in where they show.** A wide image in a square chat thumbnail or a Studio chip no longer prints a stretched copy next to the cropped one.
+- One dot field per screen: the voice panel, the empty Models search and empty chat no longer stack a second field under the first, and image proofs sit on whole pixels.
+- iOS: a halftone preview always matches its own image. A new image could pick up an old image's dots.
 
-## Faster replies with a draft model (both platforms)
-- **A small model guesses, your model checks.** Install Qwen3 0.6B next to Qwen3 4B Instruct 2507, Llama 3.2 1B next to 3B, or Qwen2.5 Coder 0.5B next to the Coders. On a Mac GPU, code, lists and rewrites came 1.3–1.7× faster and long answers about 2×.
-- **Every word is still your model's.** Thinking budgets, tool calls and the stop button work as before. Short agent steps skip the draft, so they never get slower.
-- **Auto / On / Off in Compute.** Auto drafts only when the pair fits your memory comfortably, and pauses when drafting doesn't pay. The benchmark and the diagnostics report show the speedup and how many guesses were kept.
-- Qwen3.5 models don't use drafts: their memory can't take back wrong guesses cheaply. A draft from another model family is refused with a reason.
-
-## Voice that keeps up (both platforms)
-- **Your words as you speak.** Dictation shows settled words in ink, with the rest firming up as you go. Audio is never saved.
-- **Answers start out loud after the first sentence**, not after the whole reply. Code is skipped; numbers and abbreviations are read whole.
-- **Just talk to interrupt.** In hands-free mode, speaking over an answer stops it, keeps your first words and listens.
-- Stopping dictation is faster: the last pass starts right away.
-
-## Usage, counted on your phone (both platforms)
-- **Settings › Usage:** tokens, requests and cost for today, this week and this month, a bar per day, and a breakdown by provider and model. Nothing is sent anywhere.
-- **Your prices, never guesses.** Enter a model's price per million tokens; until then it says "cost unknown". Anthropic's published prices are built in.
-- **Subscription windows.** Track OpenCode Go's 5-hour, weekly and monthly limits, or any plan's, with progress and when it resets.
-- **Tokens on every receipt**, per model, with what they cost. On-device answers cost $0.
-- When a provider throttles a request, its rate-limit headers say when to try again.
-
-## Images (both platforms)
-- **`{red|blue}` in a prompt** makes one image per option, with the same seed, side by side, up to 16 at a time. The agent's `generate_image` does the same.
-- **One tap for a style** (Photo, Cinematic, Risograph, Ink, Watercolour) or a negative preset on the Image screen.
-- **The first image comes sooner:** your on-device model loads while you're still writing the prompt.
-- Android shows "Loading the model" until sampling starts, the progress bar no longer jumps back on every preview, and batches show progress on each image in turn.
+## Faster (both platforms)
+- **Android starts sooner.** The app now ships a Baseline Profile, so startup code runs precompiled even on a sideloaded install. On the emulator: 13–17% less time to the first real screen and about 20% less main-thread work.
+- **iOS starts sooner.** Fonts and device checks load in the background, about 90 ms earlier to the first frame in the simulator.
+- **Live dictation shows words sooner and more often.** Partial passes only encode the audio heard so far, 2–4× less work. Stopping usually has nothing left to transcribe.
+- **Faster draft-model checks.** Each speculative step costs less, a draft that failed to load is retried later, and a failed check carries on without the draft instead of ending the answer.
+- **Image model warm-up.** It loads again ahead of Generate after it was freed, switching models no longer loads both, and on Android it stays loaded while the Image screen is open.
+- Smoother lists: the iOS chat list scrolls with fewer hitches, and Android's Models list only redraws rows that changed. Catalog previews and parsed chat text have a memory limit on iOS.
 
 ## Fixed
-- iOS Studio: reusing an inpaint recipe came back as img2img and repainted the whole picture. It now comes back as inpaint and asks for the mask.
-- Steadier iOS test runs: waits no longer run out while another test holds the main thread.
+- Read-aloud no longer cuts off the last words before the assistant uses a tool.
+- Talking over a spoken answer no longer triggers by itself when the voice resumes after a pause.
+- iOS: the last words you say before tapping stop are no longer lost from dictation.
+- A quick double tap on the mic starts one dictation, not two.
+- The Image screen no longer jumps when the style row appears, and its readouts stay readable at large text sizes.
+- Android: tabs and switches grow with large text instead of clipping, the chat title fits on 360 dp phones, and unlocking no longer flashes the app for a frame.
+- Usage: limits read "1 of 10 requests"; on iOS a limit typed as 1,000,000 saves correctly, a mistyped number can't be saved, and quick edits in a row all stick.
+- iOS Studio: a video ending no longer stops another, Play/Pause shows the right state after coming back, and Play replays a finished clip.
+- Android: the Compute benchmark explains a failed draft check in words, not an engine code.
+- The image model is no longer reported as loaded after it was freed for another engine, and a malformed draft output can't pick a wrong token.
 
 ## Files
-- `autobot-1.7.0-release.apk`: signed release (`ai.wckd.autobot`, arm64-v8a, Android 14+). Signer certificate SHA-256 `9a1378acf9587885e7920355558c85a1ec0e89304f58c153feebf90fdee7f3f1`.
-- `autobot-1.7.0-debug.apk`
-- `autobot-1.7.0-mapping.txt`: R8 mapping, for reading crash reports
+- `autobot-1.7.1-release.apk`: signed release (`ai.wckd.autobot`, arm64-v8a, Android 14+). Signer certificate SHA-256 `9a1378acf9587885e7920355558c85a1ec0e89304f58c153feebf90fdee7f3f1`.
+- `autobot-1.7.1-debug.apk`
+- `autobot-1.7.1-mapping.txt`: R8 mapping, for reading crash reports
 - `SHA256SUMS.txt`
 
-iOS: TestFlight build 1.7.0.
+iOS: TestFlight build 1.7.1.
