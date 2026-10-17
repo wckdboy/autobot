@@ -714,7 +714,8 @@ class ChatViewModel @AssistedInject constructor(
             stopRecording.set(false)
             setPhase(VoicePhase.LISTENING)
             val handsFree = voiceMode.value?.handsFree == true
-            val detector = EndOfSpeech()
+            // After a barge-in the user is mid-sentence: the detector must not wait for them to start.
+            val detector = EndOfSpeech().apply { if (preroll != null) primeHeard() }
             var nothingSaid = false
             try {
                 val raw = LiveDictation(LocalDictationEngine(speech, path)).run(
@@ -904,6 +905,8 @@ class ChatViewModel @AssistedInject constructor(
 
     private fun voiceFailed(message: String) {
         notice.value = message
+        // A failed turn is no longer followed: its end must not reset a new recording to READY.
+        turn = null
         setPhase(VoicePhase.READY)
     }
 

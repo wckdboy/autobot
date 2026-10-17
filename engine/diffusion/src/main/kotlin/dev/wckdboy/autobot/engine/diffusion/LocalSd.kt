@@ -141,6 +141,9 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
         val death = IBinder.DeathRecipient {
             close(SdEngineException("The image engine stopped (likely out of memory). Try a smaller size or model."))
         }
+        // The engine's cancel stops whatever it runs now: once this job ended, that is the next
+        // job (a Generate queued behind a warm-up), so only a job still running is cancelled.
+        val finished = java.util.concurrent.atomic.AtomicBoolean(false)
         val callback = object : ISdCallback.Stub() {
             override fun onStatus(status: String) {
                 trySend(LocalSdEvent.Status(status))
@@ -159,6 +162,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
             }
 
             override fun onDone(error: String?) {
+                finished.set(true)
                 if (error == null) close() else close(SdEngineException(error))
             }
         }
@@ -173,7 +177,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
         }
         awaitClose {
             runCatching { binder.unlinkToDeath(death, 0) }
-            runCatching { if (binder.isBinderAlive) e.cancel() }
+            if (!finished.get()) runCatching { if (binder.isBinderAlive) e.cancel() }
             done()
         }
     }.buffer(Channel.UNLIMITED) // never drop an image

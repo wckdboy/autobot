@@ -614,27 +614,11 @@ std::string load_draft(Session & s, const std::string & path, const std::string 
     return "the draft model could not be loaded";
 }
 
-// Where the draft's window over `seq` starts, and how many of its cached tokens stay: the current
-// window while `seq` continues it and still fits the draft's context (with room for a round of
-// drafts), else a new one DRAFT_WINDOW tokens back.
-struct DraftPlan {
-    size_t base = 0;
-    size_t keep = 0;  // tokens of seq[base...] already in the draft's memory
-};
-
+// The draft's window over `seq` (draft_window_plan, speculative_sched.h).
 DraftPlan draft_plan(const Session & s, const std::vector<llama_token> & seq) {
     const size_t n_ctx = s.draft_ctx ? llama_n_ctx(s.draft_ctx) : (size_t) DRAFT_CTX;
     const size_t window = std::min((size_t) DRAFT_WINDOW, n_ctx / 2);
-    DraftPlan plan;
-    plan.base = s.draft_base;
-    if (plan.base > seq.size() || seq.size() - plan.base + DRAFT_K_MAX + 2 > n_ctx) {
-        plan.base = seq.size() > window ? seq.size() - window : 0;
-    }
-    if (plan.base == s.draft_base) {
-        const auto & c = s.draft_cached;
-        while (plan.keep < c.size() && plan.base + plan.keep + 1 < seq.size() && c[plan.keep] == seq[plan.base + plan.keep]) ++plan.keep;
-    }
-    return plan;
+    return draft_window_plan(s.draft_base, s.draft_cached, n_ctx, window, DRAFT_K_MAX, seq);
 }
 
 // How many tokens draft_sync would decode now.
@@ -704,7 +688,9 @@ bool draft_propose(Session & s, int k, std::vector<llama_token> & out) {
     out.clear();
     llama_pos pos = (llama_pos) s.draft_cached.size();
     const llama_vocab * vocab = llama_model_get_vocab(s.draft_model);
-    const int n_vocab = llama_vocab_n_tokens(vocab);
+    // A compatible draft may have a few more tokens than the model; never propose one the model
+    // does not have (its decode would reject the whole batch and end the answer).
+    const int n_vocab = std::min(llama_vocab_n_tokens(vocab), llama_vocab_n_tokens(llama_model_get_vocab(s.model)));
     common_batch batch(s.draft_ctx);
     for (int j = 0; j < k; ++j) {
         const float * logits = llama_get_logits_ith(s.draft_ctx, -1);
@@ -963,6 +949,7 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
         // drop rejected drafts
         SpeculativeSchedule sched;
         sched.always = spec_mode == "on";
+        sched.k_max = DRAFT_K_MAX;  // draft_plan leaves room for this many
         std::string spec_status;  // why this reply does not speculate ("" = it does)
         if (spec_mode == "off") spec_status = "off";
         else if (!s->draft_model) spec_status = !draft_path.empty() && draft_path == s->draft_refused ? "refused" : "no_draft";

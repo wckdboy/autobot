@@ -233,6 +233,7 @@ final class ChatModel {
             heardWords.clear()
             dictation = .idle
             notice = "Dictation stopped: the microphone was interrupted"
+            if voice == nil { SpeechAudio.deactivate() }
         }
         if voice?.phase == .listening {
             live?.cancel()
@@ -249,6 +250,8 @@ final class ChatModel {
             live = nil
             heardWords.clear()
             dictation = .idle
+            // The recording session would keep other apps' audio silenced.
+            if voice == nil { SpeechAudio.deactivate() }
         }
     }
 
@@ -333,6 +336,8 @@ final class ChatModel {
             guard await app.speech.requestPermission() else { return voiceFailed("Microphone access is off — allow it in Settings to talk") }
             guard !Task.isCancelled, voice != nil else { return }
             endOfSpeech = voice?.handsFree == true ? EndOfSpeech(threshold: 0.05, silenceMs: 1_200, minSpeechMs: 200, noSpeechMs: 8_000) : nil
+            // After a barge-in the user is mid-sentence: the detector must not wait for them to start.
+            if preroll != nil { endOfSpeech?.primeHeard() }
             let live = makeLive(app: app, path: path)
             do {
                 try live.start(preroll: preroll, onLevel: { [weak self] peak in self?.heard(peak) }, onInterruption: { [weak self] in self?.recordingInterrupted(app: app) })
@@ -524,6 +529,8 @@ final class ChatModel {
 
     private func voiceFailed(_ message: String) {
         notice = message
+        // A failed turn is no longer followed: its end must not reset a new recording to ready.
+        turn = nil
         setPhase(.ready)
     }
 

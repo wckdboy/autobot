@@ -120,7 +120,29 @@ class RedactionVaultTest {
     fun placeholdersInTheInputAreLeftAlone() {
         val vault = RedactionVault()
         assertEquals("[PERSON_1] and [EMAIL_3]", vault.redact("[PERSON_1] and [EMAIL_3]").text)
-        assertNull(vault.valueOf("[PERSON_1]"))
+        // They stand for themselves, and hide nothing.
+        assertEquals("[PERSON_1] and [EMAIL_3]", vault.restore("[PERSON_1] and [EMAIL_3]"))
+        assertNull(vault.kindOf("[PERSON_1]"))
+    }
+
+    @Test
+    fun aPlaceholderTheUserWroteNeverStandsForSomeoneElse() {
+        // Written first: its number is reserved, so a real name gets another one.
+        val vault = RedactionVault()
+        val template = vault.redact("Fill in this template: Dear [PERSON_1], thanks!").text
+        assertEquals("Fill in this template: Dear [PERSON_1], thanks!", template)
+        assertEquals("my sister [PERSON_2] wants it", vault.redact("my sister Hannah wants it").text)
+        assertEquals("Dear [PERSON_1], Hannah says hi", vault.restore("Dear [PERSON_1], [PERSON_2] says hi"))
+        assertEquals(PiiKind.PERSON, vault.kindOf("[PERSON_2]"))
+
+        // Written after a real name took the number: the text gets its own placeholder.
+        val later = RedactionVault()
+        assertEquals("my sister [PERSON_1] wants it", later.redact("my sister Hannah wants it").text)
+        val pasted = later.redact("Use the form 'Dear [PERSON_1],' for x[PERSON_1].").text
+        assertFalse(pasted, "[PERSON_1]" in pasted)
+        assertEquals("Use the form 'Dear [PERSON_1],' for x[PERSON_1].", later.restore(pasted))
+        assertEquals("Hannah", later.restore("[PERSON_1]"))
+        assertNull(later.kindOf(RedactionVault.PLACEHOLDER.find(pasted)!!.value))
     }
 
     @Test

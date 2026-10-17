@@ -135,6 +135,24 @@ class EndOfSpeechTest {
         assertEquals(SpeechVerdict.NO_SPEECH, run(detector, levels + List(60) { 0.09f })!!.first)
         assertEquals(0.12f, detector.gate, 0.001f)
     }
+
+    @Test
+    fun afterABargeInQuietEndsTheRecording() {
+        // "Stop!" was said over the answer (it is in the preroll); then the user is quiet.
+        val detector = EndOfSpeech().apply { primeHeard() }
+        val (verdict, at) = run(detector, List(100) { 0.01f })!!
+        assertEquals(SpeechVerdict.ENDED, verdict)
+        assertEquals(1_200L, at)
+    }
+
+    @Test
+    fun afterABargeInTheUsersVoiceIsNotTheNoiseFloor() {
+        // The user keeps talking: their voice in the first moments must not raise the gate over it.
+        val detector = EndOfSpeech().apply { primeHeard() }
+        val talking = List(4) { 0.15f } + List(20) { if (it % 3 == 2) 0.06f else 0.15f }
+        assertNull(run(detector, talking))
+        assertEquals(0.05f, detector.gate, 0.001f)
+    }
 }
 
 class VoiceTurnTest {

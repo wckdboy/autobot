@@ -132,6 +132,8 @@ class LocalSdTest {
         assertFalse("read and deleted", preview.exists() || png.exists())
         assertTrue(elsewhere.exists())
         assertFalse(sd.isBusy)
+        // A finished job sends no cancel: the engine's cancel is global and would land on the next job.
+        assertEquals(0, engine.cancels)
     }
 
     @Test
@@ -162,6 +164,8 @@ class LocalSdTest {
         assertEquals(true, ran)
         assertFalse(sd.isPreparing)
         assertFalse(sd.isBusy)
+        // The warm-up's end must not cancel the user's Generate queued behind it.
+        assertEquals(0, engine.cancels)
         // A real job never carries the flag.
         assertFalse(SdRequest(SdBundle(model = "/m.safetensors"), "a fox").toBundle().getBoolean(SdRequest.K_PREPARE))
     }

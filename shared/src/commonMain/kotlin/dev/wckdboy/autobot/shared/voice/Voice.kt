@@ -213,14 +213,29 @@ class EndOfSpeech(
     private var runStart = -1L
     private var lastLoud = -1L
     private var heard = false
+    private var calibrate = true
 
     /** The gate in use (for tests and the level meter). */
     val gate: Float get() = maxOf(threshold, minOf(if (floor == Float.MAX_VALUE) 0f else floor * 3, 0.3f))
 
+    /**
+     * The user is already talking when recording starts (a barge-in: their first words are the
+     * preroll). Speech counts as heard, so quiet from now on ends the recording, and the first
+     * moments are not taken for the noise floor (they are the user's voice, which would raise the
+     * gate above it). Call before the first level.
+     */
+    fun primeHeard() {
+        heard = true
+        calibrate = false
+    }
+
     fun onLevel(peak: Float, atMs: Long): SpeechVerdict {
-        if (startedAt < 0) startedAt = atMs
+        if (startedAt < 0) {
+            startedAt = atMs
+            if (heard) lastLoud = atMs
+        }
         val elapsed = atMs - startedAt
-        if (elapsed <= CALIBRATION_MS) floor = minOf(floor, peak)
+        if (calibrate && elapsed <= CALIBRATION_MS) floor = minOf(floor, peak)
         if (peak >= gate) {
             if (runStart < 0) runStart = atMs
             lastLoud = atMs

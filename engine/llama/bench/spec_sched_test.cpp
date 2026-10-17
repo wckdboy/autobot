@@ -141,6 +141,39 @@ int main() {
         check("host cost: lowers the expected gain", heavy.gain(4) < light.gain(4), heavy.gain(4));
     }
 
+    {
+        // The draft's window over the conversation (draft_window_plan).
+        auto range = [](int from, int to, int offset = 0) {
+            std::vector<int> v;
+            for (int i = from; i < to; ++i) v.push_back(i + offset);
+            return v;
+        };
+        const size_t n_ctx = 1024, window = 512;
+        // A continuing conversation keeps its window and all but the last cached token.
+        const std::vector<int> seq = range(0, 700);
+        const std::vector<int> cached(seq.begin() + 188, seq.begin() + 690);
+        DraftPlan p = draft_window_plan<int>(188, cached, n_ctx, window, 8, seq);
+        check("window: a continuing chat keeps its base", p.base == 188);
+        check("window: and reuses what the draft holds", p.keep == 502);
+        // A new chat longer than the old window's start: none of the cache matches. Keeping the
+        // old base would leave the draft the last 12 tokens to go on.
+        const std::vector<int> other = range(0, 600, 100000);
+        p = draft_window_plan<int>(588, range(588, 1100), n_ctx, window, 8, other);
+        check("window: a new chat starts a fresh window", p.base == 88 && p.keep == 0);
+        // A new chat exactly as long as the old base: not an empty window.
+        p = draft_window_plan<int>(588, range(588, 1100), n_ctx, window, 8, range(0, 588, 100000));
+        check("window: never empty", p.base == 76 && p.keep == 0);
+        // A short new chat starts at its beginning.
+        p = draft_window_plan<int>(588, range(588, 1100), n_ctx, window, 8, range(0, 300, 100000));
+        check("window: a short chat starts at 0", p.base == 0 && p.keep == 0);
+        // Full: slides to a new window.
+        p = draft_window_plan<int>(0, range(0, 1000), n_ctx, window, 8, range(0, 1020));
+        check("window: slides when it no longer fits", p.base == 508 && p.keep == 0);
+        // The first request (nothing cached yet).
+        p = draft_window_plan<int>(0, std::vector<int>(), n_ctx, window, 8, range(0, 40));
+        check("window: first request from 0", p.base == 0 && p.keep == 0);
+    }
+
     std::printf("\n%s\n", failures == 0 ? "all checks passed" : "CHECKS FAILED");
     return failures == 0 ? 0 : 1;
 }
