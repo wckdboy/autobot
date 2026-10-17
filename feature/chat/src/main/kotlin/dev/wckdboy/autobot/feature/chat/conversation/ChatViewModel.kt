@@ -278,6 +278,8 @@ class ChatViewModel @AssistedInject constructor(
     private val dictation = MutableStateFlow(Dictation.IDLE)
     private val dictated = MutableStateFlow<String?>(null)
     private val stopRecording = AtomicBoolean(false)
+    /** The dictation in progress, from the tap that starts it (before it records) to its transcript. */
+    private var dictationJob: Job? = null
     private val speakingKey = MutableStateFlow<String?>(null)
     private var readJob: Job? = null
     private val voiceMode = MutableStateFlow<VoiceUi?>(null)
@@ -589,7 +591,9 @@ class ChatViewModel @AssistedInject constructor(
         when (dictation.value) {
             Dictation.RECORDING -> stopRecording.set(true)
             Dictation.TRANSCRIBING -> Unit
-            Dictation.IDLE -> viewModelScope.launch {
+            // A second tap while the first is still finding the model (before RECORDING) must
+            // not start a second recording over the first.
+            Dictation.IDLE -> if (dictationJob?.isActive != true) dictationJob = viewModelScope.launch {
                 val path = speechModelPath()
                 if (path == null) {
                     notice.value = "Get a speech model in Models › speech to dictate"
