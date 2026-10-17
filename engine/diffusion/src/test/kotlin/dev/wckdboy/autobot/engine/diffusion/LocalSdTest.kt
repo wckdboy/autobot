@@ -206,6 +206,30 @@ class LocalSdTest {
     }
 
     @Test
+    fun aModelUnloadedWhileItsJobRanIsNotResidentAfterIt() = runTest(timeout = 10.seconds) {
+        val engine = FakeEngine()
+        serve(engine)
+        val sd = LocalSd(app)
+        val bundle = SdBundle(model = "/m.safetensors")
+        val run = generate(sd, SdRequest(bundle, "a fox"))
+        pump()
+        // The coordinator frees the image engine for another one while the image is made: the
+        // engine unloads once the job is over.
+        sd.unloadModel()
+        engine.callbacks.single().onDone(null)
+        pump()
+        assertTrue(run.job!!.isCompleted)
+        assertFalse(sd.isResident(bundle))
+        // So the next warm-up loads it again instead of answering "already loaded".
+        launch { sd.prepare(bundle) }
+        pump()
+        assertEquals(2, engine.requests.size)
+        engine.callbacks.last().onDone(null)
+        pump()
+        assertTrue(sd.isResident(bundle))
+    }
+
+    @Test
     fun aWarmUpOvertakenByAnotherModelIsSkipped() = runTest(timeout = 10.seconds) {
         val engine = FakeEngine()
         serve(engine)
