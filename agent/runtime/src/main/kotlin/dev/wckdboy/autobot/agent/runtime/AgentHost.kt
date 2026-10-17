@@ -67,6 +67,10 @@ import dev.wckdboy.autobot.agent.core.loop.restoreRedaction
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.shared.session.receiptsPlugin
 import dev.wckdboy.autobot.shared.vault.vaultPlugin
+import dev.wckdboy.autobot.shared.recipes.Recipe
+import dev.wckdboy.autobot.shared.recipes.RecipeCopy
+import dev.wckdboy.autobot.shared.recipes.RecipeTurnResult
+import dev.wckdboy.autobot.shared.recipes.RecipeTurns
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -421,6 +425,23 @@ class AgentHost @Inject constructor(
             conversations.updateConversation(c.copy(title = title, updatedAt = System.currentTimeMillis()))
         }
         agent.followup(prompt, images)
+    }
+
+    /**
+     * Runs [recipe] headless in [conversationId] (a new chat) on [providerId]/[model] and returns
+     * what the turn produced ([RecipeTurns]: allowlisted tools only, approvals denied without a
+     * prompt, the receipt written to the chat). Only an on-device provider may run a recipe.
+     */
+    suspend fun runRecipe(conversationId: String, recipe: Recipe, providerId: String, model: String, context: String?): RecipeTurnResult {
+        val provider = providers.getProvider(providerId)
+        if (provider == null || provider.kind != ProviderKind.LOCAL || model.isBlank()) return RecipeTurnResult.failed(RecipeCopy.ON_DEVICE_ONLY)
+        val agent = agent(conversationId)
+        retain(conversationId)
+        try {
+            return RecipeTurns.run(agent, recipe, providerId, model, context)
+        } finally {
+            release(conversationId)
+        }
     }
 
     /** Switches provider/model for the conversation and its agent. */

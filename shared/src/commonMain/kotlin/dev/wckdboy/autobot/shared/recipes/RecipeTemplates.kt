@@ -57,6 +57,9 @@ object RecipeTemplates {
         ),
     )
 
+    /** List order: by creation, the templates in their own order. */
+    val listOrder: Comparator<Recipe> = compareBy<Recipe> { it.createdAt }.thenBy { listOf(MORNING_BRIEF, NOTES_TIDY, CHAT_DIGEST).indexOf(it.id).let { i -> if (i < 0) 99 else i } }.thenBy { it.id }
+
     /** A new, empty recipe for the editor. */
     fun blank(id: String, nowMillis: Long): Recipe = Recipe(
         id = id,
