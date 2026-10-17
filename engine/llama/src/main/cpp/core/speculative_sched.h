@@ -206,7 +206,9 @@ inline DraftPick draft_pick(const float * logits, int n, bool check, float p_min
     if (n <= 0) return pick;
     constexpr int L = 8;
     float lane[L];
-    for (int j = 0; j < L; ++j) lane[j] = logits[0];
+    // -inf, not logits[0]: a NaN there would stick in every lane (NaN compares false) and hide
+    // the real maximum. NaN logits never win a lane.
+    for (int j = 0; j < L; ++j) lane[j] = -INFINITY;
     int i = 0;
     for (; i + L <= n; i += L) {
         for (int j = 0; j < L; ++j) lane[j] = logits[i + j] > lane[j] ? logits[i + j] : lane[j];
@@ -215,7 +217,14 @@ inline DraftPick draft_pick(const float * logits, int n, bool check, float p_min
     for (int j = 1; j < L; ++j) top = lane[j] > top ? lane[j] : top;
     for (; i < n; ++i) top = logits[i] > top ? logits[i] : top;
     int best = 0;
-    while (best < n - 1 && !(logits[best] >= top)) ++best;  // NaN-free logits: stops at the top
+    while (best < n - 1 && !(logits[best] >= top)) ++best;  // stops at the first top logit
+    // No finite top (all NaN or -inf, or an overflow to +inf): no usable distribution. Token 0
+    // as a plain argmax over NaN would give, and never a confident draft.
+    if (!std::isfinite(top)) {
+        pick.token = std::isnan(logits[best]) || !(logits[best] >= top) ? 0 : best;
+        pick.sure = !check;
+        return pick;
+    }
     pick.token = best;
     if (!check) return pick;
     const float cut = top - PICK_CUT;

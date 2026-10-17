@@ -53,6 +53,10 @@ fun <T> Flow<T>.throttleLatest(periodMillis: Long, urgent: (T) -> Boolean = { fa
                     val value = event as T
                     if (open == null || urgent(value)) {
                         open?.cancel()
+                        // The latest value held back goes first: an urgent value never drops it
+                        // (the last frame of a streamed step, which read-aloud needs whole).
+                        @Suppress("UNCHECKED_CAST")
+                        if (pending !== None) emit(pending as T)
                         pending = None
                         emit(value)
                         window = async { delay(periodMillis) }

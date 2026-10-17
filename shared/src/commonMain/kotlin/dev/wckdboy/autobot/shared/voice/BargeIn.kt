@@ -14,7 +14,8 @@ import kotlin.math.pow
  * playback, learning how loud the echo left by the canceller is) → [State.ARMED] → [State.TRIGGERED]
  * once the level stays above the gate for [minSpeechMs]. The gate is [threshold], raised to
  * [echoRatio] × the echo level (capped at [maxGate]); the echo level follows the quieter readings
- * and decays, so a louder or quieter answer moves it. Clicks and short bumps do not count.
+ * and decays, so a louder or quieter answer moves it. Clicks and short bumps do not count. When
+ * playback resumes after a pause, [resume] settles again.
  * One instance per answer; feed every level with a monotonic timestamp.
  */
 class BargeIn(
@@ -50,6 +51,20 @@ class BargeIn(
         runStart = -1
     }
 
+    /**
+     * Playback resumes at [atMs] after a pause (the answer was still being written and the
+     * speaker went quiet): learn the echo again before listening. During the pause the echo level
+     * decays to the room's, and the canceller lets the first moments of the resumed voice through
+     * louder; without this, that onset alone could pass for the user talking.
+     */
+    fun resume(atMs: Long) {
+        if (state != State.ARMED) return
+        state = State.SETTLING
+        startedAt = atMs
+        runStart = -1
+        lastLoud = -1
+    }
+
     /** Playback is over (or was stopped): back to idle, ready for the next answer. */
     fun reset() {
         state = State.IDLE
@@ -72,7 +87,9 @@ class BargeIn(
             }
             State.ARMED -> {
                 if (level >= gate) {
-                    if (runStart < 0) runStart = atMs
+                    // A loud reading after a long gap without readings (capture stalled) starts a
+                    // new stretch: two bumps far apart are not 300 ms of speech.
+                    if (runStart < 0 || dt > STALL_MS) runStart = atMs
                     lastLoud = atMs
                     if (atMs - runStart >= minSpeechMs) {
                         state = State.TRIGGERED
@@ -91,5 +108,8 @@ class BargeIn(
     private companion object {
         /** Quiet shorter than this inside a loud stretch still counts as one stretch. */
         const val GAP_MS = 150L
+
+        /** No reading for this long: what came before is not part of the same stretch. */
+        const val STALL_MS = 400L
     }
 }

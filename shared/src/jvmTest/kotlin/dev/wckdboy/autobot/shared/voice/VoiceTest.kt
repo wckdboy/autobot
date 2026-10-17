@@ -220,4 +220,16 @@ class VoiceTurnTest {
         assertFalse(turn.promptSeen(listOf(user("e1"), answer("e2", "old"))))
         assertTrue(turn.promptSeen(listOf(user("e1"), answer("e2", "old"), user("e3"))))
     }
+
+    @Test
+    fun committedStepsAreHandedOutOnceInOrder() {
+        val before = listOf(user("old"), answer("old-a", "earlier answer"))
+        val turn = VoiceTurn(before.map { it.key }.toSet(), startedAtMs = 0)
+        assertEquals(emptyList<String>(), turn.committedSteps(before))
+        val step1 = before + user("e1") + answer("e2", "Let me check.")
+        assertEquals(listOf("Let me check."), turn.committedSteps(step1))
+        assertEquals(emptyList<String>(), turn.committedSteps(step1))
+        val step2 = step1 + answer("e3", " ") + answer("e4", "stopped", interrupted = true) + answer("e5", "It is sunny.")
+        assertEquals(listOf("It is sunny."), turn.committedSteps(step2))
+    }
 }

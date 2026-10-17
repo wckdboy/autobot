@@ -43,7 +43,8 @@ class ThrottleLatestTest {
             delay(10)
             emit(null) // the reply finished: the live frame must disappear now
         }.throttleLatest(100) { it == null }.collect { seen += testScheduler.currentTime to it }
-        assertEquals(listOf<String?>("x", null), seen.map { it.second })
-        assertEquals(20L, seen.last().first)
+        // The frame held back goes out first, at once: urgent values never drop it.
+        assertEquals(listOf<String?>("x", "xy", null), seen.map { it.second })
+        assertEquals(listOf(0L, 20L, 20L), seen.map { it.first })
     }
 }

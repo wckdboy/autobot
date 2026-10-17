@@ -95,6 +95,34 @@ class ReadAloudStreamTest {
     }
 
     @Test
+    fun aStepsLastWordsMissingFromTheLiveFramesAreStillRead() {
+        val s = ReadAloudStream()
+        assertEquals(listOf("Sure."), s.update("Sure. Let me look"))
+        // The step ended in a tool call; its last frame ("... the forecast up.") was never shown.
+        assertEquals(listOf("Let me look the forecast up."), s.stepDone("Sure. Let me look the forecast up."))
+        // A late frame of that step says nothing new.
+        assertEquals(emptyList<String>(), s.update("Sure. Let me look the"))
+        // The next step streams, is committed, and ends the turn.
+        assertEquals(listOf("It will rain."), s.update("It will rain. Take"))
+        assertEquals(listOf("Take an umbrella."), s.stepDone("It will rain. Take an umbrella."))
+        assertEquals(emptyList<String>(), s.finish("It will rain. Take an umbrella."))
+    }
+
+    @Test
+    fun aStepNeverSeenStreamingIsReadWholeAndAnOlderOneIsIgnored() {
+        val s = ReadAloudStream()
+        // Nothing streamed: the committed step is read.
+        assertEquals(listOf("Checking now."), s.stepDone("Checking now."))
+        // Another step whose frames were all skipped: read without what was already spoken.
+        assertEquals(listOf("Found it."), s.stepDone("Checking now. Found it."))
+        // The next step is streaming already when an older step's commit is seen: ignored, and
+        // the open sentence of the streaming step is not cut short.
+        assertEquals(listOf("Here it is."), s.update("Here it is. The"))
+        assertEquals(emptyList<String>(), s.stepDone("Something older."))
+        assertEquals(listOf("The end."), s.finish("Here it is. The end."))
+    }
+
+    @Test
     fun aReplyThatWasNotStreamedIsReadWithoutRepeats() {
         val s = ReadAloudStream()
         assertEquals(listOf("Checking the forecast now."), s.update("Checking the forecast now. Then"))

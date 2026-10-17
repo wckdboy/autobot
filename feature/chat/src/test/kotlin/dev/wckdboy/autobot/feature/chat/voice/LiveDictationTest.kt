@@ -137,6 +137,21 @@ class SpeechQueueTest {
     }
 
     @Test
+    fun aPieceAfterAWaitForTheAnswerIsAResume() = runBlocking {
+        val speaker = FakeSpeaker()
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val queue = SpeechQueue(onResume = { events += "resume" }) { events += "piece$it" }
+        queue.add(listOf("One.", "Two."))
+        val job = async { queue.run(speaker) }
+        delay(50)
+        // The speaker went quiet waiting for more of the answer.
+        queue.add(listOf("Three."))
+        queue.close()
+        withTimeout(2_000) { job.await() }
+        assertEquals(listOf("piece0", "piece1", "resume", "piece2"), events.toList())
+    }
+
+    @Test
     fun anEmptyClosedQueueEndsAtOnce() = runBlocking {
         val queue = SpeechQueue()
         queue.close()

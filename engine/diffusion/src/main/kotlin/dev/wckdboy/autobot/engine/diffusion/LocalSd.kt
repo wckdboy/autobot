@@ -69,6 +69,12 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     @Volatile
     private var resident: SdBundle? = null
 
+    /**
+     * Bumped by [unloadModel]: a job that was running when the model was unloaded (the engine
+     * unloads after it) must not mark its bundle resident when it finishes.
+     */
+    private val unloads = java.util.concurrent.atomic.AtomicInteger()
+
     /** The bundle the latest [prepare] asked for: an older warm-up still waiting is skipped. */
     @Volatile
     private var wanted: SdBundle? = null
@@ -188,6 +194,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     fun generate(request: SdRequest): Flow<LocalSdEvent> = callbackFlow {
         beforeJob()
         val e = acquire()
+        val unloadsAtStart = unloads.get()
         val binder = e.asBinder()
         val death = IBinder.DeathRecipient {
             resident = null
@@ -216,7 +223,8 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
             override fun onDone(error: String?) {
                 finished.set(true)
                 // A job that finished loaded its bundle; after an error the engine may hold anything.
-                resident = if (error == null) request.bundle else null
+                // An unload asked for meanwhile runs after this job: the bundle is gone then.
+                resident = if (error == null && unloads.get() == unloadsAtStart) request.bundle else null
                 if (error == null) close() else close(SdEngineException(error))
             }
         }
@@ -272,6 +280,7 @@ class LocalSd(context: Context, private val idleMillis: Long = 3 * 60_000L, priv
     val isPreparing: Boolean get() = preparing.get() > 0
 
     fun unloadModel() {
+        unloads.incrementAndGet()
         resident = null
         runCatching { engine?.unload() }
     }

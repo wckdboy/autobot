@@ -71,4 +71,55 @@ class BargeInTest {
         assertEquals(BargeIn.State.IDLE, b.state)
         assertEquals(null, feed(b, List(20) { 0.9f }, fromMs = 6_000))
     }
+
+    @Test
+    fun playbackResumingAfterAPauseIsLearnedAgain() {
+        val b = BargeIn()
+        b.start(0)
+        // Speaking with a modest echo, then a long pause while the answer is still being written:
+        // the echo level decays to the room's.
+        assertEquals(null, feed(b, List(10) { 0.08f }))
+        assertEquals(null, feed(b, List(40) { 0.01f }, fromMs = 1_000))
+        // The voice resumes; the canceller lets its first half second through loud.
+        b.resume(5_000)
+        assertEquals(null, feed(b, List(5) { 0.3f } + List(20) { 0.1f }, fromMs = 5_000))
+        assertEquals(BargeIn.State.ARMED, b.state)
+        // The user talking still triggers after it.
+        assertEquals(8_000L, feed(b, List(10) { 0.9f }, fromMs = 7_700))
+    }
+
+    @Test
+    fun withoutResumeTheOnsetAfterAPauseWouldTrigger() {
+        // The failure resume() prevents.
+        val b = BargeIn()
+        b.start(0)
+        feed(b, List(10) { 0.08f })
+        feed(b, List(40) { 0.01f }, fromMs = 1_000)
+        assertEquals(5_300L, feed(b, List(5) { 0.3f }, fromMs = 5_000))
+    }
+
+    @Test
+    fun twoBumpsAcrossAStalledCaptureAreNotSpeech() {
+        val b = BargeIn()
+        b.start(0)
+        feed(b, List(6) { 0.05f })
+        assertFalse(b.onLevel(0.9f, 1_000))
+        // No readings for two seconds (the capture stalled), then another bump.
+        assertFalse(b.onLevel(0.9f, 3_000))
+        assertFalse(b.onLevel(0.05f, 3_100))
+        assertEquals(BargeIn.State.ARMED, b.state)
+    }
+
+    @Test
+    fun resumeOnlyActsWhileListening() {
+        val b = BargeIn()
+        b.resume(0)
+        assertEquals(BargeIn.State.IDLE, b.state)
+        b.start(0)
+        feed(b, List(10) { 0.05f })
+        feed(b, List(5) { 0.9f }, fromMs = 1_000)
+        assertEquals(BargeIn.State.TRIGGERED, b.state)
+        b.resume(2_000)
+        assertEquals(BargeIn.State.TRIGGERED, b.state)
+    }
 }
