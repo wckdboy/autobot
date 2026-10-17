@@ -46,6 +46,8 @@ class SettingsRepository @Inject constructor(
                 searchBaseUrl = prefs[Keys.SEARCH_BASE_URL].orEmpty(),
                 searchRoute = SettingsSchema.searchRoute(prefs[Keys.SEARCH_ROUTE]),
                 quotaFallback = prefs[Keys.QUOTA_FALLBACK] ?: false,
+                // On unless switched off (installs from before the setting get it on too).
+                redactCloud = prefs[Keys.REDACT_CLOUD] ?: AppSettings().redactCloud,
             )
         }
         .distinctUntilChanged()
@@ -62,6 +64,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setMemoryEnabled(enabled: Boolean) = edit { it[Keys.MEMORY_ENABLED] = enabled }
     suspend fun setVaultEnabled(enabled: Boolean) = edit { it[Keys.VAULT_ENABLED] = enabled }
     suspend fun setQuotaFallback(enabled: Boolean) = edit { it[Keys.QUOTA_FALLBACK] = enabled }
+    suspend fun setRedactCloud(enabled: Boolean) = edit { it[Keys.REDACT_CLOUD] = enabled }
 
     /** How the chat list is sorted. */
     val chatSort: Flow<ChatSort> = dataStore.data
@@ -105,6 +108,7 @@ class SettingsRepository @Inject constructor(
         val SEARCH_BASE_URL = stringPreferencesKey(SettingsSchema.SEARCH_BASE_URL)
         val SEARCH_ROUTE = stringPreferencesKey(SettingsSchema.SEARCH_ROUTE)
         val QUOTA_FALLBACK = booleanPreferencesKey(SettingsSchema.QUOTA_FALLBACK)
+        val REDACT_CLOUD = booleanPreferencesKey(SettingsSchema.REDACT_CLOUD)
 
         /** Device-local view preference, not part of [AppSettings] (and not exported). */
         val CHAT_SORT = stringPreferencesKey("chat_sort")

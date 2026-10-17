@@ -97,6 +97,23 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit) {
                 }
             }
 
+            if (receipt.redacted) {
+                Hairline(Modifier.padding(vertical = 2.dp))
+                MicroLabel("redacted")
+                if (receipt.redactions.isEmpty()) {
+                    Text("Nothing personal found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        receipt.redactions.forEach { Tag(it.label, accent = MaterialTheme.colorScheme.primary) }
+                    }
+                    Text(
+                        "The provider saw placeholders like [PERSON_1]. The real values were put back on this phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             if (receipt.tools.isNotEmpty()) {
                 Hairline(Modifier.padding(vertical = 2.dp))
                 MicroLabel("tools")

@@ -174,6 +174,9 @@ enum class VoicePhase { READY, LISTENING, TRANSCRIBING, THINKING, SPEAKING }
 @Immutable
 data class VoiceUi(val phase: VoicePhase = VoicePhase.READY, val handsFree: Boolean = false)
 
+/** The redaction gateway for the chat's route: [NONE] when the route stays on the phone (nothing to hide). */
+enum class RedactionUi { NONE, ON, OFF }
+
 @Immutable
 data class ChatUiState(
     val title: String = "",
@@ -217,6 +220,8 @@ data class ChatUiState(
     val thinkingSupport: ThinkingSupport = ThinkingSupport.NONE,
     /** The user's Think default for this chat's model, if set. */
     val thinkingDefault: ThinkingSetting? = null,
+    /** Whether personal data is swapped for placeholders before this chat's cloud requests. */
+    val redaction: RedactionUi = RedactionUi.NONE,
 )
 
 /**
@@ -324,10 +329,11 @@ class ChatViewModel @AssistedInject constructor(
                 .forEach { if (it.text.isNotEmpty()) LiteMarkdown.cached(it.text) }
             Transcript(projection, steps, approvals, question)
         }
-        combine(transcript, a.status, a.config, a.permission) { t, status, config, permission ->
+        combine(transcript, a.status, a.config, a.permission, host.redactionDefault) { t, status, config, permission, redactByDefault ->
             AgentSnapshot(
                 t.projection, t.stepNumbers, status == AgentStatus.RUNNING, t.approvals, t.question, config.toolsEnabled, permission,
                 config.llm.thinking ?: ThinkingSetting.AUTO,
+                redacting = config.redaction ?: redactByDefault,
             )
         }
     }.catch { e ->
@@ -364,6 +370,8 @@ class ChatViewModel @AssistedInject constructor(
         val toolsEnabled: Boolean = true,
         val permission: PermissionPreset = PermissionPreset.WORKSPACE,
         val thinking: ThinkingSetting = ThinkingSetting.AUTO,
+        /** The chat's own redaction choice, else Settings. */
+        val redacting: Boolean = true,
     )
 
     private data class ThinkingInfo(val support: ThinkingSupport = ThinkingSupport.NONE, val default: ThinkingSetting? = null)
@@ -436,6 +444,11 @@ class ChatViewModel @AssistedInject constructor(
             voice = v.mode,
             changes = snap.projection.changes,
             thinking = snap.thinking,
+            redaction = when {
+                provider == null || isLocal || loopback -> RedactionUi.NONE
+                snap.redacting -> RedactionUi.ON
+                else -> RedactionUi.OFF
+            },
             loaded = true,
         )
     }.combine(thinkingInfo.onStart { emit(ThinkingInfo()) }) { state, info -> state.copy(thinkingSupport = info.support, thinkingDefault = info.default) }
@@ -842,6 +855,10 @@ class ChatViewModel @AssistedInject constructor(
         val provider = state.selectedProviderId ?: return
         val model = state.selectedModel ?: return
         viewModelScope.launchSafely(::failed) { host.setThinkingDefault(provider, model, setting) }
+    }
+
+    override fun setRedaction(enabled: Boolean) {
+        viewModelScope.launchSafely(::failed) { host.setRedaction(conversationId, enabled) }
     }
 
     override fun setPermission(preset: PermissionPreset) {

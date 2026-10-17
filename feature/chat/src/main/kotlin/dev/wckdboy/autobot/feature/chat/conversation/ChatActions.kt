@@ -39,6 +39,9 @@ interface ChatActions {
 
     /** The Think default for this chat's model (null: back to auto). */
     fun setThinkingDefault(setting: ThinkingSetting?)
+
+    /** This chat's redaction switch (remembered with the chat; what Settings says makes it follow Settings). */
+    fun setRedaction(enabled: Boolean)
     fun compact()
     fun rename(title: String)
     fun setPinned(pinned: Boolean)

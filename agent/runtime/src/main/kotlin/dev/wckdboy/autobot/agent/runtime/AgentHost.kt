@@ -58,6 +58,10 @@ import dev.wckdboy.autobot.shared.memory.memoryPlugin
 import dev.wckdboy.autobot.shared.search.SearchProvider
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
 import dev.wckdboy.autobot.shared.session.ReceiptProvider
+import dev.wckdboy.autobot.shared.redaction.RedactionGateway
+import dev.wckdboy.autobot.agent.core.loop.chooseRedaction
+import dev.wckdboy.autobot.agent.core.loop.restoreRedaction
+import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.shared.session.receiptsPlugin
 import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import java.io.File
@@ -190,6 +194,16 @@ class AgentHost @Inject constructor(
 
     private val _running = MutableStateFlow<Set<String>>(emptySet())
 
+    /** Settings → "Redact before cloud": what chats without their own choice do. */
+    val redactionDefault: StateFlow<Boolean> = settings.settings.map { it.redactCloud }
+        .stateIn(scope, SharingStarted.Eagerly, AppSettings().redactCloud)
+
+    private val redaction = RedactionGateway(
+        // An unknown provider counts as cloud: when in doubt, hide.
+        cloud = { id -> providers.getProvider(id)?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
+        enabled = { redactionDefault.value },
+    )
+
     /** Sessions with a turn in progress (for list indicators). */
     val running: StateFlow<Set<String>> = _running.asStateFlow()
 
@@ -233,6 +247,8 @@ class AgentHost @Inject constructor(
                 providers.getProvider(id)?.let { ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset().id, it.preset().privacyNote) }
             },
         )
+        // Redaction gateway (Settings, on by default): personal data becomes placeholders before a cloud request.
+        root.plugin(redaction.plugin)
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(OkHttpWebFetcher(clients))))
         root.plugin(contexts.plugin)
@@ -329,6 +345,7 @@ class AgentHost @Inject constructor(
         }
         agent.log.latest<SessionEvent.AgentSettingsChanged>()?.let { s -> agent.updateConfig { it.copy(toolsEnabled = s.toolsEnabled) } }
         agent.restoreThinking(thinkingDefault(provider?.id.orEmpty(), model))
+        agent.restoreRedaction()
         watchers[conversationId] = scope.launch {
             agent.status.collect { status ->
                 _running.update { if (status == AgentStatus.RUNNING) it + conversationId else it - conversationId }
@@ -434,6 +451,9 @@ class AgentHost @Inject constructor(
     }
 
     suspend fun setPermission(conversationId: String, preset: PermissionPreset) = agent(conversationId).setPermission(preset)
+
+    /** This chat's redaction switch; choosing what Settings says makes the chat follow Settings again. */
+    suspend fun setRedaction(conversationId: String, enabled: Boolean) = agent(conversationId).chooseRedaction(redaction.override(enabled))
 
     /** Manual `/compact`. */
     fun compact(conversationId: String, onError: (Throwable) -> Unit = {}) {
