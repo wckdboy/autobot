@@ -13,6 +13,7 @@ plugins {
     alias(libs.plugins.autobot.android.compose)
     alias(libs.plugins.autobot.hilt)
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("androidx.baselineprofile")
 }
 
 /** `2026-10-16`: the committer date of HEAD, or blank without git. */
@@ -102,6 +103,17 @@ android {
             versionNameSuffix = "-gms"
         }
     }
+}
+
+// The Baseline Profile (classes and methods cold start and first use run, compiled ahead of time
+// by ART through profileinstaller) is generated on an emulator or phone by :baselineprofile and
+// committed as text under src/fossRelease/generated/baselineProfiles. Builds only read that file:
+// no device is involved, and the same source still builds the same APK.
+baselineProfile {
+    automaticGenerationDuringBuild = false
+    saveInSrc = true
+    // The startup part also orders the startup classes first in the primary dex file.
+    dexLayoutOptimization = true
 }
 
 /**
@@ -265,6 +277,8 @@ dependencies {
     implementation(projects.engine.audiogen)
     // Gemini Nano: only in the opt-in flavor, never on the default (foss) classpath.
     "playServicesImplementation"(projects.engine.systemllm)
+
+    baselineProfile(projects.baselineprofile)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

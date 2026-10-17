@@ -415,6 +415,23 @@ Release builds are configured for reproducibility:
 - no VCS info
 - no build timestamps
 - `android.util.Log` calls stripped by R8
+- the Baseline Profile is committed text (`app/src/fossRelease/generated/baselineProfiles/`), so
+  builds need no device; two clean builds give the same APK
+
+**Baseline Profile and startup.** The classes and methods that cold start and the four tabs run
+ship precompiled (ART applies the profile through profileinstaller, also for sideloaded installs),
+and the startup part orders the primary dex. Regenerate it after large UI changes, with an API 33+
+emulator or phone attached:
+
+```sh
+./gradlew :app:generateFossReleaseBaselineProfile                        # rewrites the committed profile
+./gradlew :baselineprofile:connectedFossBenchmarkReleaseAndroidTest      # cold start, with and without it
+```
+
+The activity reports itself fully drawn when a real screen shows (lock, welcome or Run), so logcat's
+`Fully drawn` line and Macrobenchmark's time to full display are the startup time a person sees.
+`-Pautobot.composeReports` writes Compose compiler reports (what skips, which parameters are
+unstable) to each module's `build/compose-reports`.
 
 Signing is left to the distributor (F-Droid / GitHub releases). For local signed builds, put a
 git-ignored `keystore.properties` at the repository root:

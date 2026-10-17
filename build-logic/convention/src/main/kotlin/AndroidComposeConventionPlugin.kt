@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.buildlogic.lib
 import dev.wckdboy.autobot.buildlogic.libs
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.kotlin.dsl.configure
 import org.gradle.kotlin.dsl.dependencies
 import org.jetbrains.kotlin.compose.compiler.gradle.ComposeCompilerGradlePluginExtension
@@ -18,8 +19,23 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
             pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
 
             // Shared (KMP) session types are immutable data; let Compose skip on them.
+            val stability = rootProject.layout.projectDirectory.file("compose-stability.conf")
+            val reports = providers.gradleProperty("autobot.composeReports").isPresent
             extensions.configure<ComposeCompilerGradlePluginExtension> {
-                stabilityConfigurationFiles.add(rootProject.layout.projectDirectory.file("compose-stability.conf"))
+                stabilityConfigurationFiles.add(stability)
+                // `-Pautobot.composeReports`: which composables skip and which parameters are
+                // unstable, per module under build/compose-reports (looking for recomposition work).
+                if (reports) {
+                    reportsDestination.set(layout.buildDirectory.dir("compose-reports"))
+                    metricsDestination.set(layout.buildDirectory.dir("compose-reports"))
+                }
+            }
+            // AGP's built-in Kotlin compile tasks do not see these compiler plugin options as
+            // inputs: editing compose-stability.conf (or asking for reports) left modules up to
+            // date, still compiled with the old stability. Declare both explicitly.
+            tasks.matching { it.name.startsWith("compile") && it.name.endsWith("Kotlin") }.configureEach {
+                inputs.file(stability).withPropertyName("composeStabilityConfiguration").withPathSensitivity(PathSensitivity.NONE)
+                inputs.property("composeReports", reports)
             }
 
             pluginManager.withPlugin("com.android.application") {

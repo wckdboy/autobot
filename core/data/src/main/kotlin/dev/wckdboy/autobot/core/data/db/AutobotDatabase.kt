@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.core.data.db
 
 import android.content.Context
+import android.os.Trace
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.room.AutoMigration
@@ -163,6 +164,8 @@ class DatabaseHolder @Inject constructor(
     }
 
     private fun open(): AutobotDatabase {
+        // A trace section: startup traces show how long unwrapping the key and opening take.
+        Trace.beginSection("Autobot.openDatabase")
         val db = try {
             System.loadLibrary("sqlcipher")
             val passphrase = keyManager.databasePassphrase()
@@ -175,6 +178,8 @@ class DatabaseHolder @Inject constructor(
             fail(e)
         } catch (e: UnsatisfiedLinkError) {
             fail(e)
+        } finally {
+            Trace.endSection()
         }
         _state.value = DatabaseState.Open
         return db
