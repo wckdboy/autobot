@@ -92,6 +92,8 @@ final class ChatModel {
     let heardWords = HeardWords()
     /// The dictation listening now (composer or voice mode).
     @ObservationIgnored private var live: LiveDictation?
+    /// A composer dictation asking for the microphone (a second tap must not start another).
+    @ObservationIgnored private var dictationStart: UUID?
     /// The voice answer being read while it streams, its speaking queue and task.
     @ObservationIgnored private var reading: ReadAloudStream?
     @ObservationIgnored private var queue: SpeechQueue?
@@ -190,17 +192,23 @@ final class ChatModel {
                 if voice == nil { SpeechAudio.deactivate() }
             }
         case .idle:
+            guard dictationStart == nil else { return }
             guard let path = speechModelPath(app) else {
                 notice = "Get a speech model in Models → speech to dictate"
                 return
             }
             stopSpeaking()
+            let start = UUID()
+            dictationStart = start
             Task {
+                defer { if dictationStart == start { dictationStart = nil } }
                 // Asked only when the microphone is first needed.
                 guard await app.speech.requestPermission() else {
                     notice = "Microphone access is off — allow it in Settings to dictate"
                     return
                 }
+                // Stopped (screen left, voice mode) while the permission was asked.
+                guard dictationStart == start else { return }
                 SpeechAudio.activate(.dictation)
                 let live = makeLive(app: app, path: path)
                 do {
@@ -248,6 +256,7 @@ final class ChatModel {
     }
 
     func stopRecording(app: AppContainer) {
+        dictationStart = nil
         if dictation == .recording {
             live?.cancel()
             live = nil
