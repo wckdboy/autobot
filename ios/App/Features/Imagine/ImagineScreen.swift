@@ -307,13 +307,13 @@ private struct ProofGrid: View {
         let plateInk = ink(i, running: running, result: result)
         return ZStack(alignment: .bottomLeading) {
             c.surfaceContainerLow
-            if let plateInk {
-                InkPlate(ink: plateInk, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
-            } else if model.preferInit, i == 0, let initImage = model.initImage {
+            if plateInk == nil, model.preferInit, i == 0, let initImage = model.initImage {
                 Image(uiImage: initImage).resizable().scaledToFill()
                 if model.request.mode == .inpaint { MaskOverlay(mask: model.mask) }
             } else {
-                InkPlate(ink: .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
+                // One plate whatever it shows: a job starting keeps the waiting plate (its engine and
+                // state) instead of swapping in a second one over it.
+                InkPlate(ink: plateInk ?? .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
             }
             if let running, i == running.image {
                 let loading = model.phase != nil || running.total == 0
