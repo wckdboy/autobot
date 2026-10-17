@@ -78,6 +78,27 @@ struct EngineRunTests {
         library.remove(wrong)
     }
 
+    @Test func aWarmUpPhaseLandingLateDoesNotStickOnTheStatusLine() {
+        let imagine = ImagineModel(app: AppContainer())
+        let first = imagine.beginWarm()
+        imagine.warmPhase("Loading the model…", generation: first)
+        #expect(imagine.warming == "Loading the model…")
+        imagine.warmEnded(generation: first)
+        // A phase task of the finished load runs after it ended: the line stays clear.
+        imagine.warmPhase("Compiling for the Neural Engine…", generation: first)
+        #expect(imagine.warming == nil)
+
+        // Another model's load began: the older load's phases and its end leave it alone.
+        let older = imagine.beginWarm()
+        let newer = imagine.beginWarm()
+        imagine.warmPhase("Loading model B…", generation: newer)
+        imagine.warmPhase("Loading model A…", generation: older)
+        imagine.warmEnded(generation: older)
+        #expect(imagine.warming == "Loading model B…")
+        imagine.warmEnded(generation: newer)
+        #expect(imagine.warming == nil)
+    }
+
     @Test func warmingUpLoadsOnlyWhenAPromptIsWrittenForAnOnDeviceModel() async throws {
         #expect(ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: nil, busy: false, prompt: "a lighthouse"))
         // Once per model, never during a job, never for a PC, never on an empty prompt.

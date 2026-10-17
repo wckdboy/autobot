@@ -126,8 +126,21 @@ struct ConsoleTextField: View {
                     SecureField(text: $text, prompt: prompt(mono: true)) { Text(label ?? "") }
                         .textContentType(.oneTimeCode)
                 } else if maxLines > 1 {
-                    TextField(text: $text, prompt: prompt(mono: mono), axis: .vertical) { Text(label ?? "") }
+                    // A vertical field wraps its prompt well short of its width and hides the second
+                    // line ("message · /" on a narrow phone): the prompt stays for VoiceOver but is
+                    // drawn on top, truncating within the field's minimum lines.
+                    TextField(text: $text, prompt: prompt(mono: mono, color: .clear), axis: .vertical) { Text(label ?? "") }
                         .lineLimit(minLines ... maxLines)
+                        .overlay(alignment: .topLeading) {
+                            if text.isEmpty, let placeholder {
+                                Text(placeholder)
+                                    .textStyle(mono ? .code : .bodyMedium)
+                                    .foregroundStyle(c.onSurfaceVariant)
+                                    .lineLimit(max(minLines, 1))
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                 } else {
                     TextField(text: $text, prompt: prompt(mono: mono)) { Text(label ?? "") }
                 }
@@ -153,8 +166,8 @@ struct ConsoleTextField: View {
         }
     }
 
-    private func prompt(mono: Bool) -> Text? {
-        placeholder.map { Text($0).font(mono ? AutobotType.code.font : AutobotType.bodyMedium.font).foregroundColor(c.onSurfaceVariant) }
+    private func prompt(mono: Bool, color: Color? = nil) -> Text? {
+        placeholder.map { Text($0).font(mono ? AutobotType.code.font : AutobotType.bodyMedium.font).foregroundColor(color ?? c.onSurfaceVariant) }
     }
 }
 

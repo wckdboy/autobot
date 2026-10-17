@@ -84,6 +84,7 @@ final class Navigator {
             case "licenses": tab = .settings; path = [.licenses]
             case "memory": tab = .settings; path = [.memory]
             case "vault": tab = .settings; path = [.vault]
+            case "usage": tab = .settings; path = [.usage]
             case "studio": studio = .image
             default:
                 if args[i + 1].hasPrefix("studio-") { studio = StudioRoom(rawValue: String(args[i + 1].dropFirst(7))) }

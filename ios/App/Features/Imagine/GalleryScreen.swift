@@ -50,15 +50,14 @@ struct GalleryScreen: View {
         }
         VStack(spacing: 0) {
             VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    IconAction(symbol: "arrow.left", label: "Back") { nav.back() }
-                    Text("GALLERY").textStyle(.titleMedium).foregroundStyle(c.onBackground).frame(maxWidth: .infinity, alignment: .leading)
-                    MicroLabel(items.count == all.count ? "\(all.count)" : "\(items.count)/\(all.count)").padding(.trailing, 8)
+                // The same top bar as every other screen (it was a smaller, one-off title).
+                AutobotTopBar(title: "Gallery", onBack: { nav.back() }) {
+                    MicroLabel(items.count == all.count ? "\(all.count)" : "\(items.count)/\(all.count)")
                     IconAction(symbol: "star.fill", label: "Favorites only", tint: favoritesOnly ? AutobotColors.amber : c.onSurfaceVariant) { favoritesOnly.toggle() }
+                        .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
                 }
-                .padding(4)
                 ConsoleTextField(text: $query, placeholder: "Search", kind: .mono)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, Tokens.Spacing.gutter)
                     .padding(.bottom, 8)
             }
             .hairlineEdge()

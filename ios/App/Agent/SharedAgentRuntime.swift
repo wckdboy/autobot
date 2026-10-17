@@ -356,8 +356,6 @@ final class SharedAgentRuntime: AgentRuntime {
     /// The Studio's `run_workflow` on (the queue runner) or off.
     func setStudio(_ runner: (any StudioRunner)?) { bridge.setStudio(runner: runner) }
 
-    /// "On limit, fall back" (off by default): a turn whose provider's usage limit is used up is
-    /// retried once on the provider's helper model, else on [onDevice] (the "This phone" provider).
     /// Settings → "Redact before cloud": chats without their own choice follow it.
     func setRedactionDefault(_ enabled: Bool) {
         bridge.setRedactionDefault(enabled: enabled)
@@ -368,6 +366,8 @@ final class SharedAgentRuntime: AgentRuntime {
         bridge.setRedaction(sessionId: id, enabled: enabled)
     }
 
+    /// "On limit, fall back" (off by default): a turn whose provider's usage limit is used up is
+    /// retried once on the provider's helper model, else on [onDevice] (the "This phone" provider).
     func setQuotaFallback(_ enabled: Bool, onDevice: Provider?) {
         let model = onDevice?.defaultModel ?? ""
         bridge.setQuotaFallback(enabled: enabled, onDeviceProviderId: model.isEmpty ? nil : onDevice?.id, onDeviceModel: model.isEmpty ? nil : model)
