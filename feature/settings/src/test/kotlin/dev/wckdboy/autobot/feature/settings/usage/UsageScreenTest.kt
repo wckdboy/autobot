@@ -104,7 +104,7 @@ class UsageScreenTest {
     fun windowsShowUsageOfTheLimitAndTheReset() {
         val plan = UsagePlan(windows = listOf(SubscriptionWindow("w", "go", WindowPeriod.FIVE_HOURS, rolling = true, unit = LimitUnit.REQUESTS, limit = 10.0)))
         compose.setContent { Themed { UsageScreen(state(plan), FakeActions(), onBack = {}) } }
-        val line = "1 requests of 10 requests · oldest use rolls off in ~5 h"
+        val line = "1 of 10 requests · oldest use rolls off in ~5 h"
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(line, substring = true))
         compose.onNodeWithText(line, substring = true).assertIsDisplayed()
     }
