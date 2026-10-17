@@ -218,7 +218,13 @@ struct StudioVideoPlayer: View {
                 .accessibilityLabel("Video")
             HStack(spacing: 10) {
                 IconAction(symbol: playing ? "pause.fill" : "play.fill", label: playing ? "Pause" : "Play") {
-                    if playing { player.pause() } else { player.play() }
+                    if playing {
+                        player.pause()
+                    } else {
+                        // Ended with loop off: play starts over (AVPlayer stays at the end otherwise).
+                        if duration > 0, position >= duration - 0.05 { player.seek(to: .zero) }
+                        player.play()
+                    }
                     playing.toggle()
                 }
                 RisoSlider(value: Binding(get: { position }, set: { v in
@@ -266,6 +272,8 @@ struct StudioVideoPlayer: View {
         }
         .onDisappear {
             player.pause()
+            // Back on screen it is paused: the button must offer Play, not Pause.
+            playing = false
             if let observer { player.removeTimeObserver(observer) }
             if let looper { NotificationCenter.default.removeObserver(looper) }
             observer = nil
