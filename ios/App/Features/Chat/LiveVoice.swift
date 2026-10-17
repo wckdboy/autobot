@@ -67,6 +67,8 @@ final class LiveDictation {
     private let dictation = StreamingDictation()
     private var inFlight: Task<Void, Never>?
     private var stopped = false
+    /// The last pass was taken: later audio has nowhere to go.
+    private var closed = false
     private var speechAt: Int64 = -1
     /// Live text, on the main actor.
     var onText: (DictationText) -> Void = { _ in }
@@ -93,7 +95,9 @@ final class LiveDictation {
 
     /// Feeds audio directly (tests and the simulator benchmark).
     func received(_ samples: [Float]) {
-        guard !stopped else { return }
+        // Audio captured before the stop reaches here after it (it hops to the main actor): it
+        // still belongs to the last pass, which is only taken once the pass under way returned.
+        guard !closed else { return }
         append(samples)
         if speechAt < 0, dictation.firstSpeechAtMs >= 0 { speechAt = monotonicMs() }
         pump()
@@ -137,6 +141,10 @@ final class LiveDictation {
             pass.cancel()
             await pass.value
         }
+        // Buffers the capture delivered before it stopped and that are still queued for the main
+        // actor arrive before the last pass is taken (the user's last words may be in them).
+        await Task.yield()
+        closed = true
         guard let last = dictation.finish() else { return dictation.result }
         let raw = (try? await engine.transcribe(Self.floats(VoiceAudio.shared.samples(pass: last)), language: last.language, partial: false).text) ?? ""
         return dictation.onFinal(pass: last, raw: raw)
@@ -146,6 +154,7 @@ final class LiveDictation {
     func cancel() {
         guard !stopped else { return }
         stopped = true
+        closed = true
         engine.stopLive()
         inFlight?.cancel()
     }
@@ -158,7 +167,9 @@ final class LiveDictation {
 /**
  Pieces of an answer spoken in order as they arrive while it still streams: [add] them, [close]
  when the answer is complete, and [run] speaks until both. The next piece goes to the speaker's
- `prepare` while one plays, so the neural voice synthesizes ahead.
+ `prepare` while one plays, so the neural voice synthesizes ahead. [onPiece] is called as each
+ piece starts, [onResume] before a piece that had to wait for the answer to go on (the speaker was
+ quiet meanwhile).
  */
 @MainActor
 final class SpeechQueue {
@@ -166,8 +177,10 @@ final class SpeechQueue {
     private var closed = false
     private var waiter: CheckedContinuation<Void, Never>?
     private let onPiece: (Int) -> Void
+    private let onResume: () -> Void
 
-    init(onPiece: @escaping (Int) -> Void = { _ in }) {
+    init(onResume: @escaping () -> Void = {}, onPiece: @escaping (Int) -> Void = { _ in }) {
+        self.onResume = onResume
         self.onPiece = onPiece
     }
 
@@ -192,6 +205,7 @@ final class SpeechQueue {
     /// Speaks every piece until closed and empty. Cancel the task to stop.
     func run(_ speaker: any Speaker) async throws {
         var index = 0
+        var waited = false
         while true {
             try Task.checkCancellation()
             if pending.isEmpty {
@@ -201,10 +215,13 @@ final class SpeechQueue {
                 } onCancel: {
                     Task { @MainActor in self.wake() }
                 }
+                waited = true
                 continue
             }
             let next = pending.removeFirst()
             if let after = pending.first { speaker.prepare(after) }
+            if waited, index > 0 { onResume() }
+            waited = false
             onPiece(index)
             index += 1
             try await speaker.speak(next)

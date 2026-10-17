@@ -48,7 +48,7 @@ struct LiveVoiceTests {
     @Test func speechQueueSpeaksPiecesAsTheyArriveUntilClosed() async throws {
         let speaker = FakeSpeaker()
         var started: [Int] = []
-        let queue = SpeechQueue { started.append($0) }
+        let queue = SpeechQueue(onPiece: { started.append($0) })
         queue.add(["One.", "Two."])
         let run = Task { try await queue.run(speaker) }
         try await Task.sleep(for: .milliseconds(60))
@@ -59,6 +59,50 @@ struct LiveVoiceTests {
         #expect(speaker.spoken == ["One.", "Two.", "Three."])
         #expect(speaker.prepared == ["Two."])
         #expect(started == [0, 1, 2])
+    }
+
+    @Test func aPieceAfterAWaitForTheAnswerIsAResume() async throws {
+        let speaker = FakeSpeaker()
+        var events: [String] = []
+        let queue = SpeechQueue(onResume: { events.append("resume") }) { events.append("piece\($0)") }
+        queue.add(["One.", "Two."])
+        let run = Task { try await queue.run(speaker) }
+        try await Task.sleep(for: .milliseconds(60))
+        queue.add(["Three."])
+        queue.close()
+        try await run.value
+        #expect(events == ["piece0", "piece1", "resume", "piece2"])
+    }
+
+    @Test func committedStepsAreReadToTheirEnd() {
+        let turn = VoiceTurn(baseline: [], startedAtMs: 0)
+        let stream = ReadAloudStream(speakable: { LiteMarkdown.speakable($0) }, maxChars: AutobotShared.VoiceText.shared.MAX_CHUNK)
+        var pieces = stream.update(text: "Sure. Let me look")
+        let items: [SessionItem] = [
+            .user(key: "e1", text: "weather?", images: []),
+            .assistant(key: "e2", text: "Sure. Let me look the forecast up.", reasoning: nil, interrupted: false, outputTokens: nil, model: nil),
+        ]
+        for step in turn.committedSteps(items: items) { pieces += stream.stepDone(text: step) }
+        #expect(turn.committedSteps(items: items).isEmpty)
+        #expect(pieces == ["Sure.", "Let me look the forecast up."])
+    }
+
+    @Test func liveDictationKeepsAudioQueuedBeforeTheStop() async throws {
+        let engine = FakeEngine()
+        let live = LiveDictation(engine: engine)
+        try live.start(onLevel: { _ in }, onInterruption: {})
+        live.received(tone(ms: 400, loud: false) + tone(ms: 1_000, loud: true) + tone(ms: 700, loud: false))
+        while engine.calls == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        try await Task.sleep(for: .milliseconds(50))
+        // More speech captured just before the stop, still on its way to the main actor.
+        let late = tone(ms: 1_000, loud: true) + tone(ms: 100, loud: false)
+        Task { @MainActor in live.received(late) }
+        let before = engine.calls
+        _ = await live.finish()
+        // The late words are speech after the last partial: a full last pass runs over them
+        // (dropped, the last partial would have looked like it covered everything).
+        #expect(engine.calls == before + 1)
+        #expect(engine.partial.last == false)
     }
 
     @Test func aCancelledQueueStopsWaiting() async throws {
