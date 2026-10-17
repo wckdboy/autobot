@@ -132,13 +132,16 @@ private struct StudioTopBar: View {
                 if let p = studio.project { Button("Rename “\(p.name)”…") { naming = p.name } }
             } label: {
                 HStack(spacing: 4) {
+                    // A long name truncates at 130 pt; a short one keeps the chip snug against the
+                    // trailing edge (a max-width frame outside the border left a gap after it).
                     Text((studio.project?.name ?? "project").uppercased()).textStyle(.micro).lineLimit(1).foregroundStyle(c.onSurface)
+                        .frame(maxWidth: 130)
                     Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(c.onSurfaceVariant)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.outline, lineWidth: Tokens.Stroke.border))
-                .frame(maxWidth: 150)
+                .fixedSize()
             }
             .accessibilityLabel("Project: \(studio.project?.name ?? "none")")
         }
@@ -350,7 +353,8 @@ struct StudioEmpty: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(title)
             Text(text).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-            if let action, let onAction { PrimaryButton(action, action: onAction).frame(maxWidth: 260) }
+            // Full width as on Android: a 260 pt cap cut longer labels ("Get the audio model in M…").
+            if let action, let onAction { PrimaryButton(action, action: onAction) }
             // The living field gets its own band below the text (never behind it).
             Color.clear.frame(height: 40).inkCard(seed: 1.7, fade: .top)
                 .padding(.top, 6)

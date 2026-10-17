@@ -73,6 +73,7 @@ struct ImagineScreen: View {
                             .foregroundStyle(c.onSurfaceVariant)
                         PrimaryButton("Get a model") { nav.switchTo(.models) }
                         TextAction("Use a PC instead", color: c.primary) { nav.push(.imageBackends) }
+                            .frame(maxWidth: .infinity)
                     }
                     PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate, wildcards: m.wildcards)
                     if !m.isRunning && !m.request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { styleRow(m) }

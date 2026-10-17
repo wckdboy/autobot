@@ -123,17 +123,19 @@ struct UsageBoardView: View {
 
             SectionLabel("subscription windows").padding(.top, 8)
             ForEach(report.windows) { w in windowRow(w) }
-            ChatFlow(spacing: 8) {
-                if let first = providers.first {
+            if let first = providers.first {
+                ChatFlow(spacing: 8) {
                     Tag("+ window", accent: c.primary) {
                         onEditWindow(WindowDraft(window: .init(id: UUID().uuidString, provider: first.id, period: "FIVE_HOURS", anchor: nowMillis()), isNew: true))
                     }
+                    ForEach(providers.filter { p in p.presetId == AutobotShared.ProviderPresets.shared.OPENCODE_GO && !report.plan.windows.contains { $0.provider == p.id } }) { p in
+                        Tag("+ \(p.displayName) 5 h / week / month", accent: c.primary) { onAddOpenCodeGo(p.id) }
+                    }
                 }
-                ForEach(providers.filter { p in p.presetId == AutobotShared.ProviderPresets.shared.OPENCODE_GO && !report.plan.windows.contains { $0.provider == p.id } }) { p in
-                    Tag("+ \(p.displayName) 5 h / week / month", accent: c.primary) { onAddOpenCodeGo(p.id) }
-                }
+            } else {
+                // An empty flow would still take a row of spacing above this line.
+                MicroLabel("add a cloud provider to track its plan")
             }
-            if providers.isEmpty { MicroLabel("add a cloud provider to track its plan") }
 
             SectionLabel("prices · usd per 1m tokens").padding(.top, 8)
             if report.prices.isEmpty { MicroLabel("models show up here once they answered") }
