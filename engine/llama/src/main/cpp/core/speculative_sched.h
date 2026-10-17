@@ -24,6 +24,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <vector>
 
 struct SpeculativeSchedule {
     // ---- configuration
@@ -159,5 +161,30 @@ struct SpeculativeSchedule {
         return std::max(0, std::min(want, room));
     }
 };
+
+// Where the draft model's window over the conversation `seq` starts, and how many of its cached
+// tokens (`cached`, which start at `draft_base` in the conversation) stay. The current window is
+// kept while `seq` continues it and still fits the draft's context `n_ctx` (with room for a
+// round of `k_max` drafts); otherwise, and whenever none of the cache matches (a new chat that is
+// already longer than the old window's start: keeping that start would leave the draft only the
+// conversation's tail to go on), a new window starts `window` tokens back.
+struct DraftPlan {
+    size_t base = 0;
+    size_t keep = 0;  // tokens of seq[base...] already in the draft's memory
+};
+
+template <typename Token>
+DraftPlan draft_window_plan(size_t draft_base, const std::vector<Token> & cached, size_t n_ctx, size_t window, int k_max,
+                            const std::vector<Token> & seq) {
+    const size_t fresh = seq.size() > window ? seq.size() - window : 0;
+    DraftPlan plan;
+    plan.base = draft_base;
+    if (plan.base > seq.size() || seq.size() - plan.base + (size_t) k_max + 2 > n_ctx) plan.base = fresh;
+    if (plan.base == draft_base) {
+        while (plan.keep < cached.size() && plan.base + plan.keep + 1 < seq.size() && cached[plan.keep] == seq[plan.base + plan.keep]) ++plan.keep;
+        if (plan.keep == 0) plan.base = fresh;
+    }
+    return plan;
+}
 
 #endif  // AUTOBOT_SPECULATIVE_SCHED_H
