@@ -237,6 +237,46 @@ object BatchPlanner {
     }
 }
 
+/** One engine call of a quick Image run: [prompt] for [count] images from [seed] (`-1` = random). */
+data class PromptRun(val prompt: String, val count: Int, val seed: Long)
+
+/**
+ * The quick Image screen's plan (no queue): a plain prompt is one engine call with the batch; a
+ * prompt with `{a|b}` wildcards is one call per expanded prompt, each with the batch and the same
+ * seed (so a fixed seed compares the prompts side by side), at most [MAX_IMAGES] images in all.
+ */
+object PromptRuns {
+    const val MAX_IMAGES = 16
+
+    fun plan(template: String, batch: Int, seed: Long, maxImages: Int = MAX_IMAGES): List<PromptRun> {
+        val per = batch.coerceIn(1, maxImages.coerceAtLeast(1))
+        if (!Wildcards.hasWildcards(template)) return listOf(PromptRun(template, per, seed))
+        val prompts = Wildcards.expand(template, cap = (maxImages / per).coerceAtLeast(1)).prompts
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (prompts.isEmpty()) return listOf(PromptRun(template, per, seed))
+        return prompts.map { PromptRun(it, per, seed) }
+    }
+
+    /** Images [plan] makes in all. */
+    fun images(template: String, batch: Int, maxImages: Int = MAX_IMAGES): Int =
+        plan(template, batch, -1, maxImages).sumOf { it.count }
+
+    /**
+     * What the wildcards will run, for the line under the prompt (`wildcards · 3 prompts × 2 = 6
+     * images`), or null for a plain prompt.
+     */
+    fun summary(template: String, batch: Int, maxImages: Int = MAX_IMAGES): String? {
+        if (!Wildcards.hasWildcards(template)) return null
+        val total = Wildcards.expand(template, cap = 1).total
+        val runs = plan(template, batch, -1, maxImages)
+        val per = runs.first().count
+        val images = runs.size * per
+        val prompts = if (total > runs.size) "${runs.size} of $total prompts" else "${runs.size} prompt${if (runs.size == 1) "" else "s"}"
+        return "wildcards · $prompts" + (if (per > 1) " × $per" else "") + " = $images image${if (images == 1) "" else "s"}"
+    }
+}
+
 /** One axis of an X/Y grid: [param] (any recipe param, `seed` or `model`) over [values]. */
 data class GridAxis(val param: String, val values: List<ParamValue>, val label: String = param)
 

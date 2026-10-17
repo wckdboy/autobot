@@ -26,6 +26,9 @@ import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.feature.imagine.mask.MaskRasterizer
 import dev.wckdboy.autobot.feature.imagine.mask.MaskState
 import dev.wckdboy.autobot.feature.imagine.mask.MaskStroke
+import dev.wckdboy.autobot.shared.studio.PromptLibrary
+import dev.wckdboy.autobot.shared.studio.PromptRuns
+import dev.wckdboy.autobot.shared.studio.PromptSnippet
 import javax.inject.Inject
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +60,8 @@ data class RunningUi(
     val preview: ImageBitmap?,
     val startedAt: Long,
     val byAgent: Boolean,
+    /** Before the first step: what the engine does (loading the model). */
+    val phase: String? = null,
 )
 
 /** A model choice in the studio's chip row (backend + model). */
@@ -99,6 +104,12 @@ data class ImagineUiState(
             ?: chips.firstOrNull { it.backendId == backend?.id }
 
     val tokenEstimate: Int get() = PromptSyntax.estimateTokens(request.prompt)
+
+    /** `{a|b}` in the prompt: what the run will make, or null for a plain prompt. */
+    val wildcards: String? get() = PromptRuns.summary(request.prompt, request.batchCount)
+
+    /** Images the next run makes (the batch, times the prompts wildcards expand to). */
+    val plannedImages: Int get() = PromptRuns.images(request.prompt, request.batchCount)
     val canGenerate: Boolean
         get() = backend != null && running == null && request.prompt.isNotBlank() &&
             (request.mode == DiffusionMode.TXT2IMG || initImage != null) &&
@@ -133,6 +144,9 @@ class ImagineViewModel @Inject constructor(
     )
 
     private val local = MutableStateFlow(Local())
+
+    /** The on-device model last loaded ahead of time (or tried): one warm-up per model. */
+    private var warmedModel: String? = null
     private var initSource: Bitmap? = null
     private var catalogJob: Job? = null
 
@@ -142,10 +156,11 @@ class ImagineViewModel @Inject constructor(
                 step = s.step,
                 totalSteps = s.totalSteps,
                 image = s.image,
-                batch = s.request.batchCount,
+                batch = s.totalImages,
                 preview = s.preview?.let { bytes -> withContext(Dispatchers.Default) { ImageCodec.decode(bytes, PREVIEW_SIDE)?.asImageBitmap() } },
                 startedAt = s.startedAt,
                 byAgent = s.source == GenerationSource.AGENT,
+                phase = s.phase,
             )
         }
     }
@@ -203,6 +218,7 @@ class ImagineViewModel @Inject constructor(
     fun selectChip(chip: ModelChip) {
         if (uiState.value.backend?.id != chip.backendId) selectBackend(chip.backendId)
         setModel(chip.model)
+        if (chip.onDevice) warmUp(uiState.value.request.prompt, chip)
         if (chip.onDevice && chip.model != null) {
             viewModelScope.launch {
                 val rec = library.get(chip.model)?.let(::recommendedFor) ?: return@launch
@@ -274,7 +290,10 @@ class ImagineViewModel @Inject constructor(
         edit { it.copy(mode = mode) }
         local.update { it.copy(preferInit = mode != DiffusionMode.TXT2IMG) }
     }
-    fun setPrompt(text: String) = edit { it.copy(prompt = text) }
+    fun setPrompt(text: String) {
+        edit { it.copy(prompt = text) }
+        warmUp(text)
+    }
     fun setNegative(text: String) = edit { it.copy(negativePrompt = text) }
     fun setSteps(steps: Int) = edit { it.copy(steps = steps) }
     fun setCfg(cfg: Float) = edit { it.copy(cfgScale = (cfg * 2).toInt() / 2f) }
@@ -294,11 +313,35 @@ class ImagineViewModel @Inject constructor(
     fun setModel(model: String?) = edit { it.copy(model = model) }
     fun setClipSkip(skip: Int?) = edit { it.copy(clipSkip = skip) }
 
+    /** Wraps the prompt in a built-in style (`{prompt}` placeholder) and merges its negatives. */
+    fun applyStyle(style: PromptSnippet) = edit { r ->
+        val (prompt, negative) = PromptLibrary.applyStyle(r.prompt, r.negativePrompt, style)
+        r.copy(prompt = prompt, negativePrompt = negative)
+    }
+
+    /** Adds a negative preset's terms (ones already there are not repeated). */
+    fun addNegative(preset: PromptSnippet) = edit { it.copy(negativePrompt = PromptLibrary.joinNegative(it.negativePrompt, preset.text)) }
+
     fun addLora(name: String) = edit { r -> if (r.loras.any { it.name == name }) r else r.copy(loras = r.loras + LoraRef(name, 0.8f)) }
     fun setLoraWeight(name: String, weight: Float) = edit { r ->
         r.copy(loras = r.loras.map { if (it.name == name) it.copy(weight = (weight * 20).toInt() / 20f) else it })
     }
     fun removeLora(name: String) = edit { r -> r.copy(loras = r.loras.filterNot { it.name == name }) }
+
+    /**
+     * Loads the selected on-device model while the prompt is written (see [shouldWarm]): time to
+     * the first image is mostly the model load. The engine skips it while another engine works
+     * and frees the others' memory first, like a job.
+     */
+    private fun warmUp(prompt: String, chip: ModelChip? = uiState.value.selectedChip) {
+        val state = uiState.value
+        val backend = state.backends.firstOrNull { it.id == chip?.backendId } ?: return
+        val model = chip?.takeIf { it.onDevice }?.model
+        if (!shouldWarm(backend.kind == BackendKind.ON_DEVICE, model, warmedModel, generator.isBusy || state.running != null, prompt)) return
+        warmedModel = model
+        val request = state.request.copy(model = model)
+        viewModelScope.launch(Dispatchers.IO) { runCatching { engines.create(backend).prepare(request) } }
+    }
 
     // ---------------------------------------------------------------------------------------
     // Backend
@@ -440,6 +483,13 @@ internal fun buildChips(backends: List<DiffusionBackend>, models: List<Installed
         }
     }
 }
+
+/**
+ * Whether to load the on-device model ahead of Generate: a prompt is being written for an
+ * on-device model not warmed yet, and no image job runs.
+ */
+internal fun shouldWarm(onDevice: Boolean, model: String?, warmed: String?, busy: Boolean, prompt: String): Boolean =
+    onDevice && model != null && model != warmed && !busy && prompt.isNotBlank()
 
 /** Capabilities per backend (by value: an edited backend is a new key), created once each. */
 internal class CapabilityCache(private val create: (DiffusionBackend) -> EngineCapabilities) {

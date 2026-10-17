@@ -48,6 +48,18 @@ struct OnDeviceEngine: DiffusionEngine {
         return (ModelLibrary.dir(of: model.id), backendFor(model))
     }
 
+    /**
+     Loads the model [request] would run ahead of Generate (the prompt is being written), so the
+     first image starts sampling sooner. Does nothing without a usable model; [onPhase] gets the
+     loading phase when a load actually starts.
+     */
+    func prepare(_ request: DiffusionRequest, onPhase: @escaping @Sendable (String) -> Void = { _ in }) async throws {
+        guard Engines.linked, let resolved = await MainActor.run(body: { target(request) }),
+              let folder = LocalDiffusion.resourceFolder(in: resolved.dir) else { return }
+        let info = try diffusion.inspect(folder)
+        try await diffusion.prepare(info, backend: resolved.backend, onPhase: onPhase)
+    }
+
     private func run(_ request: DiffusionRequest, _ inputs: DiffusionInputs, emit: @escaping @Sendable (DiffusionEvent) -> Void) async throws {
         if request.mode != .txt2img && inputs.initImage == nil { throw DiffusionError(message: "\(request.mode.label) needs an input image", code: .unsupported) }
         if request.mode == .inpaint && inputs.mask == nil { throw DiffusionError(message: "Paint a mask first", code: .unsupported) }

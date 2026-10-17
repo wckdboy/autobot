@@ -79,6 +79,8 @@ class EngineMemoryCoordinator @Inject constructor(
         // Loading the chat model ahead of a message waits until no other exclusive engine works.
         llm.mayPrepare = { (busy() intersect EngineMemoryPolicy.before(Engine.LLM)).isEmpty() }
         sd.beforeJob = { free(EngineMemoryPolicy.before(Engine.IMAGE)) }
+        // Loading an image model ahead of Generate never evicts an engine that is working.
+        sd.mayPrepare = { (busy() intersect EngineMemoryPolicy.before(Engine.IMAGE)).isEmpty() }
         npu.beforeJob = { free(EngineMemoryPolicy.before(Engine.NPU)) }
         speech.beforeJob = { free(EngineMemoryPolicy.before(Engine.SPEECH)) }
         audio.beforeJob = { free(EngineMemoryPolicy.before(Engine.AUDIO)) }

@@ -88,7 +88,9 @@ class OnDeviceEngine(
         val initFile = inputs.initImage?.takeIf { request.mode != DiffusionMode.TXT2IMG }?.let { write("init", it) }
         val maskFile = inputs.mask?.takeIf { request.mode == DiffusionMode.INPAINT }?.let { write("mask", it) }
         llm.unloadModel()
-        val started = clock()
+        val events = SdEvents(clock)
+        // Waits for the model being loaded ahead of time (the engine runs requests in order).
+        if (sd.isPreparing) emit(DiffusionEvent.Phase(LOADING))
         try {
             sd.generate(
                 SdRequest(
@@ -109,16 +111,7 @@ class OnDeviceEngine(
                     initImagePath = initFile?.path,
                     maskPath = maskFile?.path,
                 ),
-            ).collect { event ->
-                when (event) {
-                    is LocalSdEvent.Progress -> emit(DiffusionEvent.Progress(0, event.step, event.steps))
-                    is LocalSdEvent.Preview -> emit(DiffusionEvent.Progress(0, -1, -1, event.jpeg))
-                    is LocalSdEvent.Image -> emit(
-                        DiffusionEvent.Result(event.index, event.png, event.seed, event.width, event.height, clock() - started),
-                    )
-                    is LocalSdEvent.Status -> Unit
-                }
-            }
+            ).collect { event -> events.map(event)?.let { emit(it) } }
         } finally {
             initFile?.delete()
             maskFile?.delete()
@@ -127,6 +120,41 @@ class OnDeviceEngine(
         if (e is SdEngineException) throw DiffusionException(e.message ?: "Engine error", DiffusionException.Code.BACKEND)
         throw e
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * stable-diffusion.cpp events → [DiffusionEvent]s. The engine samples a batch one image after
+     * another and reports steps without an index: the image is the number finished so far. A
+     * preview carries no step (the bar keeps its place), and the model load is a phase.
+     */
+    internal class SdEvents(private val clock: () -> Long) {
+        private val started = clock()
+        private var done = 0
+
+        fun map(event: LocalSdEvent): DiffusionEvent? = when (event) {
+            is LocalSdEvent.Progress -> DiffusionEvent.Progress(done, event.step, event.steps)
+            is LocalSdEvent.Preview -> DiffusionEvent.Progress(done, -1, -1, event.jpeg)
+            is LocalSdEvent.Image -> {
+                done = event.index + 1
+                DiffusionEvent.Result(event.index, event.png, event.seed, event.width, event.height, clock() - started)
+            }
+            is LocalSdEvent.Status -> phaseOf(event.status)?.let(DiffusionEvent::Phase)
+        }
+    }
+
+    /**
+     * Loads the model [request] would run ahead of Generate (stable-diffusion.cpp models; the NPU
+     * engine loads per job). Does nothing without one, or while another engine works.
+     */
+    override suspend fun prepare(request: DiffusionRequest) {
+        val images = library.all().filter { runnable(it) && it.kind == ModelKind.IMAGE }
+        val model = images.firstOrNull { it.id == request.model } ?: images.firstOrNull() ?: return
+        if (model.engine != EngineKind.DIFFUSION) return
+        try {
+            sd.prepare(bundleOf(model))
+        } catch (e: SdEngineException) {
+            // A warm-up that fails says nothing: Generate reports the problem properly.
+        }
+    }
 
     private fun write(prefix: String, bytes: ByteArray): File {
         scratchDir.mkdirs()
@@ -147,6 +175,16 @@ class OnDeviceEngine(
                 request.mode != DiffusionMode.TXT2IMG && request.denoiseStrength !in 0f..1f -> "Denoise strength must be between 0 and 1 (got ${request.denoiseStrength})"
                 else -> null
             }
+        }
+
+        const val LOADING = "Loading the model"
+        const val DECODING = "Decoding the image"
+
+        /** A native engine status line → the phase the UI shows, or null for ones it doesn't. */
+        fun phaseOf(status: String): String? = when {
+            status.contains("load", ignoreCase = true) -> LOADING
+            status.contains("decod", ignoreCase = true) -> DECODING
+            else -> null
         }
 
         val SAMPLERS = listOf("euler_a", "euler", "dpm++2m", "dpm++2m_sde", "dpm++2s_a", "heun", "lcm", "ddim_trailing", "tcd", "ipndm")

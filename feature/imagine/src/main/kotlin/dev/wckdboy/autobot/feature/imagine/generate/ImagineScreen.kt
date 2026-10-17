@@ -103,6 +103,8 @@ import dev.wckdboy.autobot.core.diffusion.engine.LocalSseEngine
 import dev.wckdboy.autobot.core.diffusion.engine.OnDeviceEngine
 import dev.wckdboy.autobot.feature.imagine.mask.MaskEditorDialog
 import dev.wckdboy.autobot.feature.imagine.mask.MaskOverlay
+import dev.wckdboy.autobot.shared.studio.PromptLibrary
+import dev.wckdboy.autobot.shared.studio.PromptSnippet
 import java.util.Locale
 import kotlinx.coroutines.delay
 
@@ -139,6 +141,7 @@ fun ImagineRoute(
 
 private val ASPECTS = listOf("1:1" to (1 to 1), "2:3" to (2 to 3), "3:2" to (3 to 2), "3:4" to (3 to 4), "4:3" to (4 to 3), "9:16" to (9 to 16), "16:9" to (16 to 9))
 private val BASES = listOf(512, 768, 1024)
+private val IMAGE_NEGATIVES = setOf("neg-general", "neg-anatomy", "neg-photo")
 private val DEFAULT_SAMPLERS = listOf("DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "LCM", "DDIM", "UniPC")
 
 /** The image studio (mockup 04): paper surface, big prompt, model chips, readouts, 2×2 proofs. */
@@ -198,7 +201,8 @@ fun ImagineScreen(
             }
 
             // An engine is ready and nothing is written yet: the keyboard comes up, one tap fewer to a first image.
-            PromptField(request.prompt, actions::setPrompt, state.tokenEstimate, autoFocus = state.loaded && state.backends.isNotEmpty())
+            PromptField(request.prompt, actions::setPrompt, state.tokenEstimate, state.wildcards, autoFocus = state.loaded && state.backends.isNotEmpty())
+            if (request.prompt.isNotBlank() && state.running == null) StyleRow(actions::applyStyle)
 
             // Model chips: on-device models and each PC backend's checkpoints.
             if (state.chips.isNotEmpty()) {
@@ -278,7 +282,7 @@ private fun sizeLabel(w: Int, h: Int) = if (w == h) "$w²" else "${w}×$h"
 
 /** The prompt, set in the display face with a red caret (mockup 04). */
 @Composable
-private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, autoFocus: Boolean = false) {
+private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, wildcards: String?, autoFocus: Boolean = false) {
     // The text lives here: typing never waits on the studio's state round trip.
     val prompt = rememberLocalText(value, onChange)
     val focus = remember { FocusRequester() }
@@ -306,7 +310,20 @@ private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, 
                 },
             )
         }
-        MicroLabel("~$tokens / 75 tokens", color = if (tokens > 75) AutobotColors.RedDeep else MaterialTheme.colorScheme.onSurfaceVariant)
+        if (wildcards != null) {
+            MicroLabel(wildcards, color = MaterialTheme.colorScheme.primary)
+        } else {
+            MicroLabel("~$tokens / 75 tokens", color = if (tokens > 75) AutobotColors.RedDeep else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Built-in styles: one tap wraps the prompt (and adds the style's negatives). */
+@Composable
+private fun StyleRow(onApply: (PromptSnippet) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        MicroLabel("style")
+        PromptLibrary.builtInStyles.forEach { style -> Tag(style.name, onClick = { onApply(style) }) }
     }
 }
 
@@ -352,13 +369,13 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient,
                                 preview = if (live) running.preview else null,
                                 modifier = Modifier.fillMaxSize(),
                                 progress = if (live && running.totalSteps > 0) running.step.toFloat() / running.totalSteps else 0f,
-                                loading = !live || running.totalSteps == 0,
+                                loading = !live || running.totalSteps <= 0 || running.phase != null,
                                 seed = i.toFloat(),
                             )
                             else -> HalftoneField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant, ambient = ambient)
                         }
                         if (running != null && i == running.image) {
-                            if (running.totalSteps > 0) {
+                            if (running.totalSteps > 0 && running.phase == null) {
                                 Tag(
                                     "step ${running.step}/${running.totalSteps}",
                                     Modifier.align(Alignment.BottomStart).padding(6.dp),
@@ -367,7 +384,7 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient,
                                 )
                             } else {
                                 // The model is still loading: no label, just the ink loader.
-                                InkLoader(Modifier.align(Alignment.BottomStart).padding(8.dp), contentDescription = "Loading the model")
+                                InkLoader(Modifier.align(Alignment.BottomStart).padding(8.dp), contentDescription = running.phase ?: "Loading the model")
                             }
                         }
                     }
@@ -396,6 +413,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 when {
+                    running?.phase != null -> "${running.phase} · ${(now - running.startedAt) / 1000} s"
                     running != null && running.byAgent -> "Agent is generating · ${(now - running.startedAt) / 1000} s"
                     running != null -> "Running ${if (state.backend?.kind == BackendKind.ON_DEVICE) "on device" else "on ${state.backend?.name}"} · ${(now - running.startedAt) / 1000} s"
                     state.results.isNotEmpty() -> "Done · ${state.results.size} image${if (state.results.size == 1) "" else "s"}"
@@ -414,7 +432,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
         }
         InkProgressBar(
             // Indeterminate while the model loads (no steps yet).
-            progress = if (running == null) 0f else if (running.totalSteps > 0) (running.image + running.step.toFloat() / running.totalSteps) / running.batch.coerceAtLeast(1) else null,
+            progress = if (running == null) 0f else if (running.totalSteps > 0 && running.phase == null) (running.image + running.step.toFloat() / running.totalSteps) / running.batch.coerceAtLeast(1) else null,
             modifier = Modifier.fillMaxWidth().height(2.dp),
             state = if (running != null) InkBarState.Running else InkBarState.Idle,
         )
@@ -490,6 +508,11 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
             Segmented(modes, request.mode, actions::setMode, { it.label }, Modifier.fillMaxWidth().inkStagger(1))
 
             ConsoleTextField(request.negativePrompt, actions::setNegative, Modifier.fillMaxWidth().inkStagger(2), label = "Negative", minLines = 2, maxLines = 5, mono = true)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                MicroLabel("presets")
+                // Video and audio presets belong to the Studio's other rooms.
+                PromptLibrary.negativePresets.filter { it.id in IMAGE_NEGATIVES }.forEach { preset -> Tag(preset.name, onClick = { actions.addNegative(preset) }) }
+            }
 
             val (samplers, value) = when (state.backend?.kind) {
                 BackendKind.ON_DEVICE -> OnDeviceEngine.SAMPLERS to OnDeviceEngine.samplerId(request.sampler).ifBlank { "model default" }

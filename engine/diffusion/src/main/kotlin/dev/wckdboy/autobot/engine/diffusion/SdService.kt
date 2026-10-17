@@ -135,6 +135,11 @@ class SdService : Service() {
                 }
                 loadedKey = key
             }
+            if (r.getBoolean(SdRequest.K_PREPARE)) {
+                // Loaded ahead of the first image: the model stays resident for the generate that follows.
+                callback.onDone(null)
+                return
+            }
             val width = r.getInt(SdRequest.K_WIDTH)
             val height = r.getInt(SdRequest.K_HEIGHT)
             val init = r.getString(SdRequest.K_INIT)?.let { decodeRgb(it, width, height) }

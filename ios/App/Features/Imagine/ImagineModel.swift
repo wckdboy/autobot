@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Observation
 import UIKit
@@ -46,6 +47,8 @@ final class ImagineModel {
     private(set) var catalogError: String?
     private(set) var localError: String?
     private(set) var results: [ResultUi] = []
+    /// An ahead-of-time model load runs ([warmUp]): what it does, for the status line.
+    private(set) var warming: String?
 
     @ObservationIgnored private let app: AppContainer
     @ObservationIgnored private var initSource: CGImage?
@@ -54,6 +57,8 @@ final class ImagineModel {
     /// Engine capabilities by backend kind (they are constants of the engine type; building an
     /// engine to read them on every render was wasted work).
     @ObservationIgnored private var capabilityCache: [BackendKind: EngineCapabilities] = [:]
+    /// The on-device model last loaded ahead of time (or tried): one warm-up per model.
+    @ObservationIgnored private var warmedModel: String?
     /// Settings the user changed by hand this session: choosing a model keeps them.
     @ObservationIgnored private(set) var userEdited: Set<ImageSetting> = []
 
@@ -107,6 +112,13 @@ final class ImagineModel {
     var isRunning: Bool { app.generator.isBusy }
     var error: String? { localError ?? app.generator.lastError }
     var tokenEstimate: Int { PromptSyntax.estimateTokens(request.prompt) }
+
+    /// `{a|b}` in the prompt: what the run will make (`wildcards · 2 prompts × 2 = 4 images`), or nil.
+    var wildcards: String? { PromptRuns.shared.summary(template: request.prompt, batch: Int32(request.batchCount), maxImages: PromptRuns.shared.MAX_IMAGES) }
+
+    /// Built-in styles for the style row, and the negative presets that fit images.
+    static let styles: [PromptSnippet] = PromptLibrary.shared.builtInStyles
+    static let negativePresets: [PromptSnippet] = PromptLibrary.shared.negativePresets.filter { ["neg-general", "neg-anatomy", "neg-photo"].contains($0.id) }
 
     var canGenerate: Bool { !isRunning && generateBlocker == nil }
 
@@ -181,7 +193,52 @@ final class ImagineModel {
         preferInit = mode != .txt2img
     }
 
-    func setPrompt(_ text: String) { edit { $0.prompt = text } }
+    func setPrompt(_ text: String) {
+        edit { $0.prompt = text }
+        warmUp()
+    }
+
+    /**
+     Whether to load the on-device model ahead of Generate: a prompt is being written for an
+     on-device model not warmed yet, and no image job runs. Time to first image is mostly the
+     pipeline load (and, the first time on a phone, the Neural Engine compile).
+     */
+    nonisolated static func shouldWarm(onDevice: Bool, model: String?, warmed: String?, busy: Bool, prompt: String) -> Bool {
+        guard onDevice, let model, model != warmed, !busy else { return false }
+        return !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Loads the selected on-device model while the prompt is written (see [shouldWarm]). Skipped
+    /// while chat, voice, upscaling or audio hold the memory; the engine memory coordinator makes
+    /// room for it like for a generation and takes it back on a memory warning or in the background.
+    func warmUp() {
+        guard let backend, let model = selectedChip?.model,
+              Self.shouldWarm(onDevice: backend.kind == .onDevice, model: model, warmed: warmedModel, busy: isRunning, prompt: request.prompt),
+              let engine = app.generator.engine(for: backend) as? OnDeviceEngine else { return }
+        warmedModel = model
+        let r = request
+        Task { [weak self] in
+            guard await !EngineMemory.shared.isBusy(any: [.llm, .whisper, .tts, .upscaler, .audio, .diffusion]) else { return }
+            try? await engine.prepare(r) { phase in
+                Task { @MainActor in self?.warming = phase }
+            }
+            self?.warming = nil
+        }
+    }
+
+    /// Wraps the prompt in [style] (`{prompt}` placeholder) and merges its negatives.
+    func applyStyle(_ style: PromptSnippet) {
+        let styled = PromptLibrary.shared.applyStyle(prompt: request.prompt, negative: request.negativePrompt, style: style)
+        edit {
+            $0.prompt = styled.first as String? ?? $0.prompt
+            $0.negativePrompt = styled.second as String? ?? $0.negativePrompt
+        }
+    }
+
+    /// Adds a negative preset's terms (ones already there are not repeated).
+    func addNegative(_ preset: PromptSnippet) {
+        edit { $0.negativePrompt = PromptLibrary.shared.joinNegative(current: $0.negativePrompt, add: preset.text) }
+    }
     func setNegative(_ text: String) { edit { $0.negativePrompt = text } }
     func setSteps(_ steps: Int) {
         userEdited.insert(.steps)
@@ -236,6 +293,7 @@ final class ImagineModel {
     func selectChip(_ chip: ModelChip) {
         if backend?.id != chip.backendId { selectBackend(chip.backendId) }
         setModel(chip.model)
+        defer { warmUp() }
         guard let rec = recommended(chip) else { return }
         let kept = userEdited
         edit { ImageDefaults.apply(rec, to: &$0, keeping: kept) }

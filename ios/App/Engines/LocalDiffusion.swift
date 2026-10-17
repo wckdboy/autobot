@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 #if canImport(AutobotEngines)
 import AutobotEngines
 #endif
@@ -20,6 +21,13 @@ struct LocalDiffusionModelInfo: Sendable, Equatable {
  Android's on-device image engines. Nothing is fetched or sent.
  */
 final class LocalDiffusion: Sendable {
+    static let loadingPhase = "Loading the model"
+    static let firstRunPhase = "Preparing the model for this phone (first run only, can take a few minutes)"
+
+    /// Ahead-of-time loads in flight ([prepare]): a generate queued behind one says it is loading.
+    private static let preparing = Mutex(0)
+    static var isPreparing: Bool { preparing.withLock { $0 > 0 } }
+
     /// Samplers / schedulers the Core ML pipeline offers.
     static var samplers: [String] {
         #if canImport(AutobotEngines)
@@ -92,6 +100,8 @@ final class LocalDiffusion: Sendable {
             model: request.model,
         )
         let engine = AutobotEngines.DiffusionEngine.shared
+        // Waits for an ahead-of-time load of this model (same engine thread) instead of loading it again.
+        if Self.isPreparing { onEvent(.phase(Self.loadingPhase)) }
         do {
             // Cancelling this task cancels this request only (the engine's per-request token).
             _ = try await EngineMemory.using(.diffusion) {
@@ -104,14 +114,36 @@ final class LocalDiffusion: Sendable {
                 ) { event in
                     switch event {
                     case .loading(let firstRun):
-                        onEvent(.phase(firstRun
-                            ? "Preparing the model for this phone (first run only, can take a few minutes)"
-                            : "Loading the model"))
+                        onEvent(.phase(firstRun ? Self.firstRunPhase : Self.loadingPhase))
                     case .progress(let image, let step, let total, let preview):
                         onEvent(.progress(image: image, step: step, totalSteps: total, preview: preview))
                     case .result(let img):
                         onEvent(.result(index: img.index, image: img.image, seed: img.seed, width: img.width, height: img.height, durationMs: img.durationMs, info: img.info))
                     }
+                }
+            }
+        } catch {
+            throw Engines.map(error)
+        }
+        #else
+        throw EngineUnavailable()
+        #endif
+    }
+
+    /**
+     Loads [model]'s pipeline ahead of the first image, through [EngineMemory] like a generation
+     (the engines that must not share memory with it go first). [onPhase] gets the loading phase
+     when a load actually starts.
+     */
+    func prepare(_ model: LocalDiffusionModelInfo, backend: Backend, onPhase: @escaping @Sendable (String) -> Void = { _ in }) async throws {
+        #if canImport(AutobotEngines)
+        let engineModel = try CoreMLDiffusionModel.inspect(model.folder)
+        Self.preparing.withLock { $0 += 1 }
+        defer { Self.preparing.withLock { $0 -= 1 } }
+        do {
+            try await EngineMemory.using(.diffusion) {
+                try await AutobotEngines.DiffusionEngine.shared.prepare(model: engineModel, backend: ComputeBackend(rawValue: backend.rawValue) ?? .auto) { event in
+                    if case .loading(let firstRun) = event { onPhase(firstRun ? Self.firstRunPhase : Self.loadingPhase) }
                 }
             }
         } catch {

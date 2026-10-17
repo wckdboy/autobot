@@ -135,6 +135,38 @@ class LocalSdTest {
     }
 
     @Test
+    fun preparingLoadsTheBundleOnlyAndIsSkippedWhileAnotherEngineWorks() = runTest(timeout = 10.seconds) {
+        val engine = FakeEngine()
+        serve(engine)
+        val sd = LocalSd(app)
+        var freed = 0
+        sd.beforeJob = { freed++ }
+        sd.mayPrepare = { false }
+        assertFalse(sd.prepare(SdBundle(model = "/m.safetensors")))
+        assertEquals(0, freed)
+        assertTrue(engine.requests.isEmpty())
+
+        sd.mayPrepare = { true }
+        var ran: Boolean? = null
+        val job = launch { ran = sd.prepare(SdBundle(model = "/m.safetensors")) }
+        pump()
+        assertTrue(sd.isPreparing)
+        val request = engine.requests.single()
+        assertTrue(request.getBoolean(SdRequest.K_PREPARE))
+        assertEquals("/m.safetensors", request.getString(SdRequest.K_MODEL))
+        // The other engines' memory goes first, as for a job.
+        assertEquals(1, freed)
+        engine.callbacks.single().onDone(null)
+        pump()
+        assertTrue(job.isCompleted)
+        assertEquals(true, ran)
+        assertFalse(sd.isPreparing)
+        assertFalse(sd.isBusy)
+        // A real job never carries the flag.
+        assertFalse(SdRequest(SdBundle(model = "/m.safetensors"), "a fox").toBundle().getBoolean(SdRequest.K_PREPARE))
+    }
+
+    @Test
     fun cancellingMidStepsStopsTheEngine() = runTest(timeout = 10.seconds) {
         val engine = FakeEngine()
         serve(engine)

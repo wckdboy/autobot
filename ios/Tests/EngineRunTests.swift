@@ -78,6 +78,28 @@ struct EngineRunTests {
         library.remove(wrong)
     }
 
+    @Test func warmingUpLoadsOnlyWhenAPromptIsWrittenForAnOnDeviceModel() async throws {
+        #expect(ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: nil, busy: false, prompt: "a lighthouse"))
+        // Once per model, never during a job, never for a PC, never on an empty prompt.
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: "m", busy: false, prompt: "a lighthouse"))
+        #expect(ImagineModel.shouldWarm(onDevice: true, model: "n", warmed: "m", busy: false, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: nil, busy: true, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: false, model: "m", warmed: nil, busy: false, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: nil, warmed: nil, busy: false, prompt: "a lighthouse"))
+        #expect(!ImagineModel.shouldWarm(onDevice: true, model: "m", warmed: nil, busy: false, prompt: "  \n"))
+
+        // Without a usable model a warm-up does nothing (no error, no memory taken).
+        let engine = OnDeviceEngine(library: library, llm: LocalLlm(), diffusion: LocalDiffusion())
+        var request = DiffusionRequest()
+        request.model = "test:\(run)-missing"
+        try await engine.prepare(request)
+        let gone = try imageModel("warm-gone", files: ["merges.txt"])
+        request.model = gone
+        try await engine.prepare(request)
+        #expect(!LocalDiffusion.isPreparing)
+        library.remove(gone)
+    }
+
     @Test func imageGenerationRunsWhereTheBenchmarkWasFastest() throws {
         let id = try imageModel("bench", files: ["VAEDecoder.mlmodelc/model.mil"])
         let compute = ComputeProfile(store: store, library: library)
@@ -177,6 +199,36 @@ struct EngineRunTests {
         #expect(generator.lastError == nil)
         #expect(gallery.items.isEmpty)
         #expect(await eventually { !ServeStub.requests(base + "interrupt").isEmpty })
+    }
+
+    // MARK: Wildcards
+
+    @Test func aWildcardPromptRunsOneCallPerPromptAsOneJob() async throws {
+        let base = "/\(run)/sdapi/v1/"
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).pngData { ctx in
+            UIColor.red.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        let answer = #"{"images":["\#(png.base64EncodedString())"],"info":"{\"seed\":42,\"width\":8,\"height\":8}"}"#
+        ServeStub.on(base + "txt2img") { _ in .body(status: 200, headers: ["Content-Type": "application/json"], data: Data(answer.utf8)) }
+        ServeStub.on(base + "progress") { _ in .body(status: 200, headers: [:], data: Data(#"{"state":{"sampling_step":0}}"#.utf8)) }
+        let clients = HttpClientFactory(policy: NetworkPolicy(), auditLog: AuditLog(), protocolClasses: [ServeStub.self])
+        let gallery = GalleryRepository(store: store, keys: KeyManager())
+        let generator = ImageGenerator(engines: DiffusionEngineFactory(clients: clients, llm: LocalLlm()), gallery: gallery,
+                                       backends: DiffusionBackendRepository(preferences: Preferences(url: dir.appendingPathComponent("p.json"))), library: library)
+        let backend = DiffusionBackend(id: "pc", kind: .sdApi, name: "PC", baseUrl: "http://127.0.0.1/\(run)")
+        var request = DiffusionRequest()
+        request.prompt = "a {red|blue} lighthouse"
+        request.seed = 42
+        #expect(request.calls().map(\.prompt) == ["a red lighthouse", "a blue lighthouse"])
+        #expect(request.calls().allSatisfy { $0.seed == 42 && $0.batchCount == 1 })
+
+        generator.start(backend, request, DiffusionInputs())
+        #expect(await eventually { generator.lastResults.count == 2 && !generator.isBusy })
+        #expect(ServeStub.requests(base + "txt2img").count == 2)
+        // Each image is stored with the prompt it was made from, never the braces.
+        #expect(Set(gallery.items.map(\.prompt)) == ["a red lighthouse", "a blue lighthouse"])
+        #expect(generator.lastError == nil)
     }
 
     // MARK: Engine memory

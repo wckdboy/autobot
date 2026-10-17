@@ -26,6 +26,18 @@ class ImagineStateTest {
     }
 
     @Test
+    fun warmUpOnlyWhenAPromptIsWrittenForAnOnDeviceModel() {
+        assertEquals(true, shouldWarm(onDevice = true, model = "m", warmed = null, busy = false, prompt = "a fox"))
+        // Once per model, never during a job, never for a PC, never on an empty prompt.
+        assertEquals(false, shouldWarm(onDevice = true, model = "m", warmed = "m", busy = false, prompt = "a fox"))
+        assertEquals(true, shouldWarm(onDevice = true, model = "n", warmed = "m", busy = false, prompt = "a fox"))
+        assertEquals(false, shouldWarm(onDevice = true, model = "m", warmed = null, busy = true, prompt = "a fox"))
+        assertEquals(false, shouldWarm(onDevice = false, model = "m", warmed = null, busy = false, prompt = "a fox"))
+        assertEquals(false, shouldWarm(onDevice = true, model = null, warmed = null, busy = false, prompt = "a fox"))
+        assertEquals(false, shouldWarm(onDevice = true, model = "m", warmed = null, busy = false, prompt = " \n"))
+    }
+
+    @Test
     fun chipsListCatalogModelsOrTheBackend() {
         assertEquals(listOf(ModelChip("pc", null, "PC", onDevice = false)), buildChips(listOf(pc), emptyList(), emptyMap()))
         val chips = buildChips(listOf(pc), emptyList(), mapOf("pc" to EngineCatalog(models = listOf("sd_xl_turbo_1.0_fp16.safetensors [abc]"))))

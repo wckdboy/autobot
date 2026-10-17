@@ -71,10 +71,20 @@ class DiffusionStudioEngine(
         if (request.mode !in engine.capabilities.modes) throw StudioEngineException("${capabilities.label} can't do ${request.mode.label}")
         val inputs = inputs(job, request.width, request.height, request.mode)
         val outputs = ArrayList<EngineOutput>()
+        var phase: String? = null
         try {
             engine.generate(request, inputs).collect { event ->
                 when (event) {
+                    is DiffusionEvent.Phase -> {
+                        phase = event.text
+                        onEvent(EngineEvent.Status(event.text))
+                    }
                     is DiffusionEvent.Progress -> {
+                        // A job's status stays until replaced: the load is over once steps arrive.
+                        if (phase != null && event.totalSteps > 0) {
+                            phase = null
+                            onEvent(EngineEvent.Status("Sampling"))
+                        }
                         if (event.totalSteps > 0) onEvent(EngineEvent.Progress(event.step, event.totalSteps))
                         event.preview?.let { onEvent(EngineEvent.Preview(ImageSniff.mimeType(it), it)) }
                     }

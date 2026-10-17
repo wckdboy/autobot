@@ -65,6 +65,9 @@ class DiffusionInputs(val initImage: ByteArray? = null, val mask: ByteArray? = n
 }
 
 sealed interface DiffusionEvent {
+    /** What the backend does before sampling starts (loading the model), for the UI. */
+    class Phase(val text: String) : DiffusionEvent
+
     /** Sampling progress. [preview] is an encoded image when the backend sends one. */
     class Progress(val image: Int, val step: Int, val totalSteps: Int, val preview: ByteArray? = null) : DiffusionEvent {
         val fraction: Float get() = if (totalSteps <= 0) 0f else step.toFloat() / totalSteps
@@ -123,6 +126,9 @@ interface DiffusionEngine {
     val capabilities: EngineCapabilities
     suspend fun catalog(): EngineCatalog
     fun generate(request: DiffusionRequest, inputs: DiffusionInputs = DiffusionInputs()): Flow<DiffusionEvent>
+
+    /** Loads what [request] needs ahead of Generate (on-device models); remote backends do nothing. */
+    suspend fun prepare(request: DiffusionRequest) = Unit
 }
 
 /** Prompt helpers shared by engines and UI. */
