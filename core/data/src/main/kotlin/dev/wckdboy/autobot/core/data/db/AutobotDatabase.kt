@@ -25,6 +25,8 @@ import dev.wckdboy.autobot.core.data.model.StudioJobRow
 import dev.wckdboy.autobot.core.data.model.StudioProjectRow
 import dev.wckdboy.autobot.core.data.model.StudioSnippetRow
 import dev.wckdboy.autobot.core.data.model.StudioWorkflowRow
+import dev.wckdboy.autobot.core.data.model.UsagePlanRow
+import dev.wckdboy.autobot.core.data.model.UsageRecordRow
 import dev.wckdboy.autobot.core.data.model.VaultChunkRow
 import dev.wckdboy.autobot.core.data.model.VaultDocumentRow
 import dev.wckdboy.autobot.core.security.KeyManager
@@ -42,20 +44,22 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         BenchmarkRow::class, McpServer::class, MemoryNoteRow::class, ProviderModelsRow::class, VaultDocumentRow::class, VaultChunkRow::class,
         ChatFolderRow::class, ConversationTextRow::class,
         StudioProjectRow::class, StudioAssetRow::class, StudioWorkflowRow::class, StudioSnippetRow::class, StudioJobRow::class,
+        UsageRecordRow::class, UsagePlanRow::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
     // 4 → 5 adds `mcp_servers`, 5 → 6 `memory_notes` (local memory), 6 → 7 `providers.presetId` and
     // `provider_models` (fetched model lists), 7 → 8 `providers.helperModel`, 8 → 9 `vault_documents` and
     // `vault_chunks` (private vault), 9 → 10 chat organization (`conversations.pinned`/`archived`/`folderId`,
     // `chat_folders`, `conversation_text` for search), 10 → 11 the Creative Studio (`studio_projects`, `studio_assets`,
     // `studio_workflows`, `studio_snippets`, `studio_jobs`), 11 → 12 drops `session_events`' redundant
-    // `sessionId` index (its primary key covers it); existing data is untouched.
+    // `sessionId` index (its primary key covers it), 12 → 13 the spend and quota board (`usage_records`,
+    // `usage_plan`); existing data is untouched.
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
         AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10), AutoMigration(from = 10, to = 11),
-        AutoMigration(from = 11, to = 12),
+        AutoMigration(from = 11, to = 12), AutoMigration(from = 12, to = 13),
     ],
 )
 abstract class AutobotDatabase : RoomDatabase() {
@@ -72,6 +76,7 @@ abstract class AutobotDatabase : RoomDatabase() {
     abstract fun vaultDao(): VaultDao
     abstract fun chatFolderDao(): ChatFolderDao
     abstract fun studioDao(): StudioDao
+    abstract fun usageDao(): UsageDao
 
     companion object {
         const val NAME = "autobot.db"

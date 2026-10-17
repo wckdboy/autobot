@@ -78,7 +78,7 @@ open class OpenAICompatibleProvider(
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
                         val text = errorBody(response)
-                        send(QuotaErrors.refine(wire.httpError(response.code, text), response.code, text, response.header("Retry-After"), ProviderSessions.name(preset)))
+                        send(QuotaErrors.refine(wire.httpError(response.code, text), response.code, text, response.headers.associate { (k, v) -> k.lowercase() to v }, ProviderSessions.name(preset)))
                     } else {
                         readStream(wire, response) { send(it) }
                     }

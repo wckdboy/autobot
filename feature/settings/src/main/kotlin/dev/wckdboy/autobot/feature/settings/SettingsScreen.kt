@@ -155,6 +155,7 @@ fun SettingsRoute(
     onOpenMemory: () -> Unit = {},
     onOpenVault: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    onOpenUsage: () -> Unit = {},
     about: String = "About",
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
@@ -208,6 +209,7 @@ fun SettingsRoute(
         onOpenVault = onOpenVault,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
+        onOpenUsage = onOpenUsage,
         onDeleteAllChats = { confirmDeleteChats = true },
         onOpenAbout = onOpenAbout,
         about = about,
@@ -235,6 +237,7 @@ fun SettingsScreen(
     onOpenVault: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
+    onOpenUsage: () -> Unit = {},
     onDeleteAllChats: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     about: String = "About",
@@ -311,6 +314,7 @@ fun SettingsScreen(
                 onQuotaFallback,
                 info = "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
             )
+            NavRow("Usage", onOpenUsage, info = "Tokens, cost and subscription windows, counted on this phone from each provider's reports.")
             NavRow("MCP servers", onOpenMcpServers)
             Divider()
 

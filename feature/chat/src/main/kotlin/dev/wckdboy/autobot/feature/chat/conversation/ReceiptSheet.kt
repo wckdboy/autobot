@@ -55,7 +55,7 @@ private const val TRAINS = "trains on prompts"
 /** Everything one turn shared, and with whom. Built on this phone; never sent anywhere. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit) {
+internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: (() -> Unit)? = null) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
@@ -93,8 +93,23 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        receipt.usageRows.firstOrNull { it.model == m.model }?.let { MicroLabel(it.line) }
                     }
                 }
+            }
+
+            receipt.usage?.let { usage ->
+                Hairline(Modifier.padding(vertical = 2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MicroLabel("tokens", Modifier.weight(1f))
+                    onOpenUsage?.let { Tag("usage", accent = MaterialTheme.colorScheme.onSurfaceVariant, onClick = it) }
+                }
+                Text(usage, style = AutobotTheme.styles.code, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Counted from the provider's own usage report. Cost uses your price table; models without a price stay unknown.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             if (receipt.tools.isNotEmpty()) {
