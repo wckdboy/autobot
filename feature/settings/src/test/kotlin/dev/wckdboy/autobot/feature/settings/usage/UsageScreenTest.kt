@@ -3,6 +3,11 @@ package dev.wckdboy.autobot.feature.settings.usage
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -22,6 +27,7 @@ import dev.wckdboy.autobot.shared.usage.UsageRecord
 import dev.wckdboy.autobot.shared.usage.WindowPeriod
 import dev.wckdboy.autobot.shared.usage.ZoneRules
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -101,5 +107,31 @@ class UsageScreenTest {
         val line = "1 requests of 10 requests · oldest use rolls off in ~5 h"
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(line, substring = true))
         compose.onNodeWithText(line, substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun aMistypedLimitCannotBeSavedAsNoLimit() {
+        val actions = FakeActions()
+        compose.setContent { Themed { UsageScreen(state(UsagePlan()), actions, onBack = {}) } }
+        scrollTo("+ WINDOW")
+        compose.onNodeWithText("+ WINDOW").performClick()
+        val field = compose.onNode(hasSetTextAction())
+        field.performTextInput("12x")
+        compose.onNodeWithText("SAVE").assertIsNotEnabled()
+        field.performTextReplacement("1,000,000")
+        compose.onNodeWithText("SAVE").assertIsEnabled().performClick()
+        assertEquals(1, actions.calls.count { it.startsWith("window ") })
+    }
+
+    @Test
+    fun limitsReadGroupedCountsAndDollars() {
+        assertEquals(1_000_000.0, parseLimit("1,000,000", LimitUnit.TOKENS))
+        assertEquals(1_000_000.0, parseLimit("1.000.000", LimitUnit.TOKENS))
+        assertEquals(2_500.0, parseLimit(" 2 500 ", LimitUnit.REQUESTS))
+        assertEquals(300.0, parseLimit("300", LimitUnit.REQUESTS))
+        assertNull(parseLimit("1.5", LimitUnit.TOKENS))
+        assertNull(parseLimit("1,00", LimitUnit.TOKENS))
+        assertNull(parseLimit("12x", LimitUnit.TOKENS))
+        assertEquals(12.5, parseLimit("12,50", LimitUnit.USD)!!, 1e-9)
     }
 }
