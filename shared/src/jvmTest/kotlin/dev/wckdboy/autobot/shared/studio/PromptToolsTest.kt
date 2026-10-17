@@ -82,6 +82,43 @@ class PromptToolsTest {
     }
 
     @Test
+    fun quickRunsKeepAPlainPromptAsOneBatchedCall() {
+        assertEquals(listOf(PromptRun("a cat", 4, 7)), PromptRuns.plan("a cat", batch = 4, seed = 7))
+        assertEquals(null, PromptRuns.summary("a cat", 4))
+        // SD emphasis is not a wildcard.
+        assertEquals(1, PromptRuns.plan("(a cat:1.2)", batch = 1, seed = -1).size)
+    }
+
+    @Test
+    fun quickRunsExpandWildcardsWithTheSameSeedPerPrompt() {
+        val runs = PromptRuns.plan("a {red|blue} cat", batch = 2, seed = 42)
+        assertEquals(listOf(PromptRun("a red cat", 2, 42), PromptRun("a blue cat", 2, 42)), runs)
+        assertEquals("wildcards · 2 prompts × 2 = 4 images", PromptRuns.summary("a {red|blue} cat", 2))
+        assertEquals("wildcards · 1 prompt = 1 image", PromptRuns.summary("{a cat}", 1))
+        // Random stays random for each call.
+        assertTrue(PromptRuns.plan("{a|b}", 1, -1).all { it.seed == -1L })
+    }
+
+    @Test
+    fun quickRunsAreCappedInImagesNotJustPrompts() {
+        val template = "{a|b|c|d|e|f|g|h|i|j} {1|2|3}"
+        val runs = PromptRuns.plan(template, batch = 4, seed = 1)
+        assertEquals(4, runs.size)
+        assertEquals(PromptRuns.MAX_IMAGES, runs.sumOf { it.count })
+        assertEquals(PromptRuns.MAX_IMAGES, PromptRuns.images(template, 4))
+        assertEquals("wildcards · 4 of 30 prompts × 4 = 16 images", PromptRuns.summary(template, 4))
+        // A batch bigger than the cap is cut to it (one call).
+        assertEquals(2, PromptRuns.plan("x", batch = 3, seed = 1, maxImages = 2).single().count)
+    }
+
+    @Test
+    fun quickRunsTrimAndSkipEmptyExpansions() {
+        assertEquals(listOf("a cat", "cat"), PromptRuns.plan("{a |}cat", 1, -1).map { it.prompt })
+        // Every option weighted out: the prompt runs as typed rather than not at all.
+        assertEquals(listOf("{x:0}"), PromptRuns.plan("{x:0}", 1, -1).map { it.prompt })
+    }
+
+    @Test
     fun gridVariesTwoParamsRowByRow() {
         val base = Recipe(EngineKinds.DIFFUSION, seed = 1)
         val plan = GridPlanner.plan(

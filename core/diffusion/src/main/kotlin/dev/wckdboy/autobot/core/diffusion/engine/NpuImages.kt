@@ -69,11 +69,14 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
                 }
             }
             val started = clock()
+            // A batch samples one image after another and steps carry no index.
+            var done = 0
             npu.generate(json.toString()).collect { event ->
                 when (event) {
-                    is NpuEvent.Progress -> out.emit(DiffusionEvent.Progress(0, event.step, event.steps))
-                    is NpuEvent.Status -> Unit
+                    is NpuEvent.Progress -> out.emit(DiffusionEvent.Progress(done, event.step, event.steps))
+                    is NpuEvent.Status -> OnDeviceEngine.phaseOf(event.status)?.let { out.emit(DiffusionEvent.Phase(it)) }
                     is NpuEvent.Image -> {
+                        done = event.index + 1
                         val file = File(event.path)
                         val png = try {
                             png(file.readBytes(), event.width, event.height)

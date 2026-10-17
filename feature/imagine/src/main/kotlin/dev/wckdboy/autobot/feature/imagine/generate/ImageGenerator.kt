@@ -9,6 +9,7 @@ import dev.wckdboy.autobot.core.diffusion.DiffusionEvent
 import dev.wckdboy.autobot.core.diffusion.DiffusionException
 import dev.wckdboy.autobot.core.diffusion.DiffusionInputs
 import dev.wckdboy.autobot.core.diffusion.DiffusionRequest
+import dev.wckdboy.autobot.shared.studio.PromptRuns
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -33,6 +34,11 @@ enum class GenerationSource { USER, AGENT }
 sealed interface GenerationState {
     data object Idle : GenerationState
 
+    /**
+     * [image] counts across the whole job (a wildcard prompt is one engine call per expanded
+     * prompt, [totalImages] in all; [imageOffset] is where the current call starts). [phase] is
+     * what the engine does before sampling (loading the model), cleared by the first step.
+     */
     data class Running(
         val source: GenerationSource,
         val backend: String,
@@ -43,8 +49,32 @@ sealed interface GenerationState {
         val preview: ByteArray? = null,
         val startedAt: Long,
         val done: List<String> = emptyList(),
-    ) : GenerationState
+        val totalImages: Int = request.batchCount.coerceAtLeast(1),
+        val imageOffset: Int = 0,
+        val phase: String? = null,
+    ) : GenerationState {
+        /** A step (or a preview, which carries no step: the step and bar stay where they are). */
+        fun on(event: DiffusionEvent.Progress): Running =
+            if (event.step < 0 || event.totalSteps <= 0) {
+                copy(preview = event.preview ?: preview)
+            } else {
+                copy(image = imageOffset + event.image, step = event.step, totalSteps = event.totalSteps, preview = event.preview ?: preview, phase = null)
+            }
+
+        fun on(event: DiffusionEvent.Phase): Running = copy(phase = event.text)
+
+        /** The next engine call of the job starts after the images already made. */
+        fun next(call: DiffusionRequest): Running =
+            copy(request = call, image = done.size, imageOffset = done.size, step = 0, totalSteps = call.steps, phase = null)
+    }
 }
+
+/**
+ * The engine calls of one user job: the request as is, or one per wildcard-expanded prompt
+ * (each with the batch and the seed; see [PromptRuns]).
+ */
+fun DiffusionRequest.calls(): List<DiffusionRequest> =
+    PromptRuns.plan(prompt, batchCount, seed).map { copy(prompt = it.prompt, batchCount = it.count, seed = it.seed) }
 
 /** One stored result. */
 data class GeneratedImage(val galleryId: String, val seed: Long, val width: Int, val height: Int, val durationMs: Long)
@@ -81,7 +111,7 @@ class ImageGenerator @Inject constructor(
         _lastResults.value = emptyList()
         userJob = scope.launch {
             try {
-                generate(backend, request, inputs, GenerationSource.USER) { image -> _lastResults.update { it + image } }
+                generate(backend, request.calls(), inputs, GenerationSource.USER) { image -> _lastResults.update { it + image } }
             } catch (e: TimeoutCancellationException) {
                 // A timeout inside the engine is a failure to show, not the user's cancel.
                 _lastError.value = e.message ?: "The image engine did not answer in time"
@@ -117,27 +147,36 @@ class ImageGenerator @Inject constructor(
         inputs: DiffusionInputs = DiffusionInputs(),
         source: GenerationSource = GenerationSource.USER,
         onResult: (GeneratedImage) -> Unit = {},
+    ): List<GeneratedImage> = generate(backend, listOf(request), inputs, source, onResult)
+
+    /** Runs [calls] one after another as one job (one slot, one progress state). */
+    private suspend fun generate(
+        backend: DiffusionBackend,
+        calls: List<DiffusionRequest>,
+        inputs: DiffusionInputs,
+        source: GenerationSource,
+        onResult: (GeneratedImage) -> Unit,
     ): List<GeneratedImage> = mutex.withLock {
         val engine = engines.create(backend)
         val started = System.currentTimeMillis()
         val saved = mutableListOf<GeneratedImage>()
-        _state.value = GenerationState.Running(source, backend.name, request, totalSteps = request.steps, startedAt = started)
+        val first = calls.first()
+        _state.value = GenerationState.Running(
+            source, backend.name, first, totalSteps = first.steps, startedAt = started, totalImages = calls.sumOf { it.batchCount.coerceAtLeast(1) },
+        )
         try {
-            engine.generate(request, inputs).collect { event ->
-                when (event) {
-                    is DiffusionEvent.Progress -> _state.update { s ->
-                        (s as? GenerationState.Running)?.copy(
-                            image = event.image,
-                            step = event.step,
-                            totalSteps = event.totalSteps,
-                            preview = event.preview ?: s.preview,
-                        ) ?: s
-                    }
-                    is DiffusionEvent.Result -> {
-                        val stored = store(backend, request, event)
-                        saved += stored
-                        onResult(stored)
-                        _state.update { s -> (s as? GenerationState.Running)?.copy(done = s.done + stored.galleryId, preview = event.image) ?: s }
+            for ((i, request) in calls.withIndex()) {
+                if (i > 0) _state.update { s -> (s as? GenerationState.Running)?.next(request) ?: s }
+                engine.generate(request, inputs).collect { event ->
+                    when (event) {
+                        is DiffusionEvent.Phase -> _state.update { s -> (s as? GenerationState.Running)?.on(event) ?: s }
+                        is DiffusionEvent.Progress -> _state.update { s -> (s as? GenerationState.Running)?.on(event) ?: s }
+                        is DiffusionEvent.Result -> {
+                            val stored = store(backend, request, event)
+                            saved += stored
+                            onResult(stored)
+                            _state.update { s -> (s as? GenerationState.Running)?.copy(done = s.done + stored.galleryId, preview = event.image, phase = null) ?: s }
+                        }
                     }
                 }
             }
