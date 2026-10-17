@@ -260,8 +260,12 @@ catalog, read attached photos. Hub downloads pick up a repo's `mmproj` automatic
 picked with the system photo picker (no storage permission), re-encoded (dropping EXIF and GPS)
 and stored encrypted. Cloud vision models receive them inline.
 
-**Speech.** Dictation uses whisper.cpp on the phone (Models → speech). Answers can be read aloud
-with Android's text-to-speech.
+**Speech.** Dictation uses whisper.cpp on the phone (Models → speech) and shows the words while
+you speak: a bounded sliding window is transcribed again every ~0.7 s, words two passes agree on
+are settled, and windows close at pauses. Audio stays in memory and is never written or sent.
+Answers are read aloud with the Kokoro neural voice when installed, else an offline system voice;
+in voice mode they are read sentence by sentence while they stream, and with hands-free on,
+talking over an answer interrupts it (echo-cancelled microphone behind an energy gate).
 
 Qualcomm's QNN runtime (`com.qualcomm.qti:qnn-runtime` from Maven Central) is proprietary. It is
 redistributed in object code inside the app under Qualcomm's AI Stack license; see NOTICE.
