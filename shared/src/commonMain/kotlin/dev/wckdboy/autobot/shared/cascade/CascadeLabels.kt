@@ -51,6 +51,11 @@ object CascadeLabels {
     /** The button of the offer: "Ask DeepSeek V3". */
     fun ask(model: String): String = "Ask ${model.ifBlank { "the cloud" }}"
 
+    /** The small print of the chat's "phone first" choice. */
+    fun sheetNote(model: String): String =
+        "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "the cloud model" }} answers below it, " +
+            "through redaction when it is on. The receipt says why."
+
     /** The notice above the cloud follow-up. */
     fun followUp(trigger: String?, reasons: List<String>): String = when (trigger) {
         "auto" -> listOfNotNull("phone → cloud · auto", reasons(reasons).ifEmpty { null }).joinToString(" · ")

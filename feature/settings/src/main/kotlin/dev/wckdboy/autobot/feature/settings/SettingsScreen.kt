@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.settings
 
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -75,6 +76,7 @@ data class SettingsUiState(
     val vaultEnabled: Boolean = false,
     val quotaFallback: Boolean = false,
     val redactCloud: Boolean = true,
+    val cascade: CascadePolicy = CascadePolicy.DEFAULT,
     val searchProvider: SearchProvider = SearchProvider.NONE,
     val offline: Boolean = false,
     /** "Offline", "Direct", "Tor", "SOCKS5": the Privacy Center row's value. */
@@ -119,6 +121,7 @@ class SettingsViewModel @Inject constructor(
             vaultEnabled = it.vaultEnabled,
             quotaFallback = it.quotaFallback,
             redactCloud = it.redactCloud,
+            cascade = it.cascade,
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
             networkLabel = networkLabel(it.networkMode),
@@ -134,6 +137,7 @@ class SettingsViewModel @Inject constructor(
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
     fun setRedactCloud(enabled: Boolean) = launch { settings.setRedactCloud(enabled) }
+    fun setCascade(policy: CascadePolicy) = launch { settings.setCascade(policy) }
 
     /** Deletes every chat, stored and incognito, for good (running turns are stopped first). */
     fun deleteAllChats() = launch { chats.deleteAll() }
@@ -213,6 +217,7 @@ fun SettingsRoute(
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
         onRedactCloud = viewModel::setRedactCloud,
+        onCascade = viewModel::setCascade,
         onOpenUsage = onOpenUsage,
         onDeleteAllChats = { confirmDeleteChats = true },
         onOpenAbout = onOpenAbout,
@@ -242,6 +247,7 @@ fun SettingsScreen(
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
     onRedactCloud: (Boolean) -> Unit = {},
+    onCascade: (CascadePolicy) -> Unit = {},
     onOpenUsage: () -> Unit = {},
     onDeleteAllChats: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
@@ -298,6 +304,24 @@ fun SettingsScreen(
                 state.redactCloud,
                 onRedactCloud,
                 info = "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
+            )
+            Text(
+                "Phone first",
+                modifier = Modifier.padding(horizontal = 16.dp).padding(top = 8.dp),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Segmented(
+                CascadePolicy.entries,
+                state.cascade,
+                onCascade,
+                { it.title.lowercase() },
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            Text(
+                state.cascade.detail + " " + CASCADE_SCOPE,
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             NavRow(
                 "Panic wipe",
@@ -379,3 +403,6 @@ private fun SettingsScreenPreview() {
         )
     }
 }
+
+/** What "Phone first" covers, under its choice (the same words on iOS). */
+internal const val CASCADE_SCOPE = "For plain chats on a cloud model; chats can choose their own."

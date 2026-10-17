@@ -146,4 +146,54 @@ class ChatScreenTest {
         compose.onNodeWithText("REDACT OFF").assertDoesNotExist()
         compose.onNodeWithText("\u25AE REDACT").assertDoesNotExist()
     }
+
+    @Test
+    fun aPlainCloudChatShowsPhoneFirstTheOfferAndTheCascadeReceipt() {
+        val local = Receipts.summarize(
+            SessionEvent.TurnReceipt(
+                turn = 1,
+                network = emptyList(),
+                cascade = dev.wckdboy.autobot.agent.core.session.ReceiptCascade(
+                    role = "local", policy = "ASK", verdict = "WEAK", reasons = listOf("refusal"), action = "OFFERED", judge = "heuristic", judgeMs = 3,
+                ),
+            ),
+        )
+        val answer = SessionItem.Assistant("a1", "I can't help with that.", null, false, null, "qwen3-1.7b", receipt = local)
+        val offer = dev.wckdboy.autobot.shared.session.CascadeOffer(1, "The phone's answer looks weak: it declined.")
+        show(
+            ChatUiState(
+                loaded = true, providers = listOf(provider), toolsEnabled = false, modelLabel = "deepseek-chat",
+                cascade = dev.wckdboy.autobot.shared.cascade.CascadePolicy.ASK, cascadeOffer = offer,
+                items = listOf(SessionItem.User("u1", "hi"), answer),
+            ),
+        )
+        compose.onNodeWithText("The phone's answer looks weak: it declined.").assertIsDisplayed()
+        compose.onNodeWithText("ASK DEEPSEEK-CHAT").performClick()
+        assertTrue(calls.toString(), "escalate()" in calls)
+
+        // The chip opens the choice; picking one sets it for this chat.
+        compose.onNodeWithText("\u25AE PHONE FIRST · ASK").performClick()
+        compose.onNodeWithText("auto", ignoreCase = true).performClick()
+        assertTrue(calls.toString(), "setCascade(AUTO)" in calls)
+        compose.onNodeWithText("Plain chats only", substring = true).assertExists()
+    }
+
+    @Test
+    fun theCascadeReceiptSaysWhatHappenedAndWhy() {
+        val local = Receipts.summarize(
+            SessionEvent.TurnReceipt(
+                turn = 1,
+                network = emptyList(),
+                cascade = dev.wckdboy.autobot.agent.core.session.ReceiptCascade(
+                    role = "local", policy = "AUTO", verdict = "WEAK", reasons = listOf("dont-know"), action = "OFFERED", risk = listOf("health"), judge = "self-check", judgeMs = 412,
+                ),
+            ),
+        )
+        assertEquals("on device · judge weak", local.line)
+        val answer = SessionItem.Assistant("a1", "I don't know.", null, false, null, "qwen3-1.7b", receipt = local)
+        show(ChatUiState(loaded = true, providers = listOf(provider), toolsEnabled = false, items = listOf(SessionItem.User("u1", "hi"), answer)))
+        compose.onNodeWithText("judge weak", substring = true, ignoreCase = true).performClick()
+        compose.onNodeWithText("Not sent on its own: the prompt involves health.", substring = true).assertExists()
+        compose.onNodeWithText("JUDGE · SELF-CHECK · 412 MS").assertExists()
+    }
 }

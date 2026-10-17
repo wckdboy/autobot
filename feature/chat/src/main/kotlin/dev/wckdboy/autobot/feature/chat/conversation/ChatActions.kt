@@ -42,6 +42,12 @@ interface ChatActions {
 
     /** This chat's redaction switch (remembered with the chat; what Settings says makes it follow Settings). */
     fun setRedaction(enabled: Boolean)
+
+    /** This chat's local-first cascade policy (remembered with the chat; what Settings says makes it follow Settings). */
+    fun setCascade(policy: dev.wckdboy.autobot.shared.cascade.CascadePolicy)
+
+    /** "Ask <cloud model>": sends the prompt of the phone's offered answer to the chat's cloud model. */
+    fun escalate()
     fun compact()
     fun rename(title: String)
     fun setPinned(pinned: Boolean)
