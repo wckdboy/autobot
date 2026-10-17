@@ -127,6 +127,12 @@ struct SpeculativeSchedule {
         accepted += n_accepted;
         acc_hits = acc_hits * decay + n_accepted;
         acc_misses = acc_misses * decay + ((count_miss && n_accepted < n_drafted) ? 1.0 : 0.0);
+        // The first round's timings include one-time set-up (graphs for new batch sizes): only
+        // its acceptance counts.
+        if (rounds == 1) {
+            k = best_k();
+            return;
+        }
         if (draft_ms > 0) {
             const double per = draft_ms / n_drafted;
             t_draft = t_draft > 0 ? 0.8 * t_draft + 0.2 * per : per;

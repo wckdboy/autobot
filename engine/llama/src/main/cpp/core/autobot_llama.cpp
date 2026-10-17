@@ -13,10 +13,12 @@
 // Speculative decoding: with a small draft model of the same family attached (request field
 // `draft`), the draft proposes a few tokens and the model checks them all in one batch, keeping
 // the longest prefix it agrees with plus its own next token. Each emitted token is still sampled
-// by the model's own sampler from the model's own logits, in order, so the output is the one
-// plain decoding gives (greedy: token for token; sampled: the same distribution, and with the
-// same seed the same tokens), and the reasoning budget, the loop guard, tool-call grammars, stop
-// strings and streaming see every token one by one as before. speculative_sched.h picks how many
+// by the model's own sampler from the model's own logits, in order, so the output is what plain
+// decoding gives (sampled: the same distribution; greedy: the same text as long as the model's
+// logits for a batch equal those for a single token, which holds on Metal in every bench check,
+// while llama.cpp's CPU kernels round a batch slightly differently and a near tie can tip the
+// other way), and the reasoning budget, the loop guard, tool-call grammars, stop strings and
+// streaming see every token one by one as before. speculative_sched.h picks how many
 // tokens to draft from the measured acceptance and costs, and stops speculating when it does not
 // pay. Rejected drafts are cut from both models' memories with llama_memory_seq_rm, so models
 // whose memory cannot be cut back (hybrid/recurrent, e.g. Qwen3.5) do not speculate: rolling
@@ -481,11 +483,12 @@ std::string reasoning_status(int tokens, bool done, const std::string & stop) {
 // long agent prompt would cost a prefill on the CPU (Android) every new chat. The window starts
 // DRAFT_WINDOW tokens back and slides (a re-prefill of that many tokens) when it fills the
 // draft's context.
-constexpr int DRAFT_CTX = 2048;
-constexpr int DRAFT_WINDOW = 1024;
+constexpr int DRAFT_CTX = 1024;
+constexpr int DRAFT_WINDOW = 512;
 
-// A reply catches the draft up on more than this many tokens (a new chat, a long tool result)
-// only once it has generated DRAFT_LONG_REPLY tokens: short replies (tool calls) do not pay for it.
+// A catch-up of the draft on more than DRAFT_CATCHUP_SHORT tokens (a new chat, a long tool
+// result) waits until the reply has produced an eighth of that many tokens (at least 16): short
+// replies such as tool calls do not pay a prefill they cannot earn back.
 constexpr size_t DRAFT_CATCHUP_SHORT = 64;
 constexpr int DRAFT_LONG_REPLY = 16;
 
@@ -587,6 +590,18 @@ std::string load_draft(Session & s, const std::string & path, const std::string 
             llama_free(ctx);
             llama_model_free(model);
             return "the draft model's memory cannot be cut back (recurrent layers); use an attention-only draft";
+        }
+        // One throwaway step, so the first real draft step does not pay for kernel set-up (on
+        // Metal that is several times a normal step, and would skew the schedule's costs).
+        {
+            const llama_vocab * vocab = llama_model_get_vocab(model);
+            llama_token t = llama_vocab_bos(vocab);
+            if (t == LLAMA_TOKEN_NULL) t = 0;
+            common_batch warm(ctx);
+            warm.add(t, 0, 0, true);
+            llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, warm.get());
+            llama_synchronize(ctx);
+            llama_memory_clear(llama_get_memory(ctx), true);
         }
         llama_set_abort_callback(ctx, abort_requested, &s);
         s.draft_model = model;
@@ -1057,7 +1072,10 @@ std::string chat(Session * s, const std::string & request_text, Sink & sink) {
             // the draft waits until the reply turns out not to be short.
             const int room = std::min(s->n_ctx - 3 - (int) pos, max_tokens - n_gen - 1);
             int k = speculating && sched.speculate_now() ? sched.next_k(room) : 0;
-            if (k > 0 && n_gen < DRAFT_LONG_REPLY && draft_catchup(*s, seq) > DRAFT_CATCHUP_SHORT) k = 0;
+            if (k > 0) {
+                const size_t catchup = draft_catchup(*s, seq);
+                if (catchup > DRAFT_CATCHUP_SHORT && (size_t) n_gen < std::max((size_t) DRAFT_LONG_REPLY, catchup / 8)) k = 0;
+            }
             if (k > 0) {
                 // ---- speculative round: draft k tokens after `tok`, verify [tok, drafts] in one batch
                 const int64_t t0 = ggml_time_us();

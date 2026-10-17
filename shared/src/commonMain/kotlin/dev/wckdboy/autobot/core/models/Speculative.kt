@@ -56,10 +56,10 @@ object SpeculativeDrafts {
     fun targetsOf(draftId: String): List<String> = pairs.filterValues { draftId in it }.keys.toList()
 
     /**
-     * The draft's context in the engine: it sees a window of the most recent 1-2k tokens, not the
+     * The draft's context in the engine: it sees a window of the most recent 0.5-1k tokens, not the
      * whole conversation (its KV cache is large per token, and catching it up costs a prefill).
      */
-    const val DRAFT_MAX_CONTEXT = 2048
+    const val DRAFT_MAX_CONTEXT = 1024
 
     /**
      * Where the draft runs. Android: the CPU, whatever the chat model uses (the GPU and NPU pay a
