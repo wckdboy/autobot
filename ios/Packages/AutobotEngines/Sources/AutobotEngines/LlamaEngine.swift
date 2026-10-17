@@ -26,6 +26,8 @@ public struct LlamaUsage: Sendable, Codable, Hashable {
     public let backend: String
     public let promptMs: Double
     public let generationMs: Double
+    /// What speculative decoding did, when the request named a draft model.
+    public var speculative: SpeculativeUsage? = nil
 
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
@@ -34,6 +36,33 @@ public struct LlamaUsage: Sendable, Codable, Hashable {
         case backend
         case promptMs = "prompt_ms"
         case generationMs = "generation_ms"
+        case speculative
+    }
+}
+
+/// `usage.speculative` of a result: the draft model's work in one reply.
+public struct SpeculativeUsage: Sendable, Codable, Hashable {
+    /// "active", or why it did not speculate: "off", "no_draft", "refused", "unsupported", "images", "draft_failed".
+    public let status: String
+    /// Why, for "refused" (another tokenizer) and "unsupported" (hybrid/recurrent model).
+    public var reason: String? = nil
+    /// The draft model's description (no path).
+    public var draft: String? = nil
+    public var drafted: Int = 0
+    public var accepted: Int = 0
+
+    /// Share of drafted tokens the model kept, 0...1.
+    public var acceptance: Double { drafted > 0 ? Double(accepted) / Double(drafted) : 0 }
+
+    enum CodingKeys: String, CodingKey { case status, reason, draft, drafted, accepted }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        draft = try c.decodeIfPresent(String.self, forKey: .draft)
+        drafted = try c.decodeIfPresent(Int.self, forKey: .drafted) ?? 0
+        accepted = try c.decodeIfPresent(Int.self, forKey: .accepted) ?? 0
     }
 }
 
@@ -118,6 +147,15 @@ public actor LlamaEngine {
     public nonisolated static func chatTemplate(path: String) -> String? {
         let template = takeString(autobot_llama_chat_template(path), free: autobot_llama_string_free)
         return template.isEmpty ? nil : template
+    }
+
+    /// Whether the GGUF at [draftPath] can draft for the one at [modelPath] (same tokenizer, token
+    /// for token), from their vocabularies only: nil when it can, else why not.
+    public nonisolated static func draftIncompatibility(modelPath: String, draftPath: String) -> String? {
+        let json = takeString(autobot_llama_draft_check(modelPath, draftPath), free: autobot_llama_string_free)
+        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return "unreadable answer" }
+        if object["compatible"] as? Bool == true { return nil }
+        return object["reason"] as? String ?? "incompatible"
     }
 
     /// Info about the resident model (JSON: description, n_params, size_bytes, n_ctx, backend…), or nil.

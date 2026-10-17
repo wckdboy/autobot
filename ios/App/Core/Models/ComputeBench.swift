@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Synchronization
 
@@ -15,8 +16,9 @@ struct ComputeDevices: Equatable, Sendable {
 
 /**
  Measures models on each backend so [ComputeProfile] can pick the fastest automatically (port of
- `ComputeBench.kt`). Text models: prompt processing and generation speed. Image models (Core ML):
- time per denoising step on the Neural Engine and on the GPU.
+ `ComputeBench.kt`). Text models: prompt processing and generation speed, and, when a draft model
+ for it is installed, the same reply with and without speculative decoding (speedup, acceptance).
+ Image models (Core ML): time per denoising step on the Neural Engine and on the GPU.
  */
 @MainActor
 final class ComputeBench {
@@ -25,15 +27,24 @@ final class ComputeBench {
         "battery life and latency compared with cloud inference, and mention one trade-off such as model size, memory " +
         "bandwidth or thermal throttling that limits sustained performance on a mobile system on a chip."
 
+    /// Speculation pays over longer replies: a few hundred tokens of a structured answer.
+    private static let speculativePrompt = "List ten practical ways to make a phone battery last longer, one numbered line each, " +
+        "then explain the two most effective ones in a short paragraph."
+    private static let speculativeTokens = 256
+    private static let speculativeContext = 2048
+
     private let library: ModelLibrary
     private let profile: ComputeProfile
     private let llm: LocalLlm
+    /// The speculative decoding setting (`SpeculativeMode` id); "off" skips that benchmark.
+    private let speculativeMode: String
     private let diffusion = LocalDiffusion()
 
-    init(library: ModelLibrary, profile: ComputeProfile, llm: LocalLlm) {
+    init(library: ModelLibrary, profile: ComputeProfile, llm: LocalLlm, speculativeMode: String = "auto") {
         self.library = library
         self.profile = profile
         self.llm = llm
+        self.speculativeMode = speculativeMode
     }
 
     /// What the system reports without loading an engine (shown while [devices] runs).
@@ -70,6 +81,9 @@ final class ComputeBench {
                 onStatus("\(model.title) on \(backend.label)…")
                 results.append(await text(model, backend))
             }
+            results.forEach(profile.record)
+            if let spec = await speculative(model, onStatus: onStatus) { profile.recordSpeculative(spec) }
+            return results
         case .coreML:
             for backend in [Backend.npu, .gpu] {
                 onStatus("\(model.title) on \(backend == .npu ? "neural engine" : "gpu")…")
@@ -105,6 +119,54 @@ final class ComputeBench {
         } catch {
             return Benchmark(modelId: model.id, backend: backend, error: error.localizedDescription)
         }
+    }
+
+    /**
+     Speculative decoding on the backend "auto" picks: the same greedy reply without and with the
+     installed draft model (whatever the memory rule of the setting, unless it is off). Nil when the
+     model has no installed draft or the setting is off.
+     */
+    private func speculative(_ model: InstalledModel, onStatus: @escaping (String) -> Void) async -> SpeculativeResult? {
+        guard speculativeMode != "off", let path = library.paths(model)[.model] else { return nil }
+        let backend = profile.resolve(model)
+        guard let draft = SpeculativeDraftPicker.pick(for: model, mode: "on", library: library, device: DeviceProfile.current(),
+                                                      context: Self.speculativeContext, backend: backend) else { return nil }
+        onStatus("\(model.title) with \(draft.title) (speculative)…")
+        func run(_ mode: String) async -> String? {
+            let request: [String: Any] = [
+                "messages": [["role": "user", "content": Self.speculativePrompt]],
+                "max_tokens": Self.speculativeTokens,
+                "temperature": 0.0,
+                "enable_thinking": false,
+                "draft": ["path": draft.path, "backend": draft.backend],
+                "speculative": mode,
+            ]
+            guard let json = try? JSONSerialization.data(withJSONObject: request) else { return nil }
+            return try? await llm.chatJSON(modelPath: path.path, mmprojPath: nil, contextLength: Self.speculativeContext, backend: backend,
+                                           requestJSON: json) { _ in }
+        }
+        // "off" keeps the draft loaded and does not use it: both runs see the same memory.
+        let plain = await run("off")
+        let spec = await run(speculativeMode)
+        let stats = spec.flatMap { LocalLlmCodec.shared.speculativeStats(json: $0) }
+        var error: String? = nil
+        if plain == nil || spec == nil {
+            error = "the engine did not answer"
+        } else if let stats, stats.status != "active" {
+            error = stats.reason ?? stats.status
+        }
+        return SpeculativeResult(modelId: model.id, draftTitle: draft.title, backend: backend, plainTps: Self.tps(plain), speculativeTps: Self.tps(spec),
+                                 acceptance: stats?.acceptance ?? 0, error: error)
+    }
+
+    /// Generation speed in a result JSON (tokens per second), 0 when absent.
+    nonisolated static func tps(_ json: String?) -> Double {
+        guard let json, let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let usage = object["usage"] as? [String: Any],
+              let ms = (usage["generation_ms"] as? NSNumber)?.doubleValue, ms > 0,
+              let tokens = (usage["completion_tokens"] as? NSNumber)?.doubleValue
+        else { return 0 }
+        return tokens / ms * 1000
     }
 
     private func image(_ model: InstalledModel, _ backend: Backend) async -> Benchmark {

@@ -56,6 +56,9 @@ struct ComputeScreen: View {
                         }
                     }
                     SectionLabel("models", color: c.onSurfaceVariant)
+                    if models.contains(where: { !SpeculativeDraftPicker.drafts(for: $0.id).isEmpty }) {
+                        SpeculativePanel()
+                    }
                     ForEach(models) { m in
                         ModelCompute(model: m, running: running != nil, benchmarking: benchModel == m.id) { benchmark(m) }
                     }
@@ -85,7 +88,7 @@ struct ComputeScreen: View {
         guard running == nil else { return }
         running = "starting"
         benchModel = model.id
-        let bench = ComputeBench(library: app.library, profile: app.compute, llm: app.llm)
+        let bench = ComputeBench(library: app.library, profile: app.compute, llm: app.llm, speculativeMode: app.settings.settings.speculativeMode)
         let backends = devices?.llmBackends ?? [.cpu]
         // One step per backend measured (ComputeBench.run reports each as it starts).
         let total = model.engine == .llama ? [Backend.cpu, .gpu, .npu].filter(backends.contains).count : 2
@@ -172,11 +175,52 @@ private struct ModelCompute: View {
             } else {
                 MicroLabel("not measured yet")
             }
+            if isText, let line = speculativeLine { MicroLabel(line.text, color: line.error ? c.error : c.onSurfaceVariant, lines: 2) }
             if let lastError { MicroLabel("last run: \(lastError)", color: c.error, lines: 3) }
         }
     }
 
+    /// What speculative decoding does for this model: needs a draft, measure it, or the measured speedup.
+    private var speculativeLine: (text: String, error: Bool)? {
+        let drafts = SpeculativeDraftPicker.drafts(for: model.id)
+        guard let first = drafts.first else { return nil }
+        let title = { (id: String) in app.library.models.first { $0.id == id }?.title ?? Catalog.shared.first { $0.id == id }?.title ?? id }
+        if app.settings.settings.speculativeMode == "off" { return ("speculative: off", false) }
+        guard drafts.contains(where: { id in app.library.models.contains { $0.id == id && $0.isLocalChat } }) else {
+            return ("speculative: install \(title(first)) to speed this model up", false)
+        }
+        guard let s = app.compute.speculative[model.id] else { return ("speculative: benchmark to measure (draft \(title(first)))", false) }
+        if let error = s.error { return ("speculative: \(error)", true) }
+        return ("speculative · \(fmt(s.speedup))x · \(fmt(s.speculativeTps)) tok/s · \(Int(s.acceptance * 100))% of drafts kept · \(s.draftTitle)", false)
+    }
+
     private func fmt(_ v: Double) -> String { String(format: v >= 100 ? "%.0f" : "%.1f", v) }
+}
+
+/// Speculative decoding: auto / on / off (shown when an installed model has a draft in the catalog).
+private struct SpeculativePanel: View {
+    @Environment(AppContainer.self) private var app
+    @Environment(\.scheme) private var c
+
+    private static let modes = ["auto", "on", "off"]
+
+    var body: some View {
+        let mode = app.settings.settings.speculativeMode
+        Panel(title: "speculative decoding") {
+            Segmented(options: Self.modes, selected: mode, label: { $0 }) { m in
+                app.settings.setSpeculativeMode(m)
+            }
+            MicroLabel(Self.detail(mode), lines: 3)
+        }
+    }
+
+    static func detail(_ mode: String) -> String {
+        switch mode {
+        case "on": "always draft when the pair fits at all, even when it does not pay"
+        case "off": "no draft model is loaded"
+        default: "a small model of the same family drafts, the chat model checks · same replies, faster · when the pair fits"
+        }
+    }
 }
 
 private struct ReportText: Identifiable {

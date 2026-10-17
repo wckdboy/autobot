@@ -29,6 +29,8 @@ final class ComputeProfile {
     private nonisolated static let collection = "benchmarks"
 
     private(set) var benchmarks: [Benchmark] = []
+    /// The newest speculative decoding benchmark per model, for this session (not stored).
+    private(set) var speculative: [String: SpeculativeResult] = [:]
     @ObservationIgnored private let store: EncryptedStore
     @ObservationIgnored private let library: ModelLibrary
 
@@ -54,7 +56,10 @@ final class ComputeProfile {
         benchmarks.insert(result, at: 0)
     }
 
+    func recordSpeculative(_ result: SpeculativeResult) { speculative[result.modelId] = result }
+
     func deleteFor(modelId: String) {
+        speculative[modelId] = nil
         for b in benchmarks where b.modelId == modelId { try? store.delete(Self.collection, id: b.id) }
         benchmarks.removeAll { $0.modelId == modelId }
     }

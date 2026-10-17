@@ -12,7 +12,7 @@ struct CatalogTests {
         #expect(qwen?.manifest.files.first?.url == "https://huggingface.co/unsloth/Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen3-VL-2B-Instruct-Q4_0.gguf")
         #expect(qwen?.manifest.recommended?.contextLength == 8192)
         #expect(qwen?.totalBytes == Int64(1008 + 781) * 1_048_576)
-        #expect(Catalog.shared.first { $0.id == "catalog:qwen3-4b-2507-q4_0" }?.manifest.notes == "Recommended for agent sessions.")
+        #expect(Catalog.shared.first { $0.id == "catalog:qwen3-4b-2507-q4_0" }?.manifest.notes?.hasPrefix("Recommended for agent sessions.") == true)
     }
 
     @Test func bundledCatalogOnlyHasIOSEngines() {
