@@ -80,7 +80,7 @@ struct UsageTests {
     private final class FakeBridge: UsageBridging {
         var saved: [String] = []
         var cleared = 0
-        func observeUsage(_ deliver: @escaping @MainActor (String) -> Void) -> any AutobotShared.Cancellable { NoCancel() }
+        func observeUsage(_ deliver: @escaping @MainActor (UsageReportModel) -> Void) -> any AutobotShared.Cancellable { NoCancel() }
         func saveUsagePlan(_ json: String) { saved.append(json) }
         func clearUsageHistory() { cleared += 1 }
     }
@@ -136,5 +136,32 @@ struct UsageTests {
     @Test func usageIsInTheSettingsAgentSection() {
         #expect(SettingsSection.agent.rows.contains(.usage))
         #expect(SettingsRow.usage.title() == "Usage")
+    }
+
+    /// Perf (`AUTOBOT_PERF`): the board's report for a month of use (6 providers × 4 models, a
+    /// bucket a day), its JSON size and decode time, which no longer runs on the main actor.
+    @Test(.timeLimit(.minutes(5))) func usageReport() async throws {
+        guard ProcessInfo.processInfo.environment["AUTOBOT_PERF"] != nil else { return }
+        let now: Int64 = 1_792_000_000_000
+        var records: [UsageRecord] = []
+        for day in 0 ..< 30 {
+            let start = UsageLedger.companion.bucketStart(at: now - Int64(day) * 86_400_000 - 60_000)
+            for p in 0 ..< 6 {
+                for m in 0 ..< 4 {
+                    records.append(UsageRecord(
+                        start: start, span: UsageLedger.companion.FINE_SPAN, provider: "p\(p)", model: "model-\(p)-\(m)", providerName: "Provider \(p)", presetId: nil,
+                        onDevice: p == 0, input: 10_000, output: 1_000, cacheRead: 500, cacheWrite: 0, reasoning: 0, requests: 3, unreported: 0,
+                    ))
+                }
+            }
+        }
+        let kotlin = UsageBoard.shared.report(records: records, plan: UsagePlan(prices: [], windows: []), now: now, zone: ZoneRulesCompanion.shared.UTC, names: [:])
+        let json = UsageJson.shared.encode(report: kotlin)
+        let clock = ContinuousClock()
+        var decoded: UsageReportModel?
+        let n = 20
+        let decode = clock.measure { for _ in 0 ..< n { decoded = UsageReportModel.decode(json) } }
+        #expect(decoded != nil)
+        print("PERF usage.decode bytes=\(json.utf8.count) perReport=\(decode / n) (off the main actor since the perf pass)")
     }
 }

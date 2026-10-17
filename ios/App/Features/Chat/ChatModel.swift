@@ -145,7 +145,10 @@ final class ChatModel {
     /// Small preview of an attachment (composer and transcript).
     func attachmentThumbnail(_ id: String, app: AppContainer) async -> UIImage? {
         if let cached = thumbs["a-\(id)"] { return cached }
-        guard let bytes = app.attachments.bytes(id), let image = await decodeImage(bytes, maxSide: 256) else { return nil }
+        // Read and decrypted off the main actor, like the decode.
+        let attachments = app.attachments
+        guard let bytes = await Task.detached(priority: .userInitiated, operation: { attachments.bytes(id) }).value,
+              let image = await decodeImage(bytes, maxSide: 256) else { return nil }
         thumbs["a-\(id)"] = image
         return image
     }

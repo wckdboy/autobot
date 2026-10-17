@@ -393,7 +393,7 @@ final class SharedAgentRuntime: AgentRuntime {
 }
 
 extension SharedAgentRuntime: UsageBridging {
-    func observeUsage(_ deliver: @escaping @MainActor (String) -> Void) -> any AutobotShared.Cancellable {
+    func observeUsage(_ deliver: @escaping @MainActor (UsageReportModel) -> Void) -> any AutobotShared.Cancellable {
         // The bridge's observing coroutine keeps the box alive until cancelled.
         bridge.observeUsage(listener: UsageListenerBox(deliver))
     }
@@ -639,15 +639,16 @@ private final class McpStatusListenerBox: NSObject, McpStatusListener, @unchecke
     }
 }
 
-/// Hands the board's report JSON to the main actor.
+/// Decodes the board's report JSON on the bridge's thread and hands the report to the main actor.
 private final class UsageListenerBox: NSObject, UsageListener, @unchecked Sendable {
-    private let deliver: @MainActor (String) -> Void
+    private let deliver: @MainActor (UsageReportModel) -> Void
 
-    init(_ deliver: @escaping @MainActor (String) -> Void) { self.deliver = deliver }
+    init(_ deliver: @escaping @MainActor (UsageReportModel) -> Void) { self.deliver = deliver }
 
     func onReport(json: String) {
+        guard let report = UsageReportModel.decode(json) else { return }
         let deliver = deliver
-        DispatchQueue.main.async { MainActor.assumeIsolated { deliver(json) } }
+        DispatchQueue.main.async { MainActor.assumeIsolated { deliver(report) } }
     }
 }
 

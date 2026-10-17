@@ -198,6 +198,15 @@ enum AutobotFonts {
         return UIFont(descriptor: tabular, size: pointSize)
     }
 
+    /**
+     Resolves every text style's font into the cache (called off the main thread at launch):
+     the first lookup of a variable font by family and axis costs about a millisecond per style,
+     which the first screen would otherwise pay on the main thread while it renders.
+     */
+    static func prewarm() {
+        for style in AutobotType.allCases { _ = uiFont(style.token).lineHeight }
+    }
+
     static func uiWeight(_ w: CGFloat) -> UIFont.Weight {
         switch w {
         case ..<150: .ultraLight
@@ -214,7 +223,7 @@ enum AutobotFonts {
 }
 
 /// The app's text styles (Material names plus the extra riso styles).
-enum AutobotType {
+enum AutobotType: CaseIterable {
     case displayLarge, displayMedium, displaySmall
     case headlineLarge, headlineMedium, headlineSmall
     case titleLarge, titleMedium, titleSmall

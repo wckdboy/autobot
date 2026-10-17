@@ -164,7 +164,8 @@ final class UsageStoreHost: NSObject, UsageStoreBridge, @unchecked Sendable {
 /// The bridge calls the runtime this way (the Usage screen does not know the runtime type).
 @MainActor
 protocol UsageBridging: AnyObject {
-    func observeUsage(_ deliver: @escaping @MainActor (String) -> Void) -> any AutobotShared.Cancellable
+    /// Reports as they change, decoded off the main thread (the bridge's callback thread).
+    func observeUsage(_ deliver: @escaping @MainActor (UsageReportModel) -> Void) -> any AutobotShared.Cancellable
     func saveUsagePlan(_ json: String)
     func clearUsageHistory()
 }
@@ -189,8 +190,8 @@ final class UsageRepository {
     func start() {
         observers += 1
         guard handle == nil, let bridge else { return }
-        handle = bridge.observeUsage { [weak self] json in
-            guard let self, let next = UsageReportModel.decode(json), next != report else { return }
+        handle = bridge.observeUsage { [weak self] next in
+            guard let self, next != report else { return }
             report = next
         }
     }

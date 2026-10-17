@@ -328,36 +328,16 @@ struct ChatListScreen: View {
     }
 
     private func row(_ item: ConversationItem) -> some View {
-        VStack(spacing: 0) {
-            ConversationRow(item: item, selecting: selecting, selected: selection.contains(item.id)) {
-                if selecting { toggle(item.id) } else { nav.push(.chat(conversationId: item.id)) }
-            }
-            .equatable()
-            Hairline().padding(.leading, 16)
-        }
-        .transition(.inkDissolve)
-        .listRowInsets(EdgeInsets())
-        .listRowSeparator(.hidden)
-        .listRowBackground(selection.contains(item.id) ? c.primary.opacity(0.12) : c.background)
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive) { delete([item.id], titles: [item.title]) } label: { Label("Delete", systemImage: "trash") }
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            Button { app.conversations.setArchived([item.id], !item.archived) } label: {
-                Label(item.archived ? "Unarchive" : "Archive", systemImage: item.archived ? "tray.and.arrow.up" : "archivebox")
-            }
-            .tint(c.secondary)
-        }
-        .contextMenu {
-            Button { open(.rename(id: item.id, title: item.title)) } label: { Label("Rename", systemImage: "pencil") }
-            Button { app.conversations.setPinned([item.id], !item.pinned) } label: { Label(item.pinned ? "Unpin" : "Pin to top", systemImage: item.pinned ? "pin.slash" : "pin") }
-            Button { open(.move(ids: [item.id], current: item.folderId)) } label: { Label("Move to folder", systemImage: "folder") }
-            Button { app.conversations.setArchived([item.id], !item.archived) } label: {
-                Label(item.archived ? "Unarchive" : "Archive", systemImage: item.archived ? "tray.and.arrow.up" : "archivebox")
-            }
-            Button { toggle(item.id) } label: { Label("Select", systemImage: "checkmark.circle") }
-            Button(role: .destructive) { delete([item.id], titles: [item.title]) } label: { Label("Delete", systemImage: "trash") }
-        }
+        ChatListRow(item: item, selecting: selecting, selected: selection.contains(item.id), actions: ChatListRow.Actions(
+            open: { if selecting { toggle(item.id) } else { nav.push(.chat(conversationId: item.id)) } },
+            delete: { delete([item.id], titles: [item.title]) },
+            archive: { app.conversations.setArchived([item.id], !item.archived) },
+            pin: { app.conversations.setPinned([item.id], !item.pinned) },
+            rename: { open(.rename(id: item.id, title: item.title)) },
+            move: { open(.move(ids: [item.id], current: item.folderId)) },
+            select: { toggle(item.id) },
+        ))
+        .equatable()
     }
 
     private func empty(_ m: ChatListModel.Model) -> some View {
@@ -529,6 +509,62 @@ struct LiveCountLabel: View {
     }
 }
 
+/**
+ One list row with its swipe actions and context menu, equatable on what it shows: when the list
+ changes (a chat moves, one title changes) the other visible rows are skipped whole, instead of
+ rebuilding their row modifiers, swipe actions and menus on every screen update.
+ */
+private struct ChatListRow: View, Equatable {
+    struct Actions {
+        let open: () -> Void
+        let delete: () -> Void
+        let archive: () -> Void
+        let pin: () -> Void
+        let rename: () -> Void
+        let move: () -> Void
+        let select: () -> Void
+    }
+
+    let item: ConversationItem
+    let selecting: Bool
+    let selected: Bool
+    let actions: Actions
+    @Environment(\.scheme) private var c
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.item == b.item && a.selecting == b.selecting && a.selected == b.selected }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ConversationRow(item: item, selecting: selecting, selected: selected, onClick: actions.open)
+                .equatable()
+            Hairline().padding(.leading, 16)
+        }
+        .transition(.inkDissolve)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(selected ? c.primary.opacity(0.12) : c.background)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive, action: actions.delete) { Label("Delete", systemImage: "trash") }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button(action: actions.archive) {
+                Label(item.archived ? "Unarchive" : "Archive", systemImage: item.archived ? "tray.and.arrow.up" : "archivebox")
+            }
+            .tint(c.secondary)
+        }
+        .contextMenu {
+            Button(action: actions.rename) { Label("Rename", systemImage: "pencil") }
+            Button(action: actions.pin) { Label(item.pinned ? "Unpin" : "Pin to top", systemImage: item.pinned ? "pin.slash" : "pin") }
+            Button(action: actions.move) { Label("Move to folder", systemImage: "folder") }
+            Button(action: actions.archive) {
+                Label(item.archived ? "Unarchive" : "Archive", systemImage: item.archived ? "tray.and.arrow.up" : "archivebox")
+            }
+            Button(action: actions.select) { Label("Select", systemImage: "checkmark.circle") }
+            Button(role: .destructive, action: actions.delete) { Label("Delete", systemImage: "trash") }
+        }
+    }
+}
+
 /// Equatable on what it shows (the click action is not compared): a list change re-renders only
 /// the rows that changed.
 private struct ConversationRow: View, Equatable {
@@ -565,7 +601,7 @@ private struct ConversationRow: View, Equatable {
                         if item.pinned {
                             Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(c.primary).accessibilityLabel("Pinned")
                         }
-                        Text(highlighted(item.title, item.hit?.titleSpans ?? [])).textStyle(.bodyLarge).foregroundStyle(c.onSurface).lineLimit(1)
+                        title.textStyle(.bodyLarge).foregroundStyle(c.onSurface).lineLimit(1)
                     }
                     if let snippet = item.hit?.snippet {
                         Text(highlighted(snippet, item.hit?.snippetSpans ?? []))
@@ -586,6 +622,12 @@ private struct ConversationRow: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
+    }
+
+    /// The title; an attributed string only when search marks part of it (plain text lays out faster).
+    private var title: Text {
+        guard let spans = item.hit?.titleSpans, !spans.isEmpty else { return Text(verbatim: item.title) }
+        return Text(highlighted(item.title, spans))
     }
 
     /// [text] with the UTF-16 [spans] (shared `ChatSearch` offsets) marked.

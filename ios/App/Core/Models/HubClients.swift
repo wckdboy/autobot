@@ -204,13 +204,20 @@ func civitaiPlan(_ model: CivitaiModel, _ version: CivitaiVersion) -> ModelPlan?
 final class PreviewImages {
     private static let maxBytes = 3 * 1024 * 1024
     private static let allowedHosts: Set<String> = ["image.civitai.com"]
+    /// Encoded previews kept, by URL: bounded by their bytes (64 entries of up to 3 MB could hold
+    /// 192 MB) and evicted under memory pressure.
+    static let cacheBytes = 12 * 1024 * 1024
     private let clients: HttpClientFactory
-    private var cache: [String: Data] = [:]
+    private let cache: NSCache<NSString, NSData> = {
+        let c = NSCache<NSString, NSData>()
+        c.totalCostLimit = PreviewImages.cacheBytes
+        return c
+    }()
 
     init(clients: HttpClientFactory) { self.clients = clients }
 
     func load(_ url: String, width: Int = 320) async -> Data? {
-        if let cached = cache[url] { return cached }
+        if let cached = cache.object(forKey: url as NSString) { return cached as Data }
         guard let parsed = URL(string: url), let host = parsed.host(), Self.allowedHosts.contains(host) else { return nil }
         // Civitai's image CDN resizes on request via a `width=` path segment.
         let sized = URL(string: url.replacingOccurrences(of: "/original=true/", with: "/width=\(width)/")) ?? parsed
@@ -218,8 +225,7 @@ final class PreviewImages {
         request.setValue("image/*", forHTTPHeaderField: "Accept")
         guard let response = try? await clients.create(tag: "models:preview").send(request), response.isSuccessful,
               response.body.count <= Self.maxBytes else { return nil }
-        if cache.count > 64 { cache.removeAll() }
-        cache[url] = response.body
+        cache.setObject(response.body as NSData, forKey: url as NSString, cost: response.body.count)
         return response.body
     }
 }
