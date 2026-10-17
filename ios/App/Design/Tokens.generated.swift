@@ -23,7 +23,7 @@ enum Tokens {
         static let paper: UInt32 = 0xEFEAE2
         static let paperInk: UInt32 = 0x141414
         static let paperLine: UInt32 = 0xCFC8BC
-        static let paperMuted: UInt32 = 0x6F6A63
+        static let paperMuted: UInt32 = 0x615C56
         static let red: UInt32 = 0xE8401C
         static let redDeep: UInt32 = 0xB8300F
         static let redDim: UInt32 = 0x3A140A
@@ -75,7 +75,7 @@ enum Tokens {
         onBackground: 0xF1ECE4,
         onError: 0x0E0E0E,
         onErrorContainer: 0xFFD9CF,
-        onPrimary: 0xF1ECE4,
+        onPrimary: 0x0E0E0E,
         onPrimaryContainer: 0xFFD9CC,
         onSecondary: 0x0E0E0E,
         onSecondaryContainer: 0xF1ECE4,
@@ -84,7 +84,7 @@ enum Tokens {
         onTertiary: 0x0E0E0E,
         outline: 0x4B4945,
         outlineVariant: 0x2F2F2E,
-        primary: 0xE8401C,
+        primary: 0xEB5535,
         primaryContainer: 0x3A140A,
         scrim: 0x000000,
         secondary: 0xC9C3BA,
@@ -103,7 +103,7 @@ enum Tokens {
 
     static let light = Scheme(
         background: 0xEFEAE2,
-        error: 0xC0280E,
+        error: 0xB3250D,
         errorContainer: 0xF9DEDC,
         inverseOnSurface: 0xF1ECE4,
         inversePrimary: 0xD0BCFF,
@@ -116,11 +116,11 @@ enum Tokens {
         onSecondary: 0xF6F2EC,
         onSecondaryContainer: 0x141414,
         onSurface: 0x141414,
-        onSurfaceVariant: 0x6F6A63,
+        onSurfaceVariant: 0x615C56,
         onTertiary: 0xFFFFFF,
         outline: 0xA8A096,
         outlineVariant: 0xCFC8BC,
-        primary: 0xE8401C,
+        primary: 0xAE2D12,
         primaryContainer: 0xFFDCD0,
         scrim: 0x000000,
         secondary: 0x3A3632,
@@ -134,7 +134,7 @@ enum Tokens {
         surfaceContainerLowest: 0xF7F3ED,
         surfaceDim: 0xDED8E1,
         surfaceVariant: 0xE2DBD0,
-        tertiary: 0x8A5A00
+        tertiary: 0x7E5512
     )
 
     /// Dark-scheme overrides for pure-black OLED panels.
@@ -146,6 +146,28 @@ enum Tokens {
         static let surfaceContainerLowest: UInt32 = 0x000000
         static let surfaceDim: UInt32 = 0x000000
     }
+
+    /// Accent colours as text and glyphs on each ground (the palette accents are for fills).
+    struct Inks: Sendable {
+        let amber: UInt32
+        let cyan: UInt32
+        let signal: UInt32
+        let uv: UInt32
+    }
+
+    static let darkInks = Inks(
+        amber: 0xE3A33B,
+        cyan: 0x9DB4B0,
+        signal: 0xFF6A47,
+        uv: 0xC9C3BA
+    )
+
+    static let lightInks = Inks(
+        amber: 0x7E5512,
+        cyan: 0x4B615D,
+        signal: 0xB3250D,
+        uv: 0x655C4F
+    )
 
     enum FontRole: Sendable { case display, mono, sans }
 

@@ -12,8 +12,10 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -49,7 +51,7 @@ object AutobotColors {
 
     val Paper = Color(0xFFEFEAE2)
     val PaperLine = Color(0xFFCFC8BC)
-    val PaperMuted = Color(0xFF6F6A63)
+    val PaperMuted = Color(0xFF615C56)
     val PaperInk = Color(0xFF141414)
 
     /** The signal colour. */
@@ -70,8 +72,10 @@ object AutobotColors {
 }
 
 val GraphiteDarkColorScheme: ColorScheme = darkColorScheme(
-    primary = AutobotColors.Red,
-    onPrimary = AutobotColors.Bone100,
+    // A shade lighter than the signal red so red text reads on the ink panels (4.5:1); ink on red
+    // blocks, since bone on this red is under 3.5:1. Fills that carry no text keep [AutobotColors.Red].
+    primary = Color(0xFFEB5535),
+    onPrimary = AutobotColors.Ink950,
     primaryContainer = AutobotColors.RedDim,
     onPrimaryContainer = Color(0xFFFFD9CC),
     secondary = AutobotColors.Ash200,
@@ -106,7 +110,8 @@ val GraphiteDarkColorScheme: ColorScheme = darkColorScheme(
 )
 
 val GraphiteLightColorScheme: ColorScheme = lightColorScheme(
-    primary = AutobotColors.Red,
+    // Red ink on paper: the signal red is 3.4:1 on paper, this is 4.5:1 on every paper panel.
+    primary = Color(0xFFAE2D12),
     onPrimary = AutobotColors.Bone50,
     primaryContainer = Color(0xFFFFDCD0),
     onPrimaryContainer = Color(0xFF3A0B00),
@@ -114,8 +119,8 @@ val GraphiteLightColorScheme: ColorScheme = lightColorScheme(
     onSecondary = AutobotColors.Bone50,
     secondaryContainer = Color(0xFFDDD6CB),
     onSecondaryContainer = AutobotColors.PaperInk,
-    tertiary = Color(0xFF8A5A00),
-    error = Color(0xFFC0280E),
+    tertiary = Color(0xFF7E5512),
+    error = Color(0xFFB3250D),
     background = AutobotColors.Paper,
     onBackground = AutobotColors.PaperInk,
     surface = AutobotColors.Paper,
@@ -296,7 +301,24 @@ fun DarkroomTheme(content: @Composable () -> Unit) {
 
 
 
+/**
+ * The accent colours as text and glyphs. The palette accents ([AutobotColors.Amber], Cyan, Uv,
+ * Signal) are for fills and halftone dots; on paper they are under 2:1, so a word or an icon in an
+ * accent takes the ink for the ground it sits on (4.5:1 on that theme's background and panels).
+ * Red text is the scheme's `primary`.
+ */
+@Immutable
+data class AutobotInks(val amber: Color, val cyan: Color, val uv: Color, val signal: Color)
+
+val DarkInks = AutobotInks(amber = Color(0xFFE3A33B), cyan = Color(0xFF9DB4B0), uv = Color(0xFFC9C3BA), signal = Color(0xFFFF6A47))
+val LightInks = AutobotInks(amber = Color(0xFF7E5512), cyan = Color(0xFF4B615D), uv = Color(0xFF655C4F), signal = Color(0xFFB3250D))
+
 /** Extra text styles (mono code, micro labels, readouts, display numbers). */
 object AutobotTheme {
     val styles: AutobotExtraStyles get() = DefaultExtraStyles
+
+    /** Accent inks for the current ground (follows nested Paper and Darkroom themes). */
+    val inks: AutobotInks
+        @Composable @ReadOnlyComposable
+        get() = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) DarkInks else LightInks
 }

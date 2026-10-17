@@ -20,7 +20,7 @@ struct ReceiptLine: View {
         ZStack(alignment: .leading) {
             if let receipt {
                 let accent: Color = receipt.onDevice ? c.primary
-                    : receipt.models.contains { $0.policy == Receipt.trains } ? AutobotColors.amber : c.onSurfaceVariant
+                    : receipt.models.contains { $0.policy == Receipt.trains } ? c.inks.amber : c.onSurfaceVariant
                 Tag("▤ " + receipt.line, accent: accent, filled: receipt.onDevice) { onOpen(receipt) }
                     .accessibilityLabel("Privacy receipt: \(receipt.line)")
             }
@@ -56,7 +56,7 @@ struct ReceiptSheet: View {
                             HStack(spacing: 8) {
                                 Text(m.model).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).truncationMode(.middle)
                                 if let policy = m.policy {
-                                    Tag(policy, accent: policy == Receipt.trains ? AutobotColors.amber : m.onDevice ? c.primary : c.onSurfaceVariant)
+                                    Tag(policy, accent: policy == Receipt.trains ? c.inks.amber : m.onDevice ? c.primary : c.onSurfaceVariant)
                                 }
                             }
                             Text([m.name, m.policyNote ?? (m.policy == nil ? "data policy not documented" : nil)].compactMap { $0 }.joined(separator: " · "))
@@ -104,7 +104,7 @@ struct ReceiptSheet: View {
                 if !receipt.fallbacks.isEmpty {
                     Hairline().padding(.vertical, 2)
                     MicroLabel("fallbacks")
-                    ForEach(receipt.fallbacks, id: \.self) { Text($0).textStyle(.bodySmall).foregroundStyle(AutobotColors.amber) }
+                    ForEach(receipt.fallbacks, id: \.self) { Text($0).textStyle(.bodySmall).foregroundStyle(c.inks.amber) }
                 }
 
                 Hairline().padding(.vertical, 2)
@@ -138,7 +138,7 @@ struct ReceiptSheet: View {
         ].compactMap { $0 }.joined(separator: " · ")
         return VStack(alignment: .leading, spacing: 2) {
             Text(host.host).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).truncationMode(.middle)
-            MicroLabel(detail, color: host.blocked == host.requests ? AutobotColors.amber : nil, lines: 2)
+            MicroLabel(detail, color: host.blocked == host.requests ? c.inks.amber : nil, lines: 2)
         }
     }
 }

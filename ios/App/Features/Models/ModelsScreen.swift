@@ -404,7 +404,7 @@ struct ModelsScreen: View {
                 subtitle: "\(m.id.split(separator: "/").first ?? "") · \(m.downloads) dl\(m.license.map { " · \($0)" } ?? "")",
                 action: { model.open(m.id) },
             ) {
-                if m.gated { Tag("gated", accent: AutobotColors.amber) }
+                if m.gated { Tag("gated", accent: c.inks.amber) }
             }
         }
     }
@@ -583,7 +583,7 @@ private struct CatalogRow: View {
 func fitColor(_ fit: Fit, _ c: AutobotScheme) -> Color {
     switch fit {
     case .good: c.onSurfaceVariant
-    case .tight: AutobotColors.amber
+    case .tight: c.inks.amber
     case .tooBig, .unsupported: c.error
     }
 }
@@ -622,7 +622,7 @@ private struct RepoSheet: View {
                     let kind = model.hfScope.kind
                     let fit = model.device?.fit(kind, bytes: f.sizeBytes, engine: engineFor(kind, formatOf(f.path, owner: owner)))
                     RunRow(title: String(f.path.split(separator: "/").last ?? ""), subtitle: "\(formatBytes(f.sizeBytes))\(f.sha256 != nil ? " · sha-256 known" : "")") {
-                        if let fit, fit != .good { Tag(fit.label, accent: AutobotColors.amber) }
+                        if let fit, fit != .good { Tag(fit.label, accent: c.inks.amber) }
                         let format = formatOf(f.path, owner: owner)
                         if format == .safetensors || format == .ckpt {
                             PcOnlyGetTag { model.installFile(repo, f.path) }
@@ -632,7 +632,7 @@ private struct RepoSheet: View {
                     }
                 }
                 if files.contains(where: { formatOf($0.path, owner: owner) == .safetensors }) {
-                    MicroLabel("safetensors run on a pc backend", color: AutobotColors.amber)
+                    MicroLabel("safetensors run on a pc backend", color: c.inks.amber)
                 }
             }
             .padding(.horizontal, 16)
@@ -650,7 +650,7 @@ private struct PcOnlyGetTag: View {
 
     var body: some View {
         if confirm {
-            Tag("pc only · get anyway", accent: AutobotColors.amber, filled: true) {
+            Tag("pc only · get anyway", accent: c.inks.amber, filled: true) {
                 confirm = false
                 action()
             }
@@ -687,7 +687,7 @@ private struct CivitaiRow: View {
             },
             trailing: {
                 if version?.earlyAccess == true {
-                    Tag("early access", accent: AutobotColors.amber)
+                    Tag("early access", accent: c.inks.amber)
                 } else if let version, installed.contains("civitai:\(version.id)") {
                     Tag("added")
                 } else {

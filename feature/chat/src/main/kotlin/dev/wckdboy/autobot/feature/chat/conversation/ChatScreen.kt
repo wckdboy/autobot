@@ -482,7 +482,7 @@ private fun AssistantMessage(
                 text = item.text,
                 footer = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (item.interrupted) Tag("interrupted", accent = AutobotColors.Amber)
+                        if (item.interrupted) Tag("interrupted", accent = AutobotTheme.inks.amber)
                         if (item.outputTokens != null) TokenRateLabel(tokensPerSecond = null, totalTokens = item.outputTokens)
                         Spacer(Modifier.weight(1f))
                         // Copies the message as written (markdown), not the rendered text.
@@ -698,7 +698,7 @@ private fun highlight(text: String, fragments: List<String>, style: SpanStyle): 
 private fun NoticeRow(item: SessionItem.Notice) {
     val color = when (item.kind) {
         NoticeKind.INFO -> MaterialTheme.colorScheme.outline
-        NoticeKind.WARN -> AutobotColors.Amber
+        NoticeKind.WARN -> AutobotTheme.inks.amber
         NoticeKind.ERROR -> MaterialTheme.colorScheme.error
     }
     if (item.kind == NoticeKind.ERROR) {

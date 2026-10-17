@@ -316,7 +316,7 @@ private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, 
         if (wildcards != null) {
             MicroLabel(wildcards, color = MaterialTheme.colorScheme.primary)
         } else {
-            MicroLabel("~$tokens / 75 tokens", color = if (tokens > 75) AutobotColors.RedDeep else MaterialTheme.colorScheme.onSurfaceVariant)
+            MicroLabel("~$tokens / 75 tokens", color = if (tokens > 75) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

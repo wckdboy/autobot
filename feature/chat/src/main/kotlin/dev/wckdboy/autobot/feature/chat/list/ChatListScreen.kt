@@ -289,14 +289,14 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (state.incognito) AutobotColors.Uv else MaterialTheme.colorScheme.outline)
-        MicroLabel("incognito", color = if (state.incognito) AutobotColors.Uv else MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.outline)
+        MicroLabel("incognito", color = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.onSurfaceVariant)
         InfoButton("Incognito", "New chats are kept in memory only, never written to disk.", Modifier.weight(1f))
         Switch(checked = state.incognito, onCheckedChange = actions.setIncognito)
         Button(
             onClick = actions.newChat,
             shape = MaterialTheme.shapes.small,
-            colors = if (state.incognito) ButtonDefaults.buttonColors(containerColor = AutobotColors.Uv) else ButtonDefaults.buttonColors(),
+            colors = if (state.incognito) ButtonDefaults.buttonColors(containerColor = AutobotColors.Uv, contentColor = AutobotColors.PaperInk) else ButtonDefaults.buttonColors(),
             contentPadding = PaddingValues(horizontal = 14.dp),
         ) {
             Icon(AutobotIcons.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -396,7 +396,7 @@ private fun FilterChips(state: ChatListUiState, actions: ChatListActions, open: 
         item(key = "all") { Chip("All", state.filter == ChatFilter.All) { actions.setFilter(ChatFilter.All) } }
         item(key = "pinned") { Chip("Pinned", state.filter == ChatFilter.Pinned) { actions.setFilter(ChatFilter.Pinned) } }
         if (state.showIncognitoChip) {
-            item(key = "incognito") { Chip("Incognito", state.filter == ChatFilter.Incognito, AutobotColors.Uv) { actions.setFilter(ChatFilter.Incognito) } }
+            item(key = "incognito") { Chip("Incognito", state.filter == ChatFilter.Incognito, AutobotTheme.inks.uv) { actions.setFilter(ChatFilter.Incognito) } }
         }
         items(state.folders, key = { "folder:${it.id}" }) { folder ->
             val selected = state.filter == ChatFilter.Folder(folder.id)
@@ -521,8 +521,8 @@ private fun ConversationRow(
         Box(Modifier.width(if (selecting) 18.dp else 8.dp), contentAlignment = Alignment.Center) {
             when {
                 selecting -> SelectBox(selected)
-                item.running -> StatusDot(AutobotColors.Acid, live = true)
-                item.incognito -> StatusDot(AutobotColors.Uv)
+                item.running -> StatusDot(MaterialTheme.colorScheme.primary, live = true)
+                item.incognito -> StatusDot(AutobotTheme.inks.uv)
                 else -> Box(Modifier.size(4.dp).background(MaterialTheme.colorScheme.outline))
             }
         }

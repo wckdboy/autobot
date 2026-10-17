@@ -135,8 +135,9 @@ struct Tag: View {
 
     var body: some View {
         let tint = accent ?? c.onSurfaceVariant
-        // Filled tags are solid blocks; pick ink or bone text for contrast.
-        let textColor = !filled ? tint : (tint.luminance() > 0.45 ? AutobotColors.paperInk : AutobotColors.bone100)
+        // Filled tags are solid blocks; ink or bone text, whichever reads better on the fill (ink
+        // on the signal red and amber, where bone is under 3.5:1).
+        let textColor = !filled ? tint : (tint.luminance() > 0.18 ? AutobotColors.paperInk : AutobotColors.bone100)
         let label = InkBusyLabel(busy: busy, size: .inline, color: textColor) {
             Text(text.uppercased())
                 .textStyle(.micro)
@@ -333,13 +334,14 @@ struct Segmented<T: Hashable>: View {
 enum BlockStatus: String, CaseIterable {
     case pending = "PENDING", running = "RUNNING", ok = "OK", error = "ERROR", denied = "DENIED"
 
-    var color: Color {
+    /// The status ink on [c]'s ground (text and dot).
+    func color(_ c: AutobotScheme) -> Color {
         switch self {
-        case .pending: AutobotColors.amber
-        case .running: AutobotColors.uv
-        case .ok: AutobotColors.acid
-        case .error: AutobotColors.signal
-        case .denied: AutobotColors.ash400
+        case .pending: c.inks.amber
+        case .running: c.inks.uv
+        case .ok: c.primary
+        case .error: c.inks.signal
+        case .denied: c.onSurfaceVariant
         }
     }
 }
@@ -362,14 +364,14 @@ struct TerminalBlock<Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             let header = HStack(spacing: 8) {
-                StatusDot(color: status.color, live: status == .running || status == .pending)
+                StatusDot(color: status.color(c), live: status == .running || status == .pending)
                 Text("▸ \(title)").textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1)
                 Text(subtitle ?? "")
                     .textStyle(.codeBlock)
                     .foregroundStyle(c.onSurfaceVariant)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                MicroLabel(status.rawValue, color: status.color)
+                MicroLabel(status.rawValue, color: status.color(c))
             }
             .padding(.horizontal, Tokens.Spacing.terminalPaddingHorizontal)
             .padding(.vertical, Tokens.Spacing.terminalPaddingVertical)

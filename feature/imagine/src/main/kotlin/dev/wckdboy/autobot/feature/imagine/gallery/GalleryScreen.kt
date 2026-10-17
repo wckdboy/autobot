@@ -123,7 +123,7 @@ fun GalleryScreen(
                         Icon(
                             Icons.Filled.Star,
                             contentDescription = "Favorites only",
-                            tint = if (state.favoritesOnly) AutobotColors.Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (state.favoritesOnly) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -184,7 +184,7 @@ private fun Thumb(item: GalleryItem, actions: GalleryViewModel, onClick: () -> U
     ) {
         bitmap?.let { Image(it, contentDescription = item.prompt.take(60), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         Box(Modifier.align(Alignment.TopEnd).stamp(item.favorite, enabled = item.favorite)) {
-            if (item.favorite) Icon(Icons.Filled.Star, null, tint = AutobotColors.Amber, modifier = Modifier.padding(4.dp).size(14.dp))
+            if (item.favorite) Icon(Icons.Filled.Star, null, tint = AutobotTheme.inks.amber, modifier = Modifier.padding(4.dp).size(14.dp))
         }
     }
 }
@@ -217,7 +217,7 @@ private fun DetailDialog(
                         Icon(
                             Icons.Filled.Star,
                             "Favorite",
-                            tint = if (item.favorite) AutobotColors.Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (item.favorite) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.stamp(item.favorite, enabled = item.favorite),
                         )
                     }
@@ -248,14 +248,14 @@ private fun DetailDialog(
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Tag("reuse params", accent = MaterialTheme.colorScheme.primary, onClick = onReuse)
-                        Tag("→ img2img", accent = AutobotColors.Uv, onClick = onInit)
+                        Tag("→ img2img", accent = AutobotTheme.inks.uv, onClick = onInit)
                         Tag("upscale 4×", accent = MaterialTheme.colorScheme.primary, onClick = onUpscale)
                         Tag(
                             "copy params",
                             accent = MaterialTheme.colorScheme.onSurfaceVariant,
                             onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("parameters", parameters))) } },
                         )
-                        Tag("export", accent = AutobotColors.Amber, onClick = { confirmExport = true })
+                        Tag("export", accent = AutobotTheme.inks.amber, onClick = { confirmExport = true })
                         Tag("delete", accent = MaterialTheme.colorScheme.error, onClick = { confirmDelete = true })
                     }
                     Spacer(Modifier.height(8.dp))

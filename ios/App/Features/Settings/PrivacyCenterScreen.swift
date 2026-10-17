@@ -228,7 +228,7 @@ private struct AuditRowView: View {
     }()
 
     var body: some View {
-        let accent = row.blocked ? c.error : AutobotColors.green
+        let accent = row.blocked ? c.error : c.primary
         HStack(alignment: .top, spacing: 10) {
             Text(row.blocked ? "BLOCKED" : row.method)
                 .textStyle(.labelSmall, weight: 700)

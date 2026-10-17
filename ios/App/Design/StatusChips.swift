@@ -22,12 +22,13 @@ enum PrivacyStatus: String, CaseIterable, Sendable {
         }
     }
 
-    var color: Color {
+    /// The status ink on [c]'s ground (text and dot).
+    func color(_ c: AutobotScheme) -> Color {
         switch self {
-        case .offline: AutobotColors.green
-        case .direct: AutobotColors.amber
-        case .tor: AutobotColors.violet
-        case .proxy: AutobotColors.cyan
+        case .offline: c.primary
+        case .direct: c.inks.amber
+        case .tor: c.inks.uv
+        case .proxy: c.inks.cyan
         }
     }
 }
@@ -41,9 +42,10 @@ enum Accelerator: String, CaseIterable, Sendable {
 struct PrivacyStatusPill: View {
     let status: PrivacyStatus
     var action: (() -> Void)? = nil
+    @Environment(\.scheme) private var c
 
     var body: some View {
-        let accent = status.color
+        let accent = status.color(c)
         let pill = HStack(spacing: 6) {
             Circle().fill(accent).frame(width: Tokens.Spacing.pillDot, height: Tokens.Spacing.pillDot)
             Text(status.label).textStyle(.labelMedium, weight: 600).foregroundStyle(accent)
@@ -69,10 +71,10 @@ struct AcceleratorChip: View {
 
     var body: some View {
         let accent: Color = switch accelerator {
-        case .npu: AutobotColors.violet
-        case .gpu: AutobotColors.cyan
+        case .npu: c.inks.uv
+        case .gpu: c.inks.cyan
         case .cpu: c.onSurfaceVariant
-        case .remote: AutobotColors.amber
+        case .remote: c.inks.amber
         }
         Text(accelerator.rawValue.uppercased())
             .textStyle(.labelSmall, weight: 700)

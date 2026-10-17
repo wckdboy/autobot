@@ -81,6 +81,16 @@ class TokensParityTest {
     }
 
     @Test
+    fun inksMatch() {
+        for ((name, inks) in listOf("dark" to DarkInks, "light" to LightInks)) {
+            val actual = mapOf("amber" to inks.amber, "cyan" to inks.cyan, "uv" to inks.uv, "signal" to inks.signal)
+            val expected = group("inks").getValue(name).jsonObject
+            assertEquals("inks.$name keys", expected.keys, actual.keys)
+            expected.forEach { (k, v) -> assertEquals("inks.$name.$k", v.jsonPrimitive.content.uppercase(), hex(actual.getValue(k))) }
+        }
+    }
+
+    @Test
     fun typeScaleMatches() {
         val styles: Map<String, TextStyle> = with(AutobotTypography) {
             mapOf(

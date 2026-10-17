@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import java.util.Locale
 
 enum class NoticeTone { INFO, WARNING, ERROR }
@@ -38,9 +39,11 @@ fun Notice(
 ) {
     val accent = when (tone) {
         NoticeTone.INFO -> MaterialTheme.colorScheme.primary
-        NoticeTone.WARNING -> AutobotColors.Amber
+        NoticeTone.WARNING -> AutobotTheme.inks.amber
         NoticeTone.ERROR -> MaterialTheme.colorScheme.error
     }
+    // The bar is a fill: the vivid amber, whose text-safe ink on paper is a dull brown.
+    val bar = if (tone == NoticeTone.WARNING) AutobotColors.Amber else accent
     Row(
         modifier
             .fillMaxWidth()
@@ -50,7 +53,7 @@ fun Notice(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
+        Box(Modifier.width(3.dp).fillMaxHeight().background(bar))
         Text(text, Modifier.weight(1f).padding(vertical = 10.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
         if (action != null && onAction != null) {
             TextButton(onClick = onAction) { Text(action.uppercase(Locale.ROOT), color = accent, style = MaterialTheme.typography.labelMedium) }

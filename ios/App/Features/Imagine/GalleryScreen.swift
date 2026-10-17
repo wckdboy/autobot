@@ -53,7 +53,7 @@ struct GalleryScreen: View {
                 // The same top bar as every other screen (it was a smaller, one-off title).
                 AutobotTopBar(title: "Gallery", onBack: { nav.back() }) {
                     MicroLabel(items.count == all.count ? "\(all.count)" : "\(items.count)/\(all.count)")
-                    IconAction(symbol: "star.fill", label: "Favorites only", tint: favoritesOnly ? AutobotColors.amber : c.onSurfaceVariant) { favoritesOnly.toggle() }
+                    IconAction(symbol: "star.fill", label: "Favorites only", tint: favoritesOnly ? c.inks.amber : c.onSurfaceVariant) { favoritesOnly.toggle() }
                         .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
                 }
                 ConsoleTextField(text: $query, placeholder: "Search", kind: .mono)
@@ -164,7 +164,7 @@ private struct DetailView: View {
             HStack(spacing: 0) {
                 IconAction(symbol: "xmark", label: "Close", action: onClose)
                 MicroLabel(relativeTime(item.createdAt)).frame(maxWidth: .infinity, alignment: .leading)
-                IconAction(symbol: "star.fill", label: "Favorite", tint: current.favorite ? AutobotColors.amber : c.onSurfaceVariant) {
+                IconAction(symbol: "star.fill", label: "Favorite", tint: current.favorite ? c.inks.amber : c.onSurfaceVariant) {
                     app.gallery.setFavorite(item.id, !current.favorite)
                 }
                 .stamp(current.favorite) { $0 }
@@ -229,7 +229,7 @@ private struct DetailView: View {
                     }
                     ImagineTagFlow(spacing: 6) {
                         Tag("reuse params", accent: c.primary) { onReuse(false) }
-                        Tag("→ img2img", accent: AutobotColors.uv) { onReuse(true) }
+                        Tag("→ img2img", accent: c.inks.uv) { onReuse(true) }
                         Tag("copy params", accent: c.onSurfaceVariant) {
                             UIPasteboard.general.setItems([[UTType.plainText.identifier: parametersText(item)]], options: [.localOnly: true])
                             onMessage("Parameters copied")
@@ -237,7 +237,7 @@ private struct DetailView: View {
                         if upscaling != nil || GalleryUpscale.canUpscale(item) {
                             Tag("upscale 4×", accent: c.primary, busy: upscaling != nil) { upscale(current) }
                         }
-                        Tag("export", accent: AutobotColors.amber) { confirmExport = true }
+                        Tag("export", accent: c.inks.amber) { confirmExport = true }
                         Tag("delete", accent: c.error) { confirmDelete = true }
                     }
                     if let upscaling {

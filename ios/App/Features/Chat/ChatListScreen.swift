@@ -183,8 +183,8 @@ struct ChatListScreen: View {
             HStack(spacing: 10) {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(incognito ? AutobotColors.uv : c.outline)
-                MicroLabel("incognito", color: incognito ? AutobotColors.uv : c.onSurfaceVariant)
+                    .foregroundStyle(incognito ? c.inks.uv : c.outline)
+                MicroLabel("incognito", color: incognito ? c.inks.uv : c.onSurfaceVariant)
                 InfoButton(title: "Incognito", text: "New sessions are kept in memory only, never written to disk.")
                 Spacer(minLength: 0)
                 RisoToggle(isOn: Binding(get: { incognito }, set: { incognitoOverride = $0 }))
@@ -274,7 +274,7 @@ struct ChatListScreen: View {
             HStack(spacing: 6) {
                 chip("All", key: "all", m)
                 chip("Pinned", key: "pinned", m)
-                if m.showIncognitoChip { chip("Incognito", key: "incognito", m, accent: AutobotColors.uv) }
+                if m.showIncognitoChip { chip("Incognito", key: "incognito", m, accent: c.inks.uv) }
                 ForEach(app.conversations.folders) { f in
                     chip("\(f.name) \(m.folderCounts[f.id] ?? 0)", key: "folder:\(f.id)", m)
                         .contextMenu {
@@ -588,9 +588,9 @@ private struct ConversationRow: View, Equatable {
                             .font(.system(size: 16))
                             .foregroundStyle(selected ? c.primary : c.outline)
                     } else if app.agent.running.contains(item.id) {
-                        StatusDot(color: AutobotColors.acid, live: true)
+                        StatusDot(color: c.primary, live: true)
                     } else if item.incognito {
-                        StatusDot(color: AutobotColors.uv)
+                        StatusDot(color: c.inks.uv)
                     } else {
                         Rectangle().fill(c.outline).frame(width: 4, height: 4)
                     }

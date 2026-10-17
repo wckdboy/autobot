@@ -18,7 +18,7 @@ struct BackendsScreen: View {
                     ForEach(repo.backends) { backend in
                         let result = results[backend.id]
                         Panel(title: backend.kind.label, accent: backend.kind == .localSse ? AutobotColors.uv : AutobotColors.cyan) {
-                            Tag(backend.isLoopback ? "loopback" : "network", accent: backend.isLoopback ? AutobotColors.acid : AutobotColors.amber)
+                            Tag(backend.isLoopback ? "loopback" : "network", accent: backend.isLoopback ? c.primary : c.inks.amber)
                         } content: {
                             HStack(spacing: 10) {
                                 Button { repo.setDefault(backend.id) } label: {
@@ -41,7 +41,7 @@ struct BackendsScreen: View {
                                 GhostButton("Test", enabled: testing == nil, busy: testing == backend.id) { test(backend) }
                                     .frame(width: 120)
                                 if let result {
-                                    MicroLabel(result, color: result.hasPrefix("ok") ? AutobotColors.acid : c.error, lines: 2)
+                                    MicroLabel(result, color: result.hasPrefix("ok") ? c.primary : c.error, lines: 2)
                                 }
                                 Spacer(minLength: 0)
                             }

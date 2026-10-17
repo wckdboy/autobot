@@ -205,7 +205,7 @@ private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: Li
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Tag(if (asset.favorite) "★ favourite" else "☆ favourite", accent = MaterialTheme.colorScheme.primary, filled = asset.favorite, onClick = { actions.toggleFavorite(asset) })
                 Tag("compare", onClick = { actions.compareWith(asset); onDismiss() })
-                Tag("export", accent = AutobotColors.Amber, onClick = { confirmExport = true })
+                Tag("export", accent = AutobotTheme.inks.amber, onClick = { confirmExport = true })
                 Tag("delete", onClick = { confirmDelete = true })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

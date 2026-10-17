@@ -154,7 +154,7 @@ private struct AssetDetail: View {
                     Tag("→ use as input") { useAsInput(a) }
                     Tag("↺ reuse recipe", accent: c.primary) { reuse(a) }
                     Tag("compare") { onClose(.compare) }
-                    Tag("export", accent: AutobotColors.amber) { confirmExport = true }
+                    Tag("export", accent: c.inks.amber) { confirmExport = true }
                     Tag("delete", accent: c.error) { confirmDelete = true }
                 }
             }

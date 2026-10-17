@@ -157,8 +157,9 @@ fun Tag(
         .then(if (filled) Modifier.background(accent, shape) else Modifier.border(1.dp, accent.copy(alpha = 0.55f), shape))
         .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
         .padding(horizontal = 6.dp, vertical = 3.dp)
-    // Filled tags are solid blocks; pick ink or bone text for contrast.
-    val textColor = if (!filled) accent else if (accent.luminance() > 0.45f) AutobotColors.PaperInk else AutobotColors.Bone100
+    // Filled tags are solid blocks; ink or bone text, whichever reads better on the fill (ink on
+    // the signal red and amber, where bone is under 3.5:1).
+    val textColor = if (!filled) accent else if (accent.luminance() > 0.18f) AutobotColors.PaperInk else AutobotColors.Bone100
     Text(text.uppercase(Locale.ROOT), modifier = base, style = AutobotTheme.styles.micro, color = textColor, maxLines = 1)
 }
 
@@ -282,12 +283,13 @@ fun <T> Segmented(
 
 enum class BlockStatus { PENDING, RUNNING, OK, ERROR, DENIED }
 
+@Composable
 private fun BlockStatus.color(): Color = when (this) {
-    BlockStatus.PENDING -> AutobotColors.Amber
-    BlockStatus.RUNNING -> AutobotColors.Uv
-    BlockStatus.OK -> AutobotColors.Acid
-    BlockStatus.ERROR -> AutobotColors.Signal
-    BlockStatus.DENIED -> AutobotColors.Ash400
+    BlockStatus.PENDING -> AutobotTheme.inks.amber
+    BlockStatus.RUNNING -> AutobotTheme.inks.uv
+    BlockStatus.OK -> MaterialTheme.colorScheme.primary
+    BlockStatus.ERROR -> AutobotTheme.inks.signal
+    BlockStatus.DENIED -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 /**
@@ -364,13 +366,13 @@ fun TerminalBlock(
 private fun UndergroundPreview() {
     AutobotTheme {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Panel(title = "Sampler", accent = AutobotColors.Acid, trailing = { Tag("DPM++ 2M", accent = AutobotColors.Acid) }) {
+            Panel(title = "Sampler", accent = AutobotColors.Acid, trailing = { Tag("DPM++ 2M", accent = MaterialTheme.colorScheme.primary) }) {
                 ValueSlider("Steps", 24f, {}, 1f..60f, steps = 58, format = { it.toInt().toString() })
                 ValueSlider("CFG", 7f, {}, 1f..20f)
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     Readout("Seed", "418229931")
                     Readout("Size", "512×768")
-                    Readout("Engine", "NPU", valueColor = AutobotColors.Uv)
+                    Readout("Engine", "NPU", valueColor = AutobotTheme.inks.uv)
                 }
             }
             Segmented(listOf("txt2img", "img2img", "inpaint"), "img2img", {}, { it }, Modifier.fillMaxWidth())
