@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.wckdboy.autobot.core.designsystem.R
 import dev.wckdboy.autobot.core.designsystem.motion.FlowPhase
 import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
@@ -192,18 +194,25 @@ fun AutobotTopBar(
         ) {
             navigation?.invoke()
             if (showMark && navigation == null) AutobotMark()
+            // Steps down (to [TOP_BAR_TITLE_MIN]) before it truncates: at 360 dp a bar with a few
+            // actions (chat: voice, route, more) left room for "AG…" of "AGENT RUN".
+            val titleStyle = MaterialTheme.typography.titleLarge
             Text(
                 title.uppercase(Locale.ROOT),
-                style = MaterialTheme.typography.titleLarge,
+                style = titleStyle,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                autoSize = TextAutoSize.StepBased(minFontSize = TOP_BAR_TITLE_MIN, maxFontSize = titleStyle.fontSize, stepSize = 1.sp),
                 modifier = Modifier.weight(1f),
             )
             actions()
         }
     }
 }
+
+/** The smallest the top bar's title steps down to before it truncates. */
+private val TOP_BAR_TITLE_MIN = 14.sp
 
 /** Small boxed counter (e.g. `16+` / running jobs). */
 @Composable
