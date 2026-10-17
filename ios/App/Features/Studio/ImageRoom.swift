@@ -234,7 +234,11 @@ final class ImageRoomModel: MaskEditing {
             if let id = recipe.backendId { target = .backend(id) } else if let on = backends.first(where: { $0.kind == .onDevice }) { target = .backend(on.id) }
             if let input = recipe.input("image"), let a = app.studio.library.asset(input) {
                 await useAsInput(a)
-                mode = recipe.text("outpaint") != nil ? .outpaint : recipe.text("mask") != nil ? .img2img : .img2img
+                // A recipe keeps its mask only as a raster, not as strokes: an inpaint recipe comes back
+                // as inpaint with an empty mask, so the form asks for the mask instead of quietly
+                // running img2img over the whole picture.
+                let masked = recipe.text("mask") != nil || recipe.input("mask") != nil
+                mode = recipe.text("outpaint") != nil ? .outpaint : masked ? .inpaint : .img2img
                 if let m = StudioRecipes.Margins(recipe.text("outpaint")) { outpaint = m }
             } else {
                 clearInput()
