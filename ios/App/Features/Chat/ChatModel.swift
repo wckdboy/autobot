@@ -88,8 +88,24 @@ final class ChatModel {
     @ObservationIgnored private var voiceConversation: String?
     @ObservationIgnored private var turn: VoiceTurn?
     @ObservationIgnored private var endOfSpeech: EndOfSpeech?
+    /// Words heard so far while dictating or listening (only the live words line observes it).
+    let heardWords = HeardWords()
+    /// The dictation listening now (composer or voice mode).
+    @ObservationIgnored private var live: LiveDictation?
+    /// The voice answer being read while it streams, its speaking queue and task.
+    @ObservationIgnored private var reading: ReadAloudStream?
+    @ObservationIgnored private var queue: SpeechQueue?
+    @ObservationIgnored private var queueTask: Task<Void, Never>?
+    /// Hands-free barge-in while the answer plays, and the last audio it heard (the first words).
+    @ObservationIgnored private var barge: BargeIn?
+    @ObservationIgnored private var bargeRing: [Float] = []
+    /// When this voice turn's answer started streaming, and how long until its first piece played.
+    @ObservationIgnored private var answerStartedAt: Int64?
+    @ObservationIgnored private(set) var lastFirstAudioMs: Int64?
 
     private static let levelHistory = 32
+    /// Audio kept from the barge-in microphone for the dictation it starts (0.8 s).
+    private static let bargePreroll = 12_800
 
     /// The speaker reading now (kept so stop() reaches the one that speaks even if the pick
     /// changed meanwhile, e.g. the neural voice finished downloading).
@@ -148,32 +164,30 @@ final class ChatModel {
         return image
     }
 
+
     // MARK: Dictation
 
-    /// Starts dictation, or stops it and transcribes on the phone (whisper.cpp).
+    /// Starts dictation (live words while recording), or stops it and gives the final transcript.
     func toggleDictation(app: AppContainer) {
         switch dictation {
         case .transcribing:
             return
         case .recording:
-            let samples = app.speech.stop()
-            guard let path = speechModelPath(app) else {
+            guard let live else {
                 dictation = .idle
-                notice = "The speech model is missing. Get one in Models › speech"
                 return
             }
             dictation = .transcribing
             Task {
-                do {
-                    let text = try await app.speech.transcribe(modelPath: path, samples: samples).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !text.isEmpty { dictated = text }
-                } catch {
-                    notice = "Dictation failed: \(error.localizedDescription)"
-                }
+                let text = AutobotShared.VoiceText.shared.transcript(raw: await live.finish())
+                if self.live === live { self.live = nil }
+                heardWords.clear()
+                if !text.isEmpty { dictated = text }
                 dictation = .idle
+                if voice == nil { SpeechAudio.deactivate() }
             }
         case .idle:
-            guard speechModelPath(app) != nil else {
+            guard let path = speechModelPath(app) else {
                 notice = "Get a speech model in Models → speech to dictate"
                 return
             }
@@ -184,12 +198,14 @@ final class ChatModel {
                     notice = "Microphone access is off — allow it in Settings to dictate"
                     return
                 }
+                SpeechAudio.activate(.dictation)
+                let live = makeLive(app: app, path: path)
                 do {
-                    try app.speech.start(onInterruption: { [weak self] in
-                        Task { @MainActor in self?.recordingInterrupted(app: app) }
-                    })
+                    try live.start(onLevel: { _ in }, onInterruption: { [weak self] in self?.recordingInterrupted(app: app) })
+                    self.live = live
                     dictation = .recording
                 } catch {
+                    SpeechAudio.deactivate()
                     notice = "Dictation failed: \(error.localizedDescription)"
                 }
             }
@@ -203,15 +219,25 @@ final class ChatModel {
         return app.library.paths(model)[.model]?.path
     }
 
+    private func makeLive(app: AppContainer, path: String) -> LiveDictation {
+        let live = LiveDictation(engine: LocalDictationEngine(speech: app.speech, modelPath: path))
+        live.onText = { [weak self] text in self?.heardWords.set(text) }
+        return live
+    }
+
     /// The microphone was taken away (a call, Siri, media services reset): end the recording.
     private func recordingInterrupted(app: AppContainer) {
         if dictation == .recording {
-            _ = app.speech.stop()
+            live?.cancel()
+            live = nil
+            heardWords.clear()
             dictation = .idle
             notice = "Dictation stopped: the microphone was interrupted"
         }
         if voice?.phase == .listening {
-            _ = app.speech.stop()
+            live?.cancel()
+            live = nil
+            heardWords.clear()
             endOfSpeech = nil
             voiceFailed("Voice stopped: the microphone was interrupted")
         }
@@ -219,7 +245,9 @@ final class ChatModel {
 
     func stopRecording(app: AppContainer) {
         if dictation == .recording {
-            _ = app.speech.stop()
+            live?.cancel()
+            live = nil
+            heardWords.clear()
             dictation = .idle
         }
     }
@@ -260,7 +288,7 @@ final class ChatModel {
         speakingKey = nil
     }
 
-    // MARK: Voice mode: push to talk → transcribe → send → read the answer aloud, all on the phone
+    // MARK: Voice mode: talk (live words) → send → read the answer while it streams, on the phone
 
     func setVoiceMode(_ on: Bool, app: AppContainer, conversationId: String) {
         guard on != (voice != nil) else { return }
@@ -290,15 +318,14 @@ final class ChatModel {
         case .listening: finishListening()
         case .transcribing, nil: break
         case .thinking: if let voiceApp, let voiceConversation { voiceApp.agent.cancel(voiceConversation) }
-        case .speaking:
-            stopSpeaker()
-            listen()
+        case .speaking: interrupt()
         }
     }
 
-    private func listen() {
+    /// Listens with live words on screen. [preroll]: audio heard just before (a barge-in's first words).
+    private func listen(preroll: [Float]? = nil) {
         guard let app = voiceApp else { return }
-        guard speechModelPath(app) != nil else { return voiceFailed("Get a speech model in Models › speech") }
+        guard let path = speechModelPath(app) else { return voiceFailed("Get a speech model in Models › speech") }
         voiceTask?.cancel()
         stopSpeaker()
         voiceTask = Task {
@@ -306,12 +333,10 @@ final class ChatModel {
             guard await app.speech.requestPermission() else { return voiceFailed("Microphone access is off — allow it in Settings to talk") }
             guard !Task.isCancelled, voice != nil else { return }
             endOfSpeech = voice?.handsFree == true ? EndOfSpeech(threshold: 0.05, silenceMs: 1_200, minSpeechMs: 200, noSpeechMs: 8_000) : nil
+            let live = makeLive(app: app, path: path)
             do {
-                try app.speech.start(managesSession: false, onLevel: { [weak self] peak in
-                    Task { @MainActor in self?.heard(peak) }
-                }, onInterruption: { [weak self] in
-                    Task { @MainActor in self?.recordingInterrupted(app: app) }
-                })
+                try live.start(preroll: preroll, onLevel: { [weak self] peak in self?.heard(peak) }, onInterruption: { [weak self] in self?.recordingInterrupted(app: app) })
+                self.live = live
                 setPhase(.listening)
             } catch {
                 voiceFailed("Voice failed: \(error.localizedDescription)")
@@ -321,72 +346,175 @@ final class ChatModel {
 
     /// One microphone level: the meter, and hands-free end-of-speech detection.
     private func heard(_ peak: Float) {
-        guard voice?.phase == .listening, let app = voiceApp else { return }
+        guard voice?.phase == .listening else { return }
         levels.append(peak, keep: Self.levelHistory)
         guard let endOfSpeech else { return }
         let verdict = endOfSpeech.onLevel(peak: peak, atMs: monotonicMs())
         if verdict == .ended {
             finishListening()
         } else if verdict == .noSpeech {
-            _ = app.speech.stop()
+            live?.cancel()
+            live = nil
+            heardWords.clear()
             voiceFailed("Didn't catch that")
         }
     }
 
     private func finishListening() {
-        guard let app = voiceApp, let conversationId = voiceConversation else { return }
-        let samples = app.speech.stop()
+        guard let app = voiceApp, let conversationId = voiceConversation, let live else { return }
         endOfSpeech = nil
-        guard let path = speechModelPath(app) else { return voiceFailed("Get a speech model in Models › speech") }
         setPhase(.transcribing)
         voiceTask?.cancel()
         voiceTask = Task {
-            do {
-                let raw = try await app.speech.transcribe(modelPath: path, samples: samples)
-                guard !Task.isCancelled else { return }
-                let text = AutobotShared.VoiceText.shared.transcript(raw: raw)
-                guard !text.isEmpty else { return voiceFailed("Didn't catch that") }
-                turn = VoiceTurn(baseline: Set(app.agent.session(conversationId).state.projection.items.map(\.key)), startedAtMs: monotonicMs())
-                setPhase(.thinking)
-                let images = pendingImages
-                pendingImages = []
-                await app.agent.send(conversationId, text: text, images: images)
-                // Re-check once the prompt could have been dropped without any state change.
-                try await Task.sleep(for: .milliseconds(VoiceTurn.timeoutMs))
-                sessionChanged(app.agent.session(conversationId).state)
-            } catch is CancellationError {
-            } catch {
-                voiceFailed("Voice failed: \(error.localizedDescription)")
-            }
+            let raw = await live.finish()
+            if self.live === live { self.live = nil }
+            heardWords.clear()
+            guard !Task.isCancelled else { return }
+            let text = AutobotShared.VoiceText.shared.transcript(raw: raw)
+            guard !text.isEmpty else { return voiceFailed("Didn't catch that") }
+            turn = VoiceTurn(baseline: Set(app.agent.session(conversationId).state.projection.items.map(\.key)), startedAtMs: monotonicMs())
+            // The answer is read while it streams, from the chat renderer's own text.
+            reading = ReadAloudStream(speakable: { LiteMarkdown.speakable($0) }, maxChars: AutobotShared.VoiceText.shared.MAX_CHUNK)
+            answerStartedAt = nil
+            setPhase(.thinking)
+            let images = pendingImages
+            pendingImages = []
+            await app.agent.send(conversationId, text: text, images: images)
+            // Re-check once the prompt could have been dropped without any state change.
+            do { try await Task.sleep(for: .milliseconds(VoiceTurn.timeoutMs)) } catch { return }
+            sessionChanged(app.agent.session(conversationId).state)
         }
     }
 
-    /// Follows the agent during a voice turn: announces approvals, reads the answer when it is done.
+    /**
+     Follows the agent during a voice turn: reads the answer sentence by sentence while it streams,
+     announces approvals, and ends the reading when the turn is over.
+     */
     func sessionChanged(_ state: ChatSessionState) {
-        guard let turn, voice?.phase == .thinking else { return }
+        guard let turn else { return }
+        if let text = state.live?.text, !text.isEmpty, let reading, turn.promptSeen(items: state.projection.items) {
+            if answerStartedAt == nil { answerStartedAt = monotonicMs() }
+            speakPieces(reading.update(text: text))
+        }
         let waiting = state.approvals.map(\.callId) + (state.question.map { [$0.callId] } ?? [])
         if turn.needsAnnouncement(waiting) {
             let line = state.question != nil ? "The agent has a question." : "Needs your approval."
-            let speaker = startSpeaker()
-            Task { try? await speaker.speak(line) }
+            if let queue {
+                queue.add([line])
+            } else {
+                let speaker = startSpeaker()
+                Task { try? await speaker.speak(line) }
+            }
         }
         guard let finished = turn.update(items: state.projection.items, running: state.running, nowMs: monotonicMs()) else { return }
         self.turn = nil
-        guard let reply = finished.reply else { return setPhase(.ready) }
-        voiceTask?.cancel()
-        voiceTask = Task {
-            setPhase(.speaking)
-            let speaker = startSpeaker()
-            do {
-                try await speaker.read(reply) { [weak self] _ in self?.voice?.spoken += 1 }
-            } catch let e as SpeakerUnavailable {
-                return voiceFailed(e.message)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            if voice?.handsFree == true { listen() } else { setPhase(.ready) }
+        // The rest of the answer (or all of it, when it did not stream), then the queue ends.
+        if let reading { speakPieces(reading.finish(reply: finished.reply)) }
+        if let queue {
+            queue.close()
+        } else {
+            reading = nil
+            setPhase(.ready)
         }
+    }
+
+    /// Queues [pieces]; the first one starts the speaking phase (and hands-free barge-in).
+    private func speakPieces(_ pieces: [String]) {
+        guard !pieces.isEmpty else { return }
+        if queue == nil {
+            let q = SpeechQueue { [weak self] index in
+                guard let self else { return }
+                if index == 0 { self.startedSpeaking() }
+                self.voice?.spoken += 1
+            }
+            queue = q
+            let speaker = startSpeaker()
+            queueTask = Task { [weak self] in
+                do {
+                    try await q.run(speaker)
+                } catch let e as SpeakerUnavailable {
+                    self?.stopVoiceReading()
+                    self?.voiceFailed(e.message)
+                    return
+                } catch {
+                    return
+                }
+                guard let self, self.queue === q else { return }
+                self.stopVoiceReading()
+                if self.voice?.handsFree == true { self.listen() } else { self.setPhase(.ready) }
+            }
+        }
+        queue?.add(pieces)
+    }
+
+    private func startedSpeaking() {
+        if let answerStartedAt { lastFirstAudioMs = monotonicMs() - answerStartedAt }
+        setPhase(.speaking)
+        if voice?.handsFree == true { startBargeIn() }
+    }
+
+    /**
+     Hands-free: listens while the answer plays, through voice-processing I/O (echo cancellation)
+     and the shared `BargeIn` gate, so talking over the answer stops it and starts listening with
+     the first words kept. If capture cannot start during playback, tapping still interrupts.
+     */
+    private func startBargeIn() {
+        guard let app = voiceApp, barge == nil else { return }
+        let gate = BargeIn()
+        gate.start(atMs: monotonicMs())
+        barge = gate
+        bargeRing = []
+        do {
+            try app.speech.startLive(
+                voiceProcessing: true,
+                onLevel: { [weak self] peak in Task { @MainActor in self?.bargeHeard(peak) } },
+                onSamples: { [weak self] buffer in
+                    let chunk = Array(buffer)
+                    Task { @MainActor in self?.keepForBarge(chunk) }
+                },
+            )
+        } catch {
+            barge = nil
+        }
+    }
+
+    private func keepForBarge(_ chunk: [Float]) {
+        guard barge != nil else { return }
+        bargeRing.append(contentsOf: chunk)
+        if bargeRing.count > Self.bargePreroll { bargeRing.removeFirst(bargeRing.count - Self.bargePreroll) }
+    }
+
+    private func bargeHeard(_ peak: Float) {
+        guard let gate = barge, voice?.phase == .speaking else { return }
+        if gate.onLevel(peak: peak, atMs: monotonicMs()) {
+            let preroll = bargeRing
+            interrupt(preroll: preroll)
+        }
+    }
+
+    private func stopBarge() {
+        guard barge != nil else { return }
+        barge = nil
+        bargeRing = []
+        _ = voiceApp?.speech.stop()
+    }
+
+    /// The user talks over the answer (a tap, or barge-in): stop reading it and the agent, then listen.
+    private func interrupt(preroll: [Float]? = nil) {
+        stopVoiceReading()
+        if turn != nil, let app = voiceApp, let id = voiceConversation, app.agent.session(id).running { app.agent.cancel(id) }
+        turn = nil
+        listen(preroll: preroll)
+    }
+
+    /// Stops reading the voice answer (and the barge-in microphone).
+    private func stopVoiceReading() {
+        queueTask?.cancel()
+        queueTask = nil
+        queue = nil
+        reading = nil
+        stopBarge()
+        stopSpeaker()
     }
 
     private func setPhase(_ phase: VoicePhase) {
@@ -401,9 +529,13 @@ final class ChatModel {
 
     private func stopVoiceWork() {
         voiceTask?.cancel()
-        if voice?.phase == .listening, let voiceApp { _ = voiceApp.speech.stop() }
+        if dictation == .idle {
+            live?.cancel()
+            live = nil
+            heardWords.clear()
+        }
         endOfSpeech = nil
-        stopSpeaker()
+        stopVoiceReading()
         turn = nil
         setPhase(.ready)
     }

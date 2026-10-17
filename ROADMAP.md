@@ -184,7 +184,11 @@ cascade work fully offline on the 8 Elite Gen 5 and a current iPhone.
 - **Speculative decoding** with a small draft model, on the GPU or NPU.
 - **Images**: LoRA on the NPU, SDXL resolutions beyond 1024, Anima packages, Core ML LoRA merge
   tooling.
-- **Speech**: whisper encoder on QNN (Android) and Core ML (iOS); streaming dictation.
+- **Speech**: whisper encoder on QNN (Android) and Core ML (iOS); ✅ streaming dictation. *(both
+  apps: live words from a bounded sliding window with LocalAgreement-2 in `:shared`, windows close
+  at pauses; answers read sentence by sentence while they stream; hands-free barge-in with platform
+  echo cancellation behind a shared energy gate. Still to do: verify barge-in echo safety on real
+  phones; a shorter encoder context for partial passes on CPU.)*
 
 **Exit:** on the 8 Elite Gen 5 and a current iPhone, a 4B chat model generates ≥ 2× faster than
 CPU-only 1.1.

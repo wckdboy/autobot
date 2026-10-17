@@ -13,6 +13,7 @@ public final class AudioRecorder: Sendable {
         var engine: AVAudioEngine?
         var samples: [Float] = []
         var managesSession = true
+        var keepSamples = true
         var observers: [any NSObjectProtocol] = []
     }
 
@@ -38,10 +39,19 @@ public final class AudioRecorder: Sendable {
      * restarts capture in the new format; an audio interruption, a media services reset or a
      * restart that fails stops it (the samples so far are kept for [stop]) and calls
      * [onInterruption] on an arbitrary thread.
+     *
+     * [onSamples] gets each converted 16 kHz buffer on the audio thread (live dictation); with
+     * [keepSamples] false nothing accumulates and [stop] returns no samples, so memory stays at
+     * what the consumer keeps. [voiceProcessing]: Apple's voice-processing I/O (echo cancellation,
+     * noise suppression) with other audio ducked as little as possible, for listening while an
+     * answer plays; ignored where the route cannot do it.
      */
     public func start(
         managesSession: Bool = true,
+        keepSamples: Bool = true,
+        voiceProcessing: Bool = false,
         onLevel: @escaping @Sendable (Float) -> Void = { _ in },
+        onSamples: (@Sendable (UnsafeBufferPointer<Float>) -> Void)? = nil,
         onInterruption: @escaping @Sendable () -> Void = {},
     ) throws {
         guard AVAudioApplication.shared.recordPermission == .granted else {
@@ -56,6 +66,13 @@ public final class AudioRecorder: Sendable {
 
         let engine = AVAudioEngine()
         let input = engine.inputNode
+        if voiceProcessing {
+            // Before the engine starts; the input format changes with it. Best effort: some routes
+            // (and the simulator) refuse, and the energy gate behind it still holds.
+            if (try? input.setVoiceProcessingEnabled(true)) != nil {
+                input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+            }
+        }
         let inputFormat = input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
               let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Self.sampleRate, channels: 1, interleaved: false)
@@ -72,10 +89,12 @@ public final class AudioRecorder: Sendable {
             var peak: Float = 0
             for s in chunk where s.isFinite { peak = max(peak, abs(s)) }
             let full = self.state.withLock { state in
+                guard state.keepSamples else { return false }
                 let room = self.maxSamples - state.samples.count
                 state.samples.append(contentsOf: chunk.prefix(max(room, 0)))
                 return state.samples.count >= self.maxSamples
             }
+            onSamples?(chunk)
             onLevel(min(peak, 1))
             // Hit the limit: stop capturing (off the tap thread) but keep the samples for stop().
             if full { DispatchQueue.global().async { _ = self.stop(keep: true) } }
@@ -110,6 +129,7 @@ public final class AudioRecorder: Sendable {
             $0.samples = []
             $0.engine = running
             $0.managesSession = managesSession
+            $0.keepSamples = keepSamples
             $0.observers = observers
         }
     }

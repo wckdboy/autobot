@@ -8,11 +8,15 @@ import android.content.ServiceConnection
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AudioEffect
+import android.media.audiofx.NoiseSuppressor
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.os.RemoteException
-import java.io.File
+import android.system.Os
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -31,6 +35,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 class SpeechException(message: String) : Exception(message)
+
+/** What whisper heard and the language it heard it in ("" when unknown). */
+data class SpeechText(val text: String, val language: String)
+
+/** Capture and engine sample rate. */
+const val SAMPLE_RATE = 16_000
 
 /**
  * Records the microphone and transcribes it on the phone with whisper.cpp. The `:asr` process
@@ -114,89 +124,104 @@ class LocalSpeech(context: Context, private val idleMillis: Long = 60_000L) {
     }
 
     /**
-     * Records 16 kHz mono audio until [stopped] returns true (or [maxSeconds] pass),
-     * writing float PCM to a private cache file. Requires RECORD_AUDIO.
+     * Captures 16 kHz mono audio until [stopped] returns true (or [maxSeconds] pass), handing
+     * each ~100 ms buffer to [onAudio] (reused: copy what you keep). Nothing is written anywhere.
+     * [echoCancel]: the voice-communication source with the platform's acoustic echo canceller
+     * and noise suppressor, for listening while an answer plays (barge-in). Requires RECORD_AUDIO.
      */
     @SuppressLint("MissingPermission")
-    suspend fun record(stopped: () -> Boolean, maxSeconds: Int = 120, onLevel: (Float) -> Unit = {}): File = withContext(Dispatchers.IO) {
-        val rate = 16_000
+    suspend fun capture(
+        stopped: () -> Boolean,
+        maxSeconds: Int = 600,
+        echoCancel: Boolean = false,
+        onAudio: (samples: FloatArray, count: Int) -> Unit,
+    ) = withContext(Dispatchers.IO) {
+        val rate = SAMPLE_RATE
         val min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT)
         if (min <= 0) throw SpeechException("Microphone unavailable")
+        val source = if (echoCancel) MediaRecorder.AudioSource.VOICE_COMMUNICATION else MediaRecorder.AudioSource.VOICE_RECOGNITION
         val recorder = try {
-            AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT, min * 4)
+            AudioRecord(source, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT, min * 4)
         } catch (e: Exception) {
             throw SpeechException("Microphone unavailable")
         }
-        // From here on the recorder is released whatever happens (a leaked one blocks the microphone).
-        var file: File? = null
+        // From here on the recorder (and its effects) are released whatever happens: a leaked
+        // recorder blocks the microphone.
+        val effects = mutableListOf<AudioEffect>()
         try {
             if (recorder.state != AudioRecord.STATE_INITIALIZED) throw SpeechException("Microphone unavailable")
-            val out = File.createTempFile("dictation", ".pcm", File(app.cacheDir, "speech").apply { mkdirs() })
-            file = out
+            if (echoCancel) {
+                if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(recorder.audioSessionId)?.let { effects += it }
+                if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(recorder.audioSessionId)?.let { effects += it }
+                effects.forEach { runCatching { it.enabled = true } }
+            }
             val chunk = FloatArray(rate / 10)
-            val bytes = ByteBuffer.allocate(chunk.size * 4).order(ByteOrder.LITTLE_ENDIAN)
             var total = 0
             try {
                 recorder.startRecording()
             } catch (e: IllegalStateException) {
                 throw SpeechException("Microphone unavailable")
             }
-            FileOutputStream(out).use { stream ->
-                while (!stopped() && currentCoroutineContext().isActive && total < rate * maxSeconds) {
-                    val n = recorder.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
-                    if (n <= 0) break
-                    bytes.clear()
-                    var peak = 0f
-                    for (i in 0 until n) {
-                        bytes.putFloat(chunk[i])
-                        peak = maxOf(peak, kotlin.math.abs(chunk[i]))
-                    }
-                    stream.write(bytes.array(), 0, n * 4)
-                    total += n
-                    onLevel(peak)
-                }
+            while (!stopped() && currentCoroutineContext().isActive && total < rate * maxSeconds) {
+                val n = recorder.read(chunk, 0, chunk.size, AudioRecord.READ_BLOCKING)
+                if (n <= 0) break
+                total += n
+                onAudio(chunk, n)
             }
-            out
-        } catch (t: Throwable) {
-            file?.delete()
-            throw t
         } finally {
+            effects.forEach { runCatching { it.release() } }
             runCatching { recorder.stop() }
             recorder.release()
         }
     }
 
     /**
-     * Transcribes a recording made by [record] (and deletes it). Cancelling returns at once;
-     * whisper.cpp cannot stop mid-run, so the engine finishes in its process, which is then
-     * released.
+     * Transcribes [samples] (16 kHz mono) in [language] ("auto" detects). The audio goes to the
+     * engine process through an anonymous in-memory file, never storage. Cancelling returns at
+     * once and asks the engine to stop the run.
      */
-    suspend fun transcribe(modelPath: String, pcm: File, language: String = "auto"): String {
+    suspend fun transcribe(modelPath: String, samples: FloatArray, language: String = "auto"): SpeechText {
         beforeJob()
-        val e = try {
-            acquire()
+        val e = acquire()
+        val pcm = try {
+            withContext(Dispatchers.IO) { memoryFile(samples) }
         } catch (t: Throwable) {
-            pcm.delete()
+            done()
             throw t
         }
         val raw = suspendCancellableCoroutine { cont ->
             thread(name = "whisper-call") {
                 try {
-                    val result = e.transcribe(modelPath, pcm.path, language)
+                    val result = e.transcribeMemory(modelPath, pcm, samples.size, language)
                     if (cont.isActive) cont.resume(result)
                 } catch (t: RemoteException) {
                     if (cont.isActive) cont.resumeWithException(SpeechException("The speech engine stopped (likely out of memory)"))
                 } catch (t: Exception) {
                     if (cont.isActive) cont.resumeWithException(t)
                 } finally {
-                    pcm.delete()
+                    runCatching { pcm.close() }
                     done()
                 }
             }
+            // A synchronous binder call: not on the thread that cancels (often the main one).
+            cont.invokeOnCancellation { thread(name = "whisper-cancel") { runCatching { e.cancel() } } }
         }
         val json = JSONObject(raw)
         json.optString("error").takeIf { it.isNotBlank() }?.let { throw SpeechException(it) }
-        return json.optString("text").trim()
+        return SpeechText(json.optString("text").trim(), json.optString("language"))
+    }
+
+    /** [samples] as little-endian floats in an anonymous memory file (memfd): RAM only, gone when closed. */
+    private fun memoryFile(samples: FloatArray): ParcelFileDescriptor {
+        val fd = Os.memfd_create("dictation", 0)
+        try {
+            val bytes = ByteBuffer.allocate(samples.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+            bytes.asFloatBuffer().put(samples)
+            FileOutputStream(fd).write(bytes.array())
+            return ParcelFileDescriptor.dup(fd)
+        } finally {
+            Os.close(fd)
+        }
     }
 
     /** Frees the loaded model now (memory pressure, another engine needs the memory). */

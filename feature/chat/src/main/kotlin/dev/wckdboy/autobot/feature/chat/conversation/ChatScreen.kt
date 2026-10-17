@@ -137,6 +137,7 @@ import dev.wckdboy.autobot.providers.remote.ModelLists
 import dev.wckdboy.autobot.shared.session.NoticeKind
 import dev.wckdboy.autobot.shared.session.Receipt
 import dev.wckdboy.autobot.shared.session.SessionItem
+import dev.wckdboy.autobot.shared.voice.DictationText
 import dev.wckdboy.autobot.shared.session.ToolState
 import java.util.Locale
 import kotlin.math.sqrt
@@ -157,7 +158,11 @@ fun ChatRoute(
     // Streamed frames and microphone levels are read only where they show (see ChatScreen).
     val live = viewModel.live.collectAsStateWithLifecycle()
     val levels = viewModel.micLevels.collectAsStateWithLifecycle()
-    ChatScreen(state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery, live = { live.value }, micLevels = { levels.value }, onOpenUsage = onOpenUsage)
+    val words = viewModel.liveDictation.collectAsStateWithLifecycle()
+    ChatScreen(
+        state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery,
+        live = { live.value }, micLevels = { levels.value }, liveDictation = { words.value }, onOpenUsage = onOpenUsage,
+    )
 }
 
 private const val MAX_ATTACHMENTS = 4
@@ -219,6 +224,8 @@ fun ChatScreen(
     micLevels: () -> List<Float> = { emptyList() },
     /** The spend and quota board (from a receipt's token line). */
     onOpenUsage: () -> Unit = {},
+    /** Words heard so far while dictating or listening: read by the live words line only. */
+    liveDictation: () -> DictationText? = { null },
 ) {
     chatCompositionProbe?.invoke("screen")
     var showModels by rememberSaveable { mutableStateOf(false) }
@@ -320,11 +327,11 @@ fun ChatScreen(
             )
             val voice = state.voice
             if (voice != null) {
-                VoicePanel(voice, micLevels, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
+                VoicePanel(voice, micLevels, liveDictation, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
             } else {
                 InputBar(
                     state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation,
-                    actions::consumeDictation, actions.draft, actions::setDraft,
+                    actions::consumeDictation, actions.draft, actions::setDraft, liveDictation,
                 )
             }
         }
@@ -843,6 +850,7 @@ private fun InputBar(
     onDictationConsumed: () -> Unit,
     draft: String,
     onDraftChange: (String) -> Unit,
+    liveDictation: () -> DictationText? = { null },
 ) {
     // Held by the ViewModel, not saved instance state: a huge paste must not overflow the saved Bundle.
     var text by remember { mutableStateOf(draft) }
@@ -878,6 +886,9 @@ private fun InputBar(
                     }
                 }
                 Hairline()
+            }
+            if (state.dictation != Dictation.IDLE) {
+                LiveWords(liveDictation, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp))
             }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -944,6 +955,7 @@ private fun InputBar(
 private fun VoicePanel(
     voice: VoiceUi,
     levels: () -> List<Float>,
+    words: () -> DictationText?,
     onTap: () -> Unit,
     onDenied: () -> Unit,
     onHandsFree: (Boolean) -> Unit,
@@ -979,6 +991,7 @@ private fun VoicePanel(
                 )
                 Tag("type", onClick = onType)
             }
+            if (voice.phase == VoicePhase.LISTENING || voice.phase == VoicePhase.TRANSCRIBING) LiveWords(words, Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (voice.phase == VoicePhase.SPEAKING) {
@@ -1019,6 +1032,40 @@ private fun VoicePanel(
         }
     }
 }
+
+/**
+ * The words heard so far, live: settled words in ink, the still-changing tail faded. Reads
+ * [words] itself, so each new transcription recomposes this line only. Shows the last
+ * [LIVE_WORDS_CHARS] characters (the newest words stay in view); nothing until a word is heard.
+ */
+@Composable
+private fun LiveWords(words: () -> DictationText?, modifier: Modifier = Modifier) {
+    val text = words()
+    chatCompositionProbe?.invoke("words")
+    if (text == null || text.isEmpty) return
+    val ink = MaterialTheme.colorScheme.onSurface
+    val faded = MaterialTheme.colorScheme.onSurfaceVariant
+    val shown = remember(text) {
+        val committed = text.committed
+        val tentative = text.tentative
+        val full = if (committed.isEmpty() || tentative.isEmpty()) committed + tentative else "$committed $tentative"
+        val cut = (full.length - LIVE_WORDS_CHARS).coerceAtLeast(0)
+        buildAnnotatedString {
+            if (cut > 0) append("…")
+            val solid = (committed.length - cut).coerceAtLeast(0)
+            val visible = full.substring(cut)
+            pushStyle(SpanStyle(color = ink))
+            append(visible.take(solid))
+            pop()
+            pushStyle(SpanStyle(color = faded))
+            append(visible.drop(solid))
+            pop()
+        }
+    }
+    Text(shown, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Clip, modifier = modifier.semantics { contentDescription = "Heard: ${text.full}" })
+}
+
+private const val LIVE_WORDS_CHARS = 160
 
 /** Microphone peaks as riso bars, newest on the right, easing to each new reading; a flat rule when not listening. */
 @Composable

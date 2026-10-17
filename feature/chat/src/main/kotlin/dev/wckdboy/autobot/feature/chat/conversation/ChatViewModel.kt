@@ -55,9 +55,13 @@ import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.core.network.RouteResolver
 import dev.wckdboy.autobot.engine.speech.LocalSpeech
+import dev.wckdboy.autobot.engine.speech.SAMPLE_RATE
 import dev.wckdboy.autobot.feature.chat.toPrivacyStatus
+import dev.wckdboy.autobot.feature.chat.voice.LiveDictation
+import dev.wckdboy.autobot.feature.chat.voice.LocalDictationEngine
 import dev.wckdboy.autobot.feature.chat.voice.SpeakerUnavailable
 import dev.wckdboy.autobot.feature.chat.voice.Speakers
+import dev.wckdboy.autobot.feature.chat.voice.SpeechQueue
 import dev.wckdboy.autobot.feature.chat.voice.read
 import dev.wckdboy.autobot.providers.remote.ModelCache
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
@@ -73,7 +77,10 @@ import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.SessionProjector
 import dev.wckdboy.autobot.shared.session.projectSession
+import dev.wckdboy.autobot.shared.voice.BargeIn
+import dev.wckdboy.autobot.shared.voice.DictationText
 import dev.wckdboy.autobot.shared.voice.EndOfSpeech
+import dev.wckdboy.autobot.shared.voice.ReadAloudStream
 import dev.wckdboy.autobot.shared.voice.SpeechVerdict
 import dev.wckdboy.autobot.shared.voice.VoiceText
 import dev.wckdboy.autobot.shared.voice.VoiceTurn
@@ -162,6 +169,9 @@ enum class Dictation { IDLE, RECORDING, TRANSCRIBING }
 
 /** Microphone levels kept for voice mode's meter (10 a second). */
 private const val LEVEL_HISTORY = 32
+
+/** Audio kept from the barge-in microphone for the dictation it starts (0.8 s: the first words). */
+private const val BARGE_PREROLL = SAMPLE_RATE * 8 / 10
 
 /** Voice mode's loop: ready → listening → transcribing → thinking (agent turn) → speaking → ready. */
 enum class VoicePhase { READY, LISTENING, TRANSCRIBING, THINKING, SPEAKING }
@@ -272,10 +282,20 @@ class ChatViewModel @AssistedInject constructor(
     private var readJob: Job? = null
     private val voiceMode = MutableStateFlow<VoiceUi?>(null)
     private val levels = MutableStateFlow<List<Float>>(emptyList())
+    /** Words heard so far while dictating or listening (live, before the final transcript). */
+    private val heard = MutableStateFlow<DictationText?>(null)
     /** Voice mode's current step (listening + transcribing, or speaking an answer). */
     private var voiceJob: Job? = null
     private var voiceWatch: Job? = null
     private var turn: VoiceTurn? = null
+    /** The answer being read while it streams (voice mode), its speaking queue and job. */
+    private var reading: ReadAloudStream? = null
+    private var queue: SpeechQueue? = null
+    private var queueJob: Job? = null
+    private var liveWatch: Job? = null
+    /** Hands-free: the microphone listening for the user to talk over the answer. */
+    private var bargeJob: Job? = null
+    private val stopBarge = AtomicBoolean(false)
     private val attachmentThumbs = ThumbnailCache()
     private val thumbs = ThumbnailCache()
 
@@ -353,6 +373,9 @@ class ChatViewModel @AssistedInject constructor(
 
     /** Voice mode's recent microphone peaks (0…1), oldest first, ten a second while listening: for the meter only. */
     val micLevels: StateFlow<List<Float>> = levels
+
+    /** The words heard so far while dictating or listening: for the live transcript line only. */
+    val liveDictation: StateFlow<DictationText?> = heard
 
     private class Transcript(
         val projection: SessionProjection,
@@ -579,15 +602,16 @@ class ChatViewModel @AssistedInject constructor(
                 stopRecording.set(false)
                 dictation.value = Dictation.RECORDING
                 try {
-                    val audio = speech.record(stopped = stopRecording::get)
-                    dictation.value = Dictation.TRANSCRIBING
-                    val text = speech.transcribe(path, audio)
+                    // Live words while recording; the last pass runs once the button is tapped.
+                    val stopped = { stopRecording.get().also { if (it) dictation.value = Dictation.TRANSCRIBING } }
+                    val text = VoiceText.transcript(LiveDictation(LocalDictationEngine(speech, path)).run(stopped, onText = { heard.value = it }))
                     if (text.isNotBlank()) dictated.value = text
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     notice.value = "Dictation failed: ${userMessage(e)}"
                 } finally {
+                    heard.value = null
                     dictation.value = Dictation.IDLE
                 }
             }
@@ -660,22 +684,31 @@ class ChatViewModel @AssistedInject constructor(
     override fun voiceTap() {
         when (voiceMode.value?.phase ?: return) {
             VoicePhase.READY -> listen()
-            VoicePhase.LISTENING -> stopRecording.set(true)
+            VoicePhase.LISTENING -> endListening()
             VoicePhase.TRANSCRIBING -> Unit
             VoicePhase.THINKING -> stop()
-            VoicePhase.SPEAKING -> {
-                speakers.stopAll()
-                listen()
-            }
+            VoicePhase.SPEAKING -> interrupt()
         }
     }
 
     /** The microphone permission was refused from the voice button. */
     override fun voiceDenied() = voiceFailed("Microphone access is off — allow it in Settings to talk")
 
-    private fun listen() {
+    /** Stop listening: the last pass over what is left gives the transcript. */
+    private fun endListening() {
+        stopRecording.set(true)
+        if (voiceMode.value?.phase == VoicePhase.LISTENING) setPhase(VoicePhase.TRANSCRIBING)
+    }
+
+    /**
+     * Listens with live words on screen until the user taps or (hands-free) pauses, then sends
+     * what was said. [preroll]: audio heard just before (a barge-in's first words).
+     */
+    private fun listen(preroll: FloatArray? = null) {
         voiceJob?.cancel()
         voiceJob = viewModelScope.launch {
+            // The barge-in microphone is released before this one opens.
+            bargeJob?.join()
             val path = speechModelPath() ?: return@launch voiceFailed("Get a speech model in Models › speech")
             missingSpeechModel(path)?.let { return@launch voiceFailed(it) }
             stopRecording.set(false)
@@ -684,28 +717,32 @@ class ChatViewModel @AssistedInject constructor(
             val detector = EndOfSpeech()
             var nothingSaid = false
             try {
-                val audio = speech.record(stopped = stopRecording::get) { peak ->
-                    levels.update { (it + peak).takeLast(LEVEL_HISTORY) }
-                    if (handsFree) {
-                        when (detector.onLevel(peak, SystemClock.elapsedRealtime())) {
-                            SpeechVerdict.LISTENING -> Unit
-                            SpeechVerdict.ENDED -> stopRecording.set(true)
-                            SpeechVerdict.NO_SPEECH -> {
-                                nothingSaid = true
-                                stopRecording.set(true)
+                val raw = LiveDictation(LocalDictationEngine(speech, path)).run(
+                    stopped = stopRecording::get,
+                    preroll = preroll,
+                    onLevel = { peak ->
+                        levels.update { (it + peak).takeLast(LEVEL_HISTORY) }
+                        if (handsFree) {
+                            when (detector.onLevel(peak, SystemClock.elapsedRealtime())) {
+                                SpeechVerdict.LISTENING -> Unit
+                                SpeechVerdict.ENDED -> endListening()
+                                SpeechVerdict.NO_SPEECH -> {
+                                    nothingSaid = true
+                                    stopRecording.set(true)
+                                }
                             }
                         }
-                    }
-                }
-                if (nothingSaid) {
-                    audio.delete()
-                    return@launch voiceFailed("Didn't catch that")
-                }
-                setPhase(VoicePhase.TRANSCRIBING)
-                val text = VoiceText.transcript(speech.transcribe(path, audio))
-                if (text.isEmpty()) return@launch voiceFailed("Didn't catch that")
+                    },
+                    onText = { heard.value = it },
+                )
+                heard.value = null
+                val text = VoiceText.transcript(raw)
+                if (nothingSaid || text.isEmpty()) return@launch voiceFailed("Didn't catch that")
                 turn = VoiceTurn(uiState.value.items.mapTo(HashSet()) { it.key }, SystemClock.elapsedRealtime())
+                // The answer is read while it streams, from the chat renderer's own text.
+                reading = ReadAloudStream(LiteMarkdown::speakable)
                 setPhase(VoicePhase.THINKING)
+                watchLive()
                 send(text)
                 // Re-check once the prompt could have been dropped without any state change.
                 delay(VoiceTurn.TIMEOUT_MS)
@@ -713,44 +750,150 @@ class ChatViewModel @AssistedInject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                heard.value = null
                 voiceFailed("Voice failed: ${e.message ?: e.javaClass.simpleName}")
             }
         }
     }
 
-    /** Follows the agent during a voice turn: announces approvals, reads the answer when it is done. */
+    /** Feeds the streaming answer of the voice turn to the read-aloud stream, sentence by sentence. */
+    private fun watchLive() {
+        liveWatch?.cancel()
+        liveWatch = viewModelScope.launch {
+            live.collect { frame ->
+                val text = frame?.text?.takeIf { it.isNotEmpty() } ?: return@collect
+                // Only once this turn's prompt is in: a reply still streaming for an earlier one is not ours.
+                if (turn?.promptSeen(uiState.value.items) != true) return@collect
+                speakPieces(reading?.update(text).orEmpty())
+            }
+        }
+    }
+
+    /** Queues [pieces] to speak; the first one starts the speaking phase (and barge-in). */
+    private fun speakPieces(pieces: List<String>) {
+        if (pieces.isEmpty()) return
+        val q = queue ?: SpeechQueue { index -> if (index == 0) startedSpeaking() }.also { q ->
+            queue = q
+            queueJob = viewModelScope.launch {
+                try {
+                    q.run(speakers.best())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: SpeakerUnavailable) {
+                    stopSpeaking()
+                    return@launch voiceFailed(e.message.orEmpty())
+                } catch (e: Exception) {
+                    stopSpeaking()
+                    return@launch voiceFailed("Voice failed: ${userMessage(e)}")
+                }
+                // Everything was read and the turn is over.
+                if (queue !== q) return@launch
+                stopSpeaking()
+                if (voiceMode.value?.handsFree == true) listen() else setPhase(VoicePhase.READY)
+            }
+        }
+        q.add(pieces)
+    }
+
+    private fun startedSpeaking() {
+        setPhase(VoicePhase.SPEAKING)
+        if (voiceMode.value?.handsFree == true) startBargeIn()
+    }
+
+    /**
+     * Hands-free: listens while the answer plays, with the platform's echo canceller and the
+     * shared [BargeIn] gate, so talking over the answer stops it and starts listening (the first
+     * words heard are kept). If this phone cannot capture during playback, tapping still works.
+     */
+    private fun startBargeIn() {
+        if (bargeJob?.isActive == true) return
+        stopBarge.set(false)
+        bargeJob = viewModelScope.launch {
+            val gate = BargeIn()
+            val ring = FloatArray(BARGE_PREROLL)
+            var at = 0
+            var filled = 0
+            var triggered = false
+            try {
+                gate.start(SystemClock.elapsedRealtime())
+                speech.capture(stopped = stopBarge::get, echoCancel = true) { samples, count ->
+                    var peak = 0f
+                    for (i in 0 until count) {
+                        val s = samples[i]
+                        ring[at] = s
+                        at = (at + 1) % ring.size
+                        peak = maxOf(peak, kotlin.math.abs(s))
+                    }
+                    filled = minOf(ring.size, filled + count)
+                    if (gate.onLevel(peak, SystemClock.elapsedRealtime())) {
+                        triggered = true
+                        stopBarge.set(true)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            if (!triggered || voiceMode.value?.phase != VoicePhase.SPEAKING) return@launch
+            val preroll = FloatArray(filled) { ring[(at - filled + it + ring.size) % ring.size] }
+            interrupt(preroll)
+        }
+    }
+
+    /** The user talks over the answer (a tap, or barge-in): stop reading it and the agent, then listen. */
+    private fun interrupt(preroll: FloatArray? = null) {
+        stopSpeaking()
+        if (turn != null && uiState.value.running) stop()
+        turn = null
+        listen(preroll)
+    }
+
+    /** Stops reading the voice answer (and the barge-in microphone). */
+    private fun stopSpeaking() {
+        liveWatch?.cancel()
+        liveWatch = null
+        queueJob?.cancel()
+        queueJob = null
+        queue = null
+        reading = null
+        stopBarge.set(true)
+        speakers.stopAll()
+    }
+
+    /** Follows the agent during a voice turn: announces approvals, ends the reading when the turn ends. */
     private fun onVoiceState(state: ChatUiState) {
         val current = turn ?: return
-        if (voiceMode.value?.phase != VoicePhase.THINKING) return
         val waiting = state.approvals.keys + listOfNotNull(state.question?.callId)
         if (current.needsAnnouncement(waiting)) {
             val line = if (state.question != null) "The agent has a question." else "Needs your approval."
-            viewModelScope.launch {
-                try {
-                    speakers.best().speak(line)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Only an announcement: the card is on screen anyway.
+            val q = queue
+            if (q != null) {
+                q.add(listOf(line))
+            } else {
+                viewModelScope.launch {
+                    try {
+                        speakers.best().speak(line)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Only an announcement: the card is on screen anyway.
+                    }
                 }
             }
         }
         val finished = current.update(state.items, state.running, SystemClock.elapsedRealtime()) ?: return
         turn = null
-        val reply = finished.reply ?: return setPhase(VoicePhase.READY)
-        voiceJob?.cancel()
-        voiceJob = viewModelScope.launch {
-            setPhase(VoicePhase.SPEAKING)
-            try {
-                speakers.best().read(reply)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: SpeakerUnavailable) {
-                return@launch voiceFailed(e.message.orEmpty())
-            } catch (e: Exception) {
-                return@launch voiceFailed("Voice failed: ${userMessage(e)}")
-            }
-            if (voiceMode.value?.handsFree == true) listen() else setPhase(VoicePhase.READY)
+        liveWatch?.cancel()
+        liveWatch = null
+        // The rest of the answer (or all of it, when it did not stream), then the queue ends.
+        reading?.let { speakPieces(it.finish(finished.reply)) }
+        val q = queue
+        if (q == null) {
+            reading = null
+            setPhase(VoicePhase.READY)
+        } else {
+            q.close()
         }
     }
 
@@ -767,10 +910,12 @@ class ChatViewModel @AssistedInject constructor(
     private fun stopVoiceWork() {
         voiceJob?.cancel()
         stopRecording.set(true)
-        speakers.stopAll()
+        stopSpeaking()
+        heard.value = null
         turn = null
         setPhase(VoicePhase.READY)
     }
+
 
     override fun onCleared() {
         readJob?.cancel()

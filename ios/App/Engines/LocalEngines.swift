@@ -271,6 +271,47 @@ final class LocalSpeech: Sendable {
         #endif
     }
 
+    /**
+     Starts live capture for streaming dictation or barge-in: each 16 kHz buffer goes to
+     [onSamples] (audio thread) and nothing accumulates here. [voiceProcessing]: echo-cancelled
+     input while an answer plays. The caller owns the audio session.
+     */
+    func startLive(
+        voiceProcessing: Bool = false,
+        onLevel: @escaping @Sendable (Float) -> Void,
+        onSamples: @escaping @Sendable (UnsafeBufferPointer<Float>) -> Void,
+        onInterruption: @escaping @Sendable () -> Void = {},
+    ) throws {
+        #if canImport(AutobotEngines)
+        do {
+            try recorder.start(
+                managesSession: false, keepSamples: false, voiceProcessing: voiceProcessing,
+                onLevel: onLevel, onSamples: onSamples, onInterruption: onInterruption,
+            )
+        } catch { throw Engines.map(error) }
+        #else
+        throw EngineUnavailable()
+        #endif
+    }
+
+    /// Transcribes [samples] in [language] (nil: detect); returns the text and the language heard.
+    func transcribeDetailed(modelPath: String, samples: [Float], language: String?) async throws -> (text: String, language: String) {
+        #if canImport(AutobotEngines)
+        do {
+            let t = try await EngineMemory.using(.whisper) {
+                try await SpeechEngine.shared.transcribeDetailed(modelPath: modelPath, pcm16kMono: samples, language: language)
+            }
+            return (t.text, t.language)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw Engines.map(error)
+        }
+        #else
+        throw EngineUnavailable()
+        #endif
+    }
+
     /// Stops recording and returns the samples.
     func stop() -> [Float] {
         #if canImport(AutobotEngines)
