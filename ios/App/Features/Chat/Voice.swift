@@ -86,13 +86,15 @@ enum Speakers {
  the whole conversation so the answer is audible right after the microphone stops.
  */
 enum SpeechAudio {
-    enum Use { case readAloud, voice }
+    enum Use { case readAloud, voice, dictation }
 
     static func activate(_ use: Use) {
         let session = AVAudioSession.sharedInstance()
         switch use {
         case .readAloud:
             try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        case .dictation:
+            try? session.setCategory(.record, mode: .measurement)
         case .voice:
             try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP, .allowBluetoothA2DP, .duckOthers])
         }
@@ -127,9 +129,13 @@ final class SystemSpeaker: Speaker {
     /// The voice chosen for the current language (voices change rarely; [stop] forgets it).
     private var chosen: (language: String, voice: AVSpeechSynthesisVoice)?
 
+    /// Called when a piece's audio starts (latency measurements).
+    var onAudioStart: (() -> Void)?
+
     init() {
         synthesizer.delegate = delegate
         delegate.onEnd = { [weak self] id in self?.waiting.removeValue(forKey: id)?.resume() }
+        delegate.onStart = { [weak self] in self?.onAudioStart?() }
     }
 
     var isAvailable: Bool { !AVSpeechSynthesisVoice.speechVoices().isEmpty }
@@ -215,6 +221,13 @@ private final class SpeechDelegate: NSObject, AVSpeechSynthesizerDelegate, @unch
     /// Called on the main actor when an utterance finished or was cancelled.
     @MainActor var onEnd: ((ObjectIdentifier) -> Void)?
 
+    /// Called on the main actor when an utterance's audio starts.
+    @MainActor var onStart: (() -> Void)?
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.onStart?() } }
+    }
+
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { ended(utterance) }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) { ended(utterance) }
@@ -266,6 +279,11 @@ final class VoiceTurn {
               !after[(reply + 1)...].contains(where: { if case .notice(_, _, .error) = $0 { true } else { false } })
         else { return Finished(reply: nil) }
         return Finished(reply: text)
+    }
+
+    /// Whether this turn's prompt is in [items] (a reply streaming before it belongs to an earlier turn).
+    func promptSeen(items: [SessionItem]) -> Bool {
+        items.contains { if case .user = $0 { !baseline.contains($0.key) } else { false } }
     }
 
     /// True when [waiting] (approval / question call ids) holds one not announced yet.

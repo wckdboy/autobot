@@ -1080,6 +1080,11 @@ private struct InputBar: View, Equatable {
                 .padding(.vertical, 6)
                 Hairline()
             }
+            if model.dictation != .idle {
+                LiveWordsLine(words: model.heardWords)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+            }
             HStack(alignment: .bottom, spacing: 8) {
                 PhotosPicker(selection: $picks, maxSelectionCount: max(1, ChatModel.maxAttachments - model.pendingImages.count), matching: .images) {
                     AutobotIconView(icon: .image, size: 24, color: model.pendingImages.count < ChatModel.maxAttachments ? c.onSurface : c.onSurface.opacity(0.38))
@@ -1187,6 +1192,9 @@ private struct VoicePanel: View {
                 Tag("hands-free", accent: voice.handsFree ? c.primary : nil, filled: voice.handsFree) { model.setHandsFree(!voice.handsFree) }
                 Tag("type", action: onType).inkClearance(c.background)
             }
+            if voice.phase == .listening || voice.phase == .transcribing {
+                LiveWordsLine(words: model.heardWords).inkClearance(c.background)
+            }
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Group {
@@ -1223,6 +1231,33 @@ private struct VoicePanel: View {
         .inkGround(plate: false)
         .background(c.background)
         .hairlineEdge(top: true, bottom: false)
+    }
+}
+
+/**
+ The words heard so far, live: settled words in ink, the still-changing tail faded. Observes
+ [words] on its own, so each transcription re-renders this line only. Shows the newest
+ [maxChars] characters; nothing until a word is heard.
+ */
+private struct LiveWordsLine: View {
+    let words: HeardWords
+    private let maxChars = 160
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        if !words.isEmpty {
+            let committed = words.committed
+            let tentative = words.tentative
+            let full = committed.isEmpty || tentative.isEmpty ? committed + tentative : committed + " " + tentative
+            let cut = max(full.count - maxChars, 0)
+            let solid = max(committed.count - cut, 0)
+            let visible = full.dropFirst(cut)
+            (Text(cut > 0 ? "…" : "") + Text(String(visible.prefix(solid))).foregroundStyle(c.onSurface) + Text(String(visible.dropFirst(solid))).foregroundStyle(c.onSurfaceVariant))
+                .textStyle(.bodyMedium)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Heard: \(full)")
+        }
     }
 }
 
