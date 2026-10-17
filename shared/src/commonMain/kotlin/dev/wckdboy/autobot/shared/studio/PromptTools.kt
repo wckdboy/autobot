@@ -362,10 +362,29 @@ object PromptLibrary {
         return (head + tail + after) to head.length
     }
 
-    /** Applies a style: `{prompt}` replaced (or the style appended), negatives joined. */
+    /**
+     * Applies a style: `{prompt}` replaced (or the style appended), negatives joined. A prompt
+     * that already carries this style stays as it is (a second tap does not wrap it twice).
+     */
     fun applyStyle(prompt: String, negative: String, style: PromptSnippet): Pair<String, String> {
-        val p = if ("{prompt}" in style.text) style.text.replace("{prompt}", prompt.trim()) else listOf(prompt.trim(), style.text.trim()).filter { it.isNotEmpty() }.joinToString(", ")
+        val trimmed = prompt.trim()
+        val p = when {
+            hasStyle(trimmed, style) -> trimmed
+            "{prompt}" in style.text -> style.text.replace("{prompt}", trimmed)
+            else -> listOf(trimmed, style.text.trim()).filter { it.isNotEmpty() }.joinToString(", ")
+        }
         return p to joinNegative(negative, style.negative)
+    }
+
+    /** Whether [prompt] is already wrapped in [style] (its text around `{prompt}`, or appended). */
+    private fun hasStyle(prompt: String, style: PromptSnippet): Boolean {
+        val text = style.text.trim()
+        if (text.isEmpty()) return false
+        val at = text.indexOf("{prompt}")
+        if (at < 0) return prompt.endsWith(", $text", ignoreCase = true) || prompt.equals(text, ignoreCase = true)
+        val head = text.substring(0, at)
+        val tail = text.substring(at + "{prompt}".length)
+        return prompt.length > head.length + tail.length && prompt.startsWith(head, ignoreCase = true) && prompt.endsWith(tail, ignoreCase = true)
     }
 
     /** Joins negative prompts, dropping terms already present. */

@@ -138,7 +138,8 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
                 Segmented(report.periods, period, { periodKey = it.key }, { it.label }, Modifier.fillMaxWidth())
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                // Wraps: "$6.00 + unknown" in the display face, at a large font size, leaves no room for requests.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     BigReadout("tokens", UsageFormat.tokens(period.sums.tokens))
                     BigReadout("cost · usd", period.sums.costLine)
                     BigReadout("requests", period.sums.requests.toString())
@@ -182,11 +183,11 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
                         Tag("+ ${p.name} 5 h / week / month", accent = MaterialTheme.colorScheme.primary, onClick = { actions.addOpenCodeGoWindows(p.id) })
                     }
                 }
-                if (state.providers.isEmpty()) MicroLabel("add a cloud provider to track its plan")
+                if (state.providers.isEmpty()) MicroLabel("add a cloud provider to track its plan", maxLines = 3)
             }
 
             item { SectionLabel("prices · usd per 1m tokens", Modifier.padding(top = 8.dp)) }
-            if (report.prices.isEmpty()) item { MicroLabel("models show up here once they answered") }
+            if (report.prices.isEmpty()) item { MicroLabel("models show up here once they answered", maxLines = 3) }
             items(report.prices, key = { "${it.provider}|${it.model}" }) { row -> PriceRowView(row, onClick = { editingPrice = row }) }
 
             item {
@@ -210,7 +211,7 @@ private fun Bars(series: UsageSeries) {
     val ink = MaterialTheme.colorScheme.primary
     val local = MaterialTheme.colorScheme.onSurfaceVariant
     val track = MaterialTheme.colorScheme.outlineVariant
-    val description = series.bars.joinToString { "${it.label}: ${UsageFormat.tokens(it.tokens)}" }
+    val description = "Tokens per ${series.key}: " + series.bars.joinToString("; ") { "${it.label}: ${UsageFormat.tokens(it.tokens)}" }
     Canvas(Modifier.fillMaxWidth().height(72.dp).semantics { contentDescription = description }) {
         val n = series.bars.size.coerceAtLeast(1)
         val gap = 3.dp.toPx()
@@ -249,6 +250,7 @@ private fun GroupRow(group: UsageGroup) {
                 group.sums.cacheRead.takeIf { it > 0 }?.let { "${UsageFormat.tokens(it)} cached" },
                 group.sums.unreported.takeIf { it > 0 }?.let { "$it without usage report" },
             ).joinToString(" · "),
+            maxLines = 3,
         )
     }
 }
@@ -264,7 +266,7 @@ private fun WindowRow(status: WindowStatus, onEdit: () -> Unit) {
     ) {
         status.fraction?.let { f -> InkProgressBar(f.toFloat().coerceIn(0f, 1f), Modifier.fillMaxWidth().height(2.dp), color = accent) }
         Text(status.line, style = MaterialTheme.typography.bodySmall, color = if (status.over) AutobotColors.Amber else MaterialTheme.colorScheme.onSurface)
-        if (status.limit == null) MicroLabel("no limit set · tap edit to enter your plan's limit")
+        if (status.limit == null) MicroLabel("no limit set · tap edit to enter your plan's limit", maxLines = 3)
     }
 }
 
@@ -291,6 +293,7 @@ private fun PriceRowView(row: PriceRow, onClick: () -> Unit) {
                     row.cacheWrite?.let { "cache write ${UsageFormat.price(it)}" },
                 ).joinToString(" · ")
             },
+            maxLines = 3,
         )
     }
 }
@@ -301,6 +304,8 @@ private fun PriceDialog(row: PriceRow, onDismiss: () -> Unit, onSave: (String, S
     var output by remember { mutableStateOf(UsageFormat.price(row.output)) }
     var cacheRead by remember { mutableStateOf(UsageFormat.price(row.cacheRead)) }
     var cacheWrite by remember { mutableStateOf(UsageFormat.price(row.cacheWrite)) }
+    // A typo must not save as "unknown": SAVE waits until every filled-in field is a price.
+    val valid = listOf(input, output, cacheRead, cacheWrite).all { it.isBlank() || UsageFormat.parsePrice(it) != null }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(row.model, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -320,7 +325,7 @@ private fun PriceDialog(row: PriceRow, onDismiss: () -> Unit, onSave: (String, S
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(input, output, cacheRead, cacheWrite) }) { Text("SAVE") } },
+        confirmButton = { TextButton(onClick = { onSave(input, output, cacheRead, cacheWrite) }, enabled = valid) { Text("SAVE") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } },
     )
 }
@@ -379,7 +384,7 @@ private fun WindowDialog(
                         onValueChange = { limit = it },
                         label = { Text("Limit (blank: none)") },
                         singleLine = true,
-                        isError = limit.isNotBlank() && UsageFormat.parsePrice(limit) == null,
+                        isError = limit.isNotBlank() && parseLimit(limit, draft.unit) == null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -392,7 +397,23 @@ private fun WindowDialog(
                 if (!isNew) TextButton(onClick = onDelete) { Text("Delete window", color = MaterialTheme.colorScheme.error) }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(draft.copy(limit = UsageFormat.parsePrice(limit))) }) { Text("SAVE") } },
+        confirmButton = {
+            TextButton(onClick = { onSave(draft.copy(limit = parseLimit(limit, draft.unit))) }, enabled = limit.isBlank() || parseLimit(limit, draft.unit) != null) { Text("SAVE") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } },
     )
 }
+
+/**
+ * A window limit as typed: dollars like a price, token and request counts as whole numbers that
+ * may carry grouping (`1,000,000`, `1.000.000`, `1 000 000`). Null: not a number (blank included).
+ */
+internal fun parseLimit(text: String, unit: LimitUnit): Double? =
+    if (unit == LimitUnit.USD) {
+        UsageFormat.parsePrice(text)
+    } else {
+        text.trim().takeIf { WHOLE_COUNT.matches(it) }?.filter { it.isDigit() }?.toLongOrNull()?.toDouble()
+    }
+
+/** `1500000`, or digits grouped by threes with one separator (`1,500,000`); `1.5` is not a count. */
+private val WHOLE_COUNT = Regex("""\d+|\d{1,3}([,. _'\u00A0\u202F])\d{3}(\1\d{3})*""")

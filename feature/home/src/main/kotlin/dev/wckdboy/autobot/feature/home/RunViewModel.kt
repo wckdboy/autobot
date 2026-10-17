@@ -169,7 +169,7 @@ class RunViewModel @Inject constructor(
             if (p.kind == ProviderKind.LOCAL) {
                 Route.local(model?.let { m -> chosen[m]?.let { ComputeProfile.shownBackend(ran[m], it, measured[m]) } }?.id)
             } else {
-                routeOf(p)
+                providerRoute(p)
             }
         val local = input.providers.firstOrNull { it.kind == ProviderKind.LOCAL }
         val remote = input.providers.filter { it.kind != ProviderKind.LOCAL }
@@ -268,17 +268,21 @@ class RunViewModel @Inject constructor(
         return withContext(Dispatchers.Default) { decodeSampled(bytes, THUMB_PX)?.asImageBitmap() }?.also { thumbs.put(galleryId, it) }
     }
 
-    /** A provider's route; on this phone the engine is not known here (see the per-model one in [uiState]). */
-    private fun routeOf(p: Provider): Route = when {
-        p.kind == ProviderKind.LOCAL -> Route.LOCAL
-        Loopback.isLoopbackUrl(p.baseUrl) -> Route.LOCAL
-        isPrivateHost(p.baseUrl) -> Route.PC_LAN
-        else -> Route.CLOUD_API
-    }
-
     internal companion object {
         /** Rows read per table for the recent list. */
         const val RECENT = 12
+
+        /**
+         * A provider's route; on this phone the engine is not known here (see the per-model one in
+         * [uiState]). Not named `routeOf`: the local `routeOf(p, model)` there would shadow it and
+         * call itself forever for every cloud or LAN provider.
+         */
+        fun providerRoute(p: Provider): Route = when {
+            p.kind == ProviderKind.LOCAL -> Route.LOCAL
+            Loopback.isLoopbackUrl(p.baseUrl) -> Route.LOCAL
+            isPrivateHost(p.baseUrl) -> Route.PC_LAN
+            else -> Route.CLOUD_API
+        }
         private const val THUMB_CACHE = 16
         private const val THUMB_PX = 256
         private val PRIVATE_172 = Regex("^172\\.(1[6-9]|2\\d|3[01])\\.")

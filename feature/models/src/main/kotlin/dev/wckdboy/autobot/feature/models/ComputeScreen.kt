@@ -331,9 +331,9 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
                     DeviceCard("gpu", state.devices?.gpu ?: "none", state.devices?.gpu != null, Modifier.weight(1f))
                     DeviceCard("npu", state.devices?.npu ?: "none", state.devices?.npu != null, Modifier.weight(1f))
                 }
-                state.devices?.npuError?.let { MicroLabel("npu: $it", Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.error) }
+                state.devices?.npuError?.let { MicroLabel("npu: $it", Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.error, maxLines = WRAP) }
                 if (state.devices?.npu != null && Backend.NPU !in state.devices!!.llmBackends) {
-                    MicroLabel("chat on the npu: the hexagon backend did not start on this phone · images still run on the npu", Modifier.padding(top = 6.dp))
+                    MicroLabel("chat on the npu: the hexagon backend did not start on this phone · images still run on the npu", Modifier.padding(top = 6.dp), maxLines = WRAP)
                 }
             }
             system?.let { s -> item { SystemModelRow(s, onDownload = viewModel::downloadSystemModel) } }
@@ -350,7 +350,7 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
             }
             items(state.models, key = { it.model.id }) { cm -> ModelCompute(cm, state, viewModel) }
             if (state.models.isEmpty()) {
-                item { MicroLabel("no runnable models yet — get one in the Models tab") }
+                item { MicroLabel("no runnable models yet — get one in the Models tab", maxLines = WRAP) }
             }
         }
     }
@@ -368,6 +368,7 @@ private fun SpeculativeRow(mode: SpeculativeMode, onMode: (SpeculativeMode) -> U
                     SpeculativeMode.ON -> "always draft when the pair fits at all, even when it does not pay"
                     SpeculativeMode.OFF -> "no draft model is loaded"
                 },
+                maxLines = WRAP,
             )
         }
     }
@@ -382,7 +383,7 @@ private fun ReportDialog(text: String, onDismiss: () -> Unit) {
         title = { Text("Diagnostics report") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MicroLabel("no prompts, file paths or identifiers · nothing is sent")
+                MicroLabel("no prompts, file paths or identifiers · nothing is sent", maxLines = WRAP)
                 Text(
                     text,
                     modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
@@ -415,9 +416,9 @@ private fun SystemModelRow(status: SystemModelStatus, onDownload: () -> Unit) {
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(status.summary, style = MaterialTheme.typography.bodySmall)
-            MicroLabel("fallback when no downloaded model can run · ~4k tokens, no tools")
+            MicroLabel("fallback when no downloaded model can run · ~4k tokens, no tools", maxLines = WRAP)
             if (status.availability == SystemAvailability.DOWNLOADABLE) {
-                MicroLabel("the download is done by the system (AICore), outside autobot's network controls")
+                MicroLabel("the download is done by the system (AICore), outside autobot's network controls", maxLines = WRAP)
             }
         }
     }
@@ -468,7 +469,7 @@ private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: Compu
                 MicroLabel("not measured yet")
             }
             if (isText && cm.drafts.isNotEmpty()) SpeculativeLine(cm, state.speculativeMode)
-            cm.lastError?.let { MicroLabel("last run: $it", color = MaterialTheme.colorScheme.error) }
+            cm.lastError?.let { MicroLabel("last run: $it", color = MaterialTheme.colorScheme.error, maxLines = WRAP) }
         }
     }
 }
@@ -483,12 +484,15 @@ private fun SpeculativeLine(cm: ComputeModel, mode: SpeculativeMode) {
         s.error != null -> "speculative: ${s.error}"
         else -> "speculative · ${fmt(s.speedup)}x · ${fmt(s.speculativeTps)} tok/s · ${(s.acceptance * 100).toInt()}% of drafts kept · ${s.draftTitle}"
     }
-    MicroLabel(text, color = if (s?.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+    MicroLabel(text, color = if (s?.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = WRAP)
 }
 
 /** A catalog model's title when it is not installed (catalog ids only). */
 private fun draftTitle(id: String): String =
     dev.wckdboy.autobot.core.models.Catalog.chatModels.firstOrNull { it.id == id }?.title ?: id.substringAfter(':')
+
+/** Hints and errors here are sentences: they wrap instead of losing their end at "…". */
+private const val WRAP = 4
 
 private fun fmt(v: Double): String = String.format(Locale.ROOT, if (v >= 100) "%.0f" else "%.1f", v)
 

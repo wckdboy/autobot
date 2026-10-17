@@ -176,6 +176,14 @@ class PromptToolsTest {
         assertEquals("blurry, flat lighting", n)
         val tail = PromptSnippet("s", "Tail", "4k", PromptSnippet.STYLE)
         assertEquals("a fox, 4k", PromptLibrary.applyStyle("a fox", "", tail).first)
+        // A second tap on the same style does not wrap the prompt again.
+        assertEquals(p, PromptLibrary.applyStyle(p, n, style).first)
+        assertEquals("a fox, 4k", PromptLibrary.applyStyle("a fox, 4k", "", tail).first)
+        val photo = PromptLibrary.builtInStyles.first { it.id == "style-photo" }
+        val once = PromptLibrary.applyStyle("a cat", "", photo).first
+        assertEquals(once, PromptLibrary.applyStyle(once, "", photo).first)
+        // Another style still wraps a styled prompt.
+        assertEquals("cinematic still of $once, shallow depth of field, film grain, dramatic lighting", PromptLibrary.applyStyle(once, "", style).first)
         assertEquals("lowres, blurry, text", PromptLibrary.joinNegative("lowres, blurry", "Blurry, text"))
         assertTrue(PromptLibrary.negativePresets.isNotEmpty())
     }

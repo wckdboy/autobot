@@ -57,13 +57,15 @@ fun MicroLabel(
     text: String,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    /** One line for labels; more for a sentence that must be read whole (hints, errors). */
+    maxLines: Int = 1,
 ) {
     Text(
         text = text.uppercase(Locale.ROOT),
         modifier = modifier,
         style = AutobotTheme.styles.micro,
         color = color,
-        maxLines = 1,
+        maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
     )
 }
