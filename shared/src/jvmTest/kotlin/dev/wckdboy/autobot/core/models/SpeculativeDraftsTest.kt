@@ -155,4 +155,12 @@ class SpeculativeDraftsTest {
         assertTrue(text, text.contains("70% of drafts accepted"))
         assertTrue(text, text.contains("draft Qwen3 0.6B"))
     }
+
+    @Test
+    fun aFallbackStatusIsExplainedInWordsNotAsTheEngineCode() {
+        assertEquals("a draft check failed; the reply went on without the draft", SpeculativeStats("verify_failed").explanation)
+        assertEquals("the draft model did not load", SpeculativeStats("draft_failed").explanation)
+        assertEquals("too big", SpeculativeStats("refused", reason = "too big").explanation)
+        assertEquals("something new", SpeculativeStats("something_new").explanation)
+    }
 }

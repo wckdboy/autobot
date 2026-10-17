@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -44,12 +45,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.wckdboy.autobot.core.designsystem.R
 import dev.wckdboy.autobot.core.designsystem.motion.FlowPhase
 import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
@@ -192,18 +195,25 @@ fun AutobotTopBar(
         ) {
             navigation?.invoke()
             if (showMark && navigation == null) AutobotMark()
+            // Steps down (to [TOP_BAR_TITLE_MIN]) before it truncates: at 360 dp a bar with a few
+            // actions (chat: voice, route, more) left room for "AG…" of "AGENT RUN".
+            val titleStyle = MaterialTheme.typography.titleLarge
             Text(
                 title.uppercase(Locale.ROOT),
-                style = MaterialTheme.typography.titleLarge,
+                style = titleStyle,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                autoSize = TextAutoSize.StepBased(minFontSize = TOP_BAR_TITLE_MIN, maxFontSize = titleStyle.fontSize, stepSize = 1.sp),
                 modifier = Modifier.weight(1f),
             )
             actions()
         }
     }
 }
+
+/** The smallest the top bar's title steps down to before it truncates. */
+private val TOP_BAR_TITLE_MIN = 14.sp
 
 /** Small boxed counter (e.g. `16+` / running jobs). */
 @Composable
@@ -358,6 +368,7 @@ fun HalftoneImage(
     dot: Color = MaterialTheme.colorScheme.primary,
     paper: Color = Color.Transparent,
     cell: Dp = 6.dp,
+    contentScale: ContentScale = ContentScale.Crop,
 ) {
     val samples by rememberLumaGrid(image)
     val batch = remember { DotBatch() }
@@ -366,11 +377,14 @@ fun HalftoneImage(
         // Whole-pixel pitch, centred, no dot cut by the edges ([proofGrid]).
         val dots = proofGrid(cell.toPx())
         val c = dots.x.pitch
+        // Cropped (or fitted) like an image, not stretched to the box.
+        val art = contentRect(image.width.toFloat(), image.height.toFloat(), size.width, size.height, contentScale)
         batch.reset()
         for (r in 0 until dots.y.count) for (col in 0 until dots.x.count) {
             val cx = dots.x.at(col)
             val cy = dots.y.at(r)
-            val l = grid.sample(cx / size.width, cy / size.height)
+            if (!art.contains(Offset(cx, cy))) continue
+            val l = grid.sample((cx - art.left) / art.width, (cy - art.top) / art.height)
             batch.dot(cx, cy, (1f - l) * c * PROOF_DOT)
         }
         batch.draw(this, dot)

@@ -138,6 +138,18 @@ data class SpeculativeStats(
 ) {
     /** Share of drafted tokens the model kept, 0..1. */
     val acceptance: Double get() = if (drafted > 0) accepted.toDouble() / drafted else 0.0
+
+    /** Why speculation did not run, in words: the engine's [reason], else the [status] said plainly. */
+    val explanation: String
+        get() = reason ?: when (status) {
+            "draft_failed" -> "the draft model did not load"
+            "verify_failed" -> "a draft check failed; the reply went on without the draft"
+            "no_draft" -> "no draft model"
+            "refused" -> "the draft model does not fit"
+            "unsupported" -> "not supported by this model"
+            "images" -> "not used with images"
+            else -> status.replace('_', ' ')
+        }
 }
 
 /**

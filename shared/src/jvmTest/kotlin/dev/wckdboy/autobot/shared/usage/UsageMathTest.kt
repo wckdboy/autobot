@@ -124,7 +124,7 @@ class UsageMathTest {
         assertTrue(status.over)
         assertEquals(1.0, status.fraction!!, 1e-9)
         assertEquals(now - 4 * h + UsageLedger.FINE_SPAN + 5 * h, status.resetsAt)
-        assertEquals("2 requests of 2 requests · frees up in ~1 h", status.line)
+        assertEquals("2 of 2 requests · frees up in ~1 h", status.line)
     }
 
     @Test
@@ -135,7 +135,7 @@ class UsageMathTest {
         assertEquals(150.0, status.used, 0.0) // only the bucket since 10:00
         assertEquals(15 * h, status.resetsAt)
         assertFalse(status.over)
-        assertEquals("150 tokens of 1.0k tokens · resets in ~3 h", status.line)
+        assertEquals("150 of 1.0k tokens · resets in ~3 h", status.line)
     }
 
     @Test
@@ -144,6 +144,16 @@ class UsageMathTest {
         val status = UsageBoard.status(window, emptyList(), UsagePlan(), 0, ZoneRules.UTC, "Go")
         assertNull(status.fraction)
         assertEquals("0 tokens · rolling week", status.line)
+    }
+
+    @Test
+    fun windowAmountsSayTheUnitOnceAndInTheSingularForOne() {
+        assertEquals("1 request", UsageFormat.amount(1.0, LimitUnit.REQUESTS))
+        assertEquals("10 requests", UsageFormat.amount(10.0, LimitUnit.REQUESTS))
+        assertEquals("1 token", UsageFormat.amount(1.0, LimitUnit.TOKENS))
+        assertEquals("1.2k tokens", UsageFormat.amount(1_200.0, LimitUnit.TOKENS))
+        val window = SubscriptionWindow("w", "go", WindowPeriod.WEEK, rolling = true, unit = LimitUnit.USD, limit = 5.0)
+        assertEquals("$0 of $5.00 · rolling week", UsageBoard.status(window, emptyList(), UsagePlan(), 0, ZoneRules.UTC, "Go").line)
     }
 
     // ---- cost ----------------------------------------------------------------------------------

@@ -264,7 +264,7 @@ fun ChatScreen(
                         filled = voiceOn,
                         onClick = { actions.setVoiceMode(!voiceOn) },
                     )
-                    Spacer(Modifier.width(8.dp))
+                    // No extra spacer: the bar already spaces its actions, and the title needs the room.
                     RouteTag(state.route, Modifier.clickable { showModels = true })
                     IconButton(onClick = { showSession = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Session settings") }
                 },
