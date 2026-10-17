@@ -165,7 +165,7 @@ struct RunScreen: View {
         }
         .background(c.background)
         // Hardware facts once; thermal state and free space when they can have changed (no polling).
-        .task { device = DeviceProfile.current() }
+        .task { device = await Task.detached(priority: .userInitiated) { DeviceProfile.current() }.value }
         .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification).receive(on: RunLoop.main)) { _ in
             device = device?.refreshed()
         }

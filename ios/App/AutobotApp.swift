@@ -8,6 +8,9 @@ struct AutobotApp: App {
 
     init() {
         LaunchTrace.mark("app.init")
+        // Fonts and hardware facts resolve on other cores while the scene and first screen set up.
+        Task.detached(priority: .userInitiated) { AutobotFonts.prewarm() }
+        Task.detached(priority: .utility) { _ = DeviceProfile.current() }
     }
 
     var body: some Scene {
@@ -72,7 +75,7 @@ struct RootView: View {
             LaunchTrace.watchFrames { [app] in app.dataLoaded }
         }
         .task {
-            if let inbox = SharedInbox.defaultRoot { SharedInbox.sweep(root: inbox) }
+            if let inbox = SharedInbox.defaultRoot { Task.detached(priority: .utility) { SharedInbox.sweep(root: inbox) } }
             if app.lock.state == .unlocked { await app.unlockData() }
             #if DEBUG
             // `-AutobotOpen chat|agent` (UI work): open the newest plain / tool session.

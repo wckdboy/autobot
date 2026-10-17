@@ -6,13 +6,14 @@ import Foundation
  an empty install with sample data, `-AutobotSkipWelcome` starts past the first-run welcome. Release builds always return `false`.
  */
 enum DebugFlags {
-    static var screenshots: Bool {
+    /// Read once (the root view asks on every evaluation).
+    static let screenshots: Bool = {
         #if DEBUG
         ProcessInfo.processInfo.arguments.contains("-AutobotScreenshots")
         #else
         false
         #endif
-    }
+    }()
 
     static var demo: Bool {
         #if DEBUG
