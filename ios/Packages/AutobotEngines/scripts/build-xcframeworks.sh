@@ -35,6 +35,10 @@ build_slice() {
     local dir="$BUILD/$engine-$slice"
     echo "==> $name [$slice]"
     mkdir -p "$BUILD"
+    # A cache from an older Xcode points at an SDK that is gone (iPhoneOS27.0.sdk after 27.1):
+    # configure that slice again from scratch.
+    local sdk_path; sdk_path=$(xcrun --sdk "$sdk" --show-sdk-path)
+    if [[ -f "$dir/CMakeCache.txt" ]] && ! grep -q "$sdk_path" "$dir/CMakeCache.txt"; then rm -rf "$dir"; fi
     cmake -S "$PKG/native/$engine" -B "$dir" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_SYSTEM_NAME=iOS \
