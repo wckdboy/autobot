@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Observation
 
@@ -10,6 +11,20 @@ enum GenerationState: Equatable, Sendable {
     case running(source: GenerationSource, backend: String, request: DiffusionRequest, image: Int, step: Int, totalSteps: Int, preview: Data?, startedAt: Date)
 
     var isRunning: Bool { if case .running = self { true } else { false } }
+}
+
+extension DiffusionRequest {
+    /// The engine calls of one user job: the request as is, or one per wildcard-expanded prompt,
+    /// each with the batch and the seed, at most `PromptRuns.MAX_IMAGES` images (see `PromptRuns`).
+    func calls() -> [DiffusionRequest] {
+        PromptRuns.shared.plan(template: prompt, batch: Int32(batchCount), seed: seed, maxImages: PromptRuns.shared.MAX_IMAGES).map { run in
+            var call = self
+            call.prompt = run.prompt
+            call.batchCount = Int(run.count)
+            call.seed = run.seed
+            return call
+        }
+    }
 }
 
 /// One stored result.
@@ -91,7 +106,7 @@ final class ImageGenerator {
         let epoch = AppActivity.shared.epoch
         userJob = Task {
             do {
-                _ = try await generate(backend, request, inputs, source: .user) { [weak self] image in self?.lastResults.append(image) }
+                _ = try await generate(backend, request.calls(), inputs, source: .user) { [weak self] image in self?.lastResults.append(image) }
             } catch is CancellationError {
             } catch {
                 lastError = backend.kind == .onDevice && AppActivity.shared.interrupted(since: epoch)
@@ -115,36 +130,55 @@ final class ImageGenerator {
         source: GenerationSource = .user,
         onResult: @escaping (GeneratedImage) -> Void = { _ in },
     ) async throws -> [GeneratedImage] {
+        try await generate(backend, [request], inputs, source: source, onResult: onResult)
+    }
+
+    /**
+     Runs [calls] one after another as one job: one slot, one progress state whose request carries
+     the job's image count as its batch and whose image index counts across the calls.
+     */
+    func generate(
+        _ backend: DiffusionBackend,
+        _ calls: [DiffusionRequest],
+        _ inputs: DiffusionInputs,
+        source: GenerationSource,
+        onResult: @escaping (GeneratedImage) -> Void,
+    ) async throws -> [GeneratedImage] {
         guard !isBusy else { throw DiffusionError(message: "Another image is being generated", code: .backend) }
+        guard var job = calls.first else { return [] }
+        job.batchCount = calls.reduce(0) { $0 + max($1.batchCount, 1) }
         let engine = engines.create(backend, library: library)
         let started = Date()
         var saved: [GeneratedImage] = []
         isBusy = true
-        state = .running(source: source, backend: backend.name, request: request, image: 0, step: 0, totalSteps: request.steps, preview: nil, startedAt: started)
+        state = .running(source: source, backend: backend.name, request: job, image: 0, step: 0, totalSteps: job.steps, preview: nil, startedAt: started)
         defer {
             state = .idle
             phase = nil
             isBusy = false
         }
-        for try await event in engine.generate(request, inputs: inputs) {
-            switch event {
-            case .phase(let text):
-                phase = text
-            case .progress(let image, let step, let total, let preview):
-                phase = nil
-                if case .running(let s, let b, let r, _, _, _, let old, let t) = state {
-                    state = .running(source: s, backend: b, request: r, image: image, step: step, totalSteps: total, preview: preview ?? old, startedAt: t)
-                }
-            case .result(_, let image, let seed, let width, let height, let durationMs, _):
-                let stored = try await store(backend, request, image: image, seed: seed, width: width, height: height, durationMs: durationMs)
-                saved.append(stored)
-                onResult(stored)
-                if case .running(let s, let b, let r, let i, let st, let tt, _, let t) = state {
-                    state = .running(source: s, backend: b, request: r, image: i, step: st, totalSteps: tt, preview: image, startedAt: t)
+        for request in calls {
+            let offset = saved.count
+            for try await event in engine.generate(request, inputs: inputs) {
+                switch event {
+                case .phase(let text):
+                    phase = text
+                case .progress(let image, let step, let total, let preview):
+                    phase = nil
+                    if case .running(let s, let b, let r, _, _, _, let old, let t) = state {
+                        state = .running(source: s, backend: b, request: r, image: offset + image, step: step, totalSteps: total, preview: preview ?? old, startedAt: t)
+                    }
+                case .result(_, let image, let seed, let width, let height, let durationMs, _):
+                    let stored = try await store(backend, request, image: image, seed: seed, width: width, height: height, durationMs: durationMs)
+                    saved.append(stored)
+                    onResult(stored)
+                    if case .running(let s, let b, let r, let i, let st, let tt, _, let t) = state {
+                        state = .running(source: s, backend: b, request: r, image: i, step: st, totalSteps: tt, preview: image, startedAt: t)
+                    }
                 }
             }
+            try Task.checkCancellation()
         }
-        try Task.checkCancellation()
         if saved.isEmpty { throw DiffusionError(message: "The backend finished without returning an image", code: .protocol) }
         return saved
     }

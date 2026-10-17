@@ -1,3 +1,4 @@
+import AutobotShared
 import PhotosUI
 import SwiftUI
 
@@ -73,7 +74,8 @@ struct ImagineScreen: View {
                         PrimaryButton("Get a model") { nav.switchTo(.models) }
                         TextAction("Use a PC instead", color: c.primary) { nav.push(.imageBackends) }
                     }
-                    PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate)
+                    PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate, wildcards: m.wildcards)
+                    if !m.isRunning && !m.request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { styleRow(m) }
                     if !m.chips.isEmpty { chipRow(m) }
                     if m.catalogStatus == .error, let error = m.catalogError {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -132,6 +134,19 @@ struct ImagineScreen: View {
         }
     }
 
+    /// Built-in styles: one tap wraps the prompt (and adds the style's negatives).
+    private func styleRow(_ m: ImagineModel) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                MicroLabel("style")
+                ForEach(ImagineModel.styles, id: \.id) { style in
+                    Tag(style.name) { m.applyStyle(style) }
+                        .accessibilityLabel("Apply the \(style.name) style")
+                }
+            }
+        }
+    }
+
     private func chipRow(_ m: ImagineModel) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -167,6 +182,7 @@ private extension Array {
 private struct PromptField: View {
     @Binding var text: String
     let tokens: Int
+    var wildcards: String? = nil
     @Environment(\.scheme) private var c
 
     var body: some View {
@@ -179,8 +195,12 @@ private struct PromptField: View {
                 .textInputAutocapitalization(.never)
                 .lineLimit(1 ... 12)
                 .frame(minHeight: 96, alignment: .topLeading)
-            // Only worth saying near the limit.
-            if tokens > 60 { MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? AutobotColors.redDeep : c.onSurfaceVariant) }
+            if let wildcards {
+                MicroLabel(wildcards, color: c.primary).accessibilityLabel(wildcards.replacingOccurrences(of: "·", with: ","))
+            } else if tokens > 60 {
+                // Only worth saying near the limit.
+                MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? AutobotColors.redDeep : c.onSurfaceVariant)
+            }
         }
     }
 }
@@ -431,6 +451,15 @@ private struct TuneSheet: View {
                 Segmented(options: modes, selected: request.mode, label: { $0.label }, onSelect: model.setMode)
 
                 ConsoleTextField(text: Binding(get: { model.request.negativePrompt }, set: { model.setNegative($0) }), label: "Negative", kind: .mono, minLines: 2, maxLines: 5)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        MicroLabel("presets")
+                        ForEach(ImagineModel.negativePresets, id: \.id) { preset in
+                            Tag(preset.name) { model.addNegative(preset) }
+                                .accessibilityLabel("Add the \(preset.name) negative preset")
+                        }
+                    }
+                }
 
                 let (samplers, value): ([String], String) = switch kind {
                 case .onDevice: (LocalDiffusion.samplers, request.sampler)

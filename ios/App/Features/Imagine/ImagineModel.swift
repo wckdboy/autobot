@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Observation
 import UIKit
@@ -108,6 +109,13 @@ final class ImagineModel {
     var error: String? { localError ?? app.generator.lastError }
     var tokenEstimate: Int { PromptSyntax.estimateTokens(request.prompt) }
 
+    /// `{a|b}` in the prompt: what the run will make (`wildcards · 2 prompts × 2 = 4 images`), or nil.
+    var wildcards: String? { PromptRuns.shared.summary(template: request.prompt, batch: Int32(request.batchCount), maxImages: PromptRuns.shared.MAX_IMAGES) }
+
+    /// Built-in styles for the style row, and the negative presets that fit images.
+    static let styles: [PromptSnippet] = PromptLibrary.shared.builtInStyles
+    static let negativePresets: [PromptSnippet] = PromptLibrary.shared.negativePresets.filter { ["neg-general", "neg-anatomy", "neg-photo"].contains($0.id) }
+
     var canGenerate: Bool { !isRunning && generateBlocker == nil }
 
     /// Why Generate is disabled (shown in place of the settings line), or nil when it can run.
@@ -182,6 +190,20 @@ final class ImagineModel {
     }
 
     func setPrompt(_ text: String) { edit { $0.prompt = text } }
+
+    /// Wraps the prompt in [style] (`{prompt}` placeholder) and merges its negatives.
+    func applyStyle(_ style: PromptSnippet) {
+        let styled = PromptLibrary.shared.applyStyle(prompt: request.prompt, negative: request.negativePrompt, style: style)
+        edit {
+            $0.prompt = styled.first as String? ?? $0.prompt
+            $0.negativePrompt = styled.second as String? ?? $0.negativePrompt
+        }
+    }
+
+    /// Adds a negative preset's terms (ones already there are not repeated).
+    func addNegative(_ preset: PromptSnippet) {
+        edit { $0.negativePrompt = PromptLibrary.shared.joinNegative(current: $0.negativePrompt, add: preset.text) }
+    }
     func setNegative(_ text: String) { edit { $0.negativePrompt = text } }
     func setSteps(_ steps: Int) {
         userEdited.insert(.steps)
