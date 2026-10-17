@@ -45,6 +45,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -367,6 +368,7 @@ fun HalftoneImage(
     dot: Color = MaterialTheme.colorScheme.primary,
     paper: Color = Color.Transparent,
     cell: Dp = 6.dp,
+    contentScale: ContentScale = ContentScale.Crop,
 ) {
     val samples by rememberLumaGrid(image)
     val batch = remember { DotBatch() }
@@ -375,11 +377,14 @@ fun HalftoneImage(
         // Whole-pixel pitch, centred, no dot cut by the edges ([proofGrid]).
         val dots = proofGrid(cell.toPx())
         val c = dots.x.pitch
+        // Cropped (or fitted) like an image, not stretched to the box.
+        val art = contentRect(image.width.toFloat(), image.height.toFloat(), size.width, size.height, contentScale)
         batch.reset()
         for (r in 0 until dots.y.count) for (col in 0 until dots.x.count) {
             val cx = dots.x.at(col)
             val cy = dots.y.at(r)
-            val l = grid.sample(cx / size.width, cy / size.height)
+            if (!art.contains(Offset(cx, cy))) continue
+            val l = grid.sample((cx - art.left) / art.width, (cy - art.top) / art.height)
             batch.dot(cx, cy, (1f - l) * c * PROOF_DOT)
         }
         batch.draw(this, dot)

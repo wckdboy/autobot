@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -186,6 +187,20 @@ internal const val PROOF_DOT = 0.62f
 internal fun DrawScope.proofGrid(cell: Float): DotGeometry.Ground =
     DotGeometry.ground(size.width, size.height, InkMath.cappedCell(size.width, size.height, cell), PROOF_DOT)
 
+/**
+ * Where an [srcWidth]×[srcHeight] image lands in a [dstWidth]×[dstHeight] box under [scale],
+ * centred (as [Image] draws it). A plate sampling the image must use this, not the whole box:
+ * with Crop or Fit into a box of another shape, dots sampled over the box show the picture
+ * stretched, off register with the photo fading in under them.
+ */
+internal fun contentRect(srcWidth: Float, srcHeight: Float, dstWidth: Float, dstHeight: Float, scale: ContentScale): Rect {
+    if (srcWidth <= 0f || srcHeight <= 0f || dstWidth <= 0f || dstHeight <= 0f) return Rect(0f, 0f, dstWidth, dstHeight)
+    val f = scale.computeScaleFactor(Size(srcWidth, srcHeight), Size(dstWidth, dstHeight))
+    val w = srcWidth * f.scaleX
+    val h = srcHeight * f.scaleY
+    return Rect((dstWidth - w) / 2f, (dstHeight - h) / 2f, (dstWidth + w) / 2f, (dstHeight + h) / 2f)
+}
+
 /** Clock time without subscribing the caller (for effects and composition-time bookkeeping). */
 private val InkClock.now: Float get() = Snapshot.withoutReadObservation { time }
 
@@ -343,11 +358,14 @@ fun PrintReveal(
                 val merge = InkMath.printMerge(ms)
                 val grid = proofGrid(cell.toPx())
                 val c = grid.x.pitch
+                // The dots print the picture where the image draws it (cropped or letterboxed).
+                val art = contentRect(image.width.toFloat(), image.height.toFloat(), size.width, size.height, contentScale)
                 batch.reset()
                 for (r in 0 until grid.y.count) for (col in 0 until grid.x.count) {
                     val cx = grid.x.at(col)
                     val cy = grid.y.at(r)
-                    val v = 1f - g.sample(cx / size.width, cy / size.height)
+                    if (!art.contains(Offset(cx, cy))) continue
+                    val v = 1f - g.sample((cx - art.left) / art.width, (cy - art.top) / art.height)
                     batch.dot(cx, cy, v * c * PROOF_DOT * merge)
                 }
                 val offset = Motion.registerOffset.dp.toPx() * InkMath.registerOffset(ms)
