@@ -91,11 +91,24 @@ object VoiceText {
     fun chunks(text: String, maxChars: Int = MAX_CHUNK): List<String> {
         // A limit below one would never shorten a piece (or cut before its start).
         val max = maxChars.coerceAtLeast(1)
-        val sentences = text.split('\n').flatMap { sentences(it.trim()) }.flatMap { split(it, max) }
+        return merge(sentenceList(text, max), max, keepFirst = true)
+    }
+
+    /** [text]'s sentences (line by line), each at most [maxChars], before [chunks] merges the short ones. */
+    internal fun sentenceList(text: String, maxChars: Int = MAX_CHUNK): List<String> {
+        val max = maxChars.coerceAtLeast(1)
+        return text.split('\n').flatMap { sentences(it.trim()) }.flatMap { split(it, max) }
+    }
+
+    /**
+     * Joins pieces shorter than [MIN_CHUNK] to the one before them while the result fits [max].
+     * [keepFirst]: the first piece stays on its own (speech starts sooner).
+     */
+    internal fun merge(pieces: List<String>, max: Int, keepFirst: Boolean): List<String> {
         val out = mutableListOf<String>()
-        for (s in sentences) {
+        for (s in pieces) {
             val last = out.lastOrNull()
-            if (last != null && out.size > 1 && minOf(s.length, last.length) < MIN_CHUNK && last.length + 1 + s.length <= max) {
+            if (last != null && (out.size > 1 || !keepFirst) && minOf(s.length, last.length) < MIN_CHUNK && last.length + 1 + s.length <= max) {
                 out[out.size - 1] = "$last $s"
             } else {
                 out += s
@@ -112,6 +125,8 @@ object VoiceText {
     private val abbreviations = setOf(
         "e.g", "i.e", "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "no", "fig", "approx", "dept", "est", "inc", "ltd", "co", "cf",
     )
+
+    private val dotted = Regex("^(\\p{L}{1,2}\\.)+\\p{L}{1,2}$")
 
     private fun sentences(paragraph: String): List<String> {
         if (paragraph.isEmpty()) return emptyList()
@@ -145,6 +160,8 @@ object VoiceText {
         val word = text.substring(w, dot).trimStart('(', '"', '\'', '“', '‘').lowercase()
         if (word in abbreviations) return false
         if (word.length == 1 && word[0].isLetter()) return false
+        // Dotted acronyms and short forms: "U.S.", "a.m.", "Ph.D.".
+        if (dotted.matches(word)) return false
         val next = text.substring(end).trimStart().firstOrNull() ?: return true
         return !next.isLowerCase()
     }
