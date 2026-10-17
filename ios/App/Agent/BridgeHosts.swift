@@ -396,7 +396,8 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
                     modelPath: model.path,
                     mmprojPath: model.mmproj,
                     contextLength: model.contextLength,
-                    backend: model.backend,
+                    // A recipe running in the background: iOS refuses GPU work there.
+                    backend: RecipeBackground.backend(model.backend),
                     requestJSON: Data(requestJson.utf8),
                     onDelta: { delta in
                         switch delta {

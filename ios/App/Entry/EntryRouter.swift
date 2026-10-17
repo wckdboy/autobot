@@ -16,6 +16,8 @@ enum EntryRequest: Equatable {
     case imagine(prompt: String?)
     /// Content from the share extension, waiting in [SharedInbox] under [id].
     case shared(id: String)
+    /// A recipe notification: its result chat, or the Recipes screen.
+    case recipe(conversationId: String?)
 }
 
 /// `autobot://` links (widgets, the control, the share extension).
@@ -62,6 +64,8 @@ enum EntryPlan: Equatable {
     case workflow(json: String)
     /// No chat model or provider yet: the Models tab.
     case setup
+    /// A recipe's result chat (nil: the Recipes screen).
+    case recipe(conversationId: String?)
     /// Nothing to do (an expired or empty share).
     case none
 }
@@ -78,6 +82,8 @@ enum EntryRouting {
         case .ask(let prompt, let send):
             guard canChat else { return .setup }
             return .chat(send ? ChatStart(send: prompt) : ChatStart(draft: prompt))
+        case .recipe(let id):
+            return .recipe(conversationId: id)
         case .shared(let id):
             guard let item = shared(id) else { return .none }
             if let text = item.text, item.images.isEmpty, StudioWorkflowText.isWorkflow(text) { return .workflow(json: text) }
@@ -129,6 +135,12 @@ final class EntryRouter {
         case .workflow(let json):
             nav.pendingWorkflow = json
             nav.enterStudio(.workflows)
+        case .recipe(let id):
+            if let id, app.conversations.get(id) != nil {
+                nav.reset(.settings, [.recipes, .chat(conversationId: id)])
+            } else {
+                nav.reset(.settings, [.recipes])
+            }
         case .setup:
             nav.switchTo(.models)
         case .none:

@@ -31,6 +31,8 @@ enum Destination: Hashable {
     case vault
     /// The spend and quota board.
     case usage
+    /// Scheduled on-device recipes.
+    case recipes
 }
 
 /// The Creative Studio's rooms (its own bar while the Studio is open).
@@ -85,6 +87,7 @@ final class Navigator {
             case "memory": tab = .settings; path = [.memory]
             case "vault": tab = .settings; path = [.vault]
             case "usage": tab = .settings; path = [.usage]
+            case "recipes": tab = .settings; path = [.recipes]
             case "studio": studio = .image
             default:
                 if args[i + 1].hasPrefix("studio-") { studio = StudioRoom(rawValue: String(args[i + 1].dropFirst(7))) }
@@ -204,6 +207,7 @@ struct AutobotNavHost: View {
         case .memory: MemoryScreen()
         case .vault: VaultScreen()
         case .usage: UsageScreen()
+        case .recipes: RecipesScreen()
         }
     }
 }

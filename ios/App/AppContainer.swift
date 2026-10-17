@@ -50,6 +50,9 @@ final class AppContainer {
     let sessions: SessionStore
     /// Chat deletion (with undo) and search.
     let chats: ChatLibrary
+    /// Scheduled on-device recipes (ROADMAP Phase 2.5 item 7).
+    let recipes: RecipeCenter
+    @ObservationIgnored private var recipeHost: AppRecipeHost?
     #if canImport(AutobotShared)
     let snapshots = HostSnapshots()
     @ObservationIgnored private let searchSource: WebSearchSourceHost
@@ -116,12 +119,16 @@ final class AppContainer {
         #endif
 
         chats = ChatLibrary(conversations: conversations, agent: agent, sessions: sessions, attachments: attachments)
+        recipes = RecipeCenter(repository: RecipeRepository(store: store), notifier: RecipeNotifier())
+        let recipes = recipes
 
         let agent = agent, conversations = conversations, downloader = downloader, generator = generator, clients = clients, store = store, llm = llm
         let preferences = preferences
         let studio = studio
         panicWipe = PanicWipe(keys: keys, secrets: secrets, participants: [
             { preferences.close() },
+            // Recipes: nothing scheduled or shown survives a wipe (their documents go with the store).
+            { recipes.stop(); RecipeBackground.submit(nil); RecipeNotifier().removeAll() },
             { agent.shutdown() },
             { studio.close() },
             { downloader.cancelAll() },
@@ -132,6 +139,10 @@ final class AppContainer {
             { clients.evictAll(cancelInFlight: true) },
             { store.close() },
         ])
+
+        let host = AppRecipeHost(app: self)
+        recipeHost = host
+        recipes.host = host
 
         providers.onChange = { [weak self] list in self?.providersChanged(list) }
         mcpServers.onChange = { [weak self] list in self?.mcpServersChanged(list) }
@@ -198,6 +209,8 @@ final class AppContainer {
     private func becameActive() {
         guard dataLoaded else { return }
         syncLocalProvider()
+        // Recipes iOS did not get to (or that waited for an unlock) run now.
+        recipes.runDue()
     }
 
     /// Opt-in agent features follow settings: memory and the vault while on, web search while a provider is set.
@@ -336,6 +349,8 @@ final class AppContainer {
         #endif
         dataLoaded = true
         modelsChanged()
+        recipes.load()
+        if UIApplication.shared.applicationState == .active { recipes.runDue() }
         LaunchTrace.mark("data.loaded")
         await studio.load()
         LaunchTrace.mark("studio.loaded")

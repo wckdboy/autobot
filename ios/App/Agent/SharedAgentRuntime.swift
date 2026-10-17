@@ -289,11 +289,10 @@ final class SharedAgentRuntime: AgentRuntime {
      bridge is shut down (now or while waiting), or [late] after [testTimeout]. Exactly one of
      them resumes the caller.
      */
-    private func call<T: Sendable>(stopped: T, late: T, _ start: (_ done: @escaping @Sendable (T) -> Void) -> Void) async -> T {
+    private func call<T: Sendable>(stopped: T, late: T, limit: Duration = SharedAgentRuntime.testTimeout, _ start: (_ done: @escaping @Sendable (T) -> Void) -> Void) async -> T {
         if isShutDown { return stopped }
         let id = UUID()
         let once = ResumeOnce<T>()
-        let limit = Self.testTimeout
         let timer = Task { try? await Task.sleep(for: limit); if !Task.isCancelled { once.resume(late) } }
         let value = await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
             once.set(continuation)
@@ -324,6 +323,23 @@ final class SharedAgentRuntime: AgentRuntime {
     }
 
     private static let stoppedMessage = "The agent runtime was stopped"
+
+    /**
+     Runs a recipe headless in [sessionId] (a new chat) on the on-device [model] (shared
+     `AgentBridge.runRecipe`: allowed tools only, approvals denied, kill switch and receipt as in
+     any chat) and answers with the run's record JSON.
+     */
+    func runRecipe(sessionId: String, providerId: String, model: String, recipe: String, context: String?, startedAt: Int64, manual: Bool) async -> String {
+        let timeout = Int64(RecipeTurns.shared.DEFAULT_TIMEOUT_MS)
+        let stopped = RecipeRules.failedRecord(Self.stoppedMessage, startedAt: startedAt, manual: manual)
+        let late = RecipeRules.failedRecord(RecipeRules.copy.TIMED_OUT, startedAt: startedAt, manual: manual)
+        return await call(stopped: stopped, late: late, limit: .milliseconds(timeout + 60_000)) { done in
+            bridge.runRecipe(
+                sessionId: sessionId, providerId: providerId, model: model, recipeJson: recipe, context: context,
+                startedAt: startedAt, manual: manual, timeoutMs: timeout,
+            ) { @Sendable record in done(record) }
+        }
+    }
     private struct Reply3: Sendable { let ok: Bool, message: String, json: String? }
     private struct Reply2: Sendable { let json: String?, error: String? }
 

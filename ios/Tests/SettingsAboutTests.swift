@@ -86,7 +86,7 @@ struct SettingsStructureTests {
         #expect(SettingsSection.privacy.rows.contains(.panicWipe))
         #expect(SettingsSection.privacy.rows.contains(.redactCloud))
         #expect(SettingsRow.redactCloud.title() == "Redact before cloud")
-        #expect(SettingsSection.agent.rows == [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .usage, .mcpServers])
+        #expect(SettingsSection.agent.rows == [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .usage, .mcpServers, .recipes])
         #expect(SettingsSection.data.rows == [.exportImport, .deleteAll])
         #expect(SettingsSection.about.rows == [.about])
     }

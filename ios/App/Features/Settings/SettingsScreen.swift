@@ -95,6 +95,8 @@ struct SettingsScreen: View {
             NavigationRow(title: title) { nav.push(.usage) }
         case .mcpServers:
             NavigationRow(title: title) { nav.push(.mcpServers) }
+        case .recipes:
+            NavigationRow(title: title) { nav.push(.recipes) }
         case .theme:
             Segmented(options: ThemeMode.allCases, selected: settings.themeMode, label: { $0.rawValue.capitalized }) {
                 app.settings.setThemeMode($0)

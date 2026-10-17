@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.shared.recipes
 
+import kotlin.experimental.ExperimentalObjCName
+import kotlin.native.ObjCName
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -17,6 +19,8 @@ import kotlinx.serialization.json.Json
  * @property requiresCharging run only while charging (Android constraint, iOS external power).
  * @property requiresBatteryNotLow run only when the battery is not low (Android).
  */
+@OptIn(ExperimentalObjCName::class)
+@ObjCName("AgentRecipe") // The Studio's `Recipe` keeps its Swift name.
 @Serializable
 data class Recipe(
     val id: String,
