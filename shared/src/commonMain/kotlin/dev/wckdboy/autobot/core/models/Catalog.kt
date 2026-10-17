@@ -40,14 +40,24 @@ object Catalog {
         chat(
             "qwen3-4b-2507-q4_0", "Qwen3 4B Instruct 2507", "Q4_0 · strong tool calling", "unsloth/Qwen3-4B-Instruct-2507-GGUF",
             "Qwen3-4B-Instruct-2507-Q4_0.gguf", 2266, "apache-2.0", context = 16384,
-            notes = "Recommended for agent sessions.",
+            notes = "Recommended for agent sessions. With Qwen3 0.6B installed it replies faster (speculative decoding).",
+        ),
+        // Small enough to draft for its family's larger models (see SpeculativeDrafts); chats on its own too.
+        chat(
+            "qwen3-0.6b-q4_0", "Qwen3 0.6B", "Q4_0 · tiny · speeds up Qwen3 4B", "unsloth/Qwen3-0.6B-GGUF", "Qwen3-0.6B-Q4_0.gguf", 364,
+            "apache-2.0", notes = "Drafts for Qwen3 4B Instruct 2507 (speculative decoding, Settings › Compute).",
         ),
         chat("gemma-4-e2b-q4_0", "Gemma 4 E2B", "Q4_0 · Google", "unsloth/gemma-4-E2B-it-GGUF", "gemma-4-E2B-it-Q4_0.gguf", 2900, "apache-2.0"),
         chat("phi-4-mini-q4_0", "Phi-4 mini", "Q4_0 · Microsoft", "bartowski/microsoft_Phi-4-mini-instruct-GGUF", "microsoft_Phi-4-mini-instruct-Q4_0.gguf", 2223, "mit"),
         chat("smollm3-3b-q4_0", "SmolLM3 3B", "Q4_0 · Hugging Face", "unsloth/SmolLM3-3B-GGUF", "SmolLM3-3B-Q4_0.gguf", 1728, "apache-2.0"),
         chat(
             "llama-3.2-3b-q4_0", "Llama 3.2 3B", "Q4_0 · Meta", "bartowski/Llama-3.2-3B-Instruct-GGUF", "Llama-3.2-3B-Instruct-Q4_0.gguf", 1833,
-            "llama3.2", notes = "Llama 3.2 Community License and Acceptable Use Policy apply.",
+            "llama3.2", notes = "Llama 3.2 Community License and Acceptable Use Policy apply. With Llama 3.2 1B installed it replies faster.",
+        ),
+        chat(
+            "llama-3.2-1b-q4_0", "Llama 3.2 1B", "Q4_0 · Meta · speeds up Llama 3.2 3B", "bartowski/Llama-3.2-1B-Instruct-GGUF",
+            "Llama-3.2-1B-Instruct-Q4_0.gguf", 737, "llama3.2",
+            notes = "Llama 3.2 Community License and Acceptable Use Policy apply. Drafts for Llama 3.2 3B (speculative decoding).",
         ),
         chat(
             "qwen2.5-coder-1.5b-q4_0", "Qwen2.5 Coder 1.5B", "Q4_0 · code", "Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
@@ -56,6 +66,12 @@ object Catalog {
         chat(
             "qwen2.5-coder-7b-q4_k_m", "Qwen2.5 Coder 7B", "Q4_K_M · code · 16 GB+ RAM", "unsloth/Qwen2.5-Coder-7B-Instruct-GGUF",
             "Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf", 4466, "apache-2.0", kind = ModelKind.CODE,
+            notes = "With Qwen2.5 Coder 0.5B installed it replies faster (speculative decoding).",
+        ),
+        chat(
+            "qwen2.5-coder-0.5b-q4_0", "Qwen2.5 Coder 0.5B", "Q4_0 · code · speeds up the larger Coders", "Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF",
+            "qwen2.5-coder-0.5b-instruct-q4_0.gguf", 409, "apache-2.0", kind = ModelKind.CODE,
+            notes = "Drafts for Qwen2.5 Coder 1.5B and 7B (speculative decoding, Settings › Compute).",
         ),
         chat(
             "qwen3-vl-2b-q4_0", "Qwen3-VL 2B", "Q4_0 · vision · reads photos and screenshots", "unsloth/Qwen3-VL-2B-Instruct-GGUF",

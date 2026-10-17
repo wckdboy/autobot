@@ -260,6 +260,37 @@ Phones are fast at inference only off the CPU, so Autobot uses every accelerator
 **Compute screen** (MODELS → COMPUTE) shows the CPU, GPU and NPU of the phone. For each model you
 can force CPU, GPU or NPU, or run a benchmark. `auto` then uses whichever backend was fastest.
 
+**Speculative decoding.** A small model of the same family drafts a few tokens and the chat model
+checks them in one batch, keeping the ones it agrees with plus its own next token. Every emitted
+token is still sampled by the chat model from its own logits, in order, so replies are what plain
+decoding gives: with sampling the same distribution, greedy the same text (on Metal identical in
+every bench check; on the CPU, llama.cpp rounds the batched check slightly differently from a
+single step, so at a near tie a reply can take the other, equally likely word), and the reasoning
+budget, the loop guard, tool-call grammars and streaming see every token as before. The catalog pairs Qwen3 4B Instruct 2507 with Qwen3 0.6B,
+Llama 3.2 3B with Llama 3.2 1B, and Qwen2.5 Coder 7B / 1.5B with Qwen2.5 Coder 0.5B. Settings
+live on the Compute screen (`auto` / `on` / `off`, default `auto`): `auto` loads the draft when it
+is installed, the chat model fits well alone and the pair still fits, and the engine stops
+speculating while it does not pay (it measures acceptance and the cost of draft and check steps on
+the device and picks how many tokens to draft); `on` drafts whenever the pair fits; `off` never
+loads a draft. The draft runs on the CPU on Android (accelerators pay a fixed cost per
+single-token step, the draft's whole job) and on Metal next to the model on iOS. It sees a window
+of the last 0.5-1k tokens (8-bit KV cache), so a new chat's long agent prompt costs it at most a
+512-token prefill, and only once a reply turns out longer than a tool call. A draft with another tokenizer is refused with a clear
+reason. Hybrid models with recurrent layers (the Qwen3.5 family) do not speculate: rejected drafts
+cannot be cut from their memory cheaply (a 50 MB state copy per round for Qwen3.5 4B plus 19 MB for
+its 0.8B draft, which has the same problem, and no draft-side prompt cache), so the catalog does not
+pair them and the engine reports them as `unsupported`. The Compute benchmark measures the same
+reply with and without the draft and shows the speedup and the share of drafts kept; the
+diagnostics report includes both.
+
+Measured with `engine/llama/bench` (`--draft`) on an M3 Pro, Metal, greedy, `auto`, median of
+three interleaved runs: Qwen3 4B 2507 + 0.6B 1.64x on code, 1.44x on a list, 1.74x on a rewrite,
+0.98x on free prose (47% of drafts kept), 2.01x on a 1,300-token reply; Llama 3.2 3B + 1B 1.38x /
+1.29x / 1.52x / 1.02x; Qwen2.5 Coder 1.5B + 0.5B 1.22x on code. Short agent turns (20-50 tokens)
+stay at 1.00x: the draft is not caught up for them. On the Mac's CPU alone (draft on the CPU too)
+it does not pay (0.9-1.4x, median about 1.0x; `auto` keeps the loss small). Phones are not
+measured yet.
+
 **Vision.** Chat models with a vision projector (`mmproj`), such as Qwen3-VL and SmolVLM2 from the
 catalog, read attached photos. Hub downloads pick up a repo's `mmproj` automatically. Images are
 picked with the system photo picker (no storage permission), re-encoded (dropping EXIF and GPS)

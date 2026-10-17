@@ -56,6 +56,8 @@ final class AppContainer {
     @ObservationIgnored private var memoryOn = false
     @ObservationIgnored private var vaultOn = false
     @ObservationIgnored private var searchOn = false
+    /// The speculative decoding setting the bridge's model snapshot was built with.
+    @ObservationIgnored private var speculativeShown = "auto"
     #endif
 
     private(set) var dataLoaded = false
@@ -211,6 +213,8 @@ final class AppContainer {
         }
         shared.setQuotaFallback(s.quotaFallback, onDevice: providers.get(ProviderPresets.localProviderId))
         shared.setRedactionDefault(s.redactCloud)
+        // The draft models in the bridge's snapshot follow the speculative decoding setting.
+        if s.speculativeMode != speculativeShown { modelsChanged() }
         #endif
     }
 
@@ -251,13 +255,17 @@ final class AppContainer {
         #if canImport(AutobotShared)
         var map: [String: HostSnapshots.LocalModel] = [:]
         let device = DeviceProfile.current()
+        let speculative = settings.settings.speculativeMode
+        speculativeShown = speculative
         for model in library.models where model.isLocalChat {
             let paths = library.paths(model)
             guard let path = paths[.model] else { continue }
             let context = min(model.manifest.recommended?.contextLength ?? LocalChatProvider.defaultContext, LocalChatProvider.maxContext)
+            let backend = compute.resolve(model)
             map[model.id] = .init(
-                path: path.path, mmproj: paths[.mmproj]?.path, contextLength: context, backend: compute.resolve(model),
+                path: path.path, mmproj: paths[.mmproj]?.path, contextLength: context, backend: backend,
                 tooBig: device.fit(model.kind, bytes: model.totalBytes, engine: model.engine) == .tooBig,
+                draft: SpeculativeDraftPicker.pick(for: model, mode: speculative, library: library, device: device, context: context, backend: backend),
             )
         }
         snapshots.setModels(map)

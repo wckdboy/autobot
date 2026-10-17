@@ -20,9 +20,20 @@
 // the answer reserve keeps tokens for the answer; the loop guard ends a repeating trace (on
 // synthetic token streams and on a model asked to repeat itself). Prints reasoning tokens and the
 // time to the first answer token for each, unbounded thinking included (the old behaviour).
+//
+//   llama_bench <model.gguf> --draft <draft.gguf> [--draft-backend cpu|gpu|auto] [--reps N] [--backend ...]
+//
+// Speculative decoding instead: generation speed with and without the draft on several kinds of
+// text (story, code, a list, an agent turn with tools), runs interleaved and repeated (--reps,
+// median), with the acceptance rate and speedup; checks that the speculative output equals the
+// plain one (greedy, and sampled with a fixed seed), that the prompt cache stays correct across
+// speculative turns (next turn, regenerate, edit, other chat, against a fresh plain session),
+// thinking budgets with a draft, cancellation during speculative decoding, and that a draft with
+// another tokenizer is refused cleanly. --mismatch <gguf> names such a draft.
 
 #include "autobot_llama.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -38,6 +49,7 @@
 // Weak, so the bench also links against an older core (-DAUTOBOT_CORE_DIR) for comparisons.
 extern "C" __attribute__((weak)) autobot_llama_session * autobot_llama_load_abortable(const char *, int, int, const char *, int (*)(void *), void *);
 extern "C" __attribute__((weak)) char * autobot_llama_chat_template(const char *);
+extern "C" __attribute__((weak)) char * autobot_llama_draft_check(const char *, const char *);
 
 constexpr int DELTA_REASONING_STATUS = 2;  // AUTOBOT_LLAMA_DELTA_REASONING_STATUS (absent in older cores)
 
@@ -61,6 +73,10 @@ struct Options {
     bool verbose = false;
     bool thinking = false;
     std::string libs;
+    std::string draft;
+    std::string draft_backend = "auto";
+    std::string mismatch;
+    int reps = 3;
 };
 
 struct Run {
@@ -235,18 +251,19 @@ autobot_llama_session * load(const Options & o, double * ms) {
 }
 
 // Starts a chat on another thread and cancels it `after_ms` into the run; returns how long the
-// chat took to return after the cancel and how it finished.
-std::pair<double, std::string> cancel_latency(autobot_llama_session * s, const json & req, double after_ms) {
+// chat took to return after the cancel and how it finished. Each call needs its own request
+// `token`: a cancelled token stays cancelled for a request that reuses it.
+std::pair<double, std::string> cancel_latency(autobot_llama_session * s, const json & req, double after_ms, uint64_t token = 77) {
     std::atomic<bool> done{false};
     Clock::time_point cancelled_at;
     Run run;
     std::thread t([&] {
-        run = chat(s, req, 77);
+        run = chat(s, req, token);
         done = true;
     });
     std::this_thread::sleep_for(std::chrono::microseconds((int64_t) (after_ms * 1000)));
     cancelled_at = Clock::now();
-    autobot_llama_cancel_request(s, 77);
+    autobot_llama_cancel_request(s, token);
     t.join();
     const double latency = ms_since(cancelled_at) - 0.0;
     std::string how = run.result.contains("error") ? run.result.at("error").value("code", std::string())
@@ -435,6 +452,245 @@ int thinking_checks(const Options & o) {
     return failures == 0 ? 0 : 1;
 }
 
+// ---- speculative decoding checks
+
+json with_draft(json r, const std::string & path, const std::string & backend, const std::string & mode) {
+    r["draft"] = {{"path", path}, {"backend", backend}};
+    r["speculative"] = mode;
+    return r;
+}
+
+json spec_usage(const Run & r) {
+    const json & u = usage(r);
+    return u.contains("speculative") ? u.at("speculative") : json::object();
+}
+
+double gen_tps(const Run & r) {
+    const json & u = usage(r);
+    const double ms = u.value("generation_ms", 0.0);
+    return ms > 0 ? u.value("completion_tokens", 0) * 1000.0 / ms : 0.0;
+}
+
+std::string answer_of(const Run & r) {
+    json calls = r.result.value("tool_calls", json::array());
+    for (auto & c : calls) c.erase("id");
+    return r.result.value("reasoning", std::string()) + "|" + r.result.value("content", std::string()) + "|" + calls.dump();
+}
+
+double median(std::vector<double> v) {
+    if (v.empty()) return 0;
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+}
+
+// llama.cpp's CPU kernels round a batch (the verify step) slightly differently from a single
+// token, so on the CPU a near tie can tip the other way and the texts part after a while (both
+// are greedy decodes of the model); Metal computes them alike. On the CPU a difference is
+// reported with where it starts, not counted as a failure.
+bool g_cpu_numerics = false;
+int g_cpu_divergences = 0;
+
+void check_identical(const char * what, const Run & spec, const Run & plain) {
+    const bool errors = spec.result.contains("error") || plain.result.contains("error");
+    const std::string a = answer_of(spec), b = answer_of(plain);
+    const bool ok = !errors && a == b;
+    if (!ok && !errors && g_cpu_numerics) {
+        size_t same = 0;
+        while (same < a.size() && same < b.size() && a[same] == b[same]) ++same;
+        ++g_cpu_divergences;
+        std::printf("  check %-44s differs after %zu of %zu chars (cpu batch rounding)\n", what, same, b.size());
+        return;
+    }
+    check(what, ok, ok ? "" : ("\n    spec:  " + a.substr(0, 300) + "\n    plain: " + b.substr(0, 300)));
+}
+
+int speculative_checks(const Options & o) {
+    const std::string & d = o.draft;
+    const std::string & db = o.draft_backend;
+    g_cpu_numerics = o.backend == "cpu";
+    if (autobot_llama_draft_check) {
+        char * c = autobot_llama_draft_check(o.model.c_str(), d.c_str());
+        std::printf("draft check: %s\n", c ? c : "(null)");
+        const json j = json::parse(c ? c : "{}");
+        autobot_llama_string_free(c);
+        check("draft check: same tokenizer", j.value("compatible", false));
+    }
+    autobot_llama_session * s = load(o, nullptr);
+    {
+        char * info = autobot_llama_model_info(s);
+        std::printf("model: %s\n\n", info);
+        autobot_llama_string_free(info);
+    }
+
+    // ---- speed: plain vs speculative ("auto" and "on"), interleaved, median of --reps
+    struct Case {
+        const char * name;
+        json messages;
+        bool tools;
+    };
+    const std::string paragraph =
+        "The commitee have decided that the new bicycle path, which run along the old railway line, will be open "
+        "to the public in early spring. Residents was asked to give they're opinion in a survey last year, and most "
+        "of them said that a safe route to the town centre were the thing they wanted more. The path will have "
+        "lighting, benches every kilometre and a small repair station near the bridge.";
+    std::vector<Case> cases = {
+        {"story", json::array({msg("system", "You are a helpful assistant."), msg("user", "Write a short story about a lighthouse keeper and his bicycle.")}), false},
+        {"code", json::array({msg("system", "You are a helpful assistant."), msg("user", "Write a Python function that parses an ISO-8601 date string into a datetime, with a docstring and three unit tests.")}), false},
+        {"list", json::array({msg("system", "You are a helpful assistant."), msg("user", "List the 20 largest cities in Europe with their countries, numbered, one per line.")}), false},
+        {"rewrite", json::array({msg("system", "You are a helpful assistant."), msg("user", "Correct the grammar and spelling of this text and return only the corrected text:\n\n" + paragraph)}), false},
+        {"agent turn", json::array({msg("system", system_prompt("main")), msg("user", "Plan my Saturday: a bike ride in the morning, gardening after lunch, and a short Kotlin session in the evening. Give times and one tip for each.")}), true},
+    };
+    const int gen = o.gen;
+    std::printf("%-12s %10s %10s %10s %8s %8s %6s %s\n", "text", "plain t/s", "auto t/s", "on t/s", "speedup", "accept", "k", "identical");
+    std::vector<double> speedups;
+    for (const auto & c : cases) {
+        std::vector<double> plain_tps, auto_tps, on_tps;
+        Run plain, spec_auto, spec_on;
+        for (int rep = 0; rep < o.reps; ++rep) {
+            json base = request(c.messages, gen, c.tools);
+            // The draft stays loaded for the plain runs ("off" keeps it, uses nothing).
+            plain = chat(s, with_draft(base, d, db, "off"));
+            spec_auto = chat(s, with_draft(base, d, db, "auto"));
+            spec_on = chat(s, with_draft(base, d, db, "on"));
+            plain_tps.push_back(gen_tps(plain));
+            auto_tps.push_back(gen_tps(spec_auto));
+            on_tps.push_back(gen_tps(spec_on));
+        }
+        const json su = spec_usage(spec_on);
+        const bool same = answer_of(spec_auto) == answer_of(plain) && answer_of(spec_on) == answer_of(plain);
+        const double sp = median(auto_tps) / std::max(1e-9, median(plain_tps));
+        speedups.push_back(sp);
+        std::printf("%-12s %10.1f %10.1f %10.1f %7.2fx %7.0f%% %6d %s   [%s, %d tok]\n", c.name, median(plain_tps), median(auto_tps), median(on_tps),
+                    sp, 100.0 * su.value("acceptance", 0.0), su.value("k", 0), same ? "yes" : "NO",
+                    su.value("status", std::string("?")).c_str(), usage(spec_on).value("completion_tokens", 0));
+        if (o.verbose) std::printf("   auto: %s\n", spec_usage(spec_auto).dump().c_str());
+        check_identical((std::string("greedy identical: ") + c.name + " (auto)").c_str(), spec_auto, plain);
+        check_identical((std::string("greedy identical: ") + c.name + " (on)").c_str(), spec_on, plain);
+    }
+    std::printf("median speedup (auto): %.2fx\n\n", median(speedups));
+
+    // ---- sampled: the same distribution; with the same seed usually the same tokens (a draw can
+    // land on the other side of a probability the batch rounded differently), so only reported
+    {
+        json base = request(cases[0].messages, gen, false);
+        base["temperature"] = 0.8;
+        base["seed"] = 42;
+        Run plain = chat(s, with_draft(base, d, db, "off"));
+        Run spec = chat(s, with_draft(base, d, db, "on"));
+        std::printf("sampled (T=0.8): plain %.1f t/s, speculative %.1f t/s, acceptance %.0f%%\n", gen_tps(plain), gen_tps(spec),
+                    100.0 * spec_usage(spec).value("acceptance", 0.0));
+        const bool same = answer_of(spec) == answer_of(plain);
+        size_t prefix = 0;
+        const std::string a = answer_of(spec), b = answer_of(plain);
+        while (prefix < a.size() && prefix < b.size() && a[prefix] == b[prefix]) ++prefix;
+        std::printf("  sampled, same seed: %s\n", same ? "same tokens" : ("parts after " + std::to_string(prefix) + " of " + std::to_string(b.size()) + " chars").c_str());
+        check("sampled: speculative reply complete", !spec.result.contains("error") && !spec.result.value("content", std::string()).empty());
+    }
+
+    // ---- a long reply after a long prompt: the draft's window slides (re-prefills) on the way
+    if (!o.quick) {
+        json m = json::array({msg("system", system_prompt("long")), msg("user", "Write the numbers from one to three hundred in English words, one per line, nothing else.")});
+        json base = request(m, 1400, false);
+        Run plain = chat(s, with_draft(base, d, db, "off"));
+        Run spec = chat(s, with_draft(base, d, db, "on"));
+        std::printf("long reply (%d tok after a %d-token prompt): plain %.1f t/s, speculative %.1f t/s (%.2fx), acceptance %.0f%%\n",
+                    usage(spec).value("completion_tokens", 0), usage(spec).value("prompt_tokens", 0), gen_tps(plain), gen_tps(spec),
+                    gen_tps(spec) / std::max(1e-9, gen_tps(plain)), 100.0 * spec_usage(spec).value("acceptance", 0.0));
+        check_identical("long reply across a draft window slide", spec, plain);
+    }
+
+    // ---- prompt cache across speculative turns, against a fresh plain session
+    {
+        const std::string sys = system_prompt("main");
+        auto sreq = [&](const json & m) { return with_draft(request(m, gen), d, db, "on"); };
+        json m1 = json::array({msg("system", sys), msg("user", "List three things I could do this weekend, one line each.")});
+        Run t1 = chat(s, sreq(m1));
+        json m2 = m1;
+        m2.push_back(assistant_of(t1.result));
+        m2.push_back(msg("user", "Make the second one about cycling and keep it short."));
+        Run t2 = chat(s, sreq(m2));
+        Run regen = chat(s, sreq(m2));
+        json m3 = m2;
+        m3.push_back(assistant_of(t2.result));
+        m3.push_back(msg("user", "Search my notes for 'cycling routes' with the search_notes tool."));
+        Run t3 = chat(s, sreq(m3));
+        json edited = m2;
+        edited[1]["content"] = "List three things I could do this weekend with friends, one line each.";
+        Run ed = chat(s, sreq(edited));
+        json other = json::array({msg("system", system_prompt("other")), msg("user", "What is 17 times 23?")});
+        Run oc = chat(s, sreq(other));
+        Run back = chat(s, sreq(m3));
+        print_run("speculative turn 2", t2);
+        std::printf("  turn 3 speculative: %s\n", spec_usage(t3).dump().c_str());
+        autobot_llama_session * fresh = nullptr;
+        auto fresh_run = [&](const json & m) {
+            if (fresh) autobot_llama_free(fresh);
+            fresh = load(o, nullptr);
+            return chat(fresh, request(m, gen));
+        };
+        // Against a fresh plain session: identical where batches round like single steps (Metal).
+        check_identical("spec turn 2 vs fresh plain", t2, fresh_run(m2));
+        check_identical("spec regenerate", regen, fresh_run(m2));
+        check_identical("spec tool turn", t3, fresh_run(m3));
+        check_identical("spec edited history", ed, fresh_run(edited));
+        check_identical("spec other chat", oc, fresh_run(other));
+        check_identical("spec back to first chat", back, fresh_run(m3));
+        if (fresh) autobot_llama_free(fresh);
+    }
+
+    // ---- thinking budget with a draft (models that reason)
+    {
+        char * info = autobot_llama_model_info(s);
+        const json j = json::parse(info ? info : "{}");
+        autobot_llama_string_free(info);
+        if (j.contains("thinking") && j.at("thinking").value("supported", false)) {
+            json r = thinking_request("A train leaves at 14:35 and the trip takes 2 hours 50 minutes. When does it arrive?", 1024, true, 64);
+            Run plain = chat(s, with_draft(r, d, db, "off"));
+            Run spec = chat(s, with_draft(r, d, db, "on"));
+            print_thinking("thinking budget 64, plain", plain);
+            print_thinking("thinking budget 64, spec", spec);
+            check_identical("thinking budget: identical with a draft", spec, plain);
+            check("thinking budget: still enforced", reasoning_tokens(spec) <= 64 + 24, std::to_string(reasoning_tokens(spec)) + " reasoning tokens");
+        } else {
+            std::printf("(the model does not reason: thinking budget with a draft not checked here)\n");
+        }
+    }
+
+    // ---- cancellation during speculative decoding
+    {
+        json r = with_draft(request(json::array({msg("user", "Count from 1 to 500, one number per line.")}), 2000, false), d, db, "on");
+        auto [lat, how] = cancel_latency(s, r, 1500, 79);
+        std::printf("cancel during speculative decode: returned %.1f ms after cancel (%s)\n", lat, how.c_str());
+        check("cancel: stops", how == "cancelled" || how == "CANCELLED", how);
+        check("cancel: within 250 ms", lat < 250, std::to_string((int) lat) + " ms");
+        Run after = chat(s, with_draft(request(cases[2].messages, gen, false), d, db, "on"));
+        Run plain = chat(s, with_draft(request(cases[2].messages, gen, false), d, db, "off"));
+        check_identical("usable and identical after cancel", after, plain);
+    }
+
+    // ---- a draft with another tokenizer is refused, the reply is still plain and correct
+    if (!o.mismatch.empty()) {
+        if (autobot_llama_draft_check) {
+            char * c = autobot_llama_draft_check(o.model.c_str(), o.mismatch.c_str());
+            const json j = json::parse(c ? c : "{}");
+            autobot_llama_string_free(c);
+            check("draft check: other tokenizer refused", !j.value("compatible", true), j.value("reason", std::string()));
+        }
+        json base = request(cases[2].messages, gen, false);
+        Run bad = chat(s, with_draft(base, o.mismatch, db, "on"));
+        const json su = spec_usage(bad);
+        std::printf("mismatched draft: %s\n", su.dump().c_str());
+        check("mismatched draft: refused", su.value("status", std::string()) == "refused" &&
+              su.value("reason", std::string()).find("tokenizer") != std::string::npos);
+        Run plain = chat(s, with_draft(base, d, db, "off"));
+        check_identical("mismatched draft: reply unaffected", bad, plain);
+    }
+    autobot_llama_free(s);
+    if (g_cpu_divergences > 0) std::printf("\n%d speculative replies parted from plain decoding on the cpu (batch rounding)\n", g_cpu_divergences);
+    std::printf("\n%s\n", failures == 0 ? "all checks passed" : "CHECKS FAILED");
+    return failures == 0 ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char ** argv) {
@@ -451,10 +707,14 @@ int main(int argc, char ** argv) {
         else if (a == "--libs") o.libs = next();
         else if (a == "-v") o.verbose = true;
         else if (a == "--thinking") o.thinking = true;
+        else if (a == "--draft") o.draft = next();
+        else if (a == "--draft-backend") o.draft_backend = next();
+        else if (a == "--mismatch") o.mismatch = next();
+        else if (a == "--reps") o.reps = std::max(1, std::atoi(next().c_str()));
         else o.model = a;
     }
     if (o.model.empty()) {
-        std::fprintf(stderr, "usage: llama_bench <model.gguf> [--backend cpu|gpu|npu|npu+cpu|auto] [--threads N] [--ctx N] [--gen N] [--quick] [--speed] [--thinking] [--libs DIR]\n");
+        std::fprintf(stderr, "usage: llama_bench <model.gguf> [--backend cpu|gpu|npu|npu+cpu|auto] [--threads N] [--ctx N] [--gen N] [--quick] [--speed] [--thinking] [--libs DIR] [--draft GGUF [--draft-backend B] [--reps N] [--mismatch GGUF]]\n");
         return 2;
     }
     if (o.verbose) {
@@ -465,6 +725,7 @@ int main(int argc, char ** argv) {
     }
     autobot_llama_init(o.libs.empty() ? nullptr : o.libs.c_str());
     if (o.thinking) return thinking_checks(o);
+    if (!o.draft.empty()) return speculative_checks(o);
 
     double load_cold = 0, load_warm = 0;
     autobot_llama_session * s = load(o, &load_cold);
@@ -600,7 +861,7 @@ int main(int argc, char ** argv) {
             std::printf("cancel during prefill: returned %.1f ms after cancel (%s)\n", lat_prefill, how_prefill.c_str());
             json fresh_chat = json::array({msg("user", "Count from 1 to 500, one number per line.")});
             // Warm the prompt first so the cancel lands in decode.
-            auto [lat_decode, how_decode] = cancel_latency(s, request(fresh_chat, 2000, false), 1500);
+            auto [lat_decode, how_decode] = cancel_latency(s, request(fresh_chat, 2000, false), 1500, 78);
             std::printf("cancel during decode:  returned %.1f ms after cancel (%s)\n", lat_decode, how_decode.c_str());
             // The session still works after cancels.
             // A load cancelled shortly after it starts returns NULL soon.

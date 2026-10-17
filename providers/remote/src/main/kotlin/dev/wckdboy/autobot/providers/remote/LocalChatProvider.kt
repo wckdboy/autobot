@@ -1,11 +1,16 @@
 package dev.wckdboy.autobot.providers.remote
 
 import dev.wckdboy.autobot.core.models.Backend
+import dev.wckdboy.autobot.core.models.AppPlatform
 import dev.wckdboy.autobot.core.models.ComputeProfile
+import dev.wckdboy.autobot.core.models.DeviceCapabilities
+import dev.wckdboy.autobot.core.models.DraftChoice
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.Fit
 import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelLibrary
+import dev.wckdboy.autobot.core.models.SpeculativeDrafts
+import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.engine.llama.EngineDiedException
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import dev.wckdboy.autobot.engine.llama.LocalLlmEvent
@@ -26,6 +31,10 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * When the requested model is missing, too big or fails to load, the OS's own model ([system],
  * only in builds that include one) answers instead; [LocalChatRouter] decides.
+ *
+ * Speculative decoding: when the setting ([speculativeMode]) allows it and a draft model of the
+ * same family is installed and fits next to the model ([SpeculativeDrafts.pick] on [device]), the
+ * request carries it; the engine runs the draft on the CPU and frees it with the model.
  */
 class LocalChatProvider(
     private val library: ModelLibrary,
@@ -34,6 +43,8 @@ class LocalChatProvider(
     private val system: SystemLlm? = null,
     private val fit: (InstalledModel) -> Fit = { Fit.GOOD },
     private val contextLength: Int = DEFAULT_CONTEXT,
+    private val speculativeMode: suspend () -> SpeculativeMode = { SpeculativeMode.OFF },
+    private val device: () -> DeviceCapabilities? = { null },
 ) : ChatProvider {
 
     private val router = LocalChatRouter(
@@ -60,8 +71,11 @@ class LocalChatProvider(
             )
             return@flow
         }
-        val backend = compute.resolve(model).id
-        engine.chat(path, contextOf(model), backend, encode(request, model.paths[FileRole.MMPROJ], paramsOf(model)).toString()).collect { event ->
+        val resolved = compute.resolve(model)
+        val backend = resolved.id
+        // Images are not drafted: no draft is loaded for a request that carries them.
+        val draft = if (request.messages.any { it.images.isNotEmpty() }) null else draftFor(model, resolved)
+        engine.chat(path, contextOf(model), backend, encode(request, model.paths[FileRole.MMPROJ], paramsOf(model), draft).toString()).collect { event ->
             when (event) {
                 is LocalLlmEvent.Content -> emit(ChatEvent.ContentDelta(event.text))
                 is LocalLlmEvent.Reasoning -> emit(ChatEvent.ReasoningDelta(event.text))
@@ -86,6 +100,14 @@ class LocalChatProvider(
         } else {
             emit(ChatEvent.Error(ErrorKind.BAD_REQUEST, e.message ?: e.javaClass.simpleName))
         }
+    }
+
+    /** The installed draft model for [model] the setting and this phone's memory allow, or null. */
+    private suspend fun draftFor(model: InstalledModel, backend: Backend): DraftChoice? {
+        if (SpeculativeDrafts.draftsFor(model.id).isEmpty()) return null
+        val mode = runCatching { speculativeMode() }.getOrDefault(SpeculativeMode.OFF)
+        if (mode == SpeculativeMode.OFF) return null
+        return SpeculativeDrafts.pick(mode, model, library.all(), device(), contextOf(model), backend, AppPlatform.ANDROID) { File(it).isFile }
     }
 
     /** Same context length as [streamGguf] uses: a different one would load the model again. */
@@ -118,8 +140,8 @@ class LocalChatProvider(
         const val DEFAULT_CONTEXT = 8192
         private const val MAX_CONTEXT = 32768
 
-        internal fun encode(request: ChatRequest, mmproj: String? = null, paramsB: Double? = null): JsonObject =
-            LocalLlmCodec.encode(request, mmproj, paramsB)
+        internal fun encode(request: ChatRequest, mmproj: String? = null, paramsB: Double? = null, draft: DraftChoice? = null): JsonObject =
+            LocalLlmCodec.encode(request, mmproj, paramsB, draft)
 
         /** The model's size for the reasoning budget: from its id or title, else its weights' size. */
         internal fun paramsOf(model: InstalledModel): Double? =

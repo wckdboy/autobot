@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.shared.chats.ChatSort
@@ -48,6 +49,7 @@ class SettingsRepository @Inject constructor(
                 quotaFallback = prefs[Keys.QUOTA_FALLBACK] ?: false,
                 // On unless switched off (installs from before the setting get it on too).
                 redactCloud = prefs[Keys.REDACT_CLOUD] ?: AppSettings().redactCloud,
+                speculativeMode = SettingsSchema.speculativeMode(prefs[Keys.SPECULATIVE]),
             )
         }
         .distinctUntilChanged()
@@ -65,6 +67,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setVaultEnabled(enabled: Boolean) = edit { it[Keys.VAULT_ENABLED] = enabled }
     suspend fun setQuotaFallback(enabled: Boolean) = edit { it[Keys.QUOTA_FALLBACK] = enabled }
     suspend fun setRedactCloud(enabled: Boolean) = edit { it[Keys.REDACT_CLOUD] = enabled }
+    suspend fun setSpeculativeMode(mode: SpeculativeMode) = edit { it[Keys.SPECULATIVE] = mode.id }
 
     /** How the chat list is sorted. */
     val chatSort: Flow<ChatSort> = dataStore.data
@@ -109,6 +112,7 @@ class SettingsRepository @Inject constructor(
         val SEARCH_ROUTE = stringPreferencesKey(SettingsSchema.SEARCH_ROUTE)
         val QUOTA_FALLBACK = booleanPreferencesKey(SettingsSchema.QUOTA_FALLBACK)
         val REDACT_CLOUD = booleanPreferencesKey(SettingsSchema.REDACT_CLOUD)
+        val SPECULATIVE = stringPreferencesKey(SettingsSchema.SPECULATIVE)
 
         /** Device-local view preference, not part of [AppSettings] (and not exported). */
         val CHAT_SORT = stringPreferencesKey("chat_sort")

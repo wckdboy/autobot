@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.shared
 
+import dev.wckdboy.autobot.core.models.DraftChoice
 import dev.wckdboy.autobot.providers.remote.ChatEvent
 import dev.wckdboy.autobot.providers.remote.ChatProvider
 import dev.wckdboy.autobot.providers.remote.ChatRequest
@@ -48,6 +49,12 @@ interface LocalEngine {
     fun mmproj(modelId: String): String?
 
     /**
+     * The draft model for speculative decoding with [modelId] (installed, fits next to it, the
+     * setting allows it: `SpeculativeDrafts.pick`), or null.
+     */
+    fun draft(modelId: String): DraftChoice? = null
+
+    /**
      * The chat template in [modelId]'s GGUF (`tokenizer.chat_template`, read from the file header
      * without loading the model), or null: says whether the model reasons ([ThinkingSupport]).
      */
@@ -89,7 +96,7 @@ class LocalEngineChatProvider(private val engine: LocalEngine) : ChatProvider {
         system = system,
         gguf = { request ->
             sinkFlow("Model '${request.model}' is not installed on this device (Models tab)") { sink ->
-                engine.chat(request.model, LocalLlmCodec.encode(request, engine.mmproj(request.model), LocalModelSize.paramsB(request.model)).toString(), sink)
+                engine.chat(request.model, LocalLlmCodec.encode(request, engine.mmproj(request.model), LocalModelSize.paramsB(request.model), engine.draft(request.model)).toString(), sink)
             }
         },
     )

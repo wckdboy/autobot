@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data.settings
 
+import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.shared.search.SearchProvider
@@ -43,6 +44,11 @@ data class AppSettings(
      * from providers, never from the user. Chats can opt out on their own.
      */
     val redactCloud: Boolean = true,
+    /**
+     * Speculative decoding for on-device chat: a small draft model of the same family, when one
+     * is installed and the pair fits ([SpeculativeMode.AUTO]), speeds replies up with the same text.
+     */
+    val speculativeMode: SpeculativeMode = SpeculativeMode.AUTO,
 ) {
     companion object {
         const val DEFAULT_LOCK_TIMEOUT_MILLIS = 60_000L
@@ -74,6 +80,7 @@ object SettingsSchema {
     const val SEARCH_ROUTE = "search_route"
     const val QUOTA_FALLBACK = "quota_fallback"
     const val REDACT_CLOUD = "redact_cloud"
+    const val SPECULATIVE = "speculative_decoding"
 
     /** Lock timeouts offered in Settings; anything else read from storage is clamped to these bounds. */
     val LOCK_TIMEOUTS_MILLIS = listOf(0L, 30_000L, 60_000L, 300_000L, 900_000L)
@@ -83,6 +90,8 @@ object SettingsSchema {
     fun searchProvider(value: String?): SearchProvider = SearchProvider.parse(value)
 
     fun searchRoute(value: String?): RouteOverride = RouteOverride.entries.firstOrNull { it.name == value } ?: RouteOverride.INHERIT
+
+    fun speculativeMode(value: String?): SpeculativeMode = SpeculativeMode.of(value)
 
     fun lockTimeout(value: Long?): Long = value?.coerceIn(0L, LOCK_TIMEOUTS_MILLIS.last()) ?: AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS
 
@@ -103,6 +112,7 @@ object SettingsSchema {
         SEARCH_ROUTE to settings.searchRoute.name,
         QUOTA_FALLBACK to settings.quotaFallback.toString(),
         REDACT_CLOUD to settings.redactCloud.toString(),
+        SPECULATIVE to settings.speculativeMode.id,
     )
 
     fun decode(values: Map<String, String>): AppSettings {
@@ -125,6 +135,7 @@ object SettingsSchema {
             searchRoute = searchRoute(values[SEARCH_ROUTE]),
             quotaFallback = bool(QUOTA_FALLBACK, defaults.quotaFallback),
             redactCloud = bool(REDACT_CLOUD, defaults.redactCloud),
+            speculativeMode = speculativeMode(values[SPECULATIVE]),
         )
     }
 }

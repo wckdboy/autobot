@@ -18,6 +18,19 @@ final class HostSnapshots: Sendable {
         let backend: Backend
         /// Too big for this device by the shared fit rules (the system model may stand in).
         var tooBig = false
+        /// The draft model for speculative decoding (installed, fits next to it, the setting allows it).
+        var draft: Draft? = nil
+    }
+
+    /// A draft model as the engine request carries it (`DraftChoice`).
+    struct Draft: Sendable, Equatable {
+        let modelId: String
+        let title: String
+        let path: String
+        /// "cpu" or "gpu" (`SpeculativeDrafts.draftBackend`).
+        let backend: String
+        /// `SpeculativeMode` id.
+        let mode: String
     }
 
     private let providers = Mutex<[String: Provider]>([:])
@@ -430,6 +443,11 @@ final class LocalEngineHost: NSObject, LocalEngine, @unchecked Sendable {
     }
 
     func mmproj(modelId: String) -> String? { snapshots.model(modelId)?.mmproj }
+
+    func draft(modelId: String) -> DraftChoice? {
+        guard let d = snapshots.model(modelId)?.draft else { return nil }
+        return DraftChoice(modelId: d.modelId, title: d.title, path: d.path, backend: d.backend, mode: SpeculativeMode.companion.of(value: d.mode))
+    }
 
     func readyModelCount() -> Int32 { Int32(snapshots.readyModelCount) }
 

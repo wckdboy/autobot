@@ -49,11 +49,20 @@ enum DiagnosticsReportBuilder {
                     generationTps: b.generationTps.map { KotlinDouble(value: $0) },
                     stepMs: b.stepMs.map { KotlinDouble(value: $0) },
                     loadMs: b.loadMs.map { KotlinLong(value: $0) },
-                    error: nil,
+                    error: nil, draft: nil, acceptance: nil, speedup: nil,
+                ))
+            }
+            if let s = app.compute.speculative[model.id] {
+                let ok = s.error == nil
+                lines.append(BenchmarkLine(
+                    model: model.title, backend: "\(s.backend.label) + draft", promptTps: nil,
+                    generationTps: ok ? KotlinDouble(value: s.speculativeTps) : nil, stepMs: nil, loadMs: nil, error: s.error,
+                    draft: s.draftTitle, acceptance: ok ? KotlinDouble(value: s.acceptance) : nil, speedup: ok ? KotlinDouble(value: s.speedup) : nil,
                 ))
             }
             if let error = mine.max(by: { $0.createdAt < $1.createdAt })?.error {
-                lines.append(BenchmarkLine(model: model.title, backend: "last run", promptTps: nil, generationTps: nil, stepMs: nil, loadMs: nil, error: error))
+                lines.append(BenchmarkLine(model: model.title, backend: "last run", promptTps: nil, generationTps: nil, stepMs: nil, loadMs: nil, error: error,
+                                          draft: nil, acceptance: nil, speedup: nil))
             }
         }
         let report = DiagnosticsReport(

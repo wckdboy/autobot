@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.providers.remote
 
 import dev.wckdboy.autobot.agent.core.llm.ThinkingPolicy
+import dev.wckdboy.autobot.core.models.DraftChoice
+import dev.wckdboy.autobot.core.models.SpeculativeStats
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -21,6 +23,11 @@ import kotlinx.serialization.json.put
  * budget, as [ThinkingPolicy] plans it for the model's size: the answer keeps its own
  * [DEFAULT_MAX_TOKENS] and the reasoning budget comes on top. The engine ends a think span at the
  * budget, when it repeats itself, or when the answer would get less than `min_answer_tokens`.
+ *
+ * Speculative decoding: a [DraftChoice] (picked by `SpeculativeDrafts`) goes along as `draft`
+ * `{path, backend}` and `speculative` (auto / on); the engine loads it next to the model and
+ * reports what it did in `usage.speculative` ([speculativeStats]). The reply's text is the same
+ * with or without it.
  */
 object LocalLlmCodec {
     /**
@@ -36,8 +43,9 @@ object LocalLlmCodec {
     /**
      * @param paramsB the model's size in billions of parameters ([LocalModelSize]); scales the
      *   reasoning budget (null: treated as a large model).
+     * @param draft the draft model for speculative decoding, if any (none: the engine frees one it holds).
      */
-    fun encode(request: ChatRequest, mmproj: String? = null, paramsB: Double? = null): JsonObject = buildJsonObject {
+    fun encode(request: ChatRequest, mmproj: String? = null, paramsB: Double? = null, draft: DraftChoice? = null): JsonObject = buildJsonObject {
         put(
             "messages",
             buildJsonArray {
@@ -104,6 +112,16 @@ object LocalLlmCodec {
             )
         }
         mmproj?.let { put("mmproj", it) }
+        draft?.let { d ->
+            put(
+                "draft",
+                buildJsonObject {
+                    put("path", d.path)
+                    put("backend", d.backend)
+                },
+            )
+            put("speculative", d.mode.id)
+        }
         request.temperature?.let { put("temperature", it) }
         val answer = request.maxTokens ?: DEFAULT_MAX_TOKENS
         // Planned against answer + an equal share for reasoning, so the answer never pays for it.
@@ -118,6 +136,21 @@ object LocalLlmCodec {
             put("enable_thinking", false)
             put("max_tokens", answer)
         }
+    }
+
+    /** What the engine did about speculative decoding in a result (`usage.speculative`), or null. */
+    fun speculativeStats(json: String): SpeculativeStats? {
+        val o = runCatching { OpenAiCodec.parseJson(json) as JsonObject }.getOrNull() ?: return null
+        val sp = (o["usage"] as? JsonObject)?.get("speculative") as? JsonObject ?: return null
+        fun str(key: String) = (sp[key] as? JsonPrimitive)?.contentOrNull
+        fun int(key: String) = (sp[key] as? JsonPrimitive)?.intOrNull ?: 0
+        return SpeculativeStats(
+            status = str("status") ?: return null,
+            draft = str("draft"),
+            drafted = int("drafted"),
+            accepted = int("accepted"),
+            reason = str("reason"),
+        )
     }
 
     /** A streamed reasoning progress delta (`{tokens, done, stop?}`), or null when malformed. */

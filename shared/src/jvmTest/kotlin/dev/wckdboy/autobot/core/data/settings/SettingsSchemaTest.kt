@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data.settings
 
+import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.shared.search.SearchProvider
@@ -25,6 +26,7 @@ class SettingsSchemaTest {
             searchRoute = RouteOverride.TOR,
             quotaFallback = true,
             redactCloud = false,
+            speculativeMode = SpeculativeMode.OFF,
         )
         assertEquals(settings, SettingsSchema.decode(SettingsSchema.encode(settings)))
     }
@@ -42,10 +44,12 @@ class SettingsSchemaTest {
                 SettingsSchema.SEARCH_ROUTE to "VPN",
                 SettingsSchema.QUOTA_FALLBACK to "maybe",
                 SettingsSchema.REDACT_CLOUD to "nah",
+                SettingsSchema.SPECULATIVE to "turbo",
             ),
         )
         // Redaction fails safe to on: a damaged value never sends personal data in the clear.
         assertEquals(true, decoded.redactCloud)
+        assertEquals(SpeculativeMode.AUTO, decoded.speculativeMode)
         assertEquals(false, decoded.quotaFallback)
         assertEquals(false, decoded.memoryEnabled)
         assertEquals(SearchProvider.NONE, decoded.searchProvider)
@@ -63,5 +67,14 @@ class SettingsSchemaTest {
         val old = SettingsSchema.encode(AppSettings()) - SettingsSchema.REDACT_CLOUD
         assertEquals(true, SettingsSchema.decode(old).redactCloud)
         assertEquals(false, SettingsSchema.decode(old + (SettingsSchema.REDACT_CLOUD to "false")).redactCloud)
+    }
+
+    @Test
+    fun speculativeDecodingDefaultsToAuto() {
+        assertEquals(SpeculativeMode.AUTO, AppSettings().speculativeMode)
+        assertEquals("auto", SettingsSchema.encode(AppSettings())[SettingsSchema.SPECULATIVE])
+        for (mode in SpeculativeMode.entries) {
+            assertEquals(mode, SettingsSchema.decode(mapOf(SettingsSchema.SPECULATIVE to mode.id)).speculativeMode)
+        }
     }
 }

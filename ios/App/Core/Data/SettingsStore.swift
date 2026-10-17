@@ -32,6 +32,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var quotaFallback = false
     /// Redaction gateway: personal data becomes placeholders before a cloud request (on by default).
     var redactCloud = true
+    /// Speculative decoding for on-device chat (`SpeculativeMode` id): "auto" (default), "on" or "off".
+    var speculativeMode = "auto"
 
     var webSearchOn: Bool { searchProvider != "NONE" }
 
@@ -71,6 +73,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             searchRoute: SettingsSchema.shared.searchRoute(value: searchRoute.rawValue),
             quotaFallback: quotaFallback,
             redactCloud: redactCloud,
+            speculativeMode: SettingsSchema.shared.speculativeMode(value: speculativeMode),
         )
         return SettingsSchema.shared.encode(settings: shared)
     }
@@ -94,6 +97,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         searchRoute = ProviderRouting(rawValue: s.searchRoute.name) ?? .inherit
         quotaFallback = s.quotaFallback
         redactCloud = s.redactCloud
+        speculativeMode = s.speculativeMode.id
     }
 }
 
@@ -161,6 +165,7 @@ final class SettingsStore {
     func setVaultEnabled(_ enabled: Bool) { update { $0.vaultEnabled = enabled } }
     func setQuotaFallback(_ enabled: Bool) { update { $0.quotaFallback = enabled } }
     func setRedactCloud(_ enabled: Bool) { update { $0.redactCloud = enabled } }
+    func setSpeculativeMode(_ id: String) { update { $0.speculativeMode = SettingsSchema.shared.speculativeMode(value: id).id } }
 
     func setWebSearch(provider: String, baseUrl: String, route: ProviderRouting) {
         update {

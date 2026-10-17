@@ -2,15 +2,22 @@ package dev.wckdboy.autobot.core.diffusion
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.diffusion.engine.NpuImages
+import dev.wckdboy.autobot.core.models.AppPlatform
 import dev.wckdboy.autobot.core.models.Backend
 import dev.wckdboy.autobot.core.models.Benchmark
 import dev.wckdboy.autobot.core.models.ComputeProfile
+import dev.wckdboy.autobot.core.models.DeviceProfiler
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.LocalDream
 import dev.wckdboy.autobot.core.models.ModelLibrary
+import dev.wckdboy.autobot.core.models.SpeculativeBenchmark
+import dev.wckdboy.autobot.core.models.SpeculativeDrafts
+import dev.wckdboy.autobot.core.models.SpeculativeMode
+import dev.wckdboy.autobot.providers.remote.LocalLlmCodec
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import dev.wckdboy.autobot.engine.llama.LocalLlmEvent
 import dev.wckdboy.autobot.engine.npu.LocalNpu
@@ -18,6 +25,7 @@ import dev.wckdboy.autobot.engine.npu.NpuEvent
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import dev.wckdboy.autobot.shared.diagnostics.EngineDevice
 import org.json.JSONObject
@@ -37,7 +45,9 @@ data class ComputeDevices(
 
 /**
  * Measures models on each backend so [ComputeProfile] can pick the fastest automatically.
- * Text models: prompt processing and generation speed. Image models: time per denoising step.
+ * Text models: prompt processing and generation speed, and, when a draft model for it is
+ * installed, the same reply with and without speculative decoding (speedup and acceptance).
+ * Image models: time per denoising step.
  */
 @Singleton
 class ComputeBench @Inject constructor(
@@ -46,6 +56,8 @@ class ComputeBench @Inject constructor(
     private val npu: LocalNpu,
     private val profile: ComputeProfile,
     private val library: ModelLibrary,
+    private val settings: SettingsRepository,
+    private val profiler: DeviceProfiler,
 ) {
     suspend fun devices(): ComputeDevices {
         val list = runCatching { JSONArray(llm.devices()) }.getOrNull()
@@ -122,9 +134,14 @@ class ComputeBench @Inject constructor(
     suspend fun run(model: InstalledModel, backends: Set<Backend>, onStatus: (String) -> Unit): List<Benchmark> {
         val results = mutableListOf<Benchmark>()
         when (model.engine) {
-            EngineKind.LLAMA -> for (backend in backends.filter { it != Backend.AUTO }) {
-                onStatus("${model.title} on ${backend.label}…")
-                results += text(model, backend)
+            EngineKind.LLAMA -> {
+                for (backend in backends.filter { it != Backend.AUTO }) {
+                    onStatus("${model.title} on ${backend.label}…")
+                    results += text(model, backend)
+                }
+                results.forEach { profile.record(it) }
+                speculative(model, onStatus)?.let { profile.recordSpeculative(it) }
+                return results
             }
             EngineKind.NPU -> {
                 onStatus("${model.title} on ${if (model.manifest.npu?.runtime == "qnn") "npu" else "gpu"}…")
@@ -161,6 +178,49 @@ class ComputeBench @Inject constructor(
             generationTps = if (genMs > 0) usage.optInt("completion_tokens") / genMs * 1000 else null,
             loadMs = System.currentTimeMillis() - started - (promptMs + genMs).toLong(),
         )
+    }
+
+    /**
+     * Speculative decoding on the backend "auto" picks: the same greedy reply without and with the
+     * installed draft model (whatever the memory rule of the setting, unless it is off). Null when
+     * the model has no installed draft or the setting is off.
+     */
+    private suspend fun speculative(model: InstalledModel, onStatus: (String) -> Unit): SpeculativeBenchmark? {
+        val mode = runCatching { settings.settings.first().speculativeMode }.getOrDefault(SpeculativeMode.AUTO)
+        if (mode == SpeculativeMode.OFF) return null
+        val path = model.paths[FileRole.MODEL] ?: return null
+        val backend = profile.resolve(model)
+        val draft = SpeculativeDrafts.pick(
+            SpeculativeMode.ON, model, library.all(), runCatching { profiler.profile().capabilities }.getOrNull(),
+            SPEC_CONTEXT, backend, AppPlatform.ANDROID,
+        ) { File(it).isFile } ?: return null
+        onStatus("${model.title} with ${draft.title} (speculative)…")
+        val request = JSONObject()
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", SPEC_PROMPT)))
+            .put("max_tokens", SPEC_TOKENS)
+            .put("temperature", 0.0)
+            .put("enable_thinking", false)
+            .put("draft", JSONObject().put("path", draft.path).put("backend", draft.backend))
+        suspend fun run(mode: String): JSONObject? {
+            var result: String? = null
+            runCatching {
+                llm.chat(path, SPEC_CONTEXT, backend.id, request.put("speculative", mode).toString()).collect { e -> if (e is LocalLlmEvent.Result) result = e.json }
+            }
+            return runCatching { JSONObject(result ?: "{}") }.getOrNull()
+        }
+        fun tps(json: JSONObject?): Double {
+            val usage = json?.optJSONObject("usage") ?: return 0.0
+            val ms = usage.optDouble("generation_ms", 0.0)
+            return if (ms > 0) usage.optInt("completion_tokens") / ms * 1000 else 0.0
+        }
+        // "off" keeps the draft loaded and does not use it: both runs see the same memory.
+        val plain = run("off")
+        val spec = run(mode.id)
+        val stats = spec?.toString()?.let(LocalLlmCodec::speculativeStats)
+        val error = spec?.optJSONObject("error")?.optString("message")
+            ?: plain?.optJSONObject("error")?.optString("message")
+            ?: stats?.takeIf { it.status != "active" }?.let { it.reason ?: it.status }
+        return SpeculativeBenchmark(model.id, draft.title, backend, tps(plain), tps(spec), stats?.acceptance ?: 0.0, error)
     }
 
     private suspend fun image(model: InstalledModel): Benchmark {
@@ -203,6 +263,12 @@ class ComputeBench @Inject constructor(
     }
 
     private companion object {
+        /** Speculation pays over longer replies: a few hundred tokens of a structured answer. */
+        const val SPEC_TOKENS = 256
+        const val SPEC_CONTEXT = 2048
+        const val SPEC_PROMPT = "List ten practical ways to make a phone battery last longer, one numbered line each, " +
+            "then explain the two most effective ones in a short paragraph."
+
         /** ~120 prompt tokens: enough to measure prompt processing without taking long. */
         const val PROMPT = "You are benchmarking a phone. Summarise in two sentences why on-device inference helps privacy, " +
             "battery life and latency compared with cloud inference, and mention one trade-off such as model size, memory " +

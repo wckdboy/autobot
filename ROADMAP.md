@@ -181,7 +181,14 @@ cascade work fully offline on the 8 Elite Gen 5 and a current iPhone.
 
 - **Hexagon tuning**: Q4_0 catalog variants that repack well for HTP, flash attention on HTP,
   benchmark-driven defaults per SoC.
-- **Speculative decoding** with a small draft model, on the GPU or NPU.
+- ✅ **Speculative decoding** with a small draft model. *(done, both apps: the shared llama core
+  drafts with a same-family model (Qwen3 0.6B for Qwen3 4B 2507, Llama 3.2 1B for 3B, Qwen2.5
+  Coder 0.5B for the Coders), verifies in one batch with the model's own sampler (output identical
+  to plain decoding), picks the draft length from measured acceptance and costs and pauses when it
+  does not pay; Settings › Compute auto / on / off, benchmark with speedup and acceptance. Drafts
+  run on the CPU on Android and on Metal on iOS. Not for hybrid Qwen3.5 (recurrent state cannot be
+  rolled back cheaply). M3 Pro, Metal: 1.3-1.7x on code, lists and rewrites, 2x on long replies,
+  no gain on CPU alone; phones not measured yet.)*
 - **Images**: LoRA on the NPU, SDXL resolutions beyond 1024, Anima packages, Core ML LoRA merge
   tooling. ✅ Faster first image *(both apps: the on-device model loads while the prompt is
   written, under the engine memory coordinator; the load is a phase in the UI; wildcards and

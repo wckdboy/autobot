@@ -20,6 +20,28 @@ import Testing
         #expect(result.json == json)
     }
 
+    @Test func decodesSpeculativeUsage() throws {
+        let json = """
+        {"content":"Hi","reasoning":"","tool_calls":[],"finish_reason":"stop","usage":{"prompt_tokens":12,"cached_tokens":0,"completion_tokens":30,
+         "backend":"gpu","prompt_ms":1.5,"generation_ms":200,"speculative":{"status":"active","draft":"qwen3 0.6B Q4_0","backend":"gpu",
+         "rounds":9,"drafted":40,"accepted":30,"acceptance":0.75,"k":4,"paused":false}}}
+        """
+        let spec = try #require(try LlamaResult.decode(json).usage.speculative)
+        #expect(spec.status == "active")
+        #expect(spec.draft == "qwen3 0.6B Q4_0")
+        #expect(spec.acceptance == 0.75)
+        let refused = try LlamaResult.decode(json.replacingOccurrences(of: #""status":"active""#, with: #""status":"refused","reason":"the draft model's tokenizer differs""#))
+        #expect(refused.usage.speculative?.reason == "the draft model's tokenizer differs")
+        // Results without a draft have none.
+        let plain = try LlamaResult.decode(#"{"content":"","reasoning":"","tool_calls":[],"finish_reason":"stop","usage":{"prompt_tokens":1,"cached_tokens":0,"completion_tokens":1,"backend":"cpu","prompt_ms":1,"generation_ms":1}}"#)
+        #expect(plain.usage.speculative == nil)
+    }
+
+    @Test func draftCheckRefusesWhatItCannotRead() {
+        // The C entry point is linked and answers without loading any weights.
+        #expect(LlamaEngine.draftIncompatibility(modelPath: "/nonexistent/model.gguf", draftPath: "/nonexistent/draft.gguf") == "the chat model cannot be read")
+    }
+
     @Test func errorResultThrowsEngineError() {
         #expect(throws: EngineError("CONTEXT_WINDOW_EXCEEDED", "prompt has 9000 tokens; context is 4096")) {
             try LlamaResult.decode(#"{"error":{"code":"CONTEXT_WINDOW_EXCEEDED","message":"prompt has 9000 tokens; context is 4096"}}"#)

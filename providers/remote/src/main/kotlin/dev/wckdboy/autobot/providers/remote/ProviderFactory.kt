@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
+import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.DeviceProfiler
 import dev.wckdboy.autobot.core.models.ModelLibrary
@@ -14,6 +15,7 @@ import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.engine.llama.LocalLlm
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 /**
  * Builds a [ChatProvider] for a stored [Provider].
@@ -31,6 +33,7 @@ class ProviderFactory @Inject constructor(
     private val computeProfile: ComputeProfile,
     private val systemModel: SystemModel,
     private val profiler: DeviceProfiler,
+    private val settings: SettingsRepository,
 ) {
     // Cached for the process: only its RAM-based fit() is used here (free storage, which would go
     // stale, is never read from it).
@@ -49,6 +52,8 @@ class ProviderFactory @Inject constructor(
                 computeProfile,
                 system = systemModel.llm,
                 fit = { device.fit(it.kind, it.totalBytes, it.engine) },
+                speculativeMode = { settings.settings.first().speculativeMode },
+                device = { device.capabilities },
             )
         }
         val client = httpClientFactory.create(tag = provider.displayName, override = provider.routing.toOverride())
