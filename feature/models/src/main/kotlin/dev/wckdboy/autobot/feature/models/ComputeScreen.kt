@@ -47,6 +47,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.diagnostics.ErrorLog
+import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
@@ -67,6 +68,9 @@ import dev.wckdboy.autobot.core.models.DeviceProfiler
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.ModelLibrary
+import dev.wckdboy.autobot.core.models.SpeculativeBenchmark
+import dev.wckdboy.autobot.core.models.SpeculativeDrafts
+import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.core.models.SystemModel
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
@@ -84,6 +88,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,6 +102,12 @@ data class ComputeModel(
     val lastError: String?,
     /** What AUTO resolves to right now. */
     val fastest: Backend?,
+    /** The newest speculative decoding benchmark (this session), if any. */
+    val speculative: SpeculativeBenchmark? = null,
+    /** Draft models that speed this model up, by title; empty: none in the catalog. */
+    val drafts: List<String> = emptyList(),
+    /** Whether one of [drafts] is installed. */
+    val draftInstalled: Boolean = false,
 )
 
 @Immutable
@@ -105,6 +116,7 @@ data class ComputeUiState(
     val devices: ComputeDevices? = null,
     val models: List<ComputeModel> = emptyList(),
     val running: String? = null,
+    val speculativeMode: SpeculativeMode = SpeculativeMode.AUTO,
 )
 
 @HiltViewModel
@@ -116,6 +128,7 @@ class ComputeViewModel @Inject constructor(
     private val network: NetworkPolicy,
     private val systemModel: SystemModel,
     private val errorLog: ErrorLog,
+    private val settings: SettingsRepository,
     profiler: DeviceProfiler,
 ) : ViewModel() {
     /** The OS's model; null in builds without one (the default, GMS-free build). */
@@ -125,23 +138,37 @@ class ComputeViewModel @Inject constructor(
     private val running = MutableStateFlow<String?>(null)
     private val device = MutableStateFlow<DeviceProfile?>(null)
 
-    val uiState: StateFlow<ComputeUiState> = combine(library.models, profile.benchmarks, devices, running, device) { models, results, d, r, p ->
+    private val speculation = combine(profile.speculative, settings.settings.map { it.speculativeMode }) { results, mode -> results to mode }
+
+    val uiState: StateFlow<ComputeUiState> = combine(library.models, profile.benchmarks, devices, running, combine(device, speculation) { p, s -> p to s }) { models, results, d, r, (p, spec) ->
+        val (specResults, mode) = spec
         val runnable = models.filter { it.isReady && (it.isLocalChat || (it.engine == EngineKind.NPU && it.manifest.npu?.arch != "upscaler")) }
+        val ready = models.filter { it.isLocalChat }.associateBy { it.id }
+        val titles = models.associate { it.id to it.title }
         ComputeUiState(
             device = p,
             devices = d,
             running = r,
+            speculativeMode = mode,
             models = runnable.map { m ->
                 val mine = results.filter { it.modelId == m.id }
+                val drafts = SpeculativeDrafts.draftsFor(m.id)
                 ComputeModel(
                     model = m,
                     results = mine.filter { it.ok }.groupBy { it.backend }.mapValues { (_, runs) -> runs.maxBy { it.createdAt } },
                     lastError = mine.maxByOrNull { it.createdAt }?.error,
                     fastest = ComputeProfile.fastest(mine),
+                    speculative = specResults[m.id],
+                    drafts = drafts.map { id -> titles[id] ?: draftTitle(id) },
+                    draftInstalled = drafts.any { it in ready },
                 )
             },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ComputeUiState())
+
+    fun setSpeculativeMode(mode: SpeculativeMode) {
+        viewModelScope.launch { settings.setSpeculativeMode(mode) }
+    }
 
     private var devicesJob: Job? = null
 
@@ -223,7 +250,15 @@ class ComputeViewModel @Inject constructor(
             benchmarks = state.models.flatMap { cm ->
                 cm.results.values.map { b ->
                     BenchmarkLine(cm.model.title, b.backend.label, b.promptTps, b.generationTps, b.stepMs, b.loadMs)
-                } + listOfNotNull(cm.lastError?.let { BenchmarkLine(cm.model.title, "last run", error = it) })
+                } + listOfNotNull(
+                    cm.speculative?.let { s ->
+                        BenchmarkLine(
+                            cm.model.title, "${s.backend.label} + draft", generationTps = s.speculativeTps.takeIf { s.error == null },
+                            error = s.error, draft = s.draftTitle, acceptance = s.acceptance.takeIf { s.error == null }, speedup = s.speedup.takeIf { s.error == null },
+                        )
+                    },
+                    cm.lastError?.let { BenchmarkLine(cm.model.title, "last run", error = it) },
+                )
             },
             errors = listOfNotNull(d?.npuError) + errorLog.entries.value,
             // The kind only (no proxy host); not ::class.simpleName, which R8 renames in release builds.
@@ -310,10 +345,30 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
                 }
                 SectionLabel("models · auto picks the fastest measured backend", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (state.models.any { it.drafts.isNotEmpty() }) {
+                item { SpeculativeRow(state.speculativeMode, viewModel::setSpeculativeMode) }
+            }
             items(state.models, key = { it.model.id }) { cm -> ModelCompute(cm, state, viewModel) }
             if (state.models.isEmpty()) {
                 item { MicroLabel("no runnable models yet — get one in the Models tab") }
             }
+        }
+    }
+}
+
+/** Speculative decoding: auto / on / off (shown when an installed model has a draft in the catalog). */
+@Composable
+private fun SpeculativeRow(mode: SpeculativeMode, onMode: (SpeculativeMode) -> Unit) {
+    Panel(title = "speculative decoding") {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Segmented(SpeculativeMode.entries, mode, onMode, { it.label }, Modifier.fillMaxWidth())
+            MicroLabel(
+                when (mode) {
+                    SpeculativeMode.AUTO -> "a small model of the same family drafts, the chat model checks · same replies, faster · when the pair fits"
+                    SpeculativeMode.ON -> "always draft when the pair fits at all, even when it does not pay"
+                    SpeculativeMode.OFF -> "no draft model is loaded"
+                },
+            )
         }
     }
 }
@@ -412,10 +467,28 @@ private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: Compu
             } else {
                 MicroLabel("not measured yet")
             }
+            if (isText && cm.drafts.isNotEmpty()) SpeculativeLine(cm, state.speculativeMode)
             cm.lastError?.let { MicroLabel("last run: $it", color = MaterialTheme.colorScheme.error) }
         }
     }
 }
+
+@Composable
+private fun SpeculativeLine(cm: ComputeModel, mode: SpeculativeMode) {
+    val s = cm.speculative
+    val text = when {
+        mode == SpeculativeMode.OFF -> "speculative: off"
+        !cm.draftInstalled -> "speculative: install ${cm.drafts.first()} to speed this model up"
+        s == null -> "speculative: benchmark to measure (draft ${cm.drafts.first()})"
+        s.error != null -> "speculative: ${s.error}"
+        else -> "speculative · ${fmt(s.speedup)}x · ${fmt(s.speculativeTps)} tok/s · ${(s.acceptance * 100).toInt()}% of drafts kept · ${s.draftTitle}"
+    }
+    MicroLabel(text, color = if (s?.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/** A catalog model's title when it is not installed (catalog ids only). */
+private fun draftTitle(id: String): String =
+    dev.wckdboy.autobot.core.models.Catalog.chatModels.firstOrNull { it.id == id }?.title ?: id.substringAfter(':')
 
 private fun fmt(v: Double): String = String.format(Locale.ROOT, if (v >= 100) "%.0f" else "%.1f", v)
 

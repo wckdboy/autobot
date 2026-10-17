@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data.settings
 
+import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.shared.search.SearchProvider
@@ -24,6 +25,7 @@ class SettingsSchemaTest {
             searchBaseUrl = "https://search.example.org",
             searchRoute = RouteOverride.TOR,
             quotaFallback = true,
+            speculativeMode = SpeculativeMode.OFF,
         )
         assertEquals(settings, SettingsSchema.decode(SettingsSchema.encode(settings)))
     }
@@ -40,8 +42,10 @@ class SettingsSchemaTest {
                 SettingsSchema.SEARCH_PROVIDER to "GOOGLE",
                 SettingsSchema.SEARCH_ROUTE to "VPN",
                 SettingsSchema.QUOTA_FALLBACK to "maybe",
+                SettingsSchema.SPECULATIVE to "turbo",
             ),
         )
+        assertEquals(SpeculativeMode.AUTO, decoded.speculativeMode)
         assertEquals(false, decoded.quotaFallback)
         assertEquals(false, decoded.memoryEnabled)
         assertEquals(SearchProvider.NONE, decoded.searchProvider)
@@ -51,5 +55,14 @@ class SettingsSchemaTest {
         assertEquals(true, decoded.appLockEnabled)
         assertEquals(900_000L, decoded.lockTimeoutMillis)
         assertEquals(AppSettings(), SettingsSchema.decode(emptyMap()))
+    }
+
+    @Test
+    fun speculativeDecodingDefaultsToAuto() {
+        assertEquals(SpeculativeMode.AUTO, AppSettings().speculativeMode)
+        assertEquals("auto", SettingsSchema.encode(AppSettings())[SettingsSchema.SPECULATIVE])
+        for (mode in SpeculativeMode.entries) {
+            assertEquals(mode, SettingsSchema.decode(mapOf(SettingsSchema.SPECULATIVE to mode.id)).speculativeMode)
+        }
     }
 }

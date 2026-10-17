@@ -72,6 +72,9 @@ class DiagnosticsReport(
                 b.generationTps?.let { "gen ${fmt(it)} tok/s" },
                 b.stepMs?.let { "${fmt(it)} ms/step" },
                 b.loadMs?.let { "load ${it} ms" },
+                b.speedup?.let { "speculative ${fmt(it)}x vs plain" },
+                b.acceptance?.let { "${(it * 100).roundToInt()}% of drafts accepted" },
+                b.draft?.let { "draft $it" },
             ).joinToString(" · ")
             appendLine("- ${b.model} on ${b.backend}: ${b.error?.let { "FAILED $it" } ?: numbers}")
         }
@@ -125,4 +128,8 @@ class BenchmarkLine(
     val stepMs: Double? = null,
     val loadMs: Long? = null,
     val error: String? = null,
+    /** Speculative decoding runs: the draft model's title, the share of drafts kept and the speedup over plain decoding. */
+    val draft: String? = null,
+    val acceptance: Double? = null,
+    val speedup: Double? = null,
 )

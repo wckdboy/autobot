@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data.settings
 
+import dev.wckdboy.autobot.core.models.SpeculativeMode
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.shared.search.SearchProvider
@@ -36,6 +37,11 @@ data class AppSettings(
      * on-device model), with a notice. Off by default: switching models is the user's call.
      */
     val quotaFallback: Boolean = false,
+    /**
+     * Speculative decoding for on-device chat: a small draft model of the same family, when one
+     * is installed and the pair fits ([SpeculativeMode.AUTO]), speeds replies up with the same text.
+     */
+    val speculativeMode: SpeculativeMode = SpeculativeMode.AUTO,
 ) {
     companion object {
         const val DEFAULT_LOCK_TIMEOUT_MILLIS = 60_000L
@@ -66,6 +72,7 @@ object SettingsSchema {
     const val SEARCH_BASE_URL = "search_base_url"
     const val SEARCH_ROUTE = "search_route"
     const val QUOTA_FALLBACK = "quota_fallback"
+    const val SPECULATIVE = "speculative_decoding"
 
     /** Lock timeouts offered in Settings; anything else read from storage is clamped to these bounds. */
     val LOCK_TIMEOUTS_MILLIS = listOf(0L, 30_000L, 60_000L, 300_000L, 900_000L)
@@ -75,6 +82,8 @@ object SettingsSchema {
     fun searchProvider(value: String?): SearchProvider = SearchProvider.parse(value)
 
     fun searchRoute(value: String?): RouteOverride = RouteOverride.entries.firstOrNull { it.name == value } ?: RouteOverride.INHERIT
+
+    fun speculativeMode(value: String?): SpeculativeMode = SpeculativeMode.of(value)
 
     fun lockTimeout(value: Long?): Long = value?.coerceIn(0L, LOCK_TIMEOUTS_MILLIS.last()) ?: AppSettings.DEFAULT_LOCK_TIMEOUT_MILLIS
 
@@ -94,6 +103,7 @@ object SettingsSchema {
         SEARCH_BASE_URL to settings.searchBaseUrl,
         SEARCH_ROUTE to settings.searchRoute.name,
         QUOTA_FALLBACK to settings.quotaFallback.toString(),
+        SPECULATIVE to settings.speculativeMode.id,
     )
 
     fun decode(values: Map<String, String>): AppSettings {
@@ -115,6 +125,7 @@ object SettingsSchema {
             searchBaseUrl = values[SEARCH_BASE_URL]?.trim().orEmpty(),
             searchRoute = searchRoute(values[SEARCH_ROUTE]),
             quotaFallback = bool(QUOTA_FALLBACK, defaults.quotaFallback),
+            speculativeMode = speculativeMode(values[SPECULATIVE]),
         )
     }
 }

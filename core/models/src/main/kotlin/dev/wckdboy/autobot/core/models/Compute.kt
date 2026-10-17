@@ -67,6 +67,15 @@ class ComputeProfile @Inject constructor(private val rows: ModelRowRepository) {
     /** Where each model last actually ran in this process, as the engine reported after a reply. */
     val lastRan: StateFlow<Map<String, Backend>> = ran.asStateFlow()
 
+    private val spec = MutableStateFlow<Map<String, SpeculativeBenchmark>>(emptyMap())
+
+    /** The newest speculative decoding benchmark per model, for this process (not stored). */
+    val speculative: StateFlow<Map<String, SpeculativeBenchmark>> = spec.asStateFlow()
+
+    fun recordSpeculative(result: SpeculativeBenchmark) {
+        spec.update { it + (result.modelId to result) }
+    }
+
     /** Records where [modelId] ran ([Backend.AUTO] = not reported, ignored). */
     fun noteRan(modelId: String, backend: Backend) {
         if (backend == Backend.AUTO || ran.value[modelId] == backend) return

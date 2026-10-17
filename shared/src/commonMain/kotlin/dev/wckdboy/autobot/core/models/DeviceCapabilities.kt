@@ -38,7 +38,7 @@ data class DeviceCapabilities(
         if (engine == EngineKind.DIFFUSION && !supportsImageEngine) return Fit.UNSUPPORTED
         if (engine == EngineKind.NPU && kind == ModelKind.IMAGE && bytes > 3_000_000_000 && htpArch !in SDXL_NPUS) return Fit.UNSUPPORTED
         val working = when (kind) {
-            ModelKind.CHAT, ModelKind.CODE -> bytes * 13 / 10 + kvCacheBytes(bytes, contextTokens)
+            ModelKind.CHAT, ModelKind.CODE -> chatWorkingBytes(bytes, contextTokens)
             ModelKind.IMAGE -> bytes * 14 / 10
             // The voice's weights plus activations for a sentence and its lexicons in memory.
             ModelKind.VOICE -> bytes * 3 / 2
@@ -48,6 +48,14 @@ data class DeviceCapabilities(
             ModelKind.AUDIO -> bytes + if (engine == EngineKind.ONNX) 2_500_000_000L else 1_000_000_000L
             else -> bytes
         }
+        return fitWorking(working)
+    }
+
+    /** Weights, buffers and KV cache of a chat model of [bytes] at [contextTokens]. */
+    fun chatWorkingBytes(bytes: Long, contextTokens: Int = 0): Long = bytes * 13 / 10 + kvCacheBytes(bytes, contextTokens)
+
+    /** How a working set of [working] bytes fits: within 70% of half the RAM is good, within half tight. */
+    fun fitWorking(working: Long): Fit {
         val budget = totalRamBytes / 2
         return when {
             working <= budget * 7 / 10 -> Fit.GOOD
