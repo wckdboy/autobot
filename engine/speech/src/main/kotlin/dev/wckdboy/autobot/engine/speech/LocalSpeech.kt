@@ -183,9 +183,13 @@ class LocalSpeech(context: Context, private val idleMillis: Long = 60_000L) {
     suspend fun transcribe(modelPath: String, samples: FloatArray, language: String = "auto"): SpeechText {
         beforeJob()
         val e = acquire()
+        // A cancel as withContext returns throws after the file was made: it must still be closed
+        // (the audio would stay in RAM) and this use uncounted (the engine would never unbind).
+        var made: ParcelFileDescriptor? = null
         val pcm = try {
-            withContext(Dispatchers.IO) { memoryFile(samples) }
+            withContext(Dispatchers.IO) { memoryFile(samples).also { made = it } }
         } catch (t: Throwable) {
+            made?.let { runCatching { it.close() } }
             done()
             throw t
         }
