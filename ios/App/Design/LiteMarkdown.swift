@@ -1274,13 +1274,20 @@ final class MarkdownCache {
     static let shared = MarkdownCache()
 
     private let limit: Int
+    /// Text kept, in UTF-8 bytes: the parsed blocks hold about as much again, so 256 long
+    /// answers (tool dumps, code) cannot pin tens of MB.
+    private let byteLimit: Int
     private var entries: [String: [MdBlock]] = [:]
-    /// Insertion order, oldest first (evicted beyond [limit]).
+    /// Insertion order, oldest first (evicted beyond [limit] entries or [byteLimit] bytes).
     private var order: [String] = []
+    private var bytes = 0
     /// The last parse, which a streamed extension continues from.
     private var last: LiteMarkdown.Parsed?
 
-    init(limit: Int = 256) { self.limit = limit }
+    init(limit: Int = 256, byteLimit: Int = 4 * 1024 * 1024) {
+        self.limit = limit
+        self.byteLimit = byteLimit
+    }
 
     func blocks(_ text: String) -> [MdBlock] {
         if let hit = entries[text] { return hit }
@@ -1296,21 +1303,31 @@ final class MarkdownCache {
         if let last = order.last, text.hasPrefix(last) {
             entries[last] = nil
             order.removeLast()
+            bytes -= last.utf8.count
         }
         entries[text] = blocks
         order.append(text)
-        if order.count > limit {
-            let drop = order.count - limit
-            order.prefix(drop).forEach { entries[$0] = nil }
-            order.removeFirst(drop)
+        bytes += text.utf8.count
+        // The newest entry always stays (the bubble on screen asks again next frame).
+        var drop = 0
+        while order.count - drop > 1, order.count - drop > limit || bytes > byteLimit {
+            let old = order[drop]
+            entries[old] = nil
+            bytes -= old.utf8.count
+            drop += 1
         }
+        if drop > 0 { order.removeFirst(drop) }
     }
 
     func removeAll() {
         entries.removeAll()
         order.removeAll()
+        bytes = 0
         last = nil
     }
+
+    /// UTF-8 bytes of the cached texts.
+    var byteCount: Int { bytes }
 
     var count: Int { entries.count }
 }

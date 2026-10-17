@@ -204,6 +204,21 @@ struct MarkdownCacheTests {
         #expect(cache.count == 0)
     }
 
+    @Test func boundedByBytesKeepingTheNewest() {
+        let cache = MarkdownCache(limit: 256, byteLimit: 1000)
+        let long = String(repeating: "word ", count: 120) // 600 bytes
+        _ = cache.blocks("a " + long)
+        _ = cache.blocks("b " + long)
+        #expect(cache.count == 1)
+        #expect(cache.byteCount <= 1000)
+        // A single text over the budget is still kept (it is on screen).
+        let huge = String(repeating: "x", count: 5000)
+        #expect(cache.blocks(huge) == LiteMarkdown.parse(huge))
+        #expect(cache.count == 1)
+        cache.removeAll()
+        #expect(cache.byteCount == 0)
+    }
+
     @Test func thinkingTailIsTheLastNonBlankLine() {
         #expect(ThinkingDisclosure.lastLine("one\n  two  \n\n  ") == "two")
         #expect(ThinkingDisclosure.lastLine("   ") == "")
