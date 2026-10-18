@@ -145,6 +145,8 @@ class ChatScreenRecompositionTest {
         override fun setThinking(setting: dev.wckdboy.autobot.agent.core.llm.ThinkingSetting) = Unit
         override fun setThinkingDefault(setting: dev.wckdboy.autobot.agent.core.llm.ThinkingSetting?) = Unit
         override fun setRedaction(enabled: Boolean) = Unit
+        override fun setCascade(policy: dev.wckdboy.autobot.shared.cascade.CascadePolicy) = Unit
+        override fun escalate() = Unit
         override fun compact() = Unit
         override fun rename(title: String) = Unit
         override fun setPinned(pinned: Boolean) = Unit

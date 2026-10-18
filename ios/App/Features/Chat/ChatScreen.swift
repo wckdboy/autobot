@@ -140,6 +140,7 @@ struct ChatScreen: View {
     /// The "files changed" sheet.
     @State private var showChanges = false
     @State private var showThink = false
+    @State private var showCascade = false
     /// Which transcript items are new since the screen loaded (they ink in).
     @State private var ledger = InkLedger()
 
@@ -210,6 +211,13 @@ struct ChatScreen: View {
                             .inkEnter(ledger.isNew(item.key)) { ledger.entered(item.key) }
                         }
                         if let session { LiveSlot(session: session) }
+                        // The cascade's offer sits under the phone's answer.
+                        if let offer = transcript.projection.cascadeOffer, !running, !isLive {
+                            CascadeOfferRow(offer: offer, model: routing.modelLabel ?? routing.selectedModel ?? "") {
+                                app.agent.escalate(conversationId)
+                            }
+                            .id("cascade-offer:\(offer.turn)")
+                        }
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(.horizontal, 16)
@@ -235,6 +243,7 @@ struct ChatScreen: View {
                 onThink: { app.agent.setThinking(conversationId, settings.thinking.next) },
                 onThinkSheet: { showThink = true },
                 onRedact: { app.agent.setRedaction(conversationId, settings.redaction != "ON") },
+                onCascade: { showCascade = true },
             )
             if let voice = model.voice {
                 VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
@@ -265,6 +274,12 @@ struct ChatScreen: View {
                 onChoose: { app.agent.setThinking(conversationId, $0) },
                 onDefault: { app.agent.setThinkingDefault(provider: settings.provider, model: settings.model, $0) },
             )
+            .presentationDetents([.height(300)])
+        }
+        .sheet(isPresented: $showCascade) {
+            CascadeSheet(policy: settings.cascade, model: routing.modelLabel ?? routing.selectedModel ?? "") {
+                app.agent.setCascade(conversationId, $0)
+            }
             .presentationDetents([.height(300)])
         }
         .sheet(isPresented: $showChanges) {
@@ -819,10 +834,12 @@ private struct PolicyLine: View {
     var onThink: () -> Void = {}
     var onThinkSheet: () -> Void = {}
     var onRedact: () -> Void = {}
+    var onCascade: () -> Void = {}
 
     @ViewBuilder private var chips: some View {
         if settings.thinkingSupport != "NONE" { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet).fixedSize() }
         if settings.redaction != "NONE" { RedactChip(on: settings.redaction == "ON", onTap: onRedact).fixedSize() }
+        if settings.cascade != "NONE" { CascadeChip(policy: settings.cascade, onTap: onCascade).fixedSize() }
     }
 
     @ViewBuilder private var context: some View {
@@ -834,7 +851,8 @@ private struct PolicyLine: View {
     var body: some View {
         let think = settings.thinkingSupport != "NONE"
         let redact = settings.redaction != "NONE"
-        if settings.toolsEnabled || think || redact {
+        let cascade = settings.cascade != "NONE"
+        if settings.toolsEnabled || think || redact || cascade {
             let text = switch settings.permissionPreset {
             case .readOnly: "policy · read-only · asks: network"
             case .workspace: "policy · workspace · asks: delete, network"
@@ -911,6 +929,84 @@ private struct RedactChip: View {
             .accessibilityValue(on ? "On: names, emails and numbers are hidden from the cloud" : "Off")
             .accessibilityHint("Tap to switch it for this chat.")
             .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// `▮ PHONE FIRST · ASK` while this phone answers a plain cloud chat first, `PHONE FIRST OFF`
+/// dimmed otherwise (the shared `CascadePolicy` chip words). A tap opens the choice for this chat.
+private struct CascadeChip: View {
+    let policy: String
+    let onTap: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        let p = CascadePolicy.companion.parse(value: policy) ?? CascadePolicy.off
+        let on = p.localFirst
+        MicroLabel(on ? "▮ " + p.chip : p.chip, color: on ? c.primary : c.onSurfaceVariant)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .overlay(Rectangle().stroke(on ? c.primary.opacity(0.7) : c.outlineVariant, lineWidth: 1))
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Phone first")
+            .accessibilityValue("\(p.title). \(p.detail)")
+            .accessibilityHint("Tap to choose for this chat.")
+            .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Under the phone's answer when the judge was not convinced: why, and "Ask <cloud model>".
+struct CascadeOfferRow: View {
+    let offer: CascadeOffer
+    let model: String
+    let onAsk: () -> Void
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MicroLabel("▮ phone first", color: c.primary)
+            Text(offer.text).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+            Tag(CascadeLabels.shared.ask(model: model), accent: c.primary, filled: true, action: onAsk)
+                .accessibilityHint("Sends this prompt to the cloud model, redacted when redaction is on.")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(Rectangle().stroke(c.primary.opacity(0.45), lineWidth: 1))
+    }
+}
+
+/// The chat's "phone first" policy: off, ask, auto or never, each with its line, and the scope.
+struct CascadeSheet: View {
+    let policy: String
+    let model: String
+    let onChoose: (String) -> Void
+    @State private var current: String
+    @Environment(\.scheme) private var c
+
+    init(policy: String, model: String, onChoose: @escaping (String) -> Void) {
+        self.policy = policy
+        self.model = model
+        self.onChoose = onChoose
+        _current = State(initialValue: policy)
+    }
+
+    var body: some View {
+        let chosen = CascadePolicy.companion.parse(value: current) ?? CascadePolicy.off
+        VStack(alignment: .leading, spacing: 14) {
+            SectionLabel("phone first")
+            Segmented(options: CascadePolicy.entries.map(\.name), selected: chosen.name, label: { (CascadePolicy.companion.parse(value: $0)?.title ?? $0).lowercased() }) { name in
+                current = name
+                onChoose(name)
+            }
+            Text(chosen.detail).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+            Text(CascadeLabels.shared.sheetNote(model: model)).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(c.surface)
     }
 }
 

@@ -53,7 +53,7 @@ class SettingsStructureTest {
         // (not "SYSTEM": that is now only the theme option)
         compose.onNodeWithText("SETTINGS").assertIsDisplayed()
         for (section in SettingsSections) compose.onNodeWithText("// ${section.uppercase()}").performScrollTo().assertIsDisplayed()
-        for (row in listOf("Privacy Center", "App lock", "Redact before cloud", "Panic wipe", "Memory", "Memory notes", "Vault", "Web search", "Fallback on limit", "Usage", "MCP servers", "Export & import", "Delete all chats")) {
+        for (row in listOf("Privacy Center", "App lock", "Redact before cloud", "Phone first", "Panic wipe", "Memory", "Memory notes", "Vault", "Web search", "Fallback on limit", "Usage", "MCP servers", "Export & import", "Delete all chats")) {
             compose.onNodeWithText(row).performScrollTo().assertIsDisplayed()
         }
         compose.onNodeWithText("Direct").performScrollTo().assertIsDisplayed()

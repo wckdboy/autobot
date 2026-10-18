@@ -219,6 +219,7 @@ final class AppContainer {
         }
         shared.setQuotaFallback(s.quotaFallback, onDevice: providers.get(ProviderPresets.localProviderId))
         shared.setRedactionDefault(s.redactCloud)
+        shared.setCascadeDefault(s.cascade)
         // The draft models in the bridge's snapshot follow the speculative decoding setting.
         if s.speculativeMode != speculativeShown { modelsChanged() }
         #endif

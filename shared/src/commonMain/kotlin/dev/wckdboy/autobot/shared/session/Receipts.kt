@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicy
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import dev.wckdboy.autobot.shared.redaction.PiiKind
+import dev.wckdboy.autobot.shared.cascade.CascadeLabels
 import dev.wckdboy.autobot.agent.core.session.TokenUsage
 import dev.wckdboy.autobot.shared.usage.UsageCost
 import dev.wckdboy.autobot.shared.usage.UsageFormat
@@ -25,6 +26,22 @@ import kotlinx.serialization.Serializable
 /** What the redaction gateway hid in a turn: [count] distinct values of one [kind] (`PERSON`), [label] "2 names". */
 @Serializable
 data class ReceiptRedaction(val kind: String, val count: Int, val label: String)
+
+/**
+ * The local-first cascade in a receipt, in words ([dev.wckdboy.autobot.shared.cascade.CascadeLabels]):
+ * [role] `local` (this phone answered first) or `cloud` (the follow-up), [summary] what happened
+ * and why, [details] short facts (policy, judge, risk). Codes as in
+ * [dev.wckdboy.autobot.agent.core.session.ReceiptCascade]; never content.
+ */
+@Serializable
+data class ReceiptCascadeInfo(
+    val role: String,
+    val policy: String,
+    val verdict: String,
+    val action: String,
+    val summary: String,
+    val details: List<String> = emptyList(),
+)
 
 /** A tool that ran in a turn; [network] tools (`web_fetch`, `web_search`, MCP) reach other hosts. */
 @Serializable
@@ -61,6 +78,8 @@ data class Receipt(
     val usage: String? = null,
     /** The same per model, in [models] order. */
     val usageRows: List<ReceiptUsageRow> = emptyList(),
+    /** What the local-first cascade did in this turn; null when it was not in play. */
+    val cascade: ReceiptCascadeInfo? = null,
 )
 
 /** One model's line of a receipt's usage. */
@@ -133,15 +152,17 @@ object Receipts {
         val routes = off.map { it.route }.distinct()
         val redactions = redactions(event.redacted)
         val hidden = redactions.sumOf { it.count }
+        val cascadeWord = event.cascade?.let(CascadeLabels::line)
         val line = when {
-            onDevice && hosts.any { it.blocked > 0 } -> "on device · ${hosts.sumOf { it.blocked }} blocked"
-            onDevice -> "on device"
+            onDevice && hosts.any { it.blocked > 0 } -> listOfNotNull("on device · ${hosts.sumOf { it.blocked }} blocked", cascadeWord).joinToString(" · ")
+            onDevice -> listOfNotNull("on device", cascadeWord).joinToString(" · ")
             else -> listOfNotNull(
                 if (tracked) "${off.size} ${if (off.size == 1) "host" else "hosts"}" else null,
                 if (tracked) "${formatBytes(sent)} out" else null,
                 routes.filter { it != "direct" }.joinToString(" + ").ifEmpty { null },
                 policyWord(remote),
                 if (hidden > 0) "$hidden redacted" else null,
+                cascadeWord,
             ).joinToString(" · ").ifEmpty { "receipt" }
         }
         return Receipt(
@@ -161,6 +182,9 @@ object Receipts {
             usage = usageLine(event.models),
             usageRows = event.models.filter { it.usage != null }.map { m ->
                 ReceiptUsageRow(m.model, usageLine(listOf(m)).orEmpty())
+            },
+            cascade = event.cascade?.let { c ->
+                ReceiptCascadeInfo(c.role, c.policy, c.verdict, c.action, CascadeLabels.summary(c), CascadeLabels.details(c))
             },
         )
     }

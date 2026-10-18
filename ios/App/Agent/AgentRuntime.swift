@@ -13,6 +13,8 @@ struct SessionSettings: Equatable, Sendable {
     var thinkingSupport = "NONE"
     /// The redaction gateway for the chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide).
     var redaction = "NONE"
+    /// The local-first cascade policy of a plain cloud chat (OFF, ASK, AUTO, NEVER), NONE where it cannot apply.
+    var cascade = "NONE"
 
     var permissionPreset: PermissionPreset { PermissionPreset.fromLabel(permission) ?? .workspace }
 }
@@ -85,7 +87,7 @@ struct SessionUpdate: Sendable {
             settings: SessionSettings(
                 toolsEnabled: state.toolsEnabled, permission: state.permission, provider: state.provider, model: state.model,
                 thinking: ThinkingChoice(mode: state.thinking ?? "AUTO", budget: state.thinkingBudget), thinkingSupport: state.thinkingSupport ?? "NONE",
-                redaction: state.redaction ?? "NONE",
+                redaction: state.redaction ?? "NONE", cascade: state.cascade ?? "NONE",
             ),
         )
     }
@@ -136,7 +138,7 @@ final class AgentSession {
                 settings: SessionSettings(
                     toolsEnabled: newValue.toolsEnabled, permission: newValue.permission, provider: newValue.provider, model: newValue.model,
                     thinking: ThinkingChoice(mode: newValue.thinking ?? "AUTO", budget: newValue.thinkingBudget), thinkingSupport: newValue.thinkingSupport ?? "NONE",
-                    redaction: newValue.redaction ?? "NONE",
+                    redaction: newValue.redaction ?? "NONE", cascade: newValue.cascade ?? "NONE",
                 ),
             )
             if projectionChanged { update.transcript = SessionTranscript(newValue.projection) }
@@ -218,6 +220,10 @@ protocol AgentRuntime: AnyObject {
     func setThinkingDefault(provider: String, model: String, _ choice: ThinkingChoice?)
     /// This chat's redaction switch (what Settings says makes the chat follow Settings again).
     func setRedaction(_ conversationId: String, _ enabled: Bool)
+    /// This chat's "phone first" policy (OFF, ASK, AUTO, NEVER; what Settings says makes it follow Settings again).
+    func setCascade(_ conversationId: String, _ policy: String)
+    /// "Ask <cloud model>": sends the prompt of the phone's offered answer to the chat's cloud model.
+    func escalate(_ conversationId: String)
 }
 
 /// The chat's Think switch, as the shared `ThinkingSetting`: `mode` is OFF, AUTO or ON; `budget`
@@ -261,6 +267,8 @@ extension AgentRuntime {
     func thinkingDefault(provider: String, model: String) -> ThinkingChoice? { nil }
     func setThinkingDefault(provider: String, model: String, _ choice: ThinkingChoice?) {}
     func setRedaction(_ conversationId: String, _ enabled: Bool) {}
+    func setCascade(_ conversationId: String, _ policy: String) {}
+    func escalate(_ conversationId: String) {}
 }
 
 /// Runtimes without file tools have nothing to undo.

@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.core.data.settings
 
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -49,6 +50,8 @@ class SettingsRepository @Inject constructor(
                 quotaFallback = prefs[Keys.QUOTA_FALLBACK] ?: false,
                 // On unless switched off (installs from before the setting get it on too).
                 redactCloud = prefs[Keys.REDACT_CLOUD] ?: AppSettings().redactCloud,
+                // Off unless chosen; a damaged value is off too.
+                cascade = CascadePolicy.parse(prefs[Keys.CASCADE]) ?: AppSettings().cascade,
                 speculativeMode = SettingsSchema.speculativeMode(prefs[Keys.SPECULATIVE]),
             )
         }
@@ -67,6 +70,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setVaultEnabled(enabled: Boolean) = edit { it[Keys.VAULT_ENABLED] = enabled }
     suspend fun setQuotaFallback(enabled: Boolean) = edit { it[Keys.QUOTA_FALLBACK] = enabled }
     suspend fun setRedactCloud(enabled: Boolean) = edit { it[Keys.REDACT_CLOUD] = enabled }
+    suspend fun setCascade(policy: CascadePolicy) = edit { it[Keys.CASCADE] = policy.name }
     suspend fun setSpeculativeMode(mode: SpeculativeMode) = edit { it[Keys.SPECULATIVE] = mode.id }
 
     /** How the chat list is sorted. */
@@ -112,6 +116,7 @@ class SettingsRepository @Inject constructor(
         val SEARCH_ROUTE = stringPreferencesKey(SettingsSchema.SEARCH_ROUTE)
         val QUOTA_FALLBACK = booleanPreferencesKey(SettingsSchema.QUOTA_FALLBACK)
         val REDACT_CLOUD = booleanPreferencesKey(SettingsSchema.REDACT_CLOUD)
+        val CASCADE = stringPreferencesKey(SettingsSchema.CASCADE)
         val SPECULATIVE = stringPreferencesKey(SettingsSchema.SPECULATIVE)
 
         /** Device-local view preference, not part of [AppSettings] (and not exported). */

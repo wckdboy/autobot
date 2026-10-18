@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import dev.wckdboy.autobot.shared.cascade.CascadeLabels
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.session.CascadeOffer
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -234,6 +237,7 @@ fun ChatScreen(
     var openReceipt by remember { mutableStateOf<Receipt?>(null) }
     var showChanges by rememberSaveable { mutableStateOf(false) }
     var showThink by rememberSaveable { mutableStateOf(false) }
+    var showCascade by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val currentLive by rememberUpdatedState(live)
     // Read here (the screen recomposes when a reply starts or ends), never inside the list's
@@ -286,6 +290,13 @@ fun ChatScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // The cascade's offer sits under the phone's answer (the list is reversed: first is lowest).
+                val offer = state.cascadeOffer
+                if (offer != null && !hasLive) {
+                    item(key = "cascade-offer:${offer.turn}", contentType = "cascade-offer") {
+                        CascadeOfferRow(offer, state.modelLabel ?: state.selectedModel.orEmpty(), actions::escalate)
+                    }
+                }
                 if (hasLive) {
                     item(key = "live", contentType = "live") {
                         val frame = currentLive() ?: return@item
@@ -326,6 +337,7 @@ fun ChatScreen(
                 onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) },
                 onThinkMore = { showThink = true },
                 onRedact = { actions.setRedaction(state.redaction != RedactionUi.ON) },
+                onCascade = { showCascade = true },
             )
             val voice = state.voice
             if (voice != null) {
@@ -362,6 +374,10 @@ fun ChatScreen(
         })
     }
     if (showThink) ThinkSheet(state, actions::setThinking, actions::setThinkingDefault) { showThink = false }
+    val cascade = state.cascade
+    if (showCascade && cascade != null) {
+        CascadeSheet(cascade, state.modelLabel ?: state.selectedModel.orEmpty(), actions::setCascade) { showCascade = false }
+    }
     if (renaming) {
         NameDialog(
             title = "Rename chat",
@@ -732,10 +748,17 @@ private fun EmptySession(state: ChatUiState) {
 
 /** `POLICY · WORKSPACE · ASKS: DELETE, NETWORK`: what runs without asking, in a few words. */
 @Composable
-private fun PolicyLine(state: ChatUiState, onThink: () -> Unit = {}, onThinkMore: () -> Unit = {}, onRedact: () -> Unit = {}) {
+private fun PolicyLine(
+    state: ChatUiState,
+    onThink: () -> Unit = {},
+    onThinkMore: () -> Unit = {},
+    onRedact: () -> Unit = {},
+    onCascade: () -> Unit = {},
+) {
     val think = state.thinkingSupport.shown
     val redact = state.redaction != RedactionUi.NONE
-    if (!state.toolsEnabled && !think && !redact) return
+    val cascade = state.cascade
+    if (!state.toolsEnabled && !think && !redact && cascade == null) return
     val text = when {
         !state.toolsEnabled -> ""
         state.permission == PermissionPreset.READ_ONLY -> "policy · read-only · asks: network"
@@ -749,6 +772,7 @@ private fun PolicyLine(state: ChatUiState, onThink: () -> Unit = {}, onThinkMore
     ) {
         if (think) ThinkChip(state.thinking, onThink, onThinkMore)
         if (redact) RedactChip(state.redaction == RedactionUi.ON, onRedact)
+        if (cascade != null) CascadeChip(cascade, onCascade)
         // Two lines: with the Think and redact chips, a narrow phone cuts the policy to "POLICY · WORKS…".
         MicroLabel(text, Modifier.weight(1f), maxLines = 2)
         val used = state.contextUsed
@@ -1310,6 +1334,56 @@ private fun RedactChip(on: Boolean, onTap: () -> Unit) {
             if (on) "\u25AE redact" else "redact off",
             color = color,
         )
+    }
+}
+
+/**
+ * The local-first cascade of a plain cloud chat: `▮ phone first · ask` while this phone answers
+ * first, `phone first off` dimmed otherwise. A tap opens the choice ([CascadeSheet]).
+ */
+@Composable
+private fun CascadeChip(policy: CascadePolicy, onTap: () -> Unit) {
+    val on = policy.localFirst
+    val color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    Box(
+        Modifier
+            .border(1.dp, color.copy(alpha = 0.6f))
+            .clickable(onClickLabel = "Change phone first", onClick = onTap)
+            .semantics { contentDescription = "Phone first: ${policy.title}. ${policy.detail}" }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) { MicroLabel(if (on) "\u25AE " + policy.chip else policy.chip, color = color) }
+}
+
+/** Under the phone's answer when the judge was not convinced: why, and "Ask <cloud model>". */
+@Composable
+private fun CascadeOfferRow(offer: CascadeOffer, model: String, onAsk: () -> Unit) {
+    val red = MaterialTheme.colorScheme.primary
+    Column(
+        Modifier.fillMaxWidth().border(1.dp, red.copy(alpha = 0.45f)).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        MicroLabel("\u25AE phone first", color = red)
+        Text(offer.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Tag(CascadeLabels.ask(model), accent = red, filled = true, onClick = onAsk)
+    }
+}
+
+/** The chat's cascade policy: off, ask, auto or never, each with its one line. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CascadeSheet(policy: CascadePolicy, model: String, onPick: (CascadePolicy) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SectionLabel("phone first", Modifier.inkStagger(0))
+            Segmented(CascadePolicy.entries, policy, onPick, { it.title.lowercase() }, Modifier.fillMaxWidth().inkStagger(1))
+            Text(policy.detail, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.inkStagger(2))
+            Text(
+                CascadeLabels.sheetNote(model),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.inkStagger(3),
+            )
+        }
     }
 }
 

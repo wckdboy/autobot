@@ -79,6 +79,8 @@ enum DemoSeed {
             .turnEnd(turn: 0, reason: .completed, detail: nil),
         ])
 
+        seedCascade(app, sessions: sessions, now: now)
+
         let prompts = ["Isometric greenhouse, riso print", "Lighthouse on a cliff at dusk", "Portrait of a robot, halftone", "Red tram in fog"]
         Task {
             for (i, prompt) in prompts.enumerated() {
@@ -96,6 +98,51 @@ enum DemoSeed {
         app.auditLog.record(method: "POST", host: "api.deepseek.com", path: "/chat/completions", tag: "DeepSeek", route: "offline", blocked: true, error: "Offline mode: network access is disabled")
         app.auditLog.record(method: "GET", host: "127.0.0.1", path: "/v1/models", bytesReceived: 1_204, status: 200, tag: "Ollama (local)", route: "loopback", blocked: false)
         app.auditLog.record(method: "GET", host: "huggingface.co", path: "/api/models", bytesReceived: 18_330, status: 200, tag: "models:huggingface", route: "tor", blocked: false)
+    }
+
+    /**
+     "Phone first" (the local-first cascade) on a plain DeepSeek chat (`-AutobotOpen phone-first`
+     opens it): the phone said it doesn't know, the user asked the cloud (follow-up under its
+     notice), then the phone answered a weather question and the offer is still open. Receipts are
+     written as the shared runtime writes them (the Swift event enum has no receipt case).
+     */
+    private static func seedCascade(_ app: AppContainer, sessions: SessionStore, now: Int64) {
+        var c = app.conversations.create(incognito: false, providerId: "demo-deepseek", model: "deepseek-chat", title: "Who wrote Stiller?")
+        c.updatedAt = now - 5 * 60_000
+        app.conversations.update(c)
+        let base = now - 5 * 60_000
+        let phone = "catalog:qwen3-4b-2507-q4_0"
+        var lines: [Data] = []
+        func add(_ e: SessionEvent) {
+            if let data = try? SessionJSON.encode(LogEntry(seq: Int64(lines.count), time: base + Int64(lines.count) * 700, event: e)) { lines.append(data) }
+        }
+        func raw(_ event: String) {
+            lines.append(Data(#"{"seq":\#(lines.count),"time":\#(base + Int64(lines.count) * 700),"event":\#(event)}"#.utf8))
+        }
+        let onPhone = #"[{"provider":"local","model":"\#(phone)","name":"This phone","onDevice":true,"policy":"on device"}]"#
+        add(.agentSettingsChanged(toolsEnabled: false))
+        raw(#"{"type":"agent/cascade","policy":"ASK"}"#)
+
+        add(.turnStart(turn: 1))
+        add(.userMessage(text: "Who wrote the novel Stiller?"))
+        add(.assistantMessage(.init(turn: 1, step: 1, text: "I don't know who wrote it. I can't place that title.", model: phone)))
+        raw(#"{"type":"turn/receipt","turn":1,"models":\#(onPhone),"network":[],"cascade":{"role":"local","policy":"ASK","verdict":"WEAK","reasons":["dont-know"],"action":"OFFERED","judge":"heuristic","judgeMs":3}}"#)
+        add(.turnEnd(turn: 1, reason: .completed, detail: nil))
+
+        add(.turnStart(turn: 2))
+        add(.userMessage(text: "asked", kind: .context, contextId: "cascade/escalate"))
+        add(.requestContext(provider: "demo-deepseek", model: "deepseek-chat", contextWindow: 128_000))
+        add(.assistantMessage(.init(turn: 2, step: 1, text: "*Stiller* (1954) is a novel by the Swiss writer **Max Frisch**. A man arrested at the border insists he is not the missing sculptor Anatol Stiller.",
+                                    usage: TokenUsage(inputTokens: 318, outputTokens: 44), model: "deepseek-chat")))
+        raw(#"{"type":"turn/receipt","turn":2,"models":[{"provider":"demo-deepseek","model":"deepseek-chat","name":"DeepSeek","policy":"kept 30 days"}],"network":[{"host":"api.deepseek.com","route":"direct","requests":1,"bytesSent":1843,"bytesReceived":2210}],"redacted":{},"cascade":{"role":"cloud","policy":"ASK","verdict":"WEAK","reasons":["dont-know"],"action":"ESCALATED","trigger":"asked"}}"#)
+        add(.turnEnd(turn: 2, reason: .completed, detail: nil))
+
+        add(.turnStart(turn: 3))
+        add(.userMessage(text: "Is it raining in Zurich right now?"))
+        add(.assistantMessage(.init(turn: 3, step: 1, text: "Zurich in October is often grey, 8–14 °C, with rain about one day in three. Check a live forecast for right now.", model: phone)))
+        raw(#"{"type":"turn/receipt","turn":3,"models":\#(onPhone),"network":[],"cascade":{"role":"local","policy":"ASK","verdict":"UNSURE","reasons":["fresh"],"action":"OFFERED","judge":"self-check","judgeMs":412}}"#)
+        add(.turnEnd(turn: 3, reason: .completed, detail: nil))
+        try? sessions.appendJSON(c.id, lines.enumerated().map { (seq: Int64($0.offset), json: $0.element) })
     }
 
     /// A soft abstract image (gradients and a disc) so halftone previews have something to sample.

@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.session.CascadeOffer
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -232,6 +234,10 @@ data class ChatUiState(
     val thinkingDefault: ThinkingSetting? = null,
     /** Whether personal data is swapped for placeholders before this chat's cloud requests. */
     val redaction: RedactionUi = RedactionUi.NONE,
+    /** The chat's local-first cascade policy; null where it cannot apply (agent runs, on-device or loopback routes). */
+    val cascade: CascadePolicy? = null,
+    /** "Ask <cloud model>" under the phone's latest answer, when the judge offered the cloud. */
+    val cascadeOffer: CascadeOffer? = null,
 )
 
 /**
@@ -355,11 +361,13 @@ class ChatViewModel @AssistedInject constructor(
                 .forEach { if (it.text.isNotEmpty()) LiteMarkdown.cached(it.text) }
             Transcript(projection, steps, approvals, question)
         }
-        combine(transcript, a.status, a.config, a.permission, host.redactionDefault) { t, status, config, permission, redactByDefault ->
+        val defaults = combine(host.redactionDefault, host.cascadeDefault) { redact, cascade -> redact to cascade }
+        combine(transcript, a.status, a.config, a.permission, defaults) { t, status, config, permission, (redactByDefault, cascadeByDefault) ->
             AgentSnapshot(
                 t.projection, t.stepNumbers, status == AgentStatus.RUNNING, t.approvals, t.question, config.toolsEnabled, permission,
                 config.llm.thinking ?: ThinkingSetting.AUTO,
                 redacting = config.redaction ?: redactByDefault,
+                cascade = CascadePolicy.resolve(config.cascade, cascadeByDefault),
             )
         }
     }.catch { e ->
@@ -401,6 +409,8 @@ class ChatViewModel @AssistedInject constructor(
         val thinking: ThinkingSetting = ThinkingSetting.AUTO,
         /** The chat's own redaction choice, else Settings. */
         val redacting: Boolean = true,
+        /** The chat's own cascade policy, else Settings. */
+        val cascade: CascadePolicy = CascadePolicy.DEFAULT,
     )
 
     private data class ThinkingInfo(val support: ThinkingSupport = ThinkingSupport.NONE, val default: ThinkingSetting? = null)
@@ -478,6 +488,9 @@ class ChatViewModel @AssistedInject constructor(
                 snap.redacting -> RedactionUi.ON
                 else -> RedactionUi.OFF
             },
+            // Plain chats on a cloud model only (agent runs are not cascaded in this version).
+            cascade = if (provider == null || isLocal || loopback || snap.toolsEnabled) null else snap.cascade,
+            cascadeOffer = snap.projection.cascadeOffer.takeIf { !snap.running },
             loaded = true,
         )
     }.combine(thinkingInfo.onStart { emit(ThinkingInfo()) }) { state, info -> state.copy(thinkingSupport = info.support, thinkingDefault = info.default) }
@@ -1025,6 +1038,14 @@ class ChatViewModel @AssistedInject constructor(
 
     override fun setRedaction(enabled: Boolean) {
         viewModelScope.launchSafely(::failed) { host.setRedaction(conversationId, enabled) }
+    }
+
+    override fun setCascade(policy: CascadePolicy) {
+        viewModelScope.launchSafely(::failed) { host.setCascade(conversationId, policy) }
+    }
+
+    override fun escalate() {
+        viewModelScope.launchSafely(::failed) { host.escalate(conversationId) }
     }
 
     override fun setPermission(preset: PermissionPreset) {

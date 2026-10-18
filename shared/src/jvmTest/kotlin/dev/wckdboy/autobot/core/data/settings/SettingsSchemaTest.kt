@@ -26,6 +26,7 @@ class SettingsSchemaTest {
             searchRoute = RouteOverride.TOR,
             quotaFallback = true,
             redactCloud = false,
+            cascade = dev.wckdboy.autobot.shared.cascade.CascadePolicy.AUTO,
             speculativeMode = SpeculativeMode.OFF,
         )
         assertEquals(settings, SettingsSchema.decode(SettingsSchema.encode(settings)))
@@ -45,8 +46,11 @@ class SettingsSchemaTest {
                 SettingsSchema.QUOTA_FALLBACK to "maybe",
                 SettingsSchema.REDACT_CLOUD to "nah",
                 SettingsSchema.SPECULATIVE to "turbo",
+                SettingsSchema.CASCADE to "always",
             ),
         )
+        // The cascade fails safe to off: chats keep answering as they did.
+        assertEquals(dev.wckdboy.autobot.shared.cascade.CascadePolicy.OFF, decoded.cascade)
         // Redaction fails safe to on: a damaged value never sends personal data in the clear.
         assertEquals(true, decoded.redactCloud)
         assertEquals(SpeculativeMode.AUTO, decoded.speculativeMode)
@@ -67,6 +71,14 @@ class SettingsSchemaTest {
         val old = SettingsSchema.encode(AppSettings()) - SettingsSchema.REDACT_CLOUD
         assertEquals(true, SettingsSchema.decode(old).redactCloud)
         assertEquals(false, SettingsSchema.decode(old + (SettingsSchema.REDACT_CLOUD to "false")).redactCloud)
+    }
+
+    @Test
+    fun theCascadeIsOffUnlessTheUserOptsIn() {
+        val old = SettingsSchema.encode(AppSettings()) - SettingsSchema.CASCADE
+        assertEquals(dev.wckdboy.autobot.shared.cascade.CascadePolicy.OFF, SettingsSchema.decode(old).cascade)
+        assertEquals("OFF", SettingsSchema.encode(AppSettings())[SettingsSchema.CASCADE])
+        assertEquals(dev.wckdboy.autobot.shared.cascade.CascadePolicy.ASK, SettingsSchema.decode(old + (SettingsSchema.CASCADE to "ask")).cascade)
     }
 
     @Test

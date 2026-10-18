@@ -63,6 +63,10 @@ import dev.wckdboy.autobot.shared.session.ReceiptProvider
 import dev.wckdboy.autobot.shared.session.SessionProjection
 import dev.wckdboy.autobot.shared.session.receiptsPlugin
 import dev.wckdboy.autobot.shared.redaction.RedactionGateway
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.cascade.LocalFirstCascade
+import dev.wckdboy.autobot.agent.core.loop.chooseCascade
+import dev.wckdboy.autobot.agent.core.loop.restoreCascade
 import dev.wckdboy.autobot.agent.core.loop.chooseRedaction
 import dev.wckdboy.autobot.agent.core.loop.restoreRedaction
 import dev.wckdboy.autobot.core.data.settings.AppSettings
@@ -280,6 +284,8 @@ class LiveFrame(
     val thinkingSupport: String = "NONE",
     /** The redaction gateway for this chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide). */
     val redaction: String = "NONE",
+    /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
+    val cascade: String = "NONE",
 )
 
 /** A [SessionState] without its projection, which [AgentBridge.open] encodes only when it changes. */
@@ -301,6 +307,8 @@ internal class SessionFrame(
     val thinkingSupport: String = "NONE",
     /** The redaction gateway for this chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide). */
     val redaction: String = "NONE",
+    /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
+    val cascade: String = "NONE",
 )
 
 /** Everything a chat screen renders, computed by the same code as on Android. */
@@ -323,6 +331,8 @@ class SessionState(
     val thinkingSupport: String = "NONE",
     /** The redaction gateway for this chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide). */
     val redaction: String = "NONE",
+    /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
+    val cascade: String = "NONE",
 )
 
 /**
@@ -411,6 +421,16 @@ class AgentBridge(
         cloud = { id -> withContext(IoDispatcher) { providers.provider(id) }?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
         enabled = { redactionDefault },
     )
+
+    @kotlin.concurrent.Volatile
+    private var cascadeDefault = CascadePolicy.DEFAULT
+
+    private val cascade = LocalFirstCascade(
+        defaultPolicy = { cascadeDefault },
+        onDevice = { quotaFallback.onDevice },
+        // An unknown provider counts as cloud, as for redaction.
+        cloud = { id -> withContext(IoDispatcher) { providers.provider(id) }?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
+    )
     private val interactions = MutableStateFlow<List<Pending>>(emptyList())
 
     private sealed interface Pending {
@@ -451,6 +471,8 @@ class AgentBridge(
         )
         // Redaction gateway: personal data becomes placeholders before a cloud request.
         root.plugin(redaction.plugin)
+        // Local-first cascade (Settings, off by default): this phone answers plain chats first.
+        root.plugin(cascade.plugin)
         root.plugin(toolsPlugin("workspace-files", *FileTools(workspace, journal).all.toTypedArray()))
         root.plugin(toolsPlugin("web", WebFetchTool(TransportWebFetcher(transport))))
         root.plugin(contexts.plugin)
@@ -605,6 +627,7 @@ class AgentBridge(
         agent.log.latest<SessionEvent.AgentSettingsChanged>()?.let { s -> agent.updateConfig { it.copy(toolsEnabled = s.toolsEnabled) } }
         agent.restoreThinking(ThinkingDefaults.get(thinkingDefaults, providerId, model))
         agent.restoreRedaction()
+        agent.restoreCascade()
         watchers[sessionId] = scope.launch {
             agent.status.collect { status ->
                 running.update { if (status == AgentStatus.RUNNING) it + sessionId else it - sessionId }
@@ -720,6 +743,7 @@ class AgentBridge(
                     thinkingBudget = config.llm.thinking?.budget,
                     thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                     redaction = redactionState(config),
+                    cascade = cascadeState(config),
                 ),
             )
         }.conflate().collect { json ->
@@ -799,6 +823,7 @@ class AgentBridge(
                         thinkingBudget = config.llm.thinking?.budget,
                         thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                         redaction = redactionState(config),
+                        cascade = cascadeState(config),
                     )
                     // Nothing new (e.g. a tick with an empty delta): no frame.
                     val signature = BridgeJson.encodeToString(LiveFrame.serializer(), frame.withFrame(0))
@@ -813,7 +838,7 @@ class AgentBridge(
         }
 
     private fun LiveFrame.withFrame(n: Long) =
-        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction)
+        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade)
 
     private val resyncs = HashMap<String, MutableStateFlow<Int>>()
 
@@ -944,6 +969,30 @@ class AgentBridge(
     /** [sessionId]'s own redaction choice; choosing what Settings says makes the chat follow Settings again. */
     fun setRedaction(sessionId: String, enabled: Boolean) = withAgent(sessionId) { a ->
         a.chooseRedaction(redaction.override(enabled))
+    }
+
+    /**
+     * Settings → "Phone first" (OFF by default; ASK, AUTO, NEVER): chats without their own choice
+     * follow it. Unknown values count as OFF.
+     */
+    fun setCascadeDefault(policy: String) {
+        cascadeDefault = CascadePolicy.parse(policy) ?: CascadePolicy.DEFAULT
+    }
+
+    /** [sessionId]'s own cascade policy; choosing what Settings says makes the chat follow Settings again. */
+    fun setCascade(sessionId: String, policy: String) = withAgent(sessionId) { a ->
+        val chosen = CascadePolicy.parse(policy) ?: return@withAgent
+        a.chooseCascade(cascade.override(chosen))
+    }
+
+    /** "Ask <cloud model>" under the phone's answer: sends that prompt to the chat's cloud model as a follow-up. */
+    fun escalate(sessionId: String) = withAgent(sessionId) { a -> cascade.escalate(a) }
+
+    /** The chip: the chat's effective cascade policy, NONE for agent runs and on-device or loopback routes. */
+    private fun cascadeState(config: AgentConfig): String {
+        val spec = providers.provider(config.llm.provider)
+        val cloudRoute = spec == null || RedactionGateway.isCloud(spec.kind, spec.baseUrl)
+        return cascade.chipState(config, cloudRoute)
     }
 
     /** ON / OFF for a cloud route, NONE when the route stays on the phone. */

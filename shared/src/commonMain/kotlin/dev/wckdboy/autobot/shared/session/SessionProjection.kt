@@ -1,6 +1,10 @@
 package dev.wckdboy.autobot.shared.session
 
+import dev.wckdboy.autobot.agent.core.session.CASCADE_ESCALATION
 import dev.wckdboy.autobot.agent.core.session.LogEntry
+import dev.wckdboy.autobot.agent.core.session.ReceiptCascade
+import dev.wckdboy.autobot.shared.cascade.CascadeAction
+import dev.wckdboy.autobot.shared.cascade.CascadeLabels
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.TodoItem
 import dev.wckdboy.autobot.agent.core.session.TokenUsage
@@ -90,7 +94,16 @@ data class SessionProjection(
     val contextWindow: Int?,
     /** Files the agent changed in this session, per turn (the "changes" sheet). */
     val changes: List<ChangeGroup> = emptyList(),
+    /**
+     * The local-first cascade's offer under the latest answer: the phone answered, the judge was
+     * not convinced, and the user may ask the chat's cloud model. Gone once another turn starts.
+     */
+    val cascadeOffer: CascadeOffer? = null,
 )
+
+/** "Ask <cloud model>" under the phone's answer of [turn]; [text] says why ([CascadeLabels.offer]). */
+@Serializable
+data class CascadeOffer(val turn: Int, val text: String)
 
 /**
  * Projects the append-only session log into transcript rows. Pure, so it is unit tested; a
@@ -132,6 +145,9 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
     private val turnAnswer = HashMap<Int, Int>()
     /** Calls without a result yet (their state follows approvals and running). */
     private val open = LinkedHashMap<Int, String>()
+    // The cascade: the pending offer, and the phone's latest judged answer (for the follow-up's notice).
+    private var offer: CascadeOffer? = null
+    private var localCascade: ReceiptCascade? = null
 
     private var consumed = 0
     private var lastSeq = Long.MIN_VALUE
@@ -165,7 +181,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
             if (state != tool.state) out[index] = tool.copy(state = state)
         }
         val changes = applyUndo(out, undoneBy, turnRevert, prunedTurns, turnAnswer)
-        return SessionProjection(out, todos, usage, window, changes).also { last = it }
+        return SessionProjection(out, todos, usage, window, changes, offer).also { last = it }
     }
 
     private fun reset() {
@@ -181,6 +197,8 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
         prunedTurns.clear()
         turnAnswer.clear()
         open.clear()
+        offer = null
+        localCascade = null
         consumed = 0
         lastSeq = Long.MIN_VALUE
         last = null
@@ -192,7 +210,9 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
             is SessionEvent.UserMessage -> when (e.kind) {
                 UserMessageKind.PROMPT -> items += SessionItem.User(key, e.text, e.images)
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
-                UserMessageKind.CONTEXT -> Unit
+                UserMessageKind.CONTEXT -> if (e.contextId == CASCADE_ESCALATION) {
+                    items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty()), NoticeKind.INFO)
+                }
             }
             is SessionEvent.AssistantMessage -> {
                 e.fallback?.let { why -> items += SessionItem.Notice("${key}f", fallbackNotice(e.model.orEmpty(), why), NoticeKind.WARN) }
@@ -259,10 +279,16 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
                 val turns = e.turns.joinToString(", ")
                 items += SessionItem.Notice(key, "undo history of turn${if (e.turns.size == 1) "" else "s"} $turns dropped" + (e.reason?.let { " · $it" } ?: ""), NoticeKind.WARN)
             }
-            is SessionEvent.TurnStart -> lastAnswer = null
-            is SessionEvent.TurnReceipt -> lastAnswer?.let { i ->
-                val answer = items.getOrNull(i) as? SessionItem.Assistant ?: return@let
-                items[i] = answer.copy(receipt = runCatching { Receipts.summarize(e) }.getOrNull())
+            is SessionEvent.TurnStart -> {
+                lastAnswer = null
+                offer = null
+            }
+            is SessionEvent.TurnReceipt -> {
+                e.cascade?.takeIf { it.role == "local" }?.let { c ->
+                    localCascade = c
+                    if (c.action == CascadeAction.OFFERED.name) offer = CascadeOffer(e.turn, CascadeLabels.offer(c.verdict, c.reasons))
+                }
+                attachReceipt(e)
             }
             is SessionEvent.TodoWrite -> todos = e.todos
             is SessionEvent.TurnEnd -> {
@@ -277,6 +303,12 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
             is SessionEvent.RequestContext -> window = e.contextWindow
             else -> Unit
         }
+    }
+
+    private fun attachReceipt(e: SessionEvent.TurnReceipt) {
+        val i = lastAnswer ?: return
+        val answer = items.getOrNull(i) as? SessionItem.Assistant ?: return
+        items[i] = answer.copy(receipt = runCatching { Receipts.summarize(e) }.getOrNull())
     }
 
     private companion object {

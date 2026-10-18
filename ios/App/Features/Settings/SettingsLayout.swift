@@ -22,7 +22,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var rows: [SettingsRow] {
         switch self {
-        case .privacy: [.privacyCenter, .appLock, .incognito, .redactCloud, .panicWipe]
+        case .privacy: [.privacyCenter, .appLock, .incognito, .redactCloud, .cascade, .panicWipe]
         case .agent: [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .usage, .mcpServers]
         case .appearance: [.theme, .amoled]
         case .data: [.exportImport, .deleteAll]
@@ -32,7 +32,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 }
 
 enum SettingsRow: String, CaseIterable, Identifiable {
-    case privacyCenter, appLock, incognito, redactCloud, panicWipe
+    case privacyCenter, appLock, incognito, redactCloud, cascade, panicWipe
     case memory, memoryNotes, vault, webSearch, quotaFallback, usage, mcpServers
     case theme, amoled
     case exportImport, deleteAll
@@ -47,6 +47,7 @@ enum SettingsRow: String, CaseIterable, Identifiable {
         case .appLock: "App lock"
         case .incognito: "Incognito by default"
         case .redactCloud: "Redact before cloud"
+        case .cascade: "Phone first"
         case .panicWipe: "Panic wipe"
         case .memory: "Memory"
         case .memoryNotes: "Memory notes"

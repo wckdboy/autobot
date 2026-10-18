@@ -366,6 +366,21 @@ final class SharedAgentRuntime: AgentRuntime {
         bridge.setRedaction(sessionId: id, enabled: enabled)
     }
 
+    /// Settings → "Phone first" (OFF by default): plain cloud chats without their own choice follow it.
+    func setCascadeDefault(_ policy: String) {
+        bridge.setCascadeDefault(policy: policy)
+    }
+
+    func setCascade(_ id: String, _ policy: String) {
+        _ = session(id)
+        bridge.setCascade(sessionId: id, policy: policy)
+    }
+
+    func escalate(_ id: String) {
+        _ = session(id)
+        bridge.escalate(sessionId: id)
+    }
+
     /// "On limit, fall back" (off by default): a turn whose provider's usage limit is used up is
     /// retried once on the provider's helper model, else on [onDevice] (the "This phone" provider).
     func setQuotaFallback(_ enabled: Bool, onDevice: Provider?) {
@@ -447,8 +462,9 @@ final class SessionStreamDecoder {
         var thinkingBudget: Int?
         var thinkingSupport = "NONE"
         var redaction = "NONE"
+        var cascade = "NONE"
 
-        private enum K: String, CodingKey { case live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction }
+        private enum K: String, CodingKey { case live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: K.self)
@@ -464,6 +480,7 @@ final class SessionStreamDecoder {
             thinkingBudget = try c.decodeIfPresent(Int.self, forKey: .thinkingBudget)
             thinkingSupport = try c.decodeIfPresent(String.self, forKey: .thinkingSupport) ?? "NONE"
             redaction = try c.decodeIfPresent(String.self, forKey: .redaction) ?? "NONE"
+            cascade = try c.decodeIfPresent(String.self, forKey: .cascade) ?? "NONE"
         }
     }
 
@@ -503,7 +520,7 @@ final class SessionStreamDecoder {
             settings: SessionSettings(
                 toolsEnabled: frame.toolsEnabled, permission: frame.permission, provider: frame.provider, model: frame.model,
                 thinking: ThinkingChoice(mode: frame.thinking, budget: frame.thinkingBudget), thinkingSupport: frame.thinkingSupport,
-                redaction: frame.redaction,
+                redaction: frame.redaction, cascade: frame.cascade,
             ),
         )
         return (update, resync)

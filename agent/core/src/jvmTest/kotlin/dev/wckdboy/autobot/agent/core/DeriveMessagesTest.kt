@@ -5,6 +5,7 @@ import dev.wckdboy.autobot.agent.core.session.LogEntry
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.SessionJson
 import dev.wckdboy.autobot.agent.core.session.SurfaceOp
+import dev.wckdboy.autobot.agent.core.session.CASCADE_ESCALATION
 import dev.wckdboy.autobot.agent.core.session.TOOL_OUTCOME_UNKNOWN
 import dev.wckdboy.autobot.agent.core.session.ToolCallRecord
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
@@ -108,5 +109,26 @@ class DeriveMessagesTest {
         val json = SessionJson.encodeToString(LogEntry.serializer(), entry)
         assertTrue(json.contains("\"type\":\"workspace/revert\""))
         assertEquals(entry, SessionJson.decodeFromString(LogEntry.serializer(), json))
+    }
+
+    @Test
+    fun aCascadeEscalationDropsThePhonesAnswerAndIsNotSent() {
+        val entries = log(
+            SessionEvent.UserMessage("earlier").a(),
+            SessionEvent.AssistantMessage(1, 1, "earlier answer").a(),
+            SessionEvent.UserMessage("who won yesterday?").a(),
+            SessionEvent.AssistantMessage(2, 1, "I don't know.", model = "phone-model").a(),
+            SessionEvent.TurnStart(3).a(),
+            SessionEvent.UserMessage("recall: none", UserMessageKind.CONTEXT, "memory").a(),
+            SessionEvent.UserMessage("asked", UserMessageKind.CONTEXT, CASCADE_ESCALATION).a(),
+        )
+        val messages = deriveMessages(entries)
+        assertEquals(listOf("earlier", "earlier answer", "who won yesterday?", "<system-reminder>\nrecall: none\n</system-reminder>"), messages.map { it.text })
+        assertFalse(messages.any { "I don't know" in it.text || it.text == "asked" })
+
+        // Later requests carry the cloud's answer only.
+        val after = deriveMessages(entries + LogEntry(8, 0, SessionEvent.AssistantMessage(3, 1, "Team A won.", model = "cloud"), SurfaceOp.Append) +
+            LogEntry(9, 0, SessionEvent.UserMessage("thanks"), SurfaceOp.Append))
+        assertEquals(listOf("earlier", "earlier answer", "who won yesterday?", "<system-reminder>\nrecall: none\n</system-reminder>", "Team A won.", "thanks"), after.map { it.text })
     }
 }
