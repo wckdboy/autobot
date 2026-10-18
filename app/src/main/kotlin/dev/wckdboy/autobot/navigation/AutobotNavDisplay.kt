@@ -39,6 +39,7 @@ import dev.wckdboy.autobot.entry.EntryActions
 import dev.wckdboy.autobot.feature.chat.conversation.ChatRoute
 import dev.wckdboy.autobot.feature.chat.list.ChatListRoute
 import dev.wckdboy.autobot.feature.home.RemoteRoute
+import dev.wckdboy.autobot.feature.home.node.NodeAgentRoute
 import dev.wckdboy.autobot.feature.home.RunRoute
 import dev.wckdboy.autobot.feature.imagine.backends.BackendsRoute
 import dev.wckdboy.autobot.feature.imagine.gallery.GalleryRoute
@@ -181,8 +182,10 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenBackends = { navigate(ImageBackends) },
                             onOpenAccounts = { navigate(Accounts) },
                             onOpenPrivacy = { navigate(PrivacyCenter) },
+                            onOpenNodeAgent = { navigate(NodeAgent(it)) },
                         )
                     }
+                    entry<NodeAgent> { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back) }
                     entry<Settings> {
                         SettingsRoute(
                             onBack = null,

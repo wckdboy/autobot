@@ -80,10 +80,11 @@ fun RemoteRoute(
     onOpenBackends: () -> Unit,
     onOpenAccounts: () -> Unit,
     onOpenPrivacy: () -> Unit,
+    onOpenNodeAgent: (providerId: String) -> Unit = {},
     viewModel: RemoteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy)
+    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy, onOpenNodeAgent)
 }
 
 @Composable
@@ -93,7 +94,9 @@ fun RemoteScreen(
     onOpenBackends: () -> Unit,
     onOpenAccounts: () -> Unit,
     onOpenPrivacy: () -> Unit,
+    onOpenNodeAgent: (providerId: String) -> Unit = {},
 ) {
+    val nodes = state.providers.filter { it.kind == ProviderKind.INVINCIBLE_NODE }
     Scaffold(
         topBar = {
             AutobotTopBar(
@@ -104,6 +107,16 @@ fun RemoteScreen(
         },
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+            if (nodes.isNotEmpty()) {
+                // The Autobot Agent on each paired node: tasks run there, approvals come here.
+                item { SectionLabel("agents · my node") }
+                items(nodes, key = { "a-${it.id}" }) { n ->
+                    RunRow("Agent on ${n.displayName}", "tasks run on that machine · you approve", onClick = { onOpenNodeAgent(n.id) }) {
+                        RouteTag(Route.PC_LAN)
+                    }
+                }
+                item { Spacer(Modifier.height(18.dp)) }
+            }
             item { SectionLabel("models · api & lan") }
             items(state.providers, key = { "p-${it.id}" }) { p ->
                 RunRow(p.displayName, "${p.defaultModel} · ${p.baseUrl.substringAfter("://").substringBefore('/')}", onClick = onOpenProviders) {

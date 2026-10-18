@@ -79,6 +79,37 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
                 receipt.hosts.forEach { HostRow(it) }
             }
 
+            receipt.nodes.forEach { node ->
+                Hairline(Modifier.padding(vertical = 2.dp))
+                MicroLabel("on ${node.node}", color = MaterialTheme.colorScheme.primary)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        node.models.joinToString(", ").ifEmpty { "no model ran" },
+                        style = AutobotTheme.styles.code,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Tag(if (node.verified) "signed ✓" else "not verified", accent = if (node.verified) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber)
+                }
+                Text(
+                    when {
+                        !node.verified && node.missing > 0 -> "${node.node} could not give ${node.missing} of its ${node.requests} receipts, so this part is unchecked."
+                        !node.verified -> "The receipt's signature does not match the key pinned when you paired. Treat what it says as unchecked."
+                        node.egress.isEmpty() -> "Nothing left ${node.node}: its signed receipt lists no outside host."
+                        else -> "${node.node} sent part of this turn on, as its signed receipt shows:"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                node.egress.forEach { HostRow(it) }
+                if (node.redactions.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        node.redactions.forEach { Tag("${it.label} hidden by ${node.node}", accent = MaterialTheme.colorScheme.primary) }
+                    }
+                }
+            }
+
             if (receipt.models.isNotEmpty()) {
                 Hairline(Modifier.padding(vertical = 2.dp))
                 MicroLabel("model")
