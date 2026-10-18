@@ -65,6 +65,9 @@ data class AgentSchedule(
     val lastResult: String?,
 )
 
+/** The agent as a device opens it: its conversation id there, the agent's settings, the conversation so far. */
+data class NodeAgentOpened(val session: String, val info: AgentInfo, val history: List<AgentLine>)
+
 /** A line of a conversation's history: who and what (tool calls summarized). */
 data class AgentLine(val role: String, val text: String)
 

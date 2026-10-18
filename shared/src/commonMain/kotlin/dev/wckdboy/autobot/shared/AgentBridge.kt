@@ -2,6 +2,11 @@ package dev.wckdboy.autobot.shared
 
 import dev.wckdboy.autobot.shared.invincible.NodeCrypto
 import dev.wckdboy.autobot.shared.invincible.NodeLink
+import dev.wckdboy.autobot.shared.invincible.NodeAgentOpened
+import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
+import dev.wckdboy.autobot.shared.invincible.AgentSchedule
+import dev.wckdboy.autobot.shared.invincible.AgentEvent
+import dev.wckdboy.autobot.shared.invincible.NodeAgent
 import dev.wckdboy.autobot.shared.invincible.nodeCrypto
 import dev.wckdboy.autobot.shared.invincible.nodeConnector
 import dev.wckdboy.autobot.shared.invincible.fingerprint
@@ -604,6 +609,86 @@ class AgentBridge(
 
     /** The key fingerprint of a pairing code, to compare with what `invincible pair` printed; null when it is not one. */
     fun pairingFingerprint(code: String): String? = PairingCode.parse(code.trim())?.let { fingerprint(it.nodeKey) }
+
+    /*
+     * The Autobot Agent on a paired node (Invincible's spec/agent.md) for hosts without coroutines:
+     * every call answers once through its callback; a turn's events arrive one by one.
+     */
+
+    /** The agent on [providerId]'s node, with this device's conversation id there; null when it is not a usable pairing. */
+    private suspend fun nodeAgent(providerId: String): Pair<NodeAgent, String>? {
+        val spec = withContext(IoDispatcher) { providers.provider(providerId) } ?: return null
+        val connector = nodeConnector ?: return null
+        val crypto = nodeCrypto ?: return null
+        if (spec.kind != ProviderKind.INVINCIBLE_NODE) return null
+        val paired = spec.apiKey?.let(PairedNode::fromSecret) ?: return null
+        val transport = paired.transport(crypto) { addresses -> connector(addresses, spec.route) }
+        return NodeAgent(transport, "${spec.displayName} · agent") to NodeAgent.sessionFor(paired.deviceName)
+    }
+
+    private suspend fun requireNodeAgent(providerId: String): Pair<NodeAgent, String> =
+        nodeAgent(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
+
+    /** Opens the agent: this device's conversation id, the agent's settings and the conversation so far. */
+    fun nodeAgentOpen(providerId: String, callback: (NodeAgentOpened?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<NodeAgentOpened?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) {
+        val (agent, session) = requireNodeAgent(providerId)
+        NodeAgentOpened(session, agent.info(), agent.history(session)) to null
+    }
+
+    /** Runs a turn; [listener] gets its events, the last being an answer or a failure. Cancelling stops listening, not the turn. */
+    fun nodeAgentTurn(providerId: String, session: String, text: String, listener: (AgentEvent) -> Unit): Cancellable {
+        val job = scope.launch {
+            try {
+                val (agent, _) = requireNodeAgent(providerId)
+                agent.turn(session, text).collect { listener(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                listener(AgentEvent.Failed(e.message ?: "The node did not answer"))
+            }
+        }
+        return Cancellable { job.cancel() }
+    }
+
+    /** Answers an approval; false when it was no longer waiting. */
+    fun nodeAgentAnswer(providerId: String, id: String, answer: ApprovalAnswer, callback: (Boolean) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { false },
+    ) { requireNodeAgent(providerId).first.answer(id, answer) }
+
+    /** Starts the conversation over; null, or why it could not. */
+    fun nodeAgentReset(providerId: String, session: String, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { it },
+    ) {
+        requireNodeAgent(providerId).first.reset(session)
+        null
+    }
+
+    fun nodeAgentSchedules(providerId: String, callback: (List<AgentSchedule>?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<List<AgentSchedule>?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) { requireNodeAgent(providerId).first.schedules() to null }
+
+    /** Adds a scheduled task; null, or why not (a schedule that does not parse, …). */
+    fun nodeAgentAddSchedule(providerId: String, schedule: String, task: String, telegram: Boolean, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { it },
+    ) {
+        requireNodeAgent(providerId).first.addSchedule(schedule, task, telegram)
+        null
+    }
+
+    fun nodeAgentRemoveSchedule(providerId: String, id: String, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { it },
+    ) {
+        requireNodeAgent(providerId).first.removeSchedule(id)
+        null
+    }
 
     /** The chat client for a stored provider: the on-device engine, a paired node, or the host's HTTP transport. */
     fun chatProvider(spec: ProviderSpec): ChatProvider = when (spec.kind) {

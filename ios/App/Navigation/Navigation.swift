@@ -33,6 +33,8 @@ enum Destination: Hashable {
     case usage
     /// Scheduled on-device recipes.
     case recipes
+    /// The Autobot Agent on a paired node ([providerId]: its "My node" provider).
+    case nodeAgent(providerId: String)
 }
 
 /// The Creative Studio's rooms (its own bar while the Studio is open).
@@ -211,6 +213,7 @@ struct AutobotNavHost: View {
         case .vault: VaultScreen()
         case .usage: UsageScreen()
         case .recipes: RecipesScreen()
+        case .nodeAgent(let providerId): NodeAgentScreen(providerId: providerId).id(providerId)
         }
     }
 }

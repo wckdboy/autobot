@@ -248,9 +248,10 @@ is redacted for the node; it redacts what it sends on itself.
 (paste the code, or open an `invincible://pair?…` link: the Camera app's QR scan does that). The
 connector is Network.framework under the same kill switch, routes and audit log as every request
 (`SwiftNodeConnector`; Tor and SOCKS5 get the node's name unresolved), and the crypto is CryptoKit.
-Chats, signed receipts and "phone first, then my node" work as on Android; the agent screen is
-Android-only for now. `NodeConnectorTests` checks the connector over a real `NWConnection` and,
-with `TEST_RUNNER_INVINCIBLE_PAIR_CODE` set, pairs and chats with a real node from the simulator.
+Chats, signed receipts, "phone first, then my node" and the agent screen (Remote › Agents · my
+node: tasks, approval cards, scheduled tasks) work as on Android. `NodeConnectorTests` checks the connector over a real `NWConnection` and,
+with `TEST_RUNNER_INVINCIBLE_PAIR_CODE` set, pairs and chats with a real node from the simulator
+(and with `TEST_RUNNER_INVINCIBLE_AGENT=1`, runs an agent task approved from the phone).
 
 ## On-device models
 
