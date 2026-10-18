@@ -49,8 +49,9 @@ object RecipePlanner {
 
     /**
      * Brings [recipe]'s next run up to date at app start or after a time zone change: a pending
-     * wall-clock run moves to the same local time in the current zone; an overdue one stays due
-     * (it runs once); a disabled one has none.
+     * wall-clock run that is no longer one of the schedule's times in the current zone moves to
+     * the next one there; one that still is stays (so a run skipped after a catch-up stays
+     * skipped); an overdue one stays due (it runs once); a disabled one has none.
      */
     fun reconcile(recipe: Recipe, nowMillis: Long, zone: TimeZone): Recipe {
         val state = recipe.state
@@ -59,8 +60,10 @@ object RecipePlanner {
         }
         val next = state.nextRunAt ?: return recipe.copy(state = state.copy(nextRunAt = recipe.schedule.next(nowMillis, zone)))
         if (recipe.schedule is RecipeSchedule.EveryHours || next <= nowMillis) return recipe
-        val moved = recipe.schedule.next(nowMillis, zone)
-        return if (moved == next) recipe else recipe.copy(state = state.copy(nextRunAt = moved))
+        // Still a scheduled time in this zone (the zone did not change): keep it, even when it is
+        // not the first one after now (a catch-up run skipped the one in between).
+        if (recipe.schedule.next(next - 1, zone) == next) return recipe
+        return recipe.copy(state = state.copy(nextRunAt = recipe.schedule.next(nowMillis, zone)))
     }
 
     /**
@@ -79,10 +82,15 @@ object RecipePlanner {
         return recipe.copy(state = RecipeState(nextRunAt = next, waitingForUnlock = false, lastRun = record))
     }
 
-    /** The run after one that started at [startedAt] (catch-up runs keep [MIN_GAP_MS] to the next). */
+    /**
+     * The run after one that started at [startedAt] (catch-up runs keep [MIN_GAP_MS] to the next).
+     * A run the OS woke a little early (within [EARLY_SLACK_MS]) counts from its scheduled time,
+     * so the same occurrence is not run twice.
+     */
     private fun nextAfterRun(recipe: Recipe, scheduledAt: Long?, startedAt: Long, zone: TimeZone): Long {
         val schedule = recipe.schedule
-        val next = schedule.next(startedAt, zone)
+        val from = if (scheduledAt != null && startedAt < scheduledAt) scheduledAt else startedAt
+        val next = schedule.next(from, zone)
         if (schedule is RecipeSchedule.EveryHours) return next
         val catchUp = scheduledAt != null && startedAt - scheduledAt > EARLY_SLACK_MS
         return if (catchUp && next - startedAt < MIN_GAP_MS) schedule.next(next, zone) else next

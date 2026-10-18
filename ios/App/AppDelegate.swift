@@ -39,23 +39,38 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
      */
     private static func runRecipes(_ task: BGTask) {
         let app = makeContainer()
-        nonisolated(unsafe) let task = task
+        let completion = RecipeTaskCompletion(task)
         let work = Task { @MainActor in
             if !UIApplication.shared.isProtectedDataAvailable {
                 RecipeBackground.submit(RecipeCenter.lockedTask(notifier: RecipeNotifier()))
-                task.setTaskCompleted(success: true)
+                completion.complete(true)
                 return
             }
             await app.unlockData()
+            // A launch already decrypting the data returns at once: wait for it to finish.
+            var waited = 0
+            while !app.recipes.loaded, waited < 150, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                waited += 1
+            }
             app.recipes.runDue()
             await app.recipes.idle()
             app.recipes.reschedule()
-            task.setTaskCompleted(success: !Task.isCancelled)
+            completion.complete(!Task.isCancelled)
         }
         task.expirationHandler = {
-            Task { @MainActor in
+            let expire = { @MainActor in
+                // A run cut short stays due: ask for another task, then hand the time back now
+                // (the headless turn may not stop at once, and iOS ends the app if we wait).
                 app.recipes.stop()
                 work.cancel()
+                app.recipes.reschedule()
+                completion.complete(false)
+            }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { expire() }
+            } else {
+                DispatchQueue.main.sync { MainActor.assumeIsolated { expire() } }
             }
         }
     }
@@ -102,5 +117,20 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         guard info["recipe"] != nil else { return }
         let session = info["session"] as? String
         await MainActor.run { EntryRouter.shared.receive(.recipe(conversationId: session)) }
+    }
+}
+
+/// Completes a recipe background task exactly once (the work or the expiration, whichever comes first).
+@MainActor
+private final class RecipeTaskCompletion {
+    nonisolated(unsafe) private let task: BGTask
+    private var done = false
+
+    nonisolated init(_ task: BGTask) { self.task = task }
+
+    func complete(_ success: Bool) {
+        guard !done else { return }
+        done = true
+        task.setTaskCompleted(success: success)
     }
 }

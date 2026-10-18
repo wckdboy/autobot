@@ -40,12 +40,12 @@ class RecipeNotifications @Inject constructor(@ApplicationContext private val co
     fun finished(recipe: Recipe, record: RecipeRunRecord, showSummary: Boolean) {
         cancelUnlock(recipe.id)
         val title = RecipeCopy.title(recipe.name, record)
-        post(tag(recipe.id), FINISHED, build(title, RecipeCopy.body(record, showSummary), open(recipe.id, record.sessionId)))
+        post(tag(recipe.id), FINISHED, build(title, RecipeCopy.body(record, showSummary), open(recipe.id, record.sessionId, FINISHED)))
     }
 
     /** A due run could not read the encrypted data: says so, with the name only. */
     fun unlockToRun(recipeId: String, name: String) {
-        post(tag(recipeId), UNLOCK, build(RecipeCopy.unlockToRun(name), RecipeCopy.UNLOCK_BODY, open(recipeId, null)))
+        post(tag(recipeId), UNLOCK, build(RecipeCopy.unlockToRun(name), RecipeCopy.UNLOCK_BODY, open(recipeId, null, UNLOCK)))
     }
 
     fun cancelUnlock(recipeId: String) = manager.cancel(tag(recipeId), UNLOCK)
@@ -80,10 +80,14 @@ class RecipeNotifications @Inject constructor(@ApplicationContext private val co
         if (manager.areNotificationsEnabled()) runCatching { manager.notify(tag, id, notification) }
     }
 
-    /** Opens the app on the recipe's result chat (or the Recipes screen). */
-    private fun open(recipeId: String, chatId: String?): PendingIntent? = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
+    /**
+     * Opens the app on the recipe's result chat (or the Recipes screen). Each notification of a
+     * recipe ([id]) has its own request code: with one shared code, FLAG_UPDATE_CURRENT would
+     * let a later "Unlock to run" strip the result chat from the finished notification's tap.
+     */
+    private fun open(recipeId: String, chatId: String?, id: Int): PendingIntent? = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
         val intent = it.setAction(ACTION_OPEN).putExtra(EXTRA_RECIPE, recipeId).apply { chatId?.let { c -> putExtra(EXTRA_CHAT, c) } }
-        PendingIntent.getActivity(context, recipeId.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        PendingIntent.getActivity(context, 31 * recipeId.hashCode() + id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     /** Notifications are tagged per recipe, so their ids never meet another feature's. */

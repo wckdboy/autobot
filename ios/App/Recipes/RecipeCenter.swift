@@ -22,6 +22,12 @@ protocol RecipeHost: AnyObject {
     func run(sessionId: String, model: String, recipe: String, context: String?, startedAt: Int64, manual: Bool) async -> String
     /// Asks the system to wake the app for [plan].
     func schedule(_ plan: RecipeBackground.Plan?)
+    /// Stops the headless turn running in [sessionId] (its run then ends as stopped).
+    func cancelRun(sessionId: String)
+}
+
+extension RecipeHost {
+    func cancelRun(sessionId: String) {}
 }
 
 /**
@@ -47,6 +53,8 @@ final class RecipeCenter {
     @ObservationIgnored private let indexURL: URL
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var asked = false
+    /// The result chat of the run in progress (stop() cancels its turn).
+    @ObservationIgnored private var runningSession: String?
 
     init(repository: RecipeRepository, notifier: any RecipeNotifying, indexURL: URL = RecipeIndex.url) {
         self.repository = repository
@@ -139,6 +147,7 @@ final class RecipeCenter {
     func stop() {
         queue.removeAll()
         task?.cancel()
+        if let session = runningSession { host?.cancelRun(sessionId: session) }
     }
 
     /// Charging and battery conditions (iOS cannot hold a scheduled run for them, so it checks).
@@ -180,7 +189,9 @@ final class RecipeCenter {
             let context = recipe.includeRecentChats ? host.recentChats(since: RecipeRules.digestSince(recipe, now: started)) : nil
             let session = host.newResultChat(title: RecipeRules.chatTitle(recipe.name, at: started), model: model)
             RecipeBackground.began(background: !host.appActive)
+            runningSession = session
             record = await host.run(sessionId: session, model: model, recipe: recipe.json, context: context, startedAt: started, manual: manual)
+            runningSession = nil
             RecipeBackground.ended()
         }
         // The recipe may have been edited or deleted meanwhile: apply the run to what is stored now.

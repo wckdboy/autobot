@@ -23,6 +23,11 @@ struct RecipeTests {
         var plans: [RecipeBackground.Plan?] = []
         var cpuDuringRun: Bool?
         var answer = "Five headlines."
+        /// Runs wait until cancelled ([cancelRun]).
+        var hang = false
+        var cancelled: [String] = []
+        private var held: CheckedContinuation<String, Never>?
+        private var heldRecord = ""
 
         func defaultLocalModel() -> String? { local }
         func localModels() -> [String] { models }
@@ -36,9 +41,17 @@ struct RecipeTests {
             cpuDuringRun = RecipeBackground.cpuOnly
             var r = RecipeRunDoc(startedAt: startedAt, finishedAt: startedAt + 1000, status: "DONE", sessionId: sessionId, summary: answer)
             r.trigger = manual ? "MANUAL" : "SCHEDULE"
-            return r.json
+            guard hang else { return r.json }
+            r.status = "FAILED"
+            heldRecord = r.json
+            return await withCheckedContinuation { held = $0 }
         }
         func schedule(_ plan: RecipeBackground.Plan?) { plans.append(plan) }
+        func cancelRun(sessionId: String) {
+            cancelled.append(sessionId)
+            held?.resume(returning: heldRecord)
+            held = nil
+        }
     }
 
     final class Notes: RecipeNotifying {
@@ -228,6 +241,22 @@ struct RecipeTests {
         #expect(host.cpuDuringRun == false)
         #expect(RecipeBackground.backend(.gpu, cpuOnly: true) == .cpu)
         #expect(RecipeBackground.backend(.gpu, cpuOnly: false) == .gpu)
+    }
+
+    @Test func stoppingCancelsTheRunningTurn() async throws {
+        let host = Host(), notes = Notes()
+        let c = center(host, notes)
+        c.load(now: 0)
+        c.save(brief, now: 0)
+        host.hang = true
+        c.runNow("r1")
+        for _ in 0..<200 where host.runs.isEmpty { await Task.yield() }
+        #expect(c.running == "r1")
+        // Background expiry or a panic wipe: the headless turn is stopped, not left running.
+        c.stop()
+        await c.idle()
+        #expect(host.cancelled == ["chat-1"])
+        #expect(c.running == nil)
     }
 
     // MARK: Background request

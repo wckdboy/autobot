@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.shared.recipes
 
 import dev.wckdboy.autobot.agent.core.Harness
 import dev.wckdboy.autobot.agent.core.approval.ApprovalPolicy
+import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.llm.LlmAdapter
 import dev.wckdboy.autobot.agent.core.llm.LlmCall
 import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
@@ -140,6 +141,13 @@ class RecipeTurnsTest {
         assertEquals(AgentConfig.DEFAULT_MAX_STEPS, agent.config.value.maxStepsPerTurn)
         // The route stays on the on-device model for a follow-up.
         assertEquals(LlmCallConfig("local", "qwen"), agent.config.value.llm)
+    }
+
+    @Test
+    fun aReadOnlyChatIsReadOnlyAgainAfterTheRun() = withAgent(listOf("ok")) { agent, _, _ ->
+        agent.setPermission(PermissionPreset.READ_ONLY)
+        RecipeTurns.run(agent, recipe.copy(tools = listOf("read")), "local", "qwen")
+        assertEquals(PermissionPreset.READ_ONLY, agent.permission.value)
     }
 
     @Test

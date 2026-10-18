@@ -90,6 +90,26 @@ class RecipePlannerTest {
     }
 
     @Test
+    fun aRunWokenSlightlyEarlyDoesNotRunTheSameTimeAgain() {
+        val on = RecipePlanner.saved(brief.copy(enabled = true), null, at("2026-10-18T06:00"), berlin)
+        // The OS batched the 07:00 wake to 06:59:30 (inside the slack): that was the 07:00 run.
+        val after = RecipePlanner.finished(on, record(at("2026-10-18T06:59:30")), berlin)
+        assertEquals("2026-10-19T07:00", local(after.state.nextRunAt))
+        val hourly = RecipePlanner.saved(brief.copy(enabled = true, schedule = RecipeSchedule.EveryHours(3)), null, at("2026-10-18T10:00"), berlin)
+        val early = RecipePlanner.finished(hourly, record(at("2026-10-18T12:59:30")), berlin)
+        assertEquals("2026-10-18T16:00", local(early.state.nextRunAt))
+    }
+
+    @Test
+    fun anAppStartAfterACatchUpRunKeepsTheSkippedRunSkipped() {
+        val on = RecipePlanner.saved(brief.copy(enabled = true), null, at("2026-10-17T06:00"), berlin)
+        val after = RecipePlanner.finished(on, record(at("2026-10-18T06:50")), berlin)
+        assertEquals("2026-10-19T07:00", local(after.state.nextRunAt))
+        // The app starts at 06:55, before today's (skipped) 07:00: tomorrow's run stays.
+        assertEquals(after, RecipePlanner.reconcile(after, at("2026-10-18T06:55"), berlin))
+    }
+
+    @Test
     fun aManualRunBetweenRunsLeavesTheScheduleAlone() {
         val on = RecipePlanner.saved(brief.copy(enabled = true), null, at("2026-10-18T06:00"), berlin)
         val manual = RecipePlanner.finished(on, record(at("2026-10-18T06:10"), RecipeTrigger.MANUAL), berlin)

@@ -28,8 +28,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   writes its privacy receipt to the result chat;
  * - a run longer than the timeout is cancelled (the log stays a valid history).
  *
- * The agent's interactive settings are put back afterwards, so the result chat behaves like any
- * other chat when the user continues it.
+ * The agent's interactive settings (tool restriction, step limit, permission preset, approval
+ * policy) are put back afterwards, so the result chat behaves like any other chat when the user
+ * continues it; a read-only preset never comes back as workspace-write.
  */
 object RecipeTurns {
     /** Android's WorkManager stops work after ten minutes; iOS processing tasks get a few. */
@@ -54,6 +55,8 @@ object RecipeTurns {
     ): RecipeTurnResult {
         val allowed = RecipeTools.sanitize(recipe.tools).toSet()
         val before = agent.config.value
+        val permissionBefore = agent.permission.value
+        val policyBefore = agent.approvalPolicy.value
         val startTurn = agent.log.latest<SessionEvent.TurnStart>()?.turn ?: 0
         agent.updateConfig {
             it.copy(
@@ -83,7 +86,8 @@ object RecipeTurns {
         } finally {
             withContext(NonCancellable) {
                 agent.sessionGrants -= granted
-                agent.setApprovalPolicy(ApprovalPolicy.ASK)
+                agent.setApprovalPolicy(policyBefore)
+                agent.setPermission(permissionBefore)
                 agent.updateConfig { it.copy(restriction = before.restriction, maxStepsPerTurn = before.maxStepsPerTurn) }
             }
         }

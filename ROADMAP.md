@@ -144,8 +144,21 @@ models, shared core). Ordered by value.
 6. **Pair your own devices.** End-to-end encrypted (Noise) pairing between the user's phones and
    computers over LAN or Tailscale: an iPhone can borrow the OnePlus NPU or a desktop GPU as "my
    own cloud"; sessions and the vault sync without a server.
-7. **On-device agents on a schedule.** Recipes ("every morning: summarise these feeds over Tor") run
+7. ✅ **On-device agents on a schedule.** Recipes ("every morning: summarise these feeds over Tor") run
    with BGTaskScheduler / WorkManager on local models, with results as notifications and receipts.
+   *(done, both apps: Settings › Recipes with three disabled templates (morning brief from feeds,
+   weekly notes tidy, daily chat digest); daily, weekdays, weekly or every N hours, in local time
+   across DST changes and travel; a missed run runs once at the next chance, never a backlog.
+   Each run is a headless turn in a new chat in a "Recipes" folder, on an on-device model only,
+   with only the recipe's tool groups (read/write files without delete, web, memory, vault),
+   approvals denied without a prompt, the kill switch, audit log and receipt as in any chat, and
+   an 8-minute limit; recipes are rows of the encrypted store and go with a panic wipe.
+   Notifications name only the recipe unless "Summary in notifications" is on. Android uses
+   WorkManager with per-recipe charging / battery / unmetered-network constraints; iOS a
+   `BGProcessingTask` whose times are "around" (iOS decides), on the CPU in the background, and
+   a locked phone only gets "Unlock to run <name>" until the next unlock. Not yet: Android picks
+   up a time zone change only at the next app start; iOS checks charging and battery when the
+   task runs rather than holding the run for them; MCP tools in recipes.)*
 8. ✅ **System entry points.** App Intents / Shortcuts, the Action button, widgets, Android
    Quick Settings tile and share targets: "Ask Autobot" about a screenshot, a selection or a photo,
    answered on device. *(done, both apps: iOS App Intents "Ask Autobot" / "Start Voice Chat" /

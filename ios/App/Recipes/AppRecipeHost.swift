@@ -64,4 +64,6 @@ final class AppRecipeHost: RecipeHost {
     }
 
     func schedule(_ plan: RecipeBackground.Plan?) { RecipeBackground.submit(plan) }
+
+    func cancelRun(sessionId: String) { app.agent.cancel(sessionId) }
 }
