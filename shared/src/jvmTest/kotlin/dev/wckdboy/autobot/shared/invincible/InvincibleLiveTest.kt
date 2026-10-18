@@ -7,6 +7,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -31,6 +32,8 @@ import org.junit.Test
  */
 class InvincibleLiveTest {
     private val bin = System.getenv("INVINCIBLE_BIN")
+    /** Optional: a GGUF model (and llama-server on the PATH) for a real streamed answer. */
+    private val model = System.getenv("INVINCIBLE_MODEL")
     private lateinit var home: File
     private var node: Process? = null
     private var apiPort = 0
@@ -52,7 +55,7 @@ class InvincibleLiveTest {
             [remote]
             name = "live-node"
             listen = ["127.0.0.1:$remotePort"]
-            """.trimIndent(),
+            """.trimIndent() + (model?.let { "\n\n[[models]]\nid = \"live\"\npath = \"$it\"\ncontext = 4096\n" } ?: ""),
         )
         node = ProcessBuilder(bin, "serve").apply {
             environment()["INVINCIBLE_HOME"] = home.path
@@ -121,6 +124,38 @@ class InvincibleLiveTest {
     }
 
     private fun connect() = SocketNodeLink(Socket("127.0.0.1", remotePort))
+
+    /** Autobot's own provider code ([TransportChatProvider]) streaming from the node's real model. */
+    @Test
+    fun theProviderStreamsARealAnswerFromTheNode() = runBlocking {
+        assumeTrue("set INVINCIBLE_MODEL to a GGUF file for a real answer", model != null && File(model).isFile)
+        val code = PairingCode.parse(admin("POST", "/v1/admin/pairing")["code"]!!.jsonPrimitive.content)!!
+        val device = NodeKeyPair.generate(crypto)
+        InvincibleNode.pair(crypto, connect(), code, device, "provider").channel.close()
+        val transport = NodeHttpTransport(crypto, code.nodeKey, device, { connect() })
+        val provider = dev.wckdboy.autobot.shared.TransportChatProvider("http://invincible/v1", null, transport, "node")
+        // The engine loads the model in the background; wait until the node lists it healthy.
+        repeat(120) {
+            val models = provider.listModels()
+            if (models is dev.wckdboy.autobot.providers.remote.ModelListResult.Success && models.models.any { it.id == "live" }) {
+                val healthy = admin("GET", "/v1/models")["data"]!!.jsonArray.any {
+                    it.jsonObject["invincible"]!!.jsonObject["healthy"]!!.jsonPrimitive.content == "true"
+                }
+                if (healthy) return@repeat
+            }
+            Thread.sleep(500)
+        }
+        val request = dev.wckdboy.autobot.providers.remote.ChatRequest(
+            "live",
+            listOf(dev.wckdboy.autobot.providers.remote.ChatMessage(dev.wckdboy.autobot.providers.remote.ChatRole.USER, "Reply with exactly: node ok /no_think")),
+            maxTokens = 20,
+        )
+        val events = kotlinx.coroutines.withTimeout(120_000) { provider.streamChat(request).toList() }
+        val text = events.filterIsInstance<dev.wckdboy.autobot.providers.remote.ChatEvent.ContentDelta>().joinToString("") { it.text }
+        assertTrue("events: $events", events.last() == dev.wckdboy.autobot.providers.remote.ChatEvent.Done)
+        assertTrue("answer: $text", text.contains("node ok", ignoreCase = true))
+        println("node answered through Autobot's provider: ${text.trim()}")
+    }
 
     @Test
     fun pairsTalksVerifiesAndIsCutOff() = runBlocking {
