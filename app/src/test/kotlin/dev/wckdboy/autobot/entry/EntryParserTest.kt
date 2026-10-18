@@ -84,4 +84,14 @@ class EntryParserTest {
         assertNull(EntryParser.parse(Intent.ACTION_SEND, "application/json", streams = listOf("file:///data/x.json")))
         assertEquals(EntryRequest.NewChat(draft = "{not a graph}"), EntryParser.parse(Intent.ACTION_SEND, "text/plain", text = "{not a graph}"))
     }
+
+    @Test
+    fun aNodePairingLinkOpensPairing() {
+        val link = "invincible://pair?v=0&k=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc&s=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk&a=192.168.1.20:7778"
+        assertEquals(EntryRequest.PairNode(link), EntryParser.parse(Intent.ACTION_VIEW, data = link))
+        // Anything else viewed is not taken: a malformed code, another scheme.
+        assertNull(EntryParser.parse(Intent.ACTION_VIEW, data = "invincible://pair?v=0&k=x"))
+        assertNull(EntryParser.parse(Intent.ACTION_VIEW, data = "https://example.com/pair"))
+        assertNull(EntryParser.parse(Intent.ACTION_VIEW, data = null))
+    }
 }

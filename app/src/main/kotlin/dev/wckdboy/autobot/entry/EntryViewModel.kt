@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.entry
 
+import dev.wckdboy.autobot.providers.remote.NodePairingLinks
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.IntentCompat
@@ -22,6 +23,7 @@ import dev.wckdboy.autobot.navigation.Imagine
 import dev.wckdboy.autobot.navigation.Models
 import dev.wckdboy.autobot.navigation.Recipes
 import dev.wckdboy.autobot.navigation.Run
+import dev.wckdboy.autobot.navigation.Providers
 import dev.wckdboy.autobot.navigation.Settings
 import dev.wckdboy.autobot.navigation.Studio
 import javax.inject.Inject
@@ -44,6 +46,9 @@ sealed interface EntryPlan {
 
     /** A recipe's result chat over the Recipes screen (just the screen when the chat is gone). */
     data class Recipe(val chatId: String?) : EntryPlan
+
+    /** The Providers screen with a node's pairing code waiting in the pairing sheet. */
+    data class PairNode(val code: String) : EntryPlan
 }
 
 /** Entry routing, kept pure for tests. */
@@ -54,6 +59,7 @@ object EntryRouting {
         is EntryRequest.NewChat -> if (canChat) EntryPlan.NewChat(ChatStart(draft = request.draft, images = request.images)) else EntryPlan.Setup
         EntryRequest.Voice -> if (canChat) EntryPlan.NewChat(ChatStart(voice = true)) else EntryPlan.Setup
         is EntryRequest.OpenRecipe -> EntryPlan.Recipe(request.chatId)
+        is EntryRequest.PairNode -> EntryPlan.PairNode(request.code)
     }
 
     /** The back stack after an entry: RUN underneath, so back leads home. */
@@ -63,6 +69,7 @@ object EntryRouting {
         is EntryPlan.Workflow -> listOf(Run, Studio(room = "workflows"))
         EntryPlan.Setup -> listOf(Models)
         is EntryPlan.Recipe -> listOfNotNull(Settings, Recipes, plan.chatId?.let(::Chat))
+        is EntryPlan.PairNode -> listOf(Settings, Providers)
     }
 }
 
@@ -80,6 +87,7 @@ class EntryViewModel @Inject constructor(
     private val host: AgentHost,
     private val handoff: ChatHandoff,
     private val studioInbox: StudioInbox,
+    private val pairingLinks: NodePairingLinks,
 ) : ViewModel() {
 
     private val _pending = MutableStateFlow<EntryRequest?>(null)
@@ -97,6 +105,7 @@ class EntryViewModel @Inject constructor(
         val plan = EntryRouting.plan(request, canChat = target != null)
         var conversationId: String? = null
         if (plan is EntryPlan.Workflow) studioInbox.put(plan.share)
+        if (plan is EntryPlan.PairNode) pairingLinks.put(plan.code)
         if (plan is EntryPlan.Recipe && plan.chatId != null && conversations.getConversation(plan.chatId) == null) {
             return EntryRouting.backStack(EntryPlan.Recipe(null), null)
         }
@@ -127,5 +136,6 @@ fun Intent.toEntryRequest(): EntryRequest? {
         processText = getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT),
         prompt = getStringExtra(EntryActions.EXTRA_PROMPT),
         chat = getStringExtra(RecipeNotifications.EXTRA_CHAT),
+        data = dataString,
     )
 }

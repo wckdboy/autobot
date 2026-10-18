@@ -629,6 +629,7 @@ enum SharedMapping {
         case .ollama: .ollama
         case .local: .local
         case .anthropic: .anthropic
+        case .invincibleNode: .invincibleNode
         }
     }
 

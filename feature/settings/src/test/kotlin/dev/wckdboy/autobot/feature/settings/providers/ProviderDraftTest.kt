@@ -57,4 +57,23 @@ class ProviderDraftTest {
     fun theKeyIsNeverPrinted() {
         assertFalse(deepseek.copy(apiKeyInput = "sk-secret").toString().contains("sk-secret"))
     }
+
+    @Test
+    fun aNodeSavesWithItsNameOnlyUrl() {
+        val node = ProviderDraft.fromPreset(ProviderPresets.byId(ProviderPresets.INVINCIBLE)!!).copy(id = "n1", displayName = "studio")
+        assertTrue(node.isNode)
+        assertNull(node.cleartextProblem)
+        assertNull(node.saveProblem)
+        assertFalse(node.missingKey)
+    }
+
+    @Test
+    fun aPairingDraftChecksItsCode() {
+        assertEquals("Not an Invincible pairing code", PairingDraft(code = "hello", deviceName = "Pixel").problem)
+        val good = PairingDraft(code = "invincible://pair?v=0&k=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc&s=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk&a=192.168.1.20:7778", deviceName = "Pixel")
+        assertNull(good.problem)
+        assertEquals("0707-0707-0707-0707", good.fingerprint)
+        assertFalse(good.toString().contains("invincible://"))
+        assertEquals("Name this phone", good.copy(deviceName = " ").problem)
+    }
 }

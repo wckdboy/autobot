@@ -168,7 +168,7 @@ class ProviderLlmAdapter(
                 "glm-5" in m -> ModelInfo(200_000, supportsReasoning = true)
                 "minimax-m3" in m -> ModelInfo(1_000_000, supportsReasoning = true)
                 "qwen3" in m -> ModelInfo(128_000, supportsReasoning = true)
-                kind == ProviderKind.OLLAMA -> ModelInfo(32_768)
+                kind == ProviderKind.OLLAMA || kind == ProviderKind.INVINCIBLE_NODE -> ModelInfo(32_768)
                 kind == ProviderKind.OPENROUTER -> ModelInfo(128_000)
                 else -> ModelInfo(LlmAdapter.DEFAULT_CONTEXT_WINDOW)
             }

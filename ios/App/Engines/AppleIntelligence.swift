@@ -121,9 +121,9 @@ enum AppleIntelligence {
                     if !delta.isEmpty { onDelta(delta) }
                     sent = text
                 }
-                // Token usage and the newer error types are in the iOS 27 SDK (Xcode 27, Swift 6.3+);
+                // Token usage and the newer error types are in the iOS 27 SDK (Xcode 27, Swift 6.4; Xcode 26.x ships at most 6.3);
                 // built with an older Xcode, they are left out and usage stays unknown.
-                #if compiler(>=6.3)
+                #if compiler(>=6.4)
                 if #available(iOS 27.0, *) {
                     promptTokens = snapshot.usage.input.totalTokenCount
                     completionTokens = snapshot.usage.output.totalTokenCount
@@ -142,7 +142,7 @@ enum AppleIntelligence {
     @available(iOS 26.0, *)
     static func describe(_ error: Error) -> (code: String, message: String) {
         if error is CancellationError { return ("CANCELLED", "cancelled") }
-        #if compiler(>=6.3)
+        #if compiler(>=6.4)
         if #available(iOS 27.0, *), let e = error as? LanguageModelError {
             switch e {
             case .contextSizeExceeded: return ("CONTEXT_WINDOW_EXCEEDED", contextMessage)

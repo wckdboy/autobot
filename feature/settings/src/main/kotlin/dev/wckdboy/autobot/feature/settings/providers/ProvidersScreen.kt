@@ -102,6 +102,9 @@ fun ProvidersRoute(onBack: () -> Unit, viewModel: ProvidersViewModel = hiltViewM
             override fun save() = viewModel.save()
             override fun test() = viewModel.testConnection()
             override fun dismissEditor() = viewModel.dismissEditor()
+            override fun changePairing(transform: (PairingDraft) -> PairingDraft) = viewModel.updatePairing(transform)
+            override fun pair() = viewModel.pair()
+            override fun dismissPairing() = viewModel.dismissPairing()
         },
     )
 }
@@ -119,6 +122,9 @@ interface ProvidersActions {
     fun save()
     fun test()
     fun dismissEditor()
+    fun changePairing(transform: (PairingDraft) -> PairingDraft) {}
+    fun pair() {}
+    fun dismissPairing() {}
 }
 
 private val ProviderRouting.label: String
@@ -192,6 +198,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
 
     state.pickerQuery?.let { query -> PresetPickerSheet(query, actions) }
     state.editor?.let { draft -> ProviderEditorSheet(draft, state, actions) }
+    state.pairing?.let { pairing -> PairingSheet(pairing, actions) }
     deleting?.let { row ->
         AlertDialog(
             onDismissRequest = { deleting = null },
@@ -298,7 +305,10 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 preset.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
                 ConsoleTextField(draft.displayName, { v -> actions.change { it.copy(displayName = v) } }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (draft.isNode) {
+                    // Its address and keys come from pairing; delete the provider to unpair.
+                    MicroLabel("paired end to end · keys encrypted with android keystore · delete to unpair")
+                } else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ConsoleTextField(
                         draft.baseUrl, { v -> actions.change { it.copy(baseUrl = v) } }, Modifier.fillMaxWidth(),
                         label = "Base URL", singleLine = true, mono = true,
@@ -313,7 +323,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                     }
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!draft.isNode) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ConsoleTextField(
                         draft.apiKeyInput, { v -> actions.change { it.copy(apiKeyInput = v, clearStoredKey = false) } }, Modifier.fillMaxWidth(),
                         label = if (preset.requiresApiKey) "API key" else "API key (optional)",
@@ -381,6 +391,63 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                     )
                 }
                 TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("CANCEL") }
+            }
+        }
+    }
+}
+
+/**
+ * "My node": pair with an Invincible node from its code. The camera app reading the node's QR
+ * code fills it in (`invincible://pair?…`); pasting works too. The node's key fingerprint is shown
+ * to compare with what the node printed before anything is sent.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PairingSheet(draft: PairingDraft, actions: ProvidersActions) {
+    ModalBottomSheet(onDismissRequest = actions::dismissPairing, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        NoPersonalizedLearning {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SectionLabel("pair with my node")
+                Text("My node (Invincible)", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "On the node, run `invincible pair`. Point the camera app at the QR code it shows, or paste the code below.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ConsoleTextField(
+                    draft.code, { v -> actions.changePairing { it.copy(code = v.trim()) } }, Modifier.fillMaxWidth(),
+                    label = "Pairing code", mono = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                draft.parsed?.let { code ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        MicroLabel("node key")
+                        Text(draft.fingerprint.orEmpty(), style = MaterialTheme.typography.titleMedium)
+                        MicroLabel("compare with the key the node printed · ${code.addresses.joinToString(" · ")}")
+                    }
+                }
+                ConsoleTextField(
+                    draft.deviceName, { v -> actions.changePairing { it.copy(deviceName = v) } }, Modifier.fillMaxWidth(),
+                    label = "This phone's name on the node", singleLine = true,
+                )
+                Text(
+                    "Pairing is end-to-end encrypted (Noise) and needs no account. The kill switch and routing apply: it fails in offline mode.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (!draft.running) draft.problem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                PrimaryButton("Pair", actions::pair, Modifier.fillMaxWidth(), enabled = draft.problem == null && !draft.running, busy = draft.running)
+                TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("CANCEL") }
             }
         }
     }

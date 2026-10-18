@@ -166,7 +166,9 @@ internal class Http1Reader(private val channel: NodeChannel) {
                 headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true -> while (true) {
                     val size = reader.line()?.substringBefore(';')?.trim()?.toIntOrNull(16) ?: error("bad chunk size")
                     if (size == 0) {
-                        while (reader.line()?.isNotEmpty() == true) Unit // trailers
+                        while (reader.line()?.isNotEmpty() == true) {
+                            // trailers: skipped
+                        }
                         return
                     }
                     each(reader.bytes(size))

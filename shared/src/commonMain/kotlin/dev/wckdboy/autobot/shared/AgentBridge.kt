@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.shared
 
+import dev.wckdboy.autobot.shared.invincible.NodeCrypto
+import dev.wckdboy.autobot.shared.invincible.NodeLink
+import dev.wckdboy.autobot.shared.invincible.NodeProviders
+import dev.wckdboy.autobot.shared.invincible.UnavailableChatProvider
 import dev.wckdboy.autobot.agent.core.Disposable
 import dev.wckdboy.autobot.agent.core.Harness
 import dev.wckdboy.autobot.agent.core.Hooks
@@ -546,9 +550,26 @@ class AgentBridge(
         }
     }
 
-    /** The chat client for a stored provider: the on-device engine or the host's HTTP transport. */
+    /**
+     * How this host reaches a paired Invincible node: set by hosts that can open node
+     * connections. Without it a "My node" provider says it is not available here, and its pairing
+     * secret never goes anywhere.
+     */
+    var nodeConnector: (suspend (addresses: List<String>, route: String) -> NodeLink)? = null
+    var nodeCrypto: NodeCrypto? = null
+
+    /** The chat client for a stored provider: the on-device engine, a paired node, or the host's HTTP transport. */
     fun chatProvider(spec: ProviderSpec): ChatProvider = when (spec.kind) {
         ProviderKind.LOCAL -> LocalEngineChatProvider(local)
+        ProviderKind.INVINCIBLE_NODE -> {
+            val connector = nodeConnector
+            val crypto = nodeCrypto
+            if (connector == null || crypto == null) {
+                UnavailableChatProvider("My node is not available on this device yet")
+            } else {
+                NodeProviders.chatProvider(crypto, spec.apiKey, spec.displayName, spec.preset) { addresses -> connector(addresses, spec.route) }
+            }
+        }
         else -> TransportChatProvider(spec.baseUrl, spec.apiKey, transport, spec.displayName, spec.route, spec.preset)
     }
 

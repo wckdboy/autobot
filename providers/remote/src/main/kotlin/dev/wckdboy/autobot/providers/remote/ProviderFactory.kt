@@ -13,6 +13,8 @@ import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.core.security.Secret
 import dev.wckdboy.autobot.engine.llama.LocalLlm
+import dev.wckdboy.autobot.shared.invincible.JvmNodeCrypto
+import dev.wckdboy.autobot.shared.invincible.NodeProviders
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
@@ -34,6 +36,7 @@ class ProviderFactory @Inject constructor(
     private val systemModel: SystemModel,
     private val profiler: DeviceProfiler,
     private val settings: SettingsRepository,
+    private val nodes: NodeConnections,
 ) {
     // Cached for the process: only its RAM-based fit() is used here (free storage, which would go
     // stale, is never read from it).
@@ -54,6 +57,17 @@ class ProviderFactory @Inject constructor(
                 fit = { device.fit(it.kind, it.totalBytes, it.engine) },
                 speculativeMode = { settings.settings.first().speculativeMode },
                 device = { device.capabilities },
+            )
+        }
+        // A paired node: Noise sessions under the network policy; the stored "key" is the pairing,
+        // never sent as one.
+        if (provider.kind == ProviderKind.INVINCIBLE_NODE) {
+            return NodeProviders.chatProvider(
+                JvmNodeCrypto,
+                apiKey?.reveal(),
+                provider.displayName,
+                provider.preset(),
+                nodes.connector(provider.routing, provider.displayName),
             )
         }
         val client = httpClientFactory.create(tag = provider.displayName, override = provider.routing.toOverride())
