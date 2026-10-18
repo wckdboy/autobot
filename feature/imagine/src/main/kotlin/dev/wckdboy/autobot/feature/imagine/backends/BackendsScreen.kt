@@ -137,9 +137,9 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
                 val result = state.testResults[backend.id]
                 Panel(
                     title = backend.kind.label,
-                    accent = if (backend.kind == BackendKind.LOCAL_SSE) AutobotColors.Uv else AutobotColors.Cyan,
+                    accent = if (backend.kind == BackendKind.LOCAL_SSE) AutobotTheme.inks.uv else AutobotTheme.inks.cyan,
                     trailing = {
-                        Tag(if (backend.isLoopback) "loopback" else "network", accent = if (backend.isLoopback) AutobotColors.Acid else AutobotColors.Amber)
+                        Tag(if (backend.isLoopback) "loopback" else "network", accent = if (backend.isLoopback) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber)
                     },
                 ) {
                     Row(Modifier.fillMaxWidth().clickable { editing = backend }, verticalAlignment = Alignment.CenterVertically) {
@@ -154,7 +154,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
                             InkBusyLabel(state.testing == backend.id) { Text("TEST") }
                         }
                         result?.let {
-                            MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) AutobotColors.Acid else MaterialTheme.colorScheme.error)
+                            MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                         }
                     }
                 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -107,7 +108,8 @@ fun RouteTag(route: Route, modifier: Modifier = Modifier) {
         modifier = base.padding(horizontal = 6.dp, vertical = 3.dp),
         style = AutobotTheme.styles.micro,
         color = if (route.local) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-        maxLines = 1,
+        // A large font wraps the tag ("● LOCAL ·" / "NPU") rather than cutting its end.
+        maxLines = linesFor(1, 3),
     )
 }
 
@@ -119,7 +121,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = Mat
         modifier = modifier,
         style = AutobotTheme.styles.micro,
         color = color,
-        maxLines = 1,
+        maxLines = linesFor(1, 3),
         overflow = TextOverflow.Ellipsis,
     )
 }
@@ -187,27 +189,40 @@ fun AutobotTopBar(
     navigation: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
+    val large = isLargeText()
     Surface(color = MaterialTheme.colorScheme.background) {
-        Row(
-            modifier = modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 52.dp).padding(start = if (navigation == null) 16.dp else 4.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            navigation?.invoke()
-            if (showMark && navigation == null) AutobotMark()
-            // Steps down (to [TOP_BAR_TITLE_MIN]) before it truncates: at 360 dp a bar with a few
-            // actions (chat: voice, route, more) left room for "AG…" of "AGENT RUN".
-            val titleStyle = MaterialTheme.typography.titleLarge
-            Text(
-                title.uppercase(Locale.ROOT),
-                style = titleStyle,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                autoSize = TextAutoSize.StepBased(minFontSize = TOP_BAR_TITLE_MIN, maxFontSize = titleStyle.fontSize, stepSize = 1.sp),
-                modifier = Modifier.weight(1f),
-            )
-            actions()
+        Column(modifier.fillMaxWidth().statusBarsPadding()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(start = if (navigation == null) 16.dp else 4.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                navigation?.invoke()
+                if (showMark && navigation == null) AutobotMark()
+                // Steps down (to [TOP_BAR_TITLE_MIN]) before it truncates: at 360 dp a bar with a few
+                // actions (chat: voice, route, more) left room for "AG…" of "AGENT RUN".
+                val titleStyle = MaterialTheme.typography.titleLarge
+                Text(
+                    title.uppercase(Locale.ROOT),
+                    style = titleStyle,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = linesFor(1, 2),
+                    overflow = TextOverflow.Ellipsis,
+                    autoSize = TextAutoSize.StepBased(minFontSize = TOP_BAR_TITLE_MIN, maxFontSize = titleStyle.fontSize, stepSize = 1.sp),
+                    modifier = Modifier.weight(1f),
+                )
+                if (!large) actions()
+            }
+            // A large font leaves no room for the actions beside the title: they take a row of
+            // their own under it, at the trailing edge, and wrap if they still do not fit.
+            if (large) {
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) { actions() }
+            }
         }
     }
 }
@@ -274,15 +289,27 @@ fun ModeCard(
             // No dots behind the index or the route tag (as on iOS): each clears the field under it.
             val clear = if (background != null || living) Modifier.inkClearance(card) else Modifier
             Column(Modifier.padding(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                val indexText = @Composable {
                     Text(
                         index,
                         modifier = clear,
                         style = AutobotTheme.styles.micro,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.weight(1f))
-                    route?.let { Box(clear) { RouteTag(it) } }
+                }
+                if (isLargeText()) {
+                    // A large font leaves no room for the tag beside the index on a half-width card: it goes under it.
+                    indexText()
+                    route?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Box(clear) { RouteTag(it) }
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        indexText()
+                        Spacer(Modifier.weight(1f))
+                        route?.let { Box(clear) { RouteTag(it) } }
+                    }
                 }
                 Spacer(Modifier.weight(1f, fill = true))
                 Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
@@ -291,7 +318,7 @@ fun ModeCard(
                     subtitle,
                     style = AutobotTheme.styles.micro,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = linesFor(2, 4),
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -318,24 +345,29 @@ fun RunRow(
     onClick: (() -> Unit)? = null,
     trailing: @Composable RowScope.() -> Unit = {},
 ) {
+    val large = isLargeText()
     Column(modifier) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+                .heightIn(min = 48.dp)
                 .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             leading?.invoke()
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // A large font wraps the title and subtitle rather than losing their ends.
+                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
                 // Empty: the row carries no state worth a second line.
                 if (subtitle.isNotEmpty()) {
-                    Text(subtitle, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
                 }
+                // A large font moves the trailing tags under the text, where they have the row's width.
+                if (large) Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { trailing() }
             }
-            trailing()
+            if (!large) trailing()
         }
         Hairline()
     }

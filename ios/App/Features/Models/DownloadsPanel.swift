@@ -38,7 +38,7 @@ struct DownloadsPanel: View {
                 }
                 if let block = state.blocks.first {
                     HStack(alignment: .top) {
-                        MicroLabel(block.label, color: AutobotColors.amber, lines: 2).frame(maxWidth: .infinity, alignment: .leading)
+                        MicroLabel(block.label, color: c.inks.amber, lines: 2).frame(maxWidth: .infinity, alignment: .leading)
                         if block == .killSwitch { Tag("privacy", accent: c.primary) { nav.push(.privacyCenter) } }
                     }
                 }

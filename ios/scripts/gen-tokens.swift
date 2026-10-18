@@ -78,6 +78,21 @@ for key in amoled.keys.sorted() {
 }
 out += "    }\n\n"
 
+// Accent inks: the palette accents as text and glyphs, per ground (dark = ink, light = paper).
+let inks = object("inks")
+guard let darkInks = inks["dark"] as? [String: Any], let lightInks = inks["light"] as? [String: Any],
+      Set(darkInks.keys) == Set(lightInks.keys) else { fail("inks needs dark and light with the same keys") }
+let inkKeys = darkInks.keys.sorted()
+out += "    /// Accent colours as text and glyphs on each ground (the palette accents are for fills).\n"
+out += "    struct Inks: Sendable {\n"
+for key in inkKeys { out += "        let \(key): UInt32\n" }
+out += "    }\n\n"
+for (name, set) in [("darkInks", darkInks), ("lightInks", lightInks)] {
+    out += "    static let \(name) = Inks(\n"
+    out += inkKeys.map { "        \($0): \(hex(set[$0]!, "inks.\(name).\($0)"))" }.joined(separator: ",\n")
+    out += "\n    )\n\n"
+}
+
 // Type scale
 let type = object("type")
 out += """

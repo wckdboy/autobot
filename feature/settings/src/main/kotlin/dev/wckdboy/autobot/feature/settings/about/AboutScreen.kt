@@ -159,7 +159,7 @@ fun AboutScreen(
                         Text("Built ${info.buildDate}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (info.debug) Tag("debug", accent = AutobotColors.Amber)
+                if (info.debug) Tag("debug", accent = AutobotTheme.inks.amber)
             }
             Text(
                 AboutLinks.PRIVACY,
@@ -250,8 +250,8 @@ private fun SignerBlock(info: AboutInfo, actual: String?, loaded: Boolean, onCop
             style = MaterialTheme.typography.bodyMedium,
             color = when {
                 !loaded -> MaterialTheme.colorScheme.onSurfaceVariant
-                match == CertMatch.OFFICIAL -> AutobotColors.Green
-                match == CertMatch.DEBUG -> AutobotColors.Amber
+                match == CertMatch.OFFICIAL -> MaterialTheme.colorScheme.primary
+                match == CertMatch.DEBUG -> AutobotTheme.inks.amber
                 else -> MaterialTheme.colorScheme.error
             },
         )

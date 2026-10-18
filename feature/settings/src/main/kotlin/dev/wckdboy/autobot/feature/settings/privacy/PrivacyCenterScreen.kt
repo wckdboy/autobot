@@ -279,8 +279,8 @@ private fun AuditRowView(row: AuditRow) {
     ) {
         Surface(
             shape = MaterialTheme.shapes.extraSmall,
-            color = (if (row.blocked) MaterialTheme.colorScheme.error else AutobotColors.Green).copy(alpha = 0.15f),
-            contentColor = if (row.blocked) MaterialTheme.colorScheme.error else AutobotColors.Green,
+            color = (if (row.blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary).copy(alpha = 0.15f),
+            contentColor = if (row.blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 2.dp),
         ) {
             Text(

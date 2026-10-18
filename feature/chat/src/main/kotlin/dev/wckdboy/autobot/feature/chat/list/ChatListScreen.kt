@@ -64,6 +64,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -74,6 +76,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
+import dev.wckdboy.autobot.core.designsystem.component.linesFor
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
@@ -284,25 +288,35 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
         }
         PrivacyStatusPill(state.privacyStatus, onClick = onOpenPrivacyCenter)
     }
-    Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (state.incognito) AutobotColors.Uv else MaterialTheme.colorScheme.outline)
-        MicroLabel("incognito", color = if (state.incognito) AutobotColors.Uv else MaterialTheme.colorScheme.onSurfaceVariant)
-        InfoButton("Incognito", "New chats are kept in memory only, never written to disk.", Modifier.weight(1f))
-        Switch(checked = state.incognito, onCheckedChange = actions.setIncognito)
+    val newChat = @Composable {
         Button(
             onClick = actions.newChat,
             shape = MaterialTheme.shapes.small,
-            colors = if (state.incognito) ButtonDefaults.buttonColors(containerColor = AutobotColors.Uv) else ButtonDefaults.buttonColors(),
+            colors = if (state.incognito) ButtonDefaults.buttonColors(containerColor = AutobotColors.Uv, contentColor = AutobotColors.PaperInk) else ButtonDefaults.buttonColors(),
             contentPadding = PaddingValues(horizontal = 14.dp),
         ) {
             Icon(AutobotIcons.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text("NEW")
         }
+    }
+    // A large font leaves no room for the New button beside the incognito switch: it goes under it.
+    val large = isLargeText()
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 8.dp), horizontalAlignment = Alignment.End) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.outline)
+            MicroLabel("incognito", color = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.onSurfaceVariant)
+            InfoButton("Incognito", "New chats are kept in memory only, never written to disk.")
+            Spacer(Modifier.weight(1f))
+            // Named for TalkBack: the "incognito" label beside it is a separate node.
+            Switch(checked = state.incognito, onCheckedChange = actions.setIncognito, modifier = Modifier.semantics { contentDescription = "Incognito" })
+            if (!large) newChat()
+        }
+        if (large) newChat()
     }
 }
 
@@ -396,7 +410,7 @@ private fun FilterChips(state: ChatListUiState, actions: ChatListActions, open: 
         item(key = "all") { Chip("All", state.filter == ChatFilter.All) { actions.setFilter(ChatFilter.All) } }
         item(key = "pinned") { Chip("Pinned", state.filter == ChatFilter.Pinned) { actions.setFilter(ChatFilter.Pinned) } }
         if (state.showIncognitoChip) {
-            item(key = "incognito") { Chip("Incognito", state.filter == ChatFilter.Incognito, AutobotColors.Uv) { actions.setFilter(ChatFilter.Incognito) } }
+            item(key = "incognito") { Chip("Incognito", state.filter == ChatFilter.Incognito, AutobotTheme.inks.uv) { actions.setFilter(ChatFilter.Incognito) } }
         }
         items(state.folders, key = { "folder:${it.id}" }) { folder ->
             val selected = state.filter == ChatFilter.Folder(folder.id)
@@ -473,6 +487,8 @@ private fun SwipeableRow(
             }
         },
         backgroundContent = {
+            // Nothing under a resting row: TalkBack does not read a hidden "archive" with every chat.
+            if (swipe.dismissDirection == SwipeToDismissBoxValue.Settled) return@SwipeToDismissBox
             val toDelete = swipe.dismissDirection == SwipeToDismissBoxValue.EndToStart
             Box(
                 Modifier.fillMaxSize().background(if (toDelete) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 20.dp),
@@ -521,15 +537,16 @@ private fun ConversationRow(
         Box(Modifier.width(if (selecting) 18.dp else 8.dp), contentAlignment = Alignment.Center) {
             when {
                 selecting -> SelectBox(selected)
-                item.running -> StatusDot(AutobotColors.Acid, live = true)
-                item.incognito -> StatusDot(AutobotColors.Uv)
+                item.running -> StatusDot(MaterialTheme.colorScheme.primary, live = true)
+                item.incognito -> StatusDot(AutobotTheme.inks.uv)
                 else -> Box(Modifier.size(4.dp).background(MaterialTheme.colorScheme.outline))
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (item.pinned) Icon(AutobotIcons.Pin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
-                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // A large font wraps the title and its line of detail rather than cutting their ends.
+                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
             }
             snippet?.let {
                 Text(
@@ -544,7 +561,7 @@ private fun ConversationRow(
                 meta,
                 style = AutobotTheme.styles.codeBlock,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                maxLines = linesFor(1, 3),
                 overflow = TextOverflow.Ellipsis,
             )
         }

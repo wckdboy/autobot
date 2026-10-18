@@ -337,7 +337,7 @@ private fun TestResult(test: TestState) {
         TestState.Idle -> Unit
         // The test button carries the ink loader while it runs.
         TestState.Running -> Unit
-        is TestState.Success -> Text(test.message, color = AutobotColors.Green, style = MaterialTheme.typography.bodySmall)
+        is TestState.Success -> Text(test.message, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
         is TestState.Failure -> Text(test.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 }

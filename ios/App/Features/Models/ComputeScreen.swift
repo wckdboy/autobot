@@ -159,7 +159,7 @@ private struct ModelCompute: View {
             if !isText {
                 MicroLabel("core ml · npu = neural engine, gpu = metal · auto uses the model's build (\(model.subtitle.contains("original") ? "gpu" : "neural engine"))", lines: 2)
             } else if model.backend == .npu {
-                MicroLabel("llama.cpp has no neural engine backend — npu falls back to the gpu or cpu", color: AutobotColors.amber, lines: 2)
+                MicroLabel("llama.cpp has no neural engine backend — npu falls back to the gpu or cpu", color: c.inks.amber, lines: 2)
             }
             if !results.isEmpty {
                 HStack(alignment: .top, spacing: 18) {

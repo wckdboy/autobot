@@ -246,7 +246,7 @@ private struct McpServerEditorSheet: View {
         case .idle: EmptyView()
         // The Test button carries the loader.
         case .running: EmptyView()
-        case .success(let m): Text(m).textStyle(.bodySmall).foregroundStyle(AutobotColors.green)
+        case .success(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.primary)
         case .failure(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.error)
         }
     }

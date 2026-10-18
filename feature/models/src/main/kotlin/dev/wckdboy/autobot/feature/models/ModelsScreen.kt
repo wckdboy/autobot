@@ -226,7 +226,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                             title = m.id.substringAfter('/'),
                             subtitle = "${m.id.substringBefore('/')} · ${m.downloads} dl${m.license?.let { " · $it" } ?: ""}",
                             onClick = { actions.openRepo(m.id) },
-                        ) { if (m.gated) Tag("gated", accent = AutobotColors.Amber) }
+                        ) { if (m.gated) Tag("gated", accent = AutobotTheme.inks.amber) }
                     }
                 }
                 ModelsTab.CIVITAI -> {
@@ -396,7 +396,7 @@ private fun CatalogRow(plan: ModelPlan, fit: Fit?, installed: Boolean, onGet: ()
                 it.label,
                 accent = when (it) {
                     Fit.GOOD -> MaterialTheme.colorScheme.onSurfaceVariant
-                    Fit.TIGHT -> AutobotColors.Amber
+                    Fit.TIGHT -> AutobotTheme.inks.amber
                     Fit.TOO_BIG, Fit.UNSUPPORTED -> MaterialTheme.colorScheme.error
                 },
             )
@@ -451,13 +451,13 @@ private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsActions
                 val kind = state.hf.scope.kind
                 val fit = state.device?.fit(kind, f.sizeBytes, dev.wckdboy.autobot.core.models.engineFor(kind, dev.wckdboy.autobot.core.models.formatOf(f.path, repo.id.substringBefore('/'))))
                 RunRow(f.path.substringAfterLast('/'), "${formatBytes(f.sizeBytes)}${if (f.sha256 != null) " · sha-256 known" else ""}") {
-                    fit?.let { Tag(it.label, accent = if (it == Fit.GOOD) MaterialTheme.colorScheme.onSurfaceVariant else AutobotColors.Amber) }
+                    fit?.let { Tag(it.label, accent = if (it == Fit.GOOD) MaterialTheme.colorScheme.onSurfaceVariant else AutobotTheme.inks.amber) }
                     Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = { actions.installHfFile(repo, f.path) })
                 }
             }
         }
         if (files.any { dev.wckdboy.autobot.core.models.formatOf(it.path, repo.id.substringBefore('/')) == ModelFormat.LOCAL_DREAM }) {
-            MicroLabel("local dream packages can't run on autobot's engines — use local dream's host mode as an image backend", color = AutobotColors.Amber)
+            MicroLabel("local dream packages can't run on autobot's engines — use local dream's host mode as an image backend", color = AutobotTheme.inks.amber)
         }
     }
 }
@@ -514,7 +514,7 @@ private fun CivitaiRow(model: CivitaiModel, actions: ModelsActions, installed: S
         },
     ) {
         when {
-            version?.earlyAccess == true -> Tag("early access", accent = AutobotColors.Amber)
+            version?.earlyAccess == true -> Tag("early access", accent = AutobotTheme.inks.amber)
             version != null && "civitai:${version.id}" in installed -> Tag("added")
             else -> Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
         }

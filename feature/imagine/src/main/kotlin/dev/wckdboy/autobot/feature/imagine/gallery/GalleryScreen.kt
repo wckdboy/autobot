@@ -66,6 +66,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.GalleryItem
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
@@ -111,6 +112,9 @@ fun GalleryScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().hairlineEdge()) {
+                // A large font leaves the title no room beside the count: the count goes on a line under it.
+                val large = isLargeText()
+                val count = "${state.items.size}/${state.total} · encrypted"
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (onBack != null) {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -118,15 +122,16 @@ fun GalleryScreen(
                         Spacer(Modifier.size(12.dp))
                     }
                     Text("GALLERY", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    MicroLabel("${state.items.size}/${state.total} · encrypted", Modifier.padding(end = 8.dp))
+                    if (!large) MicroLabel(count, Modifier.padding(end = 8.dp))
                     IconButton(onClick = { actions.setFavoritesOnly(!state.favoritesOnly) }) {
                         Icon(
                             Icons.Filled.Star,
                             contentDescription = "Favorites only",
-                            tint = if (state.favoritesOnly) AutobotColors.Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (state.favoritesOnly) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
+                if (large) MicroLabel(count, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 // Typed text stays here; the list filters a moment later (no dropped keys).
                 val query = rememberLocalText(state.query, actions::setQuery)
                 ConsoleTextField(
@@ -184,7 +189,7 @@ private fun Thumb(item: GalleryItem, actions: GalleryViewModel, onClick: () -> U
     ) {
         bitmap?.let { Image(it, contentDescription = item.prompt.take(60), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         Box(Modifier.align(Alignment.TopEnd).stamp(item.favorite, enabled = item.favorite)) {
-            if (item.favorite) Icon(Icons.Filled.Star, null, tint = AutobotColors.Amber, modifier = Modifier.padding(4.dp).size(14.dp))
+            if (item.favorite) Icon(Icons.Filled.Star, null, tint = AutobotTheme.inks.amber, modifier = Modifier.padding(4.dp).size(14.dp))
         }
     }
 }
@@ -217,7 +222,7 @@ private fun DetailDialog(
                         Icon(
                             Icons.Filled.Star,
                             "Favorite",
-                            tint = if (item.favorite) AutobotColors.Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (item.favorite) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.stamp(item.favorite, enabled = item.favorite),
                         )
                     }
@@ -248,14 +253,14 @@ private fun DetailDialog(
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Tag("reuse params", accent = MaterialTheme.colorScheme.primary, onClick = onReuse)
-                        Tag("→ img2img", accent = AutobotColors.Uv, onClick = onInit)
+                        Tag("→ img2img", accent = AutobotTheme.inks.uv, onClick = onInit)
                         Tag("upscale 4×", accent = MaterialTheme.colorScheme.primary, onClick = onUpscale)
                         Tag(
                             "copy params",
                             accent = MaterialTheme.colorScheme.onSurfaceVariant,
                             onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("parameters", parameters))) } },
                         )
-                        Tag("export", accent = AutobotColors.Amber, onClick = { confirmExport = true })
+                        Tag("export", accent = AutobotTheme.inks.amber, onClick = { confirmExport = true })
                         Tag("delete", accent = MaterialTheme.colorScheme.error, onClick = { confirmDelete = true })
                     }
                     Spacer(Modifier.height(8.dp))

@@ -22,6 +22,7 @@ import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.inkCard
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.models.DownloadQueue
 import dev.wckdboy.autobot.core.models.DownloadsState
 import dev.wckdboy.autobot.core.models.InstalledModel
@@ -50,7 +51,7 @@ internal fun DownloadsPanel(state: DownloadsState, actions: ModelsActions) {
                 onClick = { actions.setWifiOnly(!state.wifiOnly) },
             )
         }
-        state.block?.let { MicroLabel(it.label, color = AutobotColors.Amber) }
+        state.block?.let { MicroLabel(it.label, color = AutobotTheme.inks.amber) }
         state.active?.let { p ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(p.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)

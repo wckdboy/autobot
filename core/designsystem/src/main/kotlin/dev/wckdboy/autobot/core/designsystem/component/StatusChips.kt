@@ -36,11 +36,12 @@ enum class PrivacyStatus(val label: String, val description: String) {
 /** Inference backend that produced (or will produce) a response. */
 enum class Accelerator(val label: String) { NPU("NPU"), GPU("GPU"), CPU("CPU"), REMOTE("Remote") }
 
+@Composable
 private fun PrivacyStatus.color(): Color = when (this) {
-    PrivacyStatus.OFFLINE -> AutobotColors.Green
-    PrivacyStatus.DIRECT -> AutobotColors.Amber
-    PrivacyStatus.TOR -> AutobotColors.Violet
-    PrivacyStatus.PROXY -> AutobotColors.Cyan
+    PrivacyStatus.OFFLINE -> MaterialTheme.colorScheme.primary
+    PrivacyStatus.DIRECT -> AutobotTheme.inks.amber
+    PrivacyStatus.TOR -> AutobotTheme.inks.uv
+    PrivacyStatus.PROXY -> AutobotTheme.inks.cyan
 }
 
 /** Compact pill with a status dot, e.g. "● Offline". Clickable when [onClick] is set. */
@@ -75,10 +76,10 @@ fun PrivacyStatusPill(
 @Composable
 fun AcceleratorChip(accelerator: Accelerator, modifier: Modifier = Modifier) {
     val accent = when (accelerator) {
-        Accelerator.NPU -> AutobotColors.Violet
-        Accelerator.GPU -> AutobotColors.Cyan
+        Accelerator.NPU -> AutobotTheme.inks.uv
+        Accelerator.GPU -> AutobotTheme.inks.cyan
         Accelerator.CPU -> MaterialTheme.colorScheme.onSurfaceVariant
-        Accelerator.REMOTE -> AutobotColors.Amber
+        Accelerator.REMOTE -> AutobotTheme.inks.amber
     }
     Surface(
         modifier = modifier.semantics { contentDescription = "Runs on ${accelerator.label}" },

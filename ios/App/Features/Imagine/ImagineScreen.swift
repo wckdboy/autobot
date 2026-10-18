@@ -217,7 +217,7 @@ private struct PromptField: View {
                 MicroLabel(wildcards, color: c.primary).accessibilityLabel(wildcards.replacingOccurrences(of: "·", with: ","))
             } else if tokens > 60 {
                 // Only worth saying near the limit.
-                MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? AutobotColors.redDeep : c.onSurfaceVariant)
+                MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? c.error : c.onSurfaceVariant)
             }
         }
     }

@@ -42,7 +42,7 @@ internal fun ReceiptLine(receipt: Receipt?, onOpen: (Receipt) -> Unit) {
         if (receipt != null) {
             val accent = when {
                 receipt.onDevice -> MaterialTheme.colorScheme.primary
-                receipt.models.any { it.policy == TRAINS } -> AutobotColors.Amber
+                receipt.models.any { it.policy == TRAINS } -> AutobotTheme.inks.amber
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
             Tag("▤ ${receipt.line}", accent = accent, filled = receipt.onDevice, onClick = { onOpen(receipt) })
@@ -86,7 +86,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(m.model, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            m.policy?.let { Tag(it, accent = if (it == TRAINS) AutobotColors.Amber else if (m.onDevice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                            m.policy?.let { Tag(it, accent = if (it == TRAINS) AutobotTheme.inks.amber else if (m.onDevice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                         Text(
                             listOfNotNull(m.name, m.policyNote ?: "data policy not documented".takeIf { m.policy == null }).joinToString(" · "),
@@ -151,7 +151,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
             if (receipt.fallbacks.isNotEmpty()) {
                 Hairline(Modifier.padding(vertical = 2.dp))
                 MicroLabel("fallbacks")
-                receipt.fallbacks.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotColors.Amber) }
+                receipt.fallbacks.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotTheme.inks.amber) }
             }
 
             Hairline(Modifier.padding(vertical = 2.dp))
@@ -179,7 +179,7 @@ private fun HostRow(host: ReceiptHost) {
                 host.blocked.takeIf { it > 0 }?.let { "$it blocked" },
                 host.tags.joinToString(", ").ifEmpty { null },
             ).joinToString(" · "),
-            color = if (host.blocked == host.requests) AutobotColors.Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (host.blocked == host.requests) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

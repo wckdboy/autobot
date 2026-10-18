@@ -86,7 +86,8 @@ fun RunScreen(
                 }
                 // One 2-column grid: every row splits at the same x with the same gutter.
                 item {
-                    Row(Modifier.fillMaxWidth().height(268.dp), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
+                    // Grows past 268 dp when a large font needs it (Chat and Agent each stack a tag, title and model).
+                    Row(Modifier.fillMaxWidth().heightIn(min = 268.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
                         val last by produceState<ImageBitmap?>(null, state.lastImageId) { value = state.lastImageId?.let { actions.thumbnail(it) } }
                         ModeCard(
                             index = "01",

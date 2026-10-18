@@ -118,8 +118,8 @@ private fun Backends(state: WorkflowsState, actions: WorkflowsActions, onEdit: (
         val result = state.tests[b.id]
         Panel(
             title = b.name,
-            accent = if (b.id == state.backend?.id) MaterialTheme.colorScheme.primary else AutobotColors.Cyan,
-            trailing = { Tag(if (b.isLoopback) "loopback" else "network", accent = if (b.isLoopback) AutobotColors.Acid else AutobotColors.Amber) },
+            accent = if (b.id == state.backend?.id) MaterialTheme.colorScheme.primary else AutobotTheme.inks.cyan,
+            trailing = { Tag(if (b.isLoopback) "loopback" else "network", accent = if (b.isLoopback) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber) },
         ) {
             Text(b.baseUrl, Modifier.clickable { onEdit(b) }, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -127,7 +127,7 @@ private fun Backends(state: WorkflowsState, actions: WorkflowsActions, onEdit: (
                 GhostButton("Edit", { onEdit(b) })
                 if (b.id != state.backend?.id) Tag("use", onClick = { actions.selectBackend(b.id) })
             }
-            result?.let { MicroLabel(it, color = if (it.startsWith("ok")) AutobotColors.Acid else MaterialTheme.colorScheme.error) }
+            result?.let { MicroLabel(it, color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
         }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -181,7 +181,7 @@ private fun BackendSheet(
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GhostButton("Test", { onTest(draft) }, busy = testing, enabled = url.isNotBlank() && !draft.cleartextRemote)
-                testResult?.let { MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) AutobotColors.Acid else MaterialTheme.colorScheme.error) }
+                testResult?.let { MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (!isNew) GhostButton("Delete", onDelete, accent = MaterialTheme.colorScheme.error)
@@ -200,7 +200,7 @@ private fun Import(state: WorkflowsState, actions: WorkflowsActions) {
     ConsoleTextField(state.importName, actions::setImportName, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
     ConsoleTextField(state.importText, actions::setImportText, Modifier.fillMaxWidth(), label = "Workflow JSON", minLines = 3, maxLines = 8, mono = true)
     state.importError?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall, color = if (it == WorkflowImport.UI_FORMAT_MESSAGE) AutobotColors.Amber else MaterialTheme.colorScheme.error)
+        Text(it, style = MaterialTheme.typography.bodySmall, color = if (it == WorkflowImport.UI_FORMAT_MESSAGE) AutobotTheme.inks.amber else MaterialTheme.colorScheme.error)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         GhostButton("Choose file", { picker.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, Modifier.weight(1f))
@@ -239,7 +239,7 @@ private fun WorkflowDetail(state: WorkflowsState, shell: StudioShellState, actio
         ChipRow(state.backends, state.backend, { actions.selectBackend(it.id) }, { it.name })
         RunsOn(state.backend?.name)
     }
-    draft.validation?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotColors.Amber) }
+    draft.validation?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotTheme.inks.amber) }
 
     SectionLabel("run")
     ParamControls(w.params, state.values, actions::setValue, shell.assets)

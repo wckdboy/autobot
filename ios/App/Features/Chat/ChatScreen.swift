@@ -501,7 +501,7 @@ private struct AssistantMessage: View {
             if !text.isEmpty {
                 ChatBubble(role: .assistant, text: text) {
                     HStack(spacing: 8) {
-                        if interrupted { Tag("interrupted", accent: AutobotColors.amber) }
+                        if interrupted { Tag("interrupted", accent: c.inks.amber) }
                         if let outputTokens { TokenRateLabel(totalTokens: outputTokens) }
                         Spacer(minLength: 0)
                         // Copies the message as written (markdown), not the rendered text.
@@ -832,7 +832,7 @@ private struct NoticeRow: View {
     var body: some View {
         let color: Color = switch kind {
         case .info: c.outline
-        case .warn: AutobotColors.amber
+        case .warn: c.inks.amber
         case .error: c.error
         }
         if kind == .error {
@@ -1740,7 +1740,7 @@ private struct SessionSheet: View {
                         .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                     if !app.agent.supportsTools {
                         Text("This build runs plain chat: tools need the shared agent runtime.")
-                            .textStyle(.bodySmall).foregroundStyle(AutobotColors.amber).fixedSize(horizontal: false, vertical: true)
+                            .textStyle(.bodySmall).foregroundStyle(c.inks.amber).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

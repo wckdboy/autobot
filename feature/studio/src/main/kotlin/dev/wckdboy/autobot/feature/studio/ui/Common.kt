@@ -236,7 +236,7 @@ fun RunsOn(label: String?, modifier: Modifier = Modifier) {
         if (local) "● RUNS ON THIS PHONE" else "◐ RUNS ON ${label!!.uppercase(Locale.ROOT)}",
         modifier.semantics { contentDescription = if (local) "Runs on this phone" else "Runs on $label" },
         style = AutobotTheme.styles.micro,
-        color = if (local) MaterialTheme.colorScheme.primary else AutobotColors.Amber,
+        color = if (local) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber,
     )
 }
 

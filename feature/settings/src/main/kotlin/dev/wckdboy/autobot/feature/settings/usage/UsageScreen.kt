@@ -148,7 +148,7 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
                 val s = period.sums
                 MicroLabel("${UsageFormat.tokens(s.input)} in · ${UsageFormat.tokens(s.output)} out · ${UsageFormat.tokens(s.cacheRead)} cached")
                 if (s.onDeviceTokens > 0) MicroLabel("on this phone · ${UsageFormat.tokens(s.onDeviceTokens)} tokens · $0")
-                if (s.unpricedTokens > 0) MicroLabel("${UsageFormat.tokens(s.unpricedTokens)} tokens without a price", color = AutobotColors.Amber)
+                if (s.unpricedTokens > 0) MicroLabel("${UsageFormat.tokens(s.unpricedTokens)} tokens without a price", color = AutobotTheme.inks.amber)
             }
             item {
                 val series = report.series.firstOrNull { it.key == seriesKey } ?: report.series.first()
@@ -257,7 +257,7 @@ private fun GroupRow(group: UsageGroup) {
 
 @Composable
 private fun WindowRow(status: WindowStatus, onEdit: () -> Unit) {
-    val accent = if (status.over) AutobotColors.Amber else MaterialTheme.colorScheme.primary
+    val accent = if (status.over) AutobotTheme.inks.amber else MaterialTheme.colorScheme.primary
     Panel(
         modifier = Modifier.clickable(onClick = onEdit),
         title = "${status.providerName} · ${status.period.label}${if (status.rolling) " · rolling" else ""}",
@@ -265,7 +265,7 @@ private fun WindowRow(status: WindowStatus, onEdit: () -> Unit) {
         trailing = { Tag("edit", onClick = onEdit) },
     ) {
         status.fraction?.let { f -> InkProgressBar(f.toFloat().coerceIn(0f, 1f), Modifier.fillMaxWidth().height(2.dp), color = accent) }
-        Text(status.line, style = MaterialTheme.typography.bodySmall, color = if (status.over) AutobotColors.Amber else MaterialTheme.colorScheme.onSurface)
+        Text(status.line, style = MaterialTheme.typography.bodySmall, color = if (status.over) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurface)
         if (status.limit == null) MicroLabel("no limit set · tap edit to enter your plan's limit", maxLines = 3)
     }
 }
@@ -278,7 +278,7 @@ private fun PriceRowView(row: PriceRow, onClick: () -> Unit) {
             when (row.source) {
                 PriceSource.DEFAULT -> Tag("published")
                 PriceSource.YOURS -> Tag("yours", accent = MaterialTheme.colorScheme.primary)
-                PriceSource.NONE -> Tag("unknown", accent = AutobotColors.Amber)
+                PriceSource.NONE -> Tag("unknown", accent = AutobotTheme.inks.amber)
             }
         }
         MicroLabel(

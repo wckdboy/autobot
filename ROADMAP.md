@@ -242,6 +242,17 @@ CPU-only 1.1.
   jobs have no incognito mode.)*
 - **Reproducible Android builds** and an F-Droid listing; signed CI releases.
 - **App Store release** after TestFlight hardening.
+- **Accessibility**: WCAG AA contrast, large text, screen readers. *(Both apps: every text
+  pair in `tokens.json` reads at 4.5:1 on ink and paper (a contrast test checks them all); accent
+  words and glyphs take per-ground inks (red, amber, cyan, uv) while fills and halftone dots keep
+  the vivid palette, and red blocks carry ink labels. Large text: Android's main screens (Run,
+  Remote, welcome, chat list, chat, Imagine, gallery, Models, Settings) hold at the largest system
+  font (200 %) on a 360 dp phone: crowded rows stack, the top bar's actions take a row under the
+  title, labels wrap instead of cutting off, and Robolectric renders audit each screen for
+  clipped, ellipsized, overlapping or mid-word-broken text, unlabelled controls and touch areas
+  under 48 dp. iOS follows Dynamic Type with the same accent inks. Not yet: a TalkBack/VoiceOver
+  pass on a real phone, Studio, sheets and dialogs in the large-text audit, a gallery
+  audit with thumbnails, reduced-transparency and bold-text handling.)*
 - **Baseline profiles** and startup time budgets. *(Android: Baseline and startup profiles
   generated on an emulator by `:baselineprofile` and committed as text (the APK stays
   reproducible); the app reports itself fully drawn when a real screen shows. Still to do: budgets

@@ -67,9 +67,28 @@ enum AutobotColors {
     static let violet = ash200
 }
 
+/**
+ The accent colours as text and glyphs. The palette accents (`AutobotColors.amber`, cyan, uv,
+ signal) are for fills and halftone dots; on paper they are under 2:1, so a word or an icon in an
+ accent takes the ink for the ground it sits on (4.5:1 on that theme's background and panels).
+ Red text is the scheme's `primary`.
+ */
+struct AutobotInks: Sendable, Equatable {
+    let amber, cyan, uv, signal: Color
+
+    init(_ i: Tokens.Inks) {
+        amber = Color(rgb: i.amber); cyan = Color(rgb: i.cyan); uv = Color(rgb: i.uv); signal = Color(rgb: i.signal)
+    }
+
+    static let dark = AutobotInks(Tokens.darkInks)
+    static let light = AutobotInks(Tokens.lightInks)
+}
+
 /// Material-style colour roles, resolved from the generated tokens.
 struct AutobotScheme: Sendable, Equatable {
     let isDark: Bool
+    /// Accent inks legible on this scheme's grounds.
+    var inks: AutobotInks { isDark ? .dark : .light }
     var primary, onPrimary, primaryContainer, onPrimaryContainer: Color
     var secondary, onSecondary, secondaryContainer, onSecondaryContainer: Color
     var tertiary, onTertiary: Color

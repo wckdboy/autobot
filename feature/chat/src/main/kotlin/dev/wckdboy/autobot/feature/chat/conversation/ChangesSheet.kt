@@ -38,7 +38,7 @@ import dev.wckdboy.autobot.shared.session.TurnChanges
 /** Riso inks for diffs: added lines in cyan, removed lines in red. */
 @Composable
 private fun diffInk(line: String): Color = when {
-    line.startsWith("+") -> AutobotColors.Cyan
+    line.startsWith("+") -> AutobotTheme.inks.cyan
     line.startsWith("-") -> MaterialTheme.colorScheme.primary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
@@ -47,7 +47,7 @@ private fun diffInk(line: String): Color = when {
 @Composable
 internal fun ChangeCounts(change: FileChange) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (change.added > 0) Text("+${change.added}", style = AutobotTheme.styles.micro, color = AutobotColors.Cyan)
+        if (change.added > 0) Text("+${change.added}", style = AutobotTheme.styles.micro, color = AutobotTheme.inks.cyan)
         if (change.removed > 0) Text("−${change.removed}", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.primary)
         if (change.added == 0 && change.removed == 0) {
             Text(change.op.name.lowercase(), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)

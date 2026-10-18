@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.wckdboy.autobot.core.designsystem.component.linesFor
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
@@ -328,7 +329,7 @@ private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, 
         if (wildcards != null) {
             MicroLabel(wildcards, color = MaterialTheme.colorScheme.primary)
         } else {
-            MicroLabel("~$tokens / 75 tokens", color = if (tokens > 75) AutobotColors.RedDeep else MaterialTheme.colorScheme.onSurfaceVariant)
+            MicroLabel("~$tokens / 75 tokens", color = if (tokens > 75) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -448,7 +449,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
+                maxLines = linesFor(1, 3),
                 overflow = TextOverflow.Ellipsis,
             )
             if (running != null) {

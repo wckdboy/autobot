@@ -99,7 +99,7 @@ struct UsageBoardView: View {
                 }
                 MicroLabel("\(tokens(s.input)) in · \(tokens(s.output)) out · \(tokens(s.cacheRead)) cached")
                 if s.onDeviceTokens > 0 { MicroLabel("on this phone · \(tokens(s.onDeviceTokens)) tokens · $0") }
-                if s.unpricedTokens > 0 { MicroLabel("\(tokens(s.unpricedTokens)) tokens without a price", color: AutobotColors.amber) }
+                if s.unpricedTokens > 0 { MicroLabel("\(tokens(s.unpricedTokens)) tokens without a price", color: c.inks.amber) }
             }
 
             let series = report.series.first { $0.key == seriesKey } ?? report.series[0]
@@ -167,13 +167,13 @@ struct UsageBoardView: View {
     }
 
     private func windowRow(_ w: UsageReportModel.Window) -> some View {
-        let accent = w.over ? AutobotColors.amber : c.primary
+        let accent = w.over ? c.inks.amber : c.primary
         let label = report.plan.windows.first { $0.id == w.id }
         return Panel(title: "\(w.providerName) · \(windowLabel(w.period))\(w.rolling ? " · rolling" : "")", accent: accent, trailing: {
             Tag("edit") { if let label { onEditWindow(WindowDraft(window: label, isNew: false)) } }
         }) {
             if let f = w.fraction { InkProgressBar(fraction: min(max(f, 0), 1), height: 2, ink: accent) }
-            Text(w.line).textStyle(.bodySmall).foregroundStyle(w.over ? AutobotColors.amber : c.onSurface).fixedSize(horizontal: false, vertical: true)
+            Text(w.line).textStyle(.bodySmall).foregroundStyle(w.over ? c.inks.amber : c.onSurface).fixedSize(horizontal: false, vertical: true)
             if w.limit == nil { MicroLabel("no limit set · tap edit to enter your plan's limit", lines: 2) }
         }
     }
@@ -187,7 +187,7 @@ struct UsageBoardView: View {
                     switch row.source {
                     case "DEFAULT": Tag("published")
                     case "YOURS": Tag("yours", accent: c.primary)
-                    default: Tag("unknown", accent: AutobotColors.amber)
+                    default: Tag("unknown", accent: c.inks.amber)
                     }
                 }
                 MicroLabel(Self.priceLine(row), lines: 2)
