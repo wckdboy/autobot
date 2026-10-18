@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.core.network.HttpClientFactory
 import dev.wckdboy.autobot.core.security.Secret
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.zip.CRC32
 import java.util.zip.Inflater
@@ -178,7 +179,14 @@ class FileFetcher(private val clients: HttpClientFactory) {
                 var written = if (append) part.length() else 0L
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val n = source.read(buffer)
+                    val n = try {
+                        source.read(buffer)
+                    } catch (e: IOException) {
+                        // Cancelling closes the call, and a read blocked on the stalled socket then
+                        // fails with "Socket closed": that is the cancellation, not a network error.
+                        currentCoroutineContext().ensureActive()
+                        throw e
+                    }
                     if (n < 0) break
                     out.write(buffer, 0, n)
                     hash.digest.update(buffer, 0, n)
