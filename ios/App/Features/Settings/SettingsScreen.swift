@@ -11,6 +11,8 @@ struct SettingsScreen: View {
     @State private var showSearch = false
     @State private var confirmDeleteChats = false
     @State private var showWipe = false
+    @State private var panic = PanicUiState()
+    @State private var panicDialog: PanicDialog?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,7 +41,13 @@ struct SettingsScreen: View {
             confirm: "Delete all",
         ) { app.chats.deleteAll() }
         .panicWipeAlert(isPresented: $showWipe)
+        .sheet(item: $panicDialog, onDismiss: refreshPanic) { dialog in
+            PanicSheet(dialog: dialog, state: panic, lock: app.pinLock) { panicDialog = nil }
+        }
+        .onAppear(perform: refreshPanic)
     }
+
+    private func refreshPanic() { panic = PanicUiState(app.pinLock.record) }
 
     @ViewBuilder private func row(_ row: SettingsRow) -> some View {
         let settings = app.settings.settings
@@ -49,14 +57,30 @@ struct SettingsScreen: View {
             NavigationRow(title: title, value: Self.modeLabel(settings.mode)) { nav.push(.privacyCenter) }
         case .appLock:
             let lockAvailable = app.lock.canAuthenticate()
+            // An app PIN always locks: the wipe and the duress PIN depend on it.
+            let pinLocks = panic.hasPin
             SwitchRow(
                 title: title,
-                subtitle: lockAvailable ? nil : "Needs a device passcode",
-                isOn: Binding(get: { settings.appLockEnabled && lockAvailable }, set: { app.settings.setAppLockEnabled($0) }),
-                enabled: lockAvailable,
-                info: lockAvailable ? "Require \(app.lock.biometryLabel()) or the device passcode." : nil,
+                subtitle: lockAvailable || pinLocks ? nil : "Needs a device passcode",
+                isOn: Binding(get: { pinLocks || (settings.appLockEnabled && lockAvailable) }, set: { app.settings.setAppLockEnabled($0) }),
+                enabled: lockAvailable && !pinLocks,
+                info: lockAvailable || pinLocks ? "Require \(app.lock.biometryLabel()) or the device passcode." : nil,
             )
-            if settings.appLockEnabled && lockAvailable { lockTimeouts(settings.lockTimeoutMillis) }
+            if pinLocks || (settings.appLockEnabled && lockAvailable) { lockTimeouts(settings.lockTimeoutMillis) }
+        case .appPin:
+            PanicRows(
+                state: panic,
+                biometryLabel: app.lock.biometryLabel(),
+                onOpen: { panicDialog = $0 },
+                onBiometrics: { on in
+                    app.pinLock.setBiometrics(on)
+                    refreshPanic()
+                },
+                onWipeModels: { on in
+                    app.pinLock.setWipeModels(on)
+                    refreshPanic()
+                },
+            )
         case .incognito:
             SwitchRow(
                 title: title,

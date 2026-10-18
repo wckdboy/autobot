@@ -6,6 +6,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
+private val NoneSaved: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
 
 /** What the chat screen can ask of its [ChatViewModel] (an interface so the screen can be measured with a fake). */
 @Stable
@@ -19,6 +23,12 @@ interface ChatActions {
     fun removeAttachment(id: String)
     suspend fun attachmentThumbnail(id: String): ImageBitmap?
     suspend fun thumbnail(galleryId: String): ImageBitmap?
+
+    /** Unsaved incognito images ([dev.wckdboy.autobot.shared.panic.IncognitoImages]) the user saved, by id → gallery id. */
+    val savedImages: StateFlow<Map<String, String>> get() = NoneSaved
+
+    /** Saves an unsaved incognito image into the gallery (the Save button). */
+    fun saveImage(id: String) {}
     fun toggleDictation()
     fun consumeDictation()
     fun speak(key: String, text: String)

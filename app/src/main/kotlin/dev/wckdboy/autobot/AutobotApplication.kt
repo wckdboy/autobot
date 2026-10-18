@@ -11,13 +11,17 @@ import dev.wckdboy.autobot.core.data.settings.SettingsSync
 import dev.wckdboy.autobot.core.diffusion.OnDeviceBackendSync
 import dev.wckdboy.autobot.core.models.AppVisibility
 import dev.wckdboy.autobot.core.models.ModelDownloader
+import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.security.AppLockManager
+import dev.wckdboy.autobot.core.security.PanicWipe
+import dev.wckdboy.autobot.core.security.panic.PinLock
 import dev.wckdboy.autobot.feature.studio.engine.StudioHost
 import dev.wckdboy.autobot.providers.remote.LocalProviderSync
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 @HiltAndroidApp
 class AutobotApplication : Application() {
@@ -58,11 +62,28 @@ class AutobotApplication : Application() {
     @Inject
     lateinit var studio: Lazy<StudioHost>
 
+    @Inject
+    lateinit var panicWipe: Lazy<PanicWipe>
+
+    @Inject
+    lateinit var pinLock: Lazy<PinLock>
+
+    @Inject
+    lateinit var settingsRepository: Lazy<SettingsRepository>
+
     override fun onCreate() {
         super.onCreate()
         if (getProcessName() != packageName) return
         // A trace section, so startup traces (Perfetto, Macrobenchmark) show what this costs.
         Trace.beginSection("Autobot.onCreate")
+        // First of all: a wipe that a kill or the lock screen interrupted (keys already gone) is
+        // finished before the database, DataStore or anything else opens.
+        panicWipe.get().resumeIfPending()
+        if (runBlocking { pinLock.get().consumeQuietStart() }) {
+            // After the duress PIN: an empty app that opens like a used one, unlocked, no welcome.
+            runBlocking { runCatching { settingsRepository.get().setOnboarded() } }
+            appLockManager.get().beginQuietStart()
+        }
         // Before any activity starts: download notifications are only posted while the app is not on screen.
         visibility.get().install(this)
         val started = System.currentTimeMillis()

@@ -24,6 +24,8 @@ final class ConversationRepository {
     private(set) var folders: [ChatFolder] = []
     @ObservationIgnored private var stored: [String: Conversation] = [:]
     @ObservationIgnored private var incognito: [String: Conversation] = [:]
+    /// Unsaved images of incognito chats, dropped with their chat.
+    @ObservationIgnored var unsavedImages: UnsavedImages?
     @ObservationIgnored private let store: EncryptedStore
     /// Row writes, in order on a background queue; those that failed while the device was locked
     /// are retried in order ([PendingWrites]).
@@ -186,6 +188,7 @@ final class ConversationRepository {
         for id in ids {
             if isIncognito(id) {
                 incognito.removeValue(forKey: id)
+                unsavedImages?.drop(owner: id)
             } else {
                 stored.removeValue(forKey: id)
                 unsaved.discard { $0.id == id }
@@ -216,9 +219,10 @@ final class ConversationRepository {
         return changed
     }
 
-    /// Drops every incognito conversation (panic wipe).
+    /// Drops every incognito conversation (panic wipe) with the unsaved images they made.
     func clearIncognito() {
         incognito.removeAll()
+        unsavedImages?.clear()
         publish()
     }
 
@@ -455,10 +459,13 @@ final class GalleryRepository {
     private(set) var items: [GalleryItem] = []
     @ObservationIgnored private let store: EncryptedStore
     @ObservationIgnored private let keys: KeyManager
+    /// Incognito results, in memory only until saved ([keep]).
+    @ObservationIgnored let unsaved: UnsavedImages
 
-    init(store: EncryptedStore, keys: KeyManager) {
+    init(store: EncryptedStore, keys: KeyManager, unsaved: UnsavedImages = UnsavedImages()) {
         self.store = store
         self.keys = keys
+        self.unsaved = unsaved
     }
 
     func load() { load(Self.read(store)) }
@@ -471,7 +478,10 @@ final class GalleryRepository {
         items = rows.sorted { $0.createdAt > $1.createdAt }
     }
 
-    func get(_ id: String) -> GalleryItem? { items.first { $0.id == id } }
+    func get(_ id: String) -> GalleryItem? {
+        if UnsavedImages.isUnsaved(id) { return unsaved.get(id)?.item }
+        return items.first { $0.id == id }
+    }
 
     func newId() -> String { UUID().uuidString.lowercased() }
 
@@ -487,9 +497,35 @@ final class GalleryRepository {
         items = ([item] + items.filter { $0.id != item.id }).sorted { $0.createdAt > $1.createdAt }
     }
 
-    func image(_ id: String) async -> Data? { await read(id, Self.image) }
+    func image(_ id: String) async -> Data? {
+        if UnsavedImages.isUnsaved(id) { return unsaved.get(id)?.image }
+        return await read(id, Self.image)
+    }
 
-    func thumbnail(_ id: String) async -> Data? { await read(id, Self.thumb) }
+    func thumbnail(_ id: String) async -> Data? {
+        if UnsavedImages.isUnsaved(id) { return unsaved.get(id)?.thumbnail }
+        return await read(id, Self.thumb)
+    }
+
+    /// Unsaved incognito images the user saved, by unsaved id → gallery id.
+    var keptIncognito: [String: String] { unsaved.saved }
+
+    /**
+     Saves an unsaved incognito image into the gallery: the user tapped Save. Returns its gallery
+     id (the same one when tapped again), or nil when the image is gone. A gallery id is returned as is.
+     */
+    @discardableResult
+    func keep(_ id: String) async throws -> String? {
+        guard UnsavedImages.isUnsaved(id) else { return id }
+        if let galleryId = unsaved.saved[id] { return galleryId }
+        guard let entry = unsaved.get(id) else { return nil }
+        var item = entry.item
+        item.id = newId()
+        item.createdAt = nowMillis()
+        try await save(item, image: entry.image, thumbnail: entry.thumbnail)
+        unsaved.markSaved(id, galleryId: item.id)
+        return item.id
+    }
 
     func setFavorite(_ id: String, _ favorite: Bool) {
         guard var item = get(id) else { return }

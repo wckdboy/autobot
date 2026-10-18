@@ -561,6 +561,13 @@ private struct StepRow: View {
     let onOpenGallery: (String) -> Void
     @State private var expanded = false
     @Environment(\.scheme) private var c
+    @Environment(AppContainer.self) private var app
+
+    /// A gallery image opens in the gallery; an incognito one only once saved (under its gallery id).
+    private func open(_ id: String) {
+        guard UnsavedImages.isUnsaved(id) else { return onOpenGallery(id) }
+        if let saved = app.gallery.keptIncognito[id] { onOpenGallery(saved) }
+    }
 
     /// A step mark stamps in when the step reaches one of these.
     private static func settled(_ state: ToolState) -> Bool { state == .ok || state == .error || state == .denied }
@@ -648,22 +655,54 @@ private struct StepRow: View {
             }
             if tool.name == "generate_image" && (tool.state == .running || !tool.galleryIds.isEmpty) {
                 // The agent's job draws the same ink plate as Imagine, then prints its first image.
-                HStack(spacing: 6) {
-                    AgentProof(tool: tool, model: model).onTapGesture { if let id = tool.galleryIds.first { onOpenGallery(id) } }
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        AgentProof(tool: tool, model: model).onTapGesture { if let id = tool.galleryIds.first { open(id) } }
+                        if let id = tool.galleryIds.first { UnsavedMark(id: id) }
+                    }
                     ForEach(tool.galleryIds.dropFirst(), id: \.self) { id in
-                        GalleryThumb(id: id, model: model).onTapGesture { onOpenGallery(id) }
+                        VStack(alignment: .leading, spacing: 4) {
+                            GalleryThumb(id: id, model: model).onTapGesture { open(id) }
+                            UnsavedMark(id: id)
+                        }
                     }
                 }
                 .padding(.bottom, 6)
             } else if !tool.galleryIds.isEmpty {
-                HStack(spacing: 6) {
+                HStack(alignment: .top, spacing: 6) {
                     ForEach(tool.galleryIds, id: \.self) { id in
-                        GalleryThumb(id: id, model: model).onTapGesture { onOpenGallery(id) }
+                        VStack(alignment: .leading, spacing: 4) {
+                            GalleryThumb(id: id, model: model).onTapGesture { open(id) }
+                            UnsavedMark(id: id)
+                        }
                     }
                 }
                 .padding(.bottom, 6)
             }
             Hairline()
+        }
+    }
+}
+
+/**
+ Under an incognito image: NOT SAVED with SAVE, then SAVED. The image is in memory only until the
+ user saves it ([GalleryRepository.keep]); a gallery image shows nothing.
+ */
+private struct UnsavedMark: View {
+    let id: String
+    @Environment(AppContainer.self) private var app
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        if UnsavedImages.isUnsaved(id) && app.gallery.unsaved.get(id) != nil || app.gallery.keptIncognito[id] != nil {
+            if app.gallery.keptIncognito[id] != nil {
+                MicroLabel(PanicCopy.shared.SAVED)
+            } else {
+                HStack(spacing: 6) {
+                    MicroLabel(PanicCopy.shared.NOT_SAVED)
+                    Tag(PanicCopy.shared.SAVE, accent: c.primary) { Task { try? await app.gallery.keep(id) } }
+                }
+            }
         }
     }
 }

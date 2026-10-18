@@ -53,6 +53,12 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.feature.settings.backup.BackupDialog
+import dev.wckdboy.autobot.core.security.panic.PinLock
+import dev.wckdboy.autobot.feature.settings.privacy.PanicActions
+import dev.wckdboy.autobot.feature.settings.privacy.PanicDialog
+import dev.wckdboy.autobot.feature.settings.privacy.PanicDialogs
+import dev.wckdboy.autobot.feature.settings.privacy.PanicRows
+import dev.wckdboy.autobot.feature.settings.privacy.PanicUiState
 import dev.wckdboy.autobot.feature.settings.privacy.PanicWipeDialog
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterViewModel
 import dev.wckdboy.autobot.feature.settings.search.WebSearchDialog
@@ -60,8 +66,9 @@ import dev.wckdboy.autobot.shared.search.SearchProvider
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 @Immutable
 data class SettingsUiState(
@@ -81,6 +88,7 @@ data class SettingsUiState(
     val offline: Boolean = false,
     /** "Offline", "Direct", "Tor", "SOCKS5": the Privacy Center row's value. */
     val networkLabel: String = "Direct",
+    val panic: PanicUiState = PanicUiState(),
 )
 
 /** The network mode as one word, as on iOS. */
@@ -105,10 +113,11 @@ class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val chats: ChatLibrary,
     appLockManager: AppLockManager,
-) : ViewModel() {
+    private val pinLock: PinLock,
+) : ViewModel(), PanicActions {
     private val lockAvailable = appLockManager.canAuthenticate()
 
-    val uiState: StateFlow<SettingsUiState> = settings.settings.map {
+    val uiState: StateFlow<SettingsUiState> = combine(settings.settings, pinLock.record) { it, lock ->
         SettingsUiState(
             themeMode = it.themeMode,
             amoled = it.amoled,
@@ -125,6 +134,7 @@ class SettingsViewModel @Inject constructor(
             searchProvider = it.searchProvider,
             offline = it.networkMode == NetworkMode.Offline,
             networkLabel = networkLabel(it.networkMode),
+            panic = PanicUiState.of(lock),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState(appLockAvailable = lockAvailable))
 
@@ -138,6 +148,28 @@ class SettingsViewModel @Inject constructor(
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
     fun setRedactCloud(enabled: Boolean) = launch { settings.setRedactCloud(enabled) }
     fun setCascade(policy: CascadePolicy) = launch { settings.setCascade(policy) }
+
+    override fun savePin(current: String?, pin: String, confirm: String, done: (String?) -> Unit) =
+        answer(done) { if (current == null) pinLock.setPin(pin, confirm) else pinLock.changePin(current, pin, confirm) }
+
+    override fun removePin(current: String, done: (String?) -> Unit) = answer(done) { pinLock.removePin(current) }
+
+    override fun setWipeAfter(attempts: Int, current: String?, done: (String?) -> Unit) = answer(done) { pinLock.setWipeAfter(attempts, current) }
+
+    override fun setDuress(current: String, duress: String, confirm: String, done: (String?) -> Unit) =
+        answer(done) { pinLock.setDuress(current, duress, confirm) }
+
+    override fun clearDuress() = launch { pinLock.clearDuress() }
+
+    fun setWipeModels(enabled: Boolean) = launch { pinLock.setWipeModels(enabled) }
+    fun setPinBiometrics(enabled: Boolean) = launch { pinLock.setBiometrics(enabled) }
+
+    /** Runs a lock change and reports its problem (or null) on the main thread; a failed write is a problem too. */
+    private fun answer(done: (String?) -> Unit, block: suspend () -> String?) {
+        viewModelScope.launch {
+            done(runCatching { block() }.getOrElse { "Could not save. Try again." })
+        }
+    }
 
     /** Deletes every chat, stored and incognito, for good (running turns are stopped first). */
     fun deleteAllChats() = launch { chats.deleteAll() }
@@ -170,6 +202,8 @@ fun SettingsRoute(
     var showBackup by rememberSaveable { mutableStateOf(false) }
     var showSearch by rememberSaveable { mutableStateOf(false) }
     var showWipe by rememberSaveable { mutableStateOf(false) }
+    var panicDialog by rememberSaveable { mutableStateOf<PanicDialog?>(null) }
+    PanicDialogs(panicDialog, state.panic, viewModel) { panicDialog = null }
     var confirmDeleteChats by rememberSaveable { mutableStateOf(false) }
     if (confirmDeleteChats) {
         AlertDialog(
@@ -210,6 +244,9 @@ fun SettingsRoute(
         onLockTimeout = viewModel::setLockTimeout,
         onIncognitoByDefault = viewModel::setIncognitoByDefault,
         onPanicWipe = { showWipe = true },
+        onOpenPanic = { panicDialog = it },
+        onPinBiometrics = viewModel::setPinBiometrics,
+        onWipeModels = viewModel::setWipeModels,
         onOpenBackup = { showBackup = true },
         onMemoryEnabled = viewModel::setMemoryEnabled,
         onOpenMemory = onOpenMemory,
@@ -239,6 +276,9 @@ fun SettingsScreen(
     onLockTimeout: (Long) -> Unit,
     onIncognitoByDefault: (Boolean) -> Unit,
     onPanicWipe: () -> Unit = {},
+    onOpenPanic: (PanicDialog) -> Unit = {},
+    onPinBiometrics: (Boolean) -> Unit = {},
+    onWipeModels: (Boolean) -> Unit = {},
     onOpenBackup: () -> Unit = {},
     onOpenMcpServers: () -> Unit = {},
     onMemoryEnabled: (Boolean) -> Unit = {},
@@ -270,15 +310,17 @@ fun SettingsScreen(
         ) {
             SectionHeader(privacy)
             NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel, info = "Network mode, the kill switch and the log of every request.")
+            // An app PIN always locks: the wipe and the duress PIN depend on it.
+            val pinLocks = state.panic.hasPin
             SwitchRow(
                 "App lock",
-                state.appLockEnabled && state.appLockAvailable,
+                pinLocks || (state.appLockEnabled && state.appLockAvailable),
                 onAppLock,
-                state = if (state.appLockAvailable) null else "Needs a screen lock",
-                info = if (state.appLockAvailable) "Require biometrics or the device credential." else null,
-                enabled = state.appLockAvailable,
+                state = if (state.appLockAvailable || pinLocks) null else "Needs a screen lock",
+                info = if (state.appLockAvailable || pinLocks) "Require biometrics or the device credential." else null,
+                enabled = state.appLockAvailable && !pinLocks,
             )
-            if (state.appLockEnabled && state.appLockAvailable) {
+            if (pinLocks || (state.appLockEnabled && state.appLockAvailable)) {
                 Text(
                     "Lock after",
                     modifier = Modifier.padding(horizontal = 16.dp).padding(top = 4.dp),
@@ -298,6 +340,7 @@ fun SettingsScreen(
                     }
                 }
             }
+            PanicRows(state.panic, onOpenPanic, onPinBiometrics, onWipeModels)
             SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = "New chats are kept in memory only, never written to disk.")
             SwitchRow(
                 "Redact before cloud",

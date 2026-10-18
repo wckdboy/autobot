@@ -29,7 +29,36 @@ final class ModelLibrary {
 
     func load(_ rows: [InstalledModel]) {
         models = rows.sorted { $0.addedAt > $1.addedAt }
+        adoptKept()
         onChange?()
+    }
+
+    /// The ready models' registry rows as JSON, for a panic wipe that keeps models: catalog
+    /// metadata only (ids, titles, file lists and hashes), never anything the user wrote.
+    func exportReady() -> String? {
+        let ready = models.filter(\.isReady)
+        guard !ready.isEmpty, let data = try? JSONEncoder().encode(ready) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /**
+     Registers the models a panic wipe kept (the registry it left in the models folder) and deletes
+     that file. Only models whose folder is still there and that the registry lacks are added.
+     Returns how many were adopted.
+     */
+    @discardableResult
+    func adoptKept(from file: URL = PanicPaths.live.keptRegistry) -> Int {
+        guard let data = try? Data(contentsOf: file) else { return 0 }
+        try? FileManager.default.removeItem(at: file)
+        let kept = (try? JSONDecoder().decode([InstalledModel].self, from: data)) ?? []
+        var adopted = 0
+        for var model in kept where model.isReady && get(model.id) == nil {
+            guard FileManager.default.fileExists(atPath: Self.dir(of: model.id).path) else { continue }
+            model.updatedAt = nowMillis()
+            put(model)
+            adopted += 1
+        }
+        return adopted
     }
 
     func get(_ id: String) -> InstalledModel? { models.first { $0.id == id } }

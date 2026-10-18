@@ -48,6 +48,7 @@ class HostToolTest {
 
     private class FakeImageTool : HostTool {
         val calls = CopyOnWriteArrayList<String>()
+        val sessions = CopyOnWriteArrayList<String>()
         override val name = "generate_image"
         override val description = "Generate images"
         override val parametersJson =
@@ -57,8 +58,9 @@ class HostToolTest {
 
         override fun describe(argsJson: String): String = Json.parseToJsonElement(argsJson).jsonObject["prompt"]!!.jsonPrimitive.content
 
-        override fun execute(callId: String, argsJson: String, sink: HostToolSink): Cancellable {
+        override fun execute(callId: String, sessionId: String, argsJson: String, sink: HostToolSink): Cancellable {
             calls += argsJson
+            sessions += sessionId
             sink.onResult("Generated 1 image(s) on This phone: gallery:g1", false, null, """{"gallery":["g1"]}""")
             return Cancellable { }
         }
@@ -102,6 +104,8 @@ class HostToolTest {
         handle.cancel()
 
         assertEquals(listOf("""{"prompt":"a lighthouse"}"""), tool.calls)
+        // The host learns which chat the call runs in (an incognito chat keeps its images out of the gallery).
+        assertEquals(listOf("s1"), tool.sessions)
         val card = states.last().projection.items.filterIsInstance<SessionItem.Tool>().single()
         assertEquals("generate_image", card.name)
         assertEquals("a lighthouse", card.summary)

@@ -1,3 +1,4 @@
+import AutobotShared
 import SwiftUI
 
 /// The panic wipe confirmation (Settings › Privacy & security): type WIPE, then every key and all
@@ -27,7 +28,7 @@ private struct PanicWipeAlert: ViewModifier {
         guard typed == PanicWipeConfirmation.word, !wiping else { return }
         wiping = true
         Task {
-            _ = await app.panicWipe.wipe()
+            _ = await app.panicWipe.wipe(landing: .firstRun, keepModels: false)
             app.panicWipe.killProcess()
         }
     }

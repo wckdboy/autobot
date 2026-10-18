@@ -1,3 +1,4 @@
+import Observation
 import UIKit
 
 /**
@@ -18,6 +19,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         container = made
         return made
     }
+
+    /// A panic wipe finished: the next [makeContainer] builds a new, empty app.
+    static func dropContainer() { container = nil }
 
     func application(
         _ application: UIApplication,
@@ -46,5 +50,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             UIApplication.shared.endBackgroundTask(id)
             id = .invalid
         }
+    }
+}
+
+/**
+ The scene's container and navigator. A panic wipe from the lock screen (the duress PIN, the
+ failed-unlock limit) empties the app in this process and then [restart]s it: Android restarts
+ its process; iOS cannot relaunch itself without the user seeing the app close, so it builds a
+ fresh container on the emptied storage and the scene shows it as a new start.
+ */
+@MainActor
+@Observable
+final class ContainerHolder {
+    static let shared = ContainerHolder()
+
+    private(set) var container: AppContainer
+    private(set) var navigator = Navigator()
+    private(set) var generation = 0
+
+    private init() { container = AppDelegate.makeContainer() }
+
+    func restart() {
+        AppDelegate.dropContainer()
+        container = AppDelegate.makeContainer()
+        navigator = Navigator()
+        generation += 1
     }
 }

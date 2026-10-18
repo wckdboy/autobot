@@ -47,6 +47,8 @@ final class ImagineModel {
     private(set) var catalogError: String?
     private(set) var localError: String?
     private(set) var results: [ResultUi] = []
+    /// Results stay in memory only, never in the gallery or the Studio, until saved (for this screen, not persisted).
+    var incognito = false
     /// An ahead-of-time model load runs ([warmUp]): what it does, for the status line.
     private(set) var warming: String?
 
@@ -479,7 +481,7 @@ final class ImagineModel {
             preferInit = false
             results = []
             app.backends.saveLastRequest(r)
-            app.generator.start(backend, r, inputs)
+            app.generator.start(backend, r, inputs, incognito: incognito)
         }
     }
 
@@ -493,6 +495,11 @@ final class ImagineModel {
 
     /// Same settings again (a random seed stays random).
     func runAgain() { generate() }
+
+    /// Saves an unsaved incognito result into the gallery.
+    func saveResult(_ id: String) {
+        Task { try? await app.gallery.keep(id) }
+    }
 
     /// Same settings, new random seed.
     func variations() {

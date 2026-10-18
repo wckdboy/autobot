@@ -1,10 +1,11 @@
+import AutobotShared
 import SwiftUI
 
 @main
 struct AutobotApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var container = AppDelegate.makeContainer()
-    @State private var navigator = Navigator()
+    /// The container and navigator, replaced together when a panic wipe starts the app over.
+    @State private var holder = ContainerHolder.shared
 
     init() {
         LaunchTrace.mark("app.init")
@@ -16,8 +17,10 @@ struct AutobotApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(container)
-                .environment(navigator)
+                // A new container (after a panic wipe) is a new app: no view state carries over.
+                .id(holder.generation)
+                .environment(holder.container)
+                .environment(holder.navigator)
                 // Widgets, the Control Center control and the share extension (see EntryRouter).
                 .onOpenURL { EntryRouter.shared.receive(url: $0) }
         }
@@ -109,9 +112,15 @@ struct RootView: View {
                     // Settings not loaded yet: render nothing rather than risk showing content.
                     c.background
                 } else if app.lock.state == .locked {
-                    LockScreen(message: lockMessage) {
-                        lockMessage = nil
-                        Task { lockMessage = await app.lock.authenticate(reason: "Your conversations are encrypted on this device") }
+                    Group {
+                        if app.lock.usesPin || app.lock.quietStart {
+                            PinGate(lockMessage: $lockMessage)
+                        } else {
+                            LockScreen(message: lockMessage) {
+                                lockMessage = nil
+                                Task { lockMessage = await app.lock.authenticate(reason: "Your conversations are encrypted on this device") }
+                            }
+                        }
                     }
                     // On unlock the paper prints away.
                     .transition(.inkPrintAway)
@@ -137,6 +146,53 @@ struct RootView: View {
             }
             .background(c.background.ignoresSafeArea())
             .animation(reduceMotion ? .inkReduced : .linear(duration: Double(Tokens.Motion.printMillis) / 1000), value: app.lock.state)
+        }
+    }
+}
+
+/**
+ The PIN pad in front of the app (an app PIN is set, or a duress wipe just finished and the screen
+ prints away as after any unlock).
+ */
+private struct PinGate: View {
+    @Binding var lockMessage: String?
+    @Environment(AppContainer.self) private var app
+    @State private var status: LockStatus?
+    @State private var busy = false
+
+    /// How long the lock screen stays up after a duress restart before it prints away (a PIN check's time).
+    private static let quietStartMillis = 250
+
+    var body: some View {
+        let quiet = app.lock.quietStart
+        PinLockScreen(
+            status: status ?? app.lock.pinStatus() ?? LockStatus(failures: 0, remaining: nil, warn: false, waitMillis: 0),
+            message: lockMessage,
+            busy: busy || quiet,
+            biometrics: !quiet && app.lock.biometricsOffered(),
+            biometryLabel: app.lock.biometryLabel(),
+            onSubmit: { pin in
+                busy = true
+                lockMessage = nil
+                Task {
+                    switch await app.lock.submitPin(pin) {
+                    case .unlocked, .wiping: break
+                    case .wrong(let s, let refused):
+                        status = s
+                        lockMessage = refused ? nil : PanicCopy.shared.WRONG_PIN
+                    }
+                    busy = false
+                }
+            },
+            onBiometrics: {
+                lockMessage = nil
+                Task { lockMessage = await app.lock.authenticate(reason: "Your conversations are encrypted on this device") }
+            },
+        )
+        .task(id: quiet) {
+            guard quiet else { return }
+            try? await Task.sleep(for: .milliseconds(Self.quietStartMillis))
+            app.lock.finishQuietStart()
         }
     }
 }

@@ -35,8 +35,12 @@ interface HostTool {
     /** One-line summary for tool cards and approval prompts. */
     fun describe(argsJson: String): String
 
-    /** Starts the call; the returned handle cancels it (the turn was stopped). */
-    fun execute(callId: String, argsJson: String, sink: HostToolSink): Cancellable
+    /**
+     * Starts the call; the returned handle cancels it (the turn was stopped). [sessionId] is the
+     * chat the call runs in (a subagent's id starts with its parent's), e.g. to keep an incognito
+     * chat's images out of the gallery.
+     */
+    fun execute(callId: String, sessionId: String, argsJson: String, sink: HostToolSink): Cancellable
 }
 
 /** Wraps a [HostTool] as a harness [ToolDefinition]. */
@@ -54,6 +58,7 @@ internal class HostToolDefinition(private val host: HostTool) : ToolDefinition {
     override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput = suspendCancellableCoroutine { cont ->
         val call = host.execute(
             run.callId,
+            run.sessionId,
             args.toString(),
             object : HostToolSink {
                 override fun onResult(content: String, isError: Boolean, code: String?, metaJson: String?) {

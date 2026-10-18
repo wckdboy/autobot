@@ -220,8 +220,26 @@ CPU-only 1.1.
 ## Phase 4 · 2.0: hardened and public
 
 - **Built-in Tor** on both platforms (Arti), with no external Orbot needed.
-- **Panic triggers**: duress PIN, wipe after N failed unlocks.
-- **Incognito upgrades**: incognito image runs, no gallery writes.
+- ✅ **Panic triggers**: duress PIN, wipe after N failed unlocks. *(done, both apps: an app PIN of
+  4-12 digits replaces the device credential on the lock screen (biometrics may still open the app
+  until a wrong PIN is entered, never count as an attempt and never trigger the duress PIN); the
+  verifier is PBKDF2 plus an HMAC key bound to the device (Keystore / Keychain this-device-only),
+  so a copied lock file cannot be guessed off the phone. Every attempt is written and synced as
+  failed before the PIN is checked, so a kill cannot reset the counter; back-off from the fourth
+  wrong PIN up to 30 minutes, a warning two attempts before the wipe. Wipe after 5, 10 or 15
+  failures lands on the welcome screen; the duress PIN looks like an unlock and opens an empty
+  app with itself as the only PIN. Wipes follow one shared, journaled plan: keys first, then
+  data, every later step idempotent, finished on the next start if cut off; downloaded models
+  are kept unless "Erase models too". Shared core, rules and copy in `:shared` (`panic`), JVM,
+  Android and iOS tests. Not yet: tried on real phones; iOS starts over by rebuilding the app in
+  the same process (it cannot relaunch itself unseen) where Android restarts it; a forensic look
+  at the storage can still tell that a wipe happened.)*
+- ✅ **Incognito upgrades**: incognito image runs, no gallery writes. *(done, both apps:
+  `generate_image` in an incognito chat and Imagine with Incognito on keep results in memory
+  only, marked "Not saved" with Save; nothing reaches the gallery, the Studio or the disk until
+  saved, and the images go with their chat, a new incognito run, a wipe or the process. Not yet:
+  Imagine's Incognito switch is per visit and does not follow "Incognito by default"; Studio
+  jobs have no incognito mode.)*
 - **Reproducible Android builds** and an F-Droid listing; signed CI releases.
 - **App Store release** after TestFlight hardening.
 - **Baseline profiles** and startup time budgets. *(Android: Baseline and startup profiles

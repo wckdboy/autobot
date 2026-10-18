@@ -48,9 +48,15 @@ class KeyManager @Inject constructor(
     var lastKeyStrongBoxBacked: Boolean? = null
         private set
 
+    /** Set by [destroyAllKeys] until a wipe finishes ([reopen]): no key is read or created meanwhile. */
+    @Volatile
+    private var destroyed = false
+
     /** Returns the Keystore key for [alias], generating it on first use. */
     @Synchronized
     fun getOrCreateKey(alias: String): SecretKey {
+        // A job still running during a wipe must not mint a fresh key that would outlive it.
+        check(!destroyed) { "The keys were destroyed" }
         (keyStore.getKey(alias, null) as? SecretKey)?.let { return it }
         return try {
             generateKey(alias, strongBox = true).also { lastKeyStrongBoxBacked = true }
@@ -155,12 +161,19 @@ class KeyManager @Inject constructor(
      */
     @Synchronized
     fun destroyAllKeys() {
+        destroyed = true
         mediaKeyCache = null
         aliases.forEach { alias ->
             runCatching { if (keyStore.containsAlias(alias)) keyStore.deleteEntry(alias) }
         }
         keyDirectory.deleteRecursively()
         lastKeyStrongBoxBacked = null
+    }
+
+    /** The wipe that destroyed the keys has finished: the new install may create its own. */
+    @Synchronized
+    fun reopen() {
+        destroyed = false
     }
 
     private fun generateKey(alias: String, strongBox: Boolean): SecretKey {

@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.feature.imagine.generate
 
 import dev.wckdboy.autobot.core.data.GalleryRepository
+import dev.wckdboy.autobot.core.data.UnsavedImages
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackend
@@ -89,6 +90,7 @@ data class GeneratedImage(val galleryId: String, val seed: Long, val width: Int,
 class ImageGenerator @Inject constructor(
     private val engines: DiffusionEngineFactory,
     private val gallery: GalleryRepository,
+    private val unsaved: UnsavedImages,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
     private var userJob: Job? = null
@@ -103,15 +105,19 @@ class ImageGenerator @Inject constructor(
 
     /**
      * Starts a user job on the application scope so it keeps running while the user switches
-     * tabs. Results stream into [lastResults]; failures land in [lastError].
+     * tabs. Results stream into [lastResults]; failures land in [lastError]. An [incognito] job
+     * keeps its results in memory only ([UnsavedImages]); the screen's earlier unsaved results
+     * are dropped when a new job starts.
      */
-    fun start(backend: DiffusionBackend, request: DiffusionRequest, inputs: DiffusionInputs) {
+    fun start(backend: DiffusionBackend, request: DiffusionRequest, inputs: DiffusionInputs, incognito: Boolean = false) {
         if (userJob?.isActive == true) return
         _lastError.value = null
         _lastResults.value = emptyList()
+        unsaved.drop(UnsavedImages.IMAGE_SCREEN)
+        val owner = UnsavedImages.IMAGE_SCREEN.takeIf { incognito }
         userJob = scope.launch {
             try {
-                generate(backend, request.calls(), inputs, GenerationSource.USER) { image -> _lastResults.update { it + image } }
+                generate(backend, request.calls(), inputs, GenerationSource.USER, owner) { image -> _lastResults.update { it + image } }
             } catch (e: TimeoutCancellationException) {
                 // A timeout inside the engine is a failure to show, not the user's cancel.
                 _lastError.value = e.message ?: "The image engine did not answer in time"
@@ -146,15 +152,21 @@ class ImageGenerator @Inject constructor(
         request: DiffusionRequest,
         inputs: DiffusionInputs = DiffusionInputs(),
         source: GenerationSource = GenerationSource.USER,
+        incognitoOwner: String? = null,
         onResult: (GeneratedImage) -> Unit = {},
-    ): List<GeneratedImage> = generate(backend, listOf(request), inputs, source, onResult)
+    ): List<GeneratedImage> = generate(backend, listOf(request), inputs, source, incognitoOwner, onResult)
 
-    /** Runs [calls] one after another as one job (one slot, one progress state). */
+    /**
+     * Runs [calls] one after another as one job (one slot, one progress state). With an
+     * [incognitoOwner] (an incognito chat's session id, or the Image screen) results stay in
+     * memory under unsaved ids and never reach the gallery.
+     */
     suspend fun generate(
         backend: DiffusionBackend,
         calls: List<DiffusionRequest>,
         inputs: DiffusionInputs = DiffusionInputs(),
         source: GenerationSource = GenerationSource.USER,
+        incognitoOwner: String? = null,
         onResult: (GeneratedImage) -> Unit = {},
     ): List<GeneratedImage> = mutex.withLock {
         val engine = engines.create(backend)
@@ -172,7 +184,7 @@ class ImageGenerator @Inject constructor(
                         is DiffusionEvent.Phase -> _state.update { s -> (s as? GenerationState.Running)?.on(event) ?: s }
                         is DiffusionEvent.Progress -> _state.update { s -> (s as? GenerationState.Running)?.on(event) ?: s }
                         is DiffusionEvent.Result -> {
-                            val stored = store(backend, request, event)
+                            val stored = store(backend, request, event, incognitoOwner)
                             saved += stored
                             onResult(stored)
                             _state.update { s -> (s as? GenerationState.Running)?.copy(done = s.done + stored.galleryId, preview = event.image, phase = null) ?: s }
@@ -187,31 +199,28 @@ class ImageGenerator @Inject constructor(
         }
     }
 
-    private suspend fun store(backend: DiffusionBackend, request: DiffusionRequest, result: DiffusionEvent.Result): GeneratedImage {
-        val id = gallery.newId()
+    private suspend fun store(backend: DiffusionBackend, request: DiffusionRequest, result: DiffusionEvent.Result, incognitoOwner: String?): GeneratedImage {
+        val id = if (incognitoOwner != null) unsaved.newId() else gallery.newId()
         val thumb = withContext(Dispatchers.Default) { ImageCodec.thumbnail(result.image) } ?: result.image
         val effective = request.copy(seed = result.seed, width = result.width, height = result.height, batchCount = 1)
-        gallery.save(
-            GalleryItem(
-                id = id,
-                createdAt = System.currentTimeMillis(),
-                mode = request.mode.name,
-                prompt = request.prompt,
-                negativePrompt = request.negativePrompt,
-                width = result.width,
-                height = result.height,
-                seed = result.seed,
-                steps = request.steps,
-                cfgScale = request.cfgScale,
-                sampler = listOfNotNull(request.sampler, request.scheduler).joinToString(" · "),
-                engine = backend.name,
-                model = request.model,
-                durationMs = result.durationMs,
-                paramsJson = json.encodeToString(DiffusionRequest.serializer(), effective),
-            ),
-            image = result.image,
-            thumbnail = thumb,
+        val item = GalleryItem(
+            id = id,
+            createdAt = System.currentTimeMillis(),
+            mode = request.mode.name,
+            prompt = request.prompt,
+            negativePrompt = request.negativePrompt,
+            width = result.width,
+            height = result.height,
+            seed = result.seed,
+            steps = request.steps,
+            cfgScale = request.cfgScale,
+            sampler = listOfNotNull(request.sampler, request.scheduler).joinToString(" · "),
+            engine = backend.name,
+            model = request.model,
+            durationMs = result.durationMs,
+            paramsJson = json.encodeToString(DiffusionRequest.serializer(), effective),
         )
+        if (incognitoOwner != null) unsaved.put(item, result.image, thumb, incognitoOwner) else gallery.save(item, image = result.image, thumbnail = thumb)
         return GeneratedImage(id, result.seed, result.width, result.height, result.durationMs)
     }
 

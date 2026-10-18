@@ -98,15 +98,21 @@ final class ImageGenerator {
 
     func engine(for backend: DiffusionBackend) -> any DiffusionEngine { engines.create(backend, library: library) }
 
-    /// Starts a user job. Results stream into [lastResults]; failures land in [lastError].
-    func start(_ backend: DiffusionBackend, _ request: DiffusionRequest, _ inputs: DiffusionInputs) {
+    /**
+     Starts a user job. Results stream into [lastResults]; failures land in [lastError]. An
+     [incognito] job keeps its results in memory only ([UnsavedImages]); the screen's earlier
+     unsaved results are dropped when a new job starts.
+     */
+    func start(_ backend: DiffusionBackend, _ request: DiffusionRequest, _ inputs: DiffusionInputs, incognito: Bool = false) {
         guard userJob == nil, !isBusy else { return }
         lastError = nil
         lastResults = []
+        gallery.unsaved.drop(owner: UnsavedImages.imageScreen)
+        let owner = incognito ? UnsavedImages.imageScreen : nil
         let epoch = AppActivity.shared.epoch
         userJob = Task {
             do {
-                _ = try await generate(backend, request.calls(), inputs, source: .user) { [weak self] image in self?.lastResults.append(image) }
+                _ = try await generate(backend, request.calls(), inputs, source: .user, incognitoOwner: owner) { [weak self] image in self?.lastResults.append(image) }
             } catch is CancellationError {
             } catch {
                 lastError = backend.kind == .onDevice && AppActivity.shared.interrupted(since: epoch)
@@ -128,20 +134,24 @@ final class ImageGenerator {
         _ request: DiffusionRequest,
         _ inputs: DiffusionInputs = DiffusionInputs(),
         source: GenerationSource = .user,
+        incognitoOwner: String? = nil,
         onResult: @escaping (GeneratedImage) -> Void = { _ in },
     ) async throws -> [GeneratedImage] {
-        try await generate(backend, [request], inputs, source: source, onResult: onResult)
+        try await generate(backend, [request], inputs, source: source, incognitoOwner: incognitoOwner, onResult: onResult)
     }
 
     /**
      Runs [calls] one after another as one job: one slot, one progress state whose request carries
-     the job's image count as its batch and whose image index counts across the calls.
+     the job's image count as its batch and whose image index counts across the calls. With an
+     [incognitoOwner] (an incognito chat's session id, or the Imagine screen) results stay in
+     memory under unsaved ids and never reach the gallery.
      */
     func generate(
         _ backend: DiffusionBackend,
         _ calls: [DiffusionRequest],
         _ inputs: DiffusionInputs,
         source: GenerationSource,
+        incognitoOwner: String? = nil,
         onResult: @escaping (GeneratedImage) -> Void,
     ) async throws -> [GeneratedImage] {
         guard !isBusy else { throw DiffusionError(message: "Another image is being generated", code: .backend) }
@@ -169,7 +179,7 @@ final class ImageGenerator {
                         state = .running(source: s, backend: b, request: r, image: offset + image, step: step, totalSteps: total, preview: preview ?? old, startedAt: t)
                     }
                 case .result(_, let image, let seed, let width, let height, let durationMs, _):
-                    let stored = try await store(backend, request, image: image, seed: seed, width: width, height: height, durationMs: durationMs)
+                    let stored = try await store(backend, request, image: image, seed: seed, width: width, height: height, durationMs: durationMs, incognitoOwner: incognitoOwner)
                     saved.append(stored)
                     onResult(stored)
                     if case .running(let s, let b, let r, let i, let st, let tt, _, let t) = state {
@@ -183,8 +193,8 @@ final class ImageGenerator {
         return saved
     }
 
-    private func store(_ backend: DiffusionBackend, _ request: DiffusionRequest, image: Data, seed: Int64, width: Int, height: Int, durationMs: Int64) async throws -> GeneratedImage {
-        let id = gallery.newId()
+    private func store(_ backend: DiffusionBackend, _ request: DiffusionRequest, image: Data, seed: Int64, width: Int, height: Int, durationMs: Int64, incognitoOwner: String?) async throws -> GeneratedImage {
+        let id = incognitoOwner != nil ? gallery.unsaved.newId() : gallery.newId()
         let thumb = await Task.detached { ImageCodec.thumbnail(image) }.value ?? image
         var effective = request
         effective.seed = seed
@@ -192,27 +202,28 @@ final class ImageGenerator {
         effective.height = height
         effective.batchCount = 1
         let params = (try? JSONEncoder.store.encode(effective)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
-        try await gallery.save(
-            GalleryItem(
-                id: id,
-                createdAt: nowMillis(),
-                mode: request.mode.rawValue,
-                prompt: request.prompt,
-                negativePrompt: request.negativePrompt,
-                width: width,
-                height: height,
-                seed: seed,
-                steps: request.steps,
-                cfgScale: request.cfgScale,
-                sampler: [request.sampler, request.scheduler].compactMap { $0 }.joined(separator: " · "),
-                engine: backend.name,
-                model: request.model,
-                durationMs: durationMs,
-                paramsJson: params,
-            ),
-            image: image,
-            thumbnail: thumb,
+        let item = GalleryItem(
+            id: id,
+            createdAt: nowMillis(),
+            mode: request.mode.rawValue,
+            prompt: request.prompt,
+            negativePrompt: request.negativePrompt,
+            width: width,
+            height: height,
+            seed: seed,
+            steps: request.steps,
+            cfgScale: request.cfgScale,
+            sampler: [request.sampler, request.scheduler].compactMap { $0 }.joined(separator: " · "),
+            engine: backend.name,
+            model: request.model,
+            durationMs: durationMs,
+            paramsJson: params,
         )
+        if let incognitoOwner {
+            gallery.unsaved.put(item, image: image, thumbnail: thumb, owner: incognitoOwner)
+        } else {
+            try await gallery.save(item, image: image, thumbnail: thumb)
+        }
         return GeneratedImage(galleryId: id, seed: seed, width: width, height: height, durationMs: durationMs)
     }
 

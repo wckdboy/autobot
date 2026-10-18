@@ -103,6 +103,10 @@ data class ImagineUiState(
     val error: String? = null,
     val loaded: Boolean = false,
     val chips: List<ModelChip> = emptyList(),
+    /** Results stay in memory only, never in the gallery or the Studio, until saved ([dev.wckdboy.autobot.shared.panic.IncognitoImages]). */
+    val incognito: Boolean = false,
+    /** Unsaved incognito results the user saved, by unsaved id → gallery id. */
+    val saved: Map<String, String> = emptyMap(),
 ) {
     val selectedChip: ModelChip?
         get() = chips.firstOrNull { it.backendId == backend?.id && (it.model == request.model || (request.model == null && it.model == catalog.currentModel)) }
@@ -146,6 +150,7 @@ class ImagineViewModel @Inject constructor(
         val catalogStatus: CatalogStatus = CatalogStatus.IDLE,
         val catalogError: String? = null,
         val error: String? = null,
+        val incognito: Boolean = false,
     )
 
     private val local = MutableStateFlow(Local())
@@ -205,8 +210,8 @@ class ImagineViewModel @Inject constructor(
         backendsRepo.defaultBackendId,
         local,
         combine(running, results, generator.lastError) { r, res, e -> Triple(r, res, e) },
-        combine(backendsRepo.lastRequest, chips) { s, c -> s to c },
-    ) { backends, defaultId, l, (run, res, genError), (stored, chips) ->
+        combine(backendsRepo.lastRequest, chips, gallery.keptIncognito) { s, c, k -> Triple(s, c, k) },
+    ) { backends, defaultId, l, (run, res, genError), (stored, chips, kept) ->
         val backend = backends.firstOrNull { it.id == (l.selectedBackendId ?: defaultId) } ?: backends.firstOrNull()
         ImagineUiState(
             backends = backends,
@@ -224,6 +229,8 @@ class ImagineViewModel @Inject constructor(
             error = l.error ?: genError,
             loaded = true,
             chips = chips,
+            incognito = l.incognito,
+            saved = kept,
         )
     }.flowOn(Dispatchers.Default)
         // Collected while the screen is open and in the foreground: the on-device model stays
@@ -281,6 +288,14 @@ class ImagineViewModel @Inject constructor(
 
     /** Same settings again (a random seed stays random). */
     fun runAgain() = generate()
+
+    /** Incognito runs keep their results in memory only (for this screen, not persisted). */
+    fun setIncognito(enabled: Boolean) = local.update { it.copy(incognito = enabled) }
+
+    /** Saves an unsaved incognito result into the gallery. */
+    fun saveResult(id: String) {
+        viewModelScope.launch { runCatching { gallery.keep(id) } }
+    }
 
     /** Same settings, new random seed. */
     fun variations() {
@@ -485,7 +500,7 @@ class ImagineViewModel @Inject constructor(
             }
             local.update { it.copy(preferInit = false) }
             backendsRepo.saveLastRequest(request)
-            generator.start(backend, request, inputs)
+            generator.start(backend, request, inputs, incognito = state.incognito)
         }
     }
 
