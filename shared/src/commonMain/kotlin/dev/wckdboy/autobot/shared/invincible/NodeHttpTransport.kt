@@ -33,6 +33,8 @@ class NodeHttpTransport(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     /** Told the node's request id (`invincible-request-id`) of each answer made for an agent turn. */
     private val onRequestId: (suspend (TurnTrace, String) -> Unit)? = null,
+    /** Turns that must not leave the node: their requests carry `invincible-private: 1`. */
+    private val privateTurns: PrivateTurns? = null,
 ) : HttpTransport {
 
     override fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable {
@@ -43,7 +45,8 @@ class NodeHttpTransport(
             try {
                 val opened = connect().also { link = it }
                 val channel = InvincibleNode.session(crypto, opened, nodeKey, device)
-                channel.send(encode(request))
+                val private = request.trace?.let { privateTurns?.isPrivate(it) } == true
+                channel.send(encode(request, private))
                 var requestId: String? = null
                 Http1Reader(channel).deliver(request.maxBytes, object : HttpSink by sink {
                     override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
@@ -71,15 +74,20 @@ class NodeHttpTransport(
     }
 
     companion object {
-        /** The request as HTTP/1.1, one exchange per session (`Connection: close`). */
-        fun encode(request: HttpRequestSpec): ByteArray {
+        /**
+         * The request as HTTP/1.1, one exchange per session (`Connection: close`); [private] adds
+         * `invincible-private: 1` (the node keeps it on its own models).
+         */
+        fun encode(request: HttpRequestSpec, private: Boolean = false): ByteArray {
             val target = request.url.substringAfter("://").let { rest -> rest.indexOf('/').let { if (it < 0) "/" else rest.substring(it) } }
             val body = request.body?.encodeToByteArray() ?: ByteArray(0)
             val head = buildString {
                 append(request.method).append(' ').append(target).append(" HTTP/1.1\r\n")
                 append("host: invincible\r\n")
+                if (private) append("invincible-private: 1\r\n")
                 for ((name, value) in request.headers) {
                     if (name.equals("host", true) || name.equals("connection", true) || name.equals("content-length", true)) continue
+                    if (name.equals("invincible-private", true)) continue
                     require('\r' !in name && '\n' !in name && '\r' !in value && '\n' !in value) { "header with a line break" }
                     append(name).append(": ").append(value).append("\r\n")
                 }

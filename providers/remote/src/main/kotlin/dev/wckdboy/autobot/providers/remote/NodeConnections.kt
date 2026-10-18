@@ -6,6 +6,7 @@ import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.shared.invincible.JvmNodeConnector
 import dev.wckdboy.autobot.shared.invincible.NodeLink
 import dev.wckdboy.autobot.shared.invincible.NodeReceiptLog
+import dev.wckdboy.autobot.shared.invincible.PrivateTurns
 import dev.wckdboy.autobot.shared.invincible.NodePolicy
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,6 +22,9 @@ class NodeConnections @Inject constructor(
 ) {
     /** The nodes' own receipts for agent turns, read by the privacy-receipt plugin. */
     val receipts = NodeReceiptLog()
+
+    /** Turns the "phone first" cascade hands to a node: sent as private, so they stay there. */
+    val privateTurns = PrivateTurns()
 
     /** Opens a connection to one of a node's addresses, tagged [tag] in the audit log. */
     fun connector(routing: ProviderRouting, tag: String): suspend (List<String>) -> NodeLink {

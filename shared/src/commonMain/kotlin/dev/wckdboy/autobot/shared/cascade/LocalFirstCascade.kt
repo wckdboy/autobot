@@ -47,12 +47,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @param defaultPolicy Settings → "Phone first", for chats without their own choice.
  * @param onDevice the on-device chat route (the installed default model), null when none.
  * @param cloud whether a provider's requests leave the phone.
+ * @param owned whether a provider is the user's own paired node: then the follow-up goes there,
+ *   marked private in [privateTurns] so the node keeps it on its own models ("phone → my node").
  * @param selfCheck whether the judge may ask the on-device model to grade its answer (else rules only).
  */
 class LocalFirstCascade(
     private val defaultPolicy: () -> CascadePolicy,
     private val onDevice: suspend () -> LlmCallConfig?,
     private val cloud: suspend (providerId: String) -> Boolean,
+    private val owned: suspend (providerId: String) -> Boolean = { false },
+    private val privateTurns: dev.wckdboy.autobot.shared.invincible.PrivateTurns? = null,
     private val judge: CascadeJudge = CascadeJudge(),
     private val selfCheck: () -> Boolean = { true },
     private val selfCheckTimeoutMs: Long = CascadeJudge.SELF_CHECK_TIMEOUT_MS,
@@ -73,6 +77,8 @@ class LocalFirstCascade(
         /** A cloud follow-up: its trigger (`auto` / `asked`) and the phone's judged answer it follows. */
         val trigger: String? = null,
         val origin: ReceiptCascade? = null,
+        /** The follow-up target is the user's own node. */
+        val owned: Boolean = false,
     ) {
         @kotlin.concurrent.Volatile var judging = false
         @kotlin.concurrent.Volatile var result: CascadeJudge.Result? = null
@@ -148,6 +154,7 @@ class LocalFirstCascade(
         // The receipt says what the cascade did; "Auto" queues the cloud follow-up here.
         ctx.intercept(Hooks.TurnReceipt) { input, next ->
             val receipt = next(input)
+            privateTurns?.clear(TurnTrace(input.agent.id, input.turn))
             val state = lock.withLock { turns.remove(input.agent.id) }?.takeIf { it.turn == input.turn } ?: return@intercept receipt
             val note = try {
                 finish(input.agent, state)
@@ -167,10 +174,13 @@ class LocalFirstCascade(
         val entries = agent.log.entries.value
         input.lastOrNull { it.kind == UserMessageKind.CONTEXT && it.contextId == CASCADE_ESCALATION }?.let { marker ->
             val origin = lastLocal(entries)
+            val toNode = origin?.target == TARGET_NODE
             val state = TurnState(
                 turn, CascadePolicy.parse(origin?.policy) ?: policyOf(agent), CascadeRoute.NotApplicable, null,
-                CascadeRisk(origin?.risk.orEmpty()), "", trigger = marker.text.ifBlank { TRIGGER_ASKED }, origin = origin,
+                CascadeRisk(origin?.risk.orEmpty()), "", trigger = marker.text.ifBlank { TRIGGER_ASKED }, origin = origin, owned = toNode,
             )
+            // The follow-up to the user's own node stays there.
+            if (toNode) privateTurns?.mark(TurnTrace(agent.id, turn))
             lock.withLock { turns[agent.id] = state }
             return null
         }
@@ -178,7 +188,8 @@ class LocalFirstCascade(
         val policy = policyOf(agent)
         if (!policy.localFirst || config.toolsEnabled) return null
         val prompt = input.lastOrNull { it.kind == UserMessageKind.PROMPT } ?: return null
-        if (!runCatching { cloud(config.llm.provider) }.getOrDefault(true)) return null
+        val toNode = runCatching { owned(config.llm.provider) }.getOrDefault(false)
+        if (!toNode && !runCatching { cloud(config.llm.provider) }.getOrDefault(true)) return null
         val local = try {
             onDevice()?.takeIf { it.provider.isNotBlank() && it.model.isNotBlank() }
         } catch (e: CancellationException) {
@@ -195,13 +206,15 @@ class LocalFirstCascade(
                 null
             }
         }
-        val route = CascadeRoutes.route(policy, cloudRoute = true, toolsEnabled = false, hasLocalModel = local != null, Compactor().estimateTokens(entries), window)
+        val route = CascadeRoutes.route(policy, cloudRoute = !toNode, toolsEnabled = false, hasLocalModel = local != null, Compactor().estimateTokens(entries), window, owned = toNode)
         when (route) {
             CascadeRoute.NotApplicable -> return null
             is CascadeRoute.Blocked -> return route.message
             else -> Unit
         }
-        val state = TurnState(turn, policy, route, local, risk(agent, prompt, entries), prompt.text)
+        val state = TurnState(turn, policy, route, local, risk(agent, prompt, entries), prompt.text, owned = toNode)
+        // The phone cannot answer, so the node does: privately.
+        if (toNode && route is CascadeRoute.Direct) privateTurns?.mark(TurnTrace(agent.id, turn))
         lock.withLock { turns[agent.id] = state }
         return null
     }
@@ -270,11 +283,15 @@ class LocalFirstCascade(
                 action = CascadeAction.ESCALATED.name,
                 risk = origin?.risk.orEmpty(),
                 trigger = trigger,
+                target = TARGET_NODE.takeIf { state.owned },
             )
         }
         val route = state.route
         if (route is CascadeRoute.Direct) {
-            return ReceiptCascade(ROLE_CLOUD, state.policy.name, NOT_JUDGED, listOf(route.reason), CascadeAction.DIRECT.name, state.risk.reasons)
+            return ReceiptCascade(
+                ROLE_CLOUD, state.policy.name, NOT_JUDGED, listOf(route.reason), CascadeAction.DIRECT.name, state.risk.reasons,
+                target = TARGET_NODE.takeIf { state.owned },
+            )
         }
         var result = state.result
         if (result == null) {
@@ -289,7 +306,7 @@ class LocalFirstCascade(
             }
             state.judgeName = JUDGE_HEURISTIC
         }
-        val action = CascadeRoutes.action(state.policy, result.verdict, state.risk)
+        val action = CascadeRoutes.action(state.policy, result.verdict, state.risk, state.owned)
         if (action == CascadeAction.ESCALATED) {
             agent.queueTurn(SessionEvent.UserMessage(TRIGGER_AUTO, UserMessageKind.CONTEXT, CASCADE_ESCALATION), first = true)
         }
@@ -302,6 +319,7 @@ class LocalFirstCascade(
             risk = state.risk.reasons,
             judge = state.judgeName,
             judgeMs = state.judgeMs,
+            target = TARGET_NODE.takeIf { state.owned },
         )
     }
 
@@ -314,6 +332,7 @@ class LocalFirstCascade(
         const val JUDGE_SELF_CHECK = "self-check"
         const val JUDGE_HEURISTIC = "heuristic"
         const val NOT_JUDGED = "NONE"
+        const val TARGET_NODE = "node"
 
         /** The phone's offered answer still waiting for "Ask": the latest turn's, when the judge offered the cloud. */
         fun pendingOffer(entries: List<LogEntry>): ReceiptCascade? {

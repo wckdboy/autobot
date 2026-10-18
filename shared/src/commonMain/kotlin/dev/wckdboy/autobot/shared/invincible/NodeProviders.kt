@@ -24,10 +24,11 @@ object NodeProviders {
         displayName: String,
         preset: ProviderPreset = ProviderPresets.forKind(dev.wckdboy.autobot.core.data.model.ProviderKind.INVINCIBLE_NODE),
         receipts: NodeReceiptLog? = null,
+        privateTurns: PrivateTurns? = null,
         connect: suspend (List<String>) -> NodeLink,
     ): ChatProvider {
         val paired = secret?.let(PairedNode::fromSecret) ?: return UnavailableChatProvider("This node is not paired: pair it again")
-        return TransportChatProvider(ProviderPresets.NODE_BASE_URL, null, paired.transport(crypto, receipts, connect), displayName, preset = preset)
+        return TransportChatProvider(ProviderPresets.NODE_BASE_URL, null, paired.transport(crypto, receipts, privateTurns, connect), displayName, preset = preset)
     }
 }
 

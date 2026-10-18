@@ -236,6 +236,14 @@ cloud model, which the sheet lists with routes, bytes and what the node redacted
 `studio unverified` (the signature does not check out: shown, never trusted). `NodeReceiptLogTest`
 runs this on Invincible's own signed receipt vectors, tampered and mis-keyed copies included.
 
+**Phone first, then my node.** "Phone first" works on a node chat too: this phone answers first,
+and when the judge finds its answer weak, the prompt goes to your node instead of a cloud model.
+The node is hardware you own, so a sensitive prompt may go there on its own and "Never" (nothing
+to the cloud) allows it. These turns are sent with `invincible-private: 1`, so the node keeps
+them on its own models and never forwards them to a cloud backend. The notice reads
+`phone → my node`, and the receipt says the turn was sent to your node and kept there. Nothing
+is redacted for the node; it redacts what it sends on itself.
+
 Not yet: the iOS connector (the preset shows "not on iOS yet").
 
 ## On-device models

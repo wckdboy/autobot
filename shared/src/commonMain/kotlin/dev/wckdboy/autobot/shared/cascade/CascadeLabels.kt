@@ -51,15 +51,23 @@ object CascadeLabels {
     /** The button of the offer: "Ask DeepSeek V3". */
     fun ask(model: String): String = "Ask ${model.ifBlank { "the cloud" }}"
 
-    /** The small print of the chat's "phone first" choice. */
-    fun sheetNote(model: String): String =
-        "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "the cloud model" }} answers below it, " +
-            "through redaction when it is on. The receipt says why."
+    /** The small print of the chat's "phone first" choice; [node]: the chat's model is the user's own node. */
+    fun sheetNote(model: String, node: Boolean = false): String =
+        if (node) {
+            "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "your node" }} answers below it, " +
+                "on hardware you own: it never sends these on to a cloud model. The receipt says why."
+        } else {
+            "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "the cloud model" }} answers below it, " +
+                "through redaction when it is on. The receipt says why."
+        }
 
-    /** The notice above the cloud follow-up. */
-    fun followUp(trigger: String?, reasons: List<String>): String = when (trigger) {
-        "auto" -> listOfNotNull("phone → cloud · auto", reasons(reasons).ifEmpty { null }).joinToString(" · ")
-        else -> "phone → cloud · you asked"
+    /** The notice above the follow-up; [target] `node`: it went to the user's own node. */
+    fun followUp(trigger: String?, reasons: List<String>, target: String? = null): String {
+        val to = if (target == "node") "phone → my node" else "phone → cloud"
+        return when (trigger) {
+            "auto" -> listOfNotNull("$to · auto", reasons(reasons).ifEmpty { null }).joinToString(" · ")
+            else -> "$to · you asked"
+        }
     }
 
     /** The word the receipt line ends in: "judge ok", "judge weak", "cascaded". */
@@ -74,6 +82,7 @@ object CascadeLabels {
         val why = reasons(c.reasons).ifEmpty { null }
         val weak = if (c.verdict == CascadeVerdict.UNSURE.name) "wasn't sure about it" else "found it weak"
         val sensitive = c.risk.takeIf { it.isNotEmpty() }?.joinToString(", ") { risk(it) }
+        if (c.target == "node") return nodeSummary(c, why, weak)
         return when {
             c.role == "cloud" && c.action == CascadeAction.DIRECT.name ->
                 "The chat's model answered directly: ${why ?: "the phone couldn't answer"}."
@@ -90,6 +99,25 @@ object CascadeLabels {
             else ->
                 "This phone answered. The judge $weak${why?.let { " ($it)" }.orEmpty()}, so you can ask the cloud model." +
                     if (c.policy == CascadePolicy.AUTO.name && sensitive != null) " Not sent on its own: the prompt involves $sensitive." else ""
+        }
+    }
+
+    /** [summary] when the follow-up target is the user's own node, where it stays private. */
+    private fun nodeSummary(c: ReceiptCascade, why: String?, weak: String): String {
+        val because = why?.let { " ($it)" }.orEmpty()
+        return when {
+            c.role == "cloud" && c.action == CascadeAction.DIRECT.name ->
+                "Your node answered directly, and kept it there: ${why ?: "the phone couldn't answer"}."
+            c.role == "cloud" && c.trigger == "auto" ->
+                "Sent to your node on its own, and kept there: the phone's answer looked weak$because."
+            c.role == "cloud" ->
+                "Sent to your node because you asked, and kept there. The judge $weak$because."
+            c.action == CascadeAction.KEPT.name ->
+                "This phone answered. The judge kept its answer; nothing went to your node."
+            c.action == CascadeAction.ESCALATED.name ->
+                "This phone answered first. The judge found it weak$because, so the prompt went to your node, which keeps it on its own models."
+            else ->
+                "This phone answered. The judge $weak$because, so you can ask your node."
         }
     }
 

@@ -88,22 +88,33 @@ object CascadeRoutes {
         hasLocalModel: Boolean,
         promptTokens: Int = 0,
         localWindow: Int? = null,
-    ): CascadeRoute = when {
-        !policy.localFirst || !cloudRoute || toolsEnabled -> CascadeRoute.NotApplicable
-        !hasLocalModel -> if (policy == CascadePolicy.NEVER) CascadeRoute.Blocked(BLOCKED_MESSAGE) else CascadeRoute.Direct(NO_LOCAL_MODEL)
-        // "Never" still lets the phone try a long chat: the user ruled the cloud out.
-        policy != CascadePolicy.NEVER && localWindow != null && promptTokens > localWindow * LOCAL_WINDOW_SHARE -> CascadeRoute.Direct(TOO_LONG)
-        else -> CascadeRoute.Local
+        owned: Boolean = false,
+    ): CascadeRoute {
+        // The user's own node is hardware they own: "Never" (nothing to the cloud) does not keep a
+        // turn from it, so with a node the phone only steps aside when it cannot answer.
+        val cloudRuledOut = policy == CascadePolicy.NEVER && !owned
+        return when {
+            !policy.localFirst || !(cloudRoute || owned) || toolsEnabled -> CascadeRoute.NotApplicable
+            !hasLocalModel -> if (cloudRuledOut) CascadeRoute.Blocked(BLOCKED_MESSAGE) else CascadeRoute.Direct(NO_LOCAL_MODEL)
+            // "Never" still lets the phone try a long chat: the user ruled the cloud out.
+            !cloudRuledOut && localWindow != null && promptTokens > localWindow * LOCAL_WINDOW_SHARE -> CascadeRoute.Direct(TOO_LONG)
+            else -> CascadeRoute.Local
+        }
     }
 
     /**
      * What follows a judged answer: keep it, offer the cloud, or escalate. "Auto" escalates only
      * a [CascadeVerdict.WEAK] answer to a prompt the risk classifier calls low-risk; a sensitive
-     * prompt, or an answer the judge is merely unsure about, is offered instead.
+     * prompt, or an answer the judge is merely unsure about, is offered instead. With the user's
+     * own node as the chat's model ([owned]), see below.
      */
-    fun action(policy: CascadePolicy, verdict: CascadeVerdict, risk: CascadeRisk): CascadeAction = when {
+    fun action(policy: CascadePolicy, verdict: CascadeVerdict, risk: CascadeRisk, owned: Boolean = false): CascadeAction = when {
         verdict == CascadeVerdict.GOOD -> CascadeAction.KEPT
-        policy == CascadePolicy.NEVER || policy == CascadePolicy.OFF -> CascadeAction.KEPT
+        policy == CascadePolicy.OFF -> CascadeAction.KEPT
+        // To the user's own node (kept private there): "Never" and "Auto" send a weak answer on, a
+        // sensitive prompt included, since it stays on hardware they own; "Ask" offers.
+        owned -> if (policy != CascadePolicy.ASK && verdict == CascadeVerdict.WEAK) CascadeAction.ESCALATED else CascadeAction.OFFERED
+        policy == CascadePolicy.NEVER -> CascadeAction.KEPT
         policy == CascadePolicy.AUTO && verdict == CascadeVerdict.WEAK && !risk.sensitive -> CascadeAction.ESCALATED
         else -> CascadeAction.OFFERED
     }

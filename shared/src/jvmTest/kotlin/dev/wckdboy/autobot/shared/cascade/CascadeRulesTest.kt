@@ -211,4 +211,31 @@ class CascadeRulesTest {
         assertEquals("phone first · ask", CascadePolicy.ASK.chip)
         assertEquals("phone only", CascadePolicy.NEVER.chip)
     }
+
+    @Test
+    fun theUsersOwnNodeIsNotTheCloud() {
+        val low = CascadeRisk(emptyList())
+        val sensitive = CascadeRisk(listOf(CascadeRisk.HEALTH))
+        // Applicable on a node, with or without "cloud".
+        assertEquals(CascadeRoute.Local, CascadeRoutes.route(CascadePolicy.AUTO, cloudRoute = false, toolsEnabled = false, hasLocalModel = true, owned = true))
+        assertEquals(CascadeRoute.NotApplicable, CascadeRoutes.route(CascadePolicy.AUTO, cloudRoute = false, toolsEnabled = true, hasLocalModel = true, owned = true))
+        // "Never" does not block or keep the phone from stepping aside for a node.
+        assertEquals(CascadeRoute.Direct(CascadeRoutes.NO_LOCAL_MODEL), CascadeRoutes.route(CascadePolicy.NEVER, false, false, hasLocalModel = false, owned = true))
+        assertEquals(CascadeRoute.Direct(CascadeRoutes.TOO_LONG), CascadeRoutes.route(CascadePolicy.NEVER, false, false, true, promptTokens = 1000, localWindow = 100, owned = true))
+        assertTrue(CascadeRoutes.route(CascadePolicy.NEVER, true, false, hasLocalModel = false) is CascadeRoute.Blocked)
+        // Weak answers go on for Auto and Never, sensitive or not; Ask offers; good stays.
+        for (risk in listOf(low, sensitive)) {
+            assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, risk, owned = true))
+            assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, risk, owned = true))
+        }
+        assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.ASK, CascadeVerdict.WEAK, low, owned = true))
+        assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.UNSURE, low, owned = true))
+        assertEquals(CascadeAction.KEPT, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.GOOD, low, owned = true))
+        assertEquals(CascadeAction.KEPT, CascadeRoutes.action(CascadePolicy.OFF, CascadeVerdict.WEAK, low, owned = true))
+        // To the cloud, unchanged.
+        assertEquals(CascadeAction.KEPT, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, low))
+        assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, sensitive))
+        assertEquals("phone → my node · you asked", CascadeLabels.followUp("asked", emptyList(), "node"))
+        assertTrue(CascadeLabels.sheetNote("studio", node = true).contains("never sends these on to a cloud model"))
+    }
 }

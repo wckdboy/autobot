@@ -296,6 +296,7 @@ data class ReceiptModel(
  * @property judge `self-check` (the on-device model graded its own answer) or `heuristic`.
  * @property judgeMs what judging added to the turn, in milliseconds.
  * @property trigger for a `cloud` follow-up: `auto` (the policy sent it) or `asked` (the user did).
+ * @property target `node` when the chat's model is the user's own paired node.
  */
 @Serializable
 data class ReceiptCascade(
@@ -308,6 +309,8 @@ data class ReceiptCascade(
     val judge: String? = null,
     val judgeMs: Long? = null,
     val trigger: String? = null,
+    /** `node` when the follow-up goes to the user's own paired node (kept private there), not a cloud model; null: the cloud. */
+    val target: String? = null,
 )
 
 /**

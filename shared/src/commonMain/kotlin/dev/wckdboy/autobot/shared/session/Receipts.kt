@@ -41,6 +41,8 @@ data class ReceiptCascadeInfo(
     val action: String,
     val summary: String,
     val details: List<String> = emptyList(),
+    /** Where a follow-up went: `cloud`, or `my node` (the user's own, kept private there). */
+    val followUpTarget: String = "cloud",
 )
 
 /** A tool that ran in a turn; [network] tools (`web_fetch`, `web_search`, MCP) reach other hosts. */
@@ -213,7 +215,10 @@ object Receipts {
                 ReceiptUsageRow(m.model, usageLine(listOf(m)).orEmpty())
             },
             cascade = event.cascade?.let { c ->
-                ReceiptCascadeInfo(c.role, c.policy, c.verdict, c.action, CascadeLabels.summary(c), CascadeLabels.details(c))
+                ReceiptCascadeInfo(
+                    c.role, c.policy, c.verdict, c.action, CascadeLabels.summary(c), CascadeLabels.details(c),
+                    followUpTarget = if (c.target == "node") "my node" else "cloud",
+                )
             },
             nodes = nodes,
         )

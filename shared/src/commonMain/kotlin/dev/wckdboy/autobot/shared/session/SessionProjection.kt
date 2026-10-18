@@ -211,7 +211,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
                 UserMessageKind.PROMPT -> items += SessionItem.User(key, e.text, e.images)
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
                 UserMessageKind.CONTEXT -> if (e.contextId == CASCADE_ESCALATION) {
-                    items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty()), NoticeKind.INFO)
+                    items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty(), localCascade?.target), NoticeKind.INFO)
                 }
             }
             is SessionEvent.AssistantMessage -> {

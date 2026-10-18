@@ -131,7 +131,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
 
             receipt.cascade?.let { cascade ->
                 Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel(if (cascade.role == "cloud") "phone first · cloud follow-up" else "phone first", color = MaterialTheme.colorScheme.primary)
+                MicroLabel(if (cascade.role == "cloud") "phone first · ${cascade.followUpTarget} follow-up" else "phone first", color = MaterialTheme.colorScheme.primary)
                 Text(cascade.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     cascade.details.forEach { Tag(it) }
