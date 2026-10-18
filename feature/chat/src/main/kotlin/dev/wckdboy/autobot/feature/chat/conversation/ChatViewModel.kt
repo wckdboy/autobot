@@ -238,6 +238,8 @@ data class ChatUiState(
     val cascade: CascadePolicy? = null,
     /** "Ask <cloud model>" under the phone's latest answer, when the judge offered the cloud. */
     val cascadeOffer: CascadeOffer? = null,
+    /** The chat's model is the user's own paired node (Invincible): no redaction, and "phone first" follow-ups stay there. */
+    val onNode: Boolean = false,
 )
 
 /**
@@ -485,14 +487,16 @@ class ChatViewModel @AssistedInject constructor(
             voice = v.mode,
             changes = snap.projection.changes,
             thinking = snap.thinking,
+            // The node redacts what it sends on itself; the phone has nothing to hide from hardware the user owns.
             redaction = when {
-                provider == null || isLocal || loopback -> RedactionUi.NONE
+                provider == null || isLocal || loopback || provider.kind == ProviderKind.INVINCIBLE_NODE -> RedactionUi.NONE
                 snap.redacting -> RedactionUi.ON
                 else -> RedactionUi.OFF
             },
             // Plain chats on a cloud model only (agent runs are not cascaded in this version).
             cascade = if (provider == null || isLocal || loopback || snap.toolsEnabled) null else snap.cascade,
             cascadeOffer = snap.projection.cascadeOffer.takeIf { !snap.running },
+            onNode = provider?.kind == ProviderKind.INVINCIBLE_NODE,
             loaded = true,
         )
     }.combine(thinkingInfo.onStart { emit(ThinkingInfo()) }) { state, info -> state.copy(thinkingSupport = info.support, thinkingDefault = info.default) }

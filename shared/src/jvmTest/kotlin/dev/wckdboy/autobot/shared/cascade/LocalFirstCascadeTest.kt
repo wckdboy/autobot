@@ -51,6 +51,8 @@ class LocalFirstCascadeTest {
         var fail: Boolean = false,
         var hangSelfCheck: Boolean = false,
         private val window: Int = 32_768,
+        /** Runs inside each call, in its coroutine (to look at the turn it is made for). */
+        var onCall: suspend (LlmCall) -> Unit = {},
     ) : LlmAdapter {
         val calls = mutableListOf<LlmCall>()
         val chats get() = calls.filterNot { it.isSelfCheck() }
@@ -60,6 +62,7 @@ class LocalFirstCascadeTest {
 
         override fun stream(call: LlmCall): Flow<StreamChunk> = flow {
             calls += call
+            onCall(call)
             if (call.isSelfCheck()) {
                 if (hangSelfCheck) awaitCancellation()
                 emit(StreamChunk.TextDelta(grade()))
@@ -83,6 +86,9 @@ class LocalFirstCascadeTest {
         cloud: Scripted = Scripted("cloud"),
         redact: Boolean = false,
         selfCheckTimeoutMs: Long = CascadeJudge.SELF_CHECK_TIMEOUT_MS,
+        /** The chat's model ("cloud" here) is the user's own paired node. */
+        node: Boolean = false,
+        privateTurns: dev.wckdboy.autobot.shared.invincible.PrivateTurns? = null,
     ): Setup {
         val harness = Harness()
         harness.llm.register(phone)
@@ -91,7 +97,9 @@ class LocalFirstCascadeTest {
         val cascade = LocalFirstCascade(
             defaultPolicy = { policy },
             onDevice = { if (phoneInstalled) LlmCallConfig("phone", "qwen3-1.7b") else null },
-            cloud = { it == "cloud" },
+            cloud = { it == "cloud" && !node },
+            owned = { it == "cloud" && node },
+            privateTurns = privateTurns,
             selfCheckTimeoutMs = selfCheckTimeoutMs,
             millis = { now.also { now += 120 } },
         )
@@ -236,6 +244,58 @@ class LocalFirstCascadeTest {
         advanceUntilIdle()
         assertTrue(s.cloud.calls.isEmpty())
         assertEquals(listOf(CascadeRisk.ATTACHMENT), s.agent.cascades().single()!!.risk)
+    }
+
+    /** Option (a): phone first, then the user's own node, where the follow-up stays (private). */
+    @Test
+    fun onAPairedNodeWeakAnswersGoToTheNodeAndStayThere() = runTest {
+        for (policy in listOf(CascadePolicy.AUTO, CascadePolicy.NEVER)) {
+            val private = dev.wckdboy.autobot.shared.invincible.PrivateTurns()
+            val s = setup(policy = policy, node = true, privateTurns = private)
+            val seen = mutableListOf<Boolean>()
+            s.cloud.onCall = { seen += private.isPrivate(dev.wckdboy.autobot.agent.core.TurnTrace.current()!!) }
+            s.phone.answer = { "I don't know." }
+            // Sensitive: to the cloud "Auto" would only offer; the node is hardware the user owns.
+            s.agent.followup("What dose of sertraline should I take?")
+            advanceUntilIdle()
+
+            assertEquals(policy.name, 1, s.cloud.chats.size)
+            assertEquals("the node got it as private", listOf(true), seen)
+            assertFalse("cleared once the turn ended", private.isPrivate(dev.wckdboy.autobot.agent.core.TurnTrace("s1", 2)))
+            val (local, follow) = s.agent.cascades()
+            assertEquals("ESCALATED", local!!.action)
+            assertEquals("node", local.target)
+            assertEquals("node", follow!!.target)
+            val projection = projectSession(s.agent.log.entries.value, emptySet(), emptySet()) { _, _ -> "" }
+            assertEquals("phone → my node · auto · it said it doesn't know", projection.items.filterIsInstance<SessionItem.Notice>().single().text)
+            val receipt = (projection.items.last() as SessionItem.Assistant).receipt!!
+            assertTrue(receipt.cascade!!.summary, receipt.cascade!!.summary.startsWith("Sent to your node on its own, and kept there"))
+            assertEquals("my node", receipt.cascade!!.followUpTarget)
+        }
+        // "Ask" offers the node; a good answer stays on the phone.
+        val ask = setup(policy = CascadePolicy.ASK, node = true)
+        ask.phone.answer = { "I don't know." }
+        ask.agent.followup("Who wrote Stiller?")
+        advanceUntilIdle()
+        assertTrue(ask.cloud.calls.isEmpty())
+        val offered = ask.agent.cascades().single()!!
+        assertEquals("OFFERED", offered.action)
+        assertTrue(CascadeLabels.summary(offered).endsWith("so you can ask your node."))
+    }
+
+    @Test
+    fun onAPairedNodeWithoutAnOnDeviceModelTheNodeAnswersEvenUnderNever() = runTest {
+        val private = dev.wckdboy.autobot.shared.invincible.PrivateTurns()
+        val s = setup(policy = CascadePolicy.NEVER, phoneInstalled = false, node = true, privateTurns = private)
+        val seen = mutableListOf<Boolean>()
+        s.cloud.onCall = { seen += private.isPrivate(dev.wckdboy.autobot.agent.core.TurnTrace.current()!!) }
+        s.agent.followup("hello")
+        advanceUntilIdle()
+        assertEquals(listOf(true), seen)
+        val c = s.agent.cascades().single()!!
+        assertEquals("DIRECT", c.action)
+        assertEquals("node", c.target)
+        assertTrue(CascadeLabels.summary(c).startsWith("Your node answered directly, and kept it there"))
     }
 
     @Test

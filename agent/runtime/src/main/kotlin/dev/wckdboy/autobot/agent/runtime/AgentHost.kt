@@ -233,6 +233,9 @@ class AgentHost @Inject constructor(
         onDevice = { onDeviceRoute() },
         // An unknown provider counts as cloud, as for redaction.
         cloud = { id -> providers.getProvider(id)?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
+        // "Phone first" on the user's own node: follow-ups go there and stay there (private).
+        owned = { id -> providers.getProvider(id)?.kind == ProviderKind.INVINCIBLE_NODE },
+        privateTurns = nodes.privateTurns,
     )
 
     /** The on-device chat route: the first "This phone" provider with a default model, if any. */

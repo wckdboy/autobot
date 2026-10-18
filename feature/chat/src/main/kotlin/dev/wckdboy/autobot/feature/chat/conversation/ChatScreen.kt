@@ -384,7 +384,7 @@ fun ChatScreen(
     if (showThink) ThinkSheet(state, actions::setThinking, actions::setThinkingDefault) { showThink = false }
     val cascade = state.cascade
     if (showCascade && cascade != null) {
-        CascadeSheet(cascade, state.modelLabel ?: state.selectedModel.orEmpty(), actions::setCascade) { showCascade = false }
+        CascadeSheet(cascade, state.modelLabel ?: state.selectedModel.orEmpty(), state.onNode, actions::setCascade) { showCascade = false }
     }
     if (renaming) {
         NameDialog(
@@ -1406,14 +1406,14 @@ private fun CascadeOfferRow(offer: CascadeOffer, model: String, onAsk: () -> Uni
 /** The chat's cascade policy: off, ask, auto or never, each with its one line. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CascadeSheet(policy: CascadePolicy, model: String, onPick: (CascadePolicy) -> Unit, onDismiss: () -> Unit) {
+private fun CascadeSheet(policy: CascadePolicy, model: String, onNode: Boolean, onPick: (CascadePolicy) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SectionLabel("phone first", Modifier.inkStagger(0))
             Segmented(CascadePolicy.entries, policy, onPick, { it.title.lowercase() }, Modifier.fillMaxWidth().inkStagger(1))
             Text(policy.detail, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.inkStagger(2))
             Text(
-                CascadeLabels.sheetNote(model),
+                CascadeLabels.sheetNote(model, onNode),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.inkStagger(3),

@@ -31,16 +31,23 @@ class PairedNode(
 
     /**
      * An [NodeHttpTransport] to this node; [connect] opens connections under the network policy.
-     * With [receipts], the node's receipts for agent turns are kept for those turns' privacy receipts.
+     * With [receipts], the node's receipts for agent turns are kept for those turns' privacy receipts;
+     * [privateTurns] are sent as private (the node keeps them on its own models).
      */
-    fun transport(crypto: NodeCrypto, receipts: NodeReceiptLog? = null, connect: suspend (List<String>) -> NodeLink): NodeHttpTransport {
+    fun transport(
+        crypto: NodeCrypto,
+        receipts: NodeReceiptLog? = null,
+        privateTurns: PrivateTurns? = null,
+        connect: suspend (List<String>) -> NodeLink,
+    ): NodeHttpTransport {
         val plain = NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) })
-        if (receipts == null) return plain
+        if (receipts == null && privateTurns == null) return plain
         // Answers made for agent turns: their signed receipts are fetched (over [plain]) and checked
         // with the pinned key when the turn's receipt is built.
-        return NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) }, onRequestId = { trace, id ->
-            receipts.record(trace) { NodeReceiptLog.fetch(crypto, plain, name, receiptKey, id) }
-        })
+        val onRequestId: (suspend (dev.wckdboy.autobot.agent.core.TurnTrace, String) -> Unit)? = receipts?.let { log ->
+            { trace, id -> log.record(trace) { NodeReceiptLog.fetch(crypto, plain, name, receiptKey, id) } }
+        }
+        return NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) }, onRequestId = onRequestId, privateTurns = privateTurns)
     }
 
     override fun toString(): String = "PairedNode($name, $fingerprint, $addresses)"

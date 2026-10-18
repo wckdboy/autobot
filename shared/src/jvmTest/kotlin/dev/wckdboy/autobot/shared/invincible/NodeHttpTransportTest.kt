@@ -146,4 +146,27 @@ class NodeHttpTransportTest {
         kotlinx.coroutines.withContext(dev.wckdboy.autobot.agent.core.TurnTrace("chat-9", 2)) { provider.streamChat(hello).toList() }
         assertEquals(dev.wckdboy.autobot.agent.core.TurnTrace("chat-9", 2), withTimeout(5_000) { seen.await() })
     }
+
+    @Test
+    fun privateTurnsAreSentAsPrivate() {
+        val plain = NodeHttpTransport.encode(HttpRequestSpec("POST", "http://invincible/v1/chat/completions", mapOf("invincible-private" to "0"), "{}", "t"))
+        assertTrue("a caller cannot set it itself", "invincible-private" !in plain.decodeToString())
+        val private = NodeHttpTransport.encode(HttpRequestSpec("POST", "http://invincible/v1/chat/completions", emptyMap(), "{}", "t"), private = true)
+        assertTrue("invincible-private: 1\r\n" in private.decodeToString())
+    }
+
+    @Test
+    fun aMarkedTurnReachesTheNodeAsPrivate() = runBlocking {
+        val requests = mutableListOf<String>()
+        val answer = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}"
+        val turns = PrivateTurns()
+        val turn = dev.wckdboy.autobot.agent.core.TurnTrace("chat", 4)
+        turns.mark(turn)
+        val transport = NodeHttpTransport(crypto, node.publicKey, device, fakeNode(answer, requests = requests), privateTurns = turns)
+        val provider = TransportChatProvider("http://invincible/v1", null, transport, "node")
+        withTimeout(10_000) { kotlinx.coroutines.withContext(turn) { provider.listModels() } }
+        withTimeout(10_000) { kotlinx.coroutines.withContext(dev.wckdboy.autobot.agent.core.TurnTrace("chat", 5)) { provider.listModels() } }
+        assertTrue(requests[0], "invincible-private: 1" in requests[0])
+        assertTrue(requests[1], "invincible-private" !in requests[1])
+    }
 }

@@ -230,9 +230,12 @@ struct Receipt: Codable, Equatable, Sendable {
         var action: String
         var summary: String
         var details: [String] = []
+        /// Where a follow-up went: `cloud`, or `my node` (the user's own, kept private there).
+        var followUpTarget = "cloud"
 
-        init(role: String, policy: String, verdict: String, action: String, summary: String, details: [String] = []) {
+        init(role: String, policy: String, verdict: String, action: String, summary: String, details: [String] = [], followUpTarget: String = "cloud") {
             (self.role, self.policy, self.verdict, self.action, self.summary, self.details) = (role, policy, verdict, action, summary, details)
+            self.followUpTarget = followUpTarget
         }
 
         init(from decoder: Decoder) throws {
@@ -243,6 +246,7 @@ struct Receipt: Codable, Equatable, Sendable {
             action = try c.decodeIfPresent(String.self, forKey: .action) ?? ""
             summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
             details = try c.decodeIfPresent([String].self, forKey: .details) ?? []
+            followUpTarget = try c.decodeIfPresent(String.self, forKey: .followUpTarget) ?? "cloud"
         }
     }
     /// The turn's tokens and cost in one line (`12k in · 410 out · 8.1k cached · $0.0042`); nil when not counted.

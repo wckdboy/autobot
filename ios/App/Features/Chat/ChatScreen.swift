@@ -1068,7 +1068,7 @@ struct CascadeSheet: View {
                 onChoose(name)
             }
             Text(chosen.detail).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
-            Text(CascadeLabels.shared.sheetNote(model: model)).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+            Text(CascadeLabels.shared.sheetNote(model: model, node: false)).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
