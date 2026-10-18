@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Trace
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
+import dev.wckdboy.autobot.agent.runtime.recipes.RecipeBook
 import dev.wckdboy.autobot.core.data.AttachmentRepository
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.di.ApplicationScope
@@ -17,6 +18,7 @@ import dev.wckdboy.autobot.providers.remote.LocalProviderSync
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @HiltAndroidApp
@@ -58,6 +60,9 @@ class AutobotApplication : Application() {
     @Inject
     lateinit var studio: Lazy<StudioHost>
 
+    @Inject
+    lateinit var recipes: Lazy<RecipeBook>
+
     override fun onCreate() {
         super.onCreate()
         if (getProcessName() != packageName) return
@@ -90,6 +95,16 @@ class AutobotApplication : Application() {
         scope.launch { downloader.get().recoverAfterRestart() }
         // The Studio queue: engines registered, then jobs queued before the app closed run on.
         scope.launch { studio.get().start() }
+        // Recipes: next runs brought up to date (time zone, missed runs) and handed to WorkManager,
+        // after start-up has settled.
+        scope.launch {
+            delay(RECIPES_DELAY_MS)
+            runCatching { recipes.get().reconcile() }
+        }
         Trace.endSection()
+    }
+
+    private companion object {
+        const val RECIPES_DELAY_MS = 3_000L
     }
 }

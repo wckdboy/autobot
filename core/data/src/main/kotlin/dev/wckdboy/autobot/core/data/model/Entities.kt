@@ -267,3 +267,11 @@ data class UsageRecordRow(
 /** The board's price table and subscription windows (`:shared` `UsagePlan` JSON), one row. */
 @Entity(tableName = "usage_plan")
 data class UsagePlanRow(@PrimaryKey val id: String, val json: String)
+
+/**
+ * A scheduled recipe (`:shared` `Recipe`): its id and the shared JSON (`RecipeCodec`), so both
+ * apps store the same document. In the encrypted database like every chat, so a panic wipe
+ * removes it with the rest.
+ */
+@Entity(tableName = "recipes")
+data class RecipeRow(@PrimaryKey val id: String, val json: String, val updatedAt: Long)

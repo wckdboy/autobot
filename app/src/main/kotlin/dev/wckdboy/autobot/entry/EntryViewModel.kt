@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.navigation3.runtime.NavKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.agent.runtime.AgentHost
+import dev.wckdboy.autobot.agent.runtime.recipes.RecipeNotifications
 import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
@@ -19,7 +20,9 @@ import dev.wckdboy.autobot.feature.studio.WorkflowShare
 import dev.wckdboy.autobot.navigation.Chat
 import dev.wckdboy.autobot.navigation.Imagine
 import dev.wckdboy.autobot.navigation.Models
+import dev.wckdboy.autobot.navigation.Recipes
 import dev.wckdboy.autobot.navigation.Run
+import dev.wckdboy.autobot.navigation.Settings
 import dev.wckdboy.autobot.navigation.Studio
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +41,9 @@ sealed interface EntryPlan {
 
     /** No chat model or provider yet: the Models tab. */
     data object Setup : EntryPlan
+
+    /** A recipe's result chat over the Recipes screen (just the screen when the chat is gone). */
+    data class Recipe(val chatId: String?) : EntryPlan
 }
 
 /** Entry routing, kept pure for tests. */
@@ -47,6 +53,7 @@ object EntryRouting {
         is EntryRequest.ImportWorkflow -> EntryPlan.Workflow(request.uri?.let { WorkflowShare.File(it) } ?: WorkflowShare.Text(request.json.orEmpty()))
         is EntryRequest.NewChat -> if (canChat) EntryPlan.NewChat(ChatStart(draft = request.draft, images = request.images)) else EntryPlan.Setup
         EntryRequest.Voice -> if (canChat) EntryPlan.NewChat(ChatStart(voice = true)) else EntryPlan.Setup
+        is EntryRequest.OpenRecipe -> EntryPlan.Recipe(request.chatId)
     }
 
     /** The back stack after an entry: RUN underneath, so back leads home. */
@@ -55,6 +62,7 @@ object EntryRouting {
         is EntryPlan.Studio -> listOf(Run, Imagine(prompt = plan.prompt))
         is EntryPlan.Workflow -> listOf(Run, Studio(room = "workflows"))
         EntryPlan.Setup -> listOf(Models)
+        is EntryPlan.Recipe -> listOfNotNull(Settings, Recipes, plan.chatId?.let(::Chat))
     }
 }
 
@@ -89,6 +97,9 @@ class EntryViewModel @Inject constructor(
         val plan = EntryRouting.plan(request, canChat = target != null)
         var conversationId: String? = null
         if (plan is EntryPlan.Workflow) studioInbox.put(plan.share)
+        if (plan is EntryPlan.Recipe && plan.chatId != null && conversations.getConversation(plan.chatId) == null) {
+            return EntryRouting.backStack(EntryPlan.Recipe(null), null)
+        }
         if (plan is EntryPlan.NewChat && target != null) {
             val (provider, model) = target
             val conversation = conversations.createConversation(settings.settings.first().incognitoByDefault, provider.id, model)
@@ -115,5 +126,6 @@ fun Intent.toEntryRequest(): EntryRequest? {
         streams = streams.map { it.toString() },
         processText = getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT),
         prompt = getStringExtra(EntryActions.EXTRA_PROMPT),
+        chat = getStringExtra(RecipeNotifications.EXTRA_CHAT),
     )
 }

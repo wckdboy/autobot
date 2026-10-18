@@ -17,6 +17,7 @@ import dev.wckdboy.autobot.core.data.model.Message
 import dev.wckdboy.autobot.core.data.model.ModelRow
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderModelsRow
+import dev.wckdboy.autobot.core.data.model.RecipeRow
 import dev.wckdboy.autobot.core.data.model.SessionEventRow
 import dev.wckdboy.autobot.core.data.model.UsagePlanRow
 import dev.wckdboy.autobot.core.data.model.UsageRecordRow
@@ -302,4 +303,22 @@ interface UsageDao {
 
     @Upsert
     suspend fun savePlan(row: UsagePlanRow)
+}
+
+@Dao
+interface RecipeDao {
+    @Query("SELECT * FROM recipes ORDER BY id")
+    fun observeAll(): Flow<List<RecipeRow>>
+
+    @Query("SELECT * FROM recipes ORDER BY id")
+    suspend fun all(): List<RecipeRow>
+
+    @Query("SELECT * FROM recipes WHERE id = :id")
+    suspend fun get(id: String): RecipeRow?
+
+    @Upsert
+    suspend fun upsert(row: RecipeRow)
+
+    @Query("DELETE FROM recipes WHERE id = :id")
+    suspend fun delete(id: String)
 }

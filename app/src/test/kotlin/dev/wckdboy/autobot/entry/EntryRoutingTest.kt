@@ -53,4 +53,17 @@ class EntryRoutingTest {
         assertEquals(EntryPlan.Workflow(dev.wckdboy.autobot.feature.studio.WorkflowShare.Text("{}")), plan)
         assertEquals(listOf(Run, dev.wckdboy.autobot.navigation.Studio(room = "workflows")), EntryRouting.backStack(plan, null))
     }
+
+    @Test
+    fun aRecipeNotificationOpensItsResultOverTheRecipesScreen() {
+        val request = EntryParser.parse(dev.wckdboy.autobot.agent.runtime.recipes.RecipeNotifications.ACTION_OPEN, chat = "c9")
+        assertEquals(EntryRequest.OpenRecipe("c9"), request)
+        val plan = EntryRouting.plan(request!!, canChat = false)
+        assertEquals(
+            listOf(dev.wckdboy.autobot.navigation.Settings, dev.wckdboy.autobot.navigation.Recipes, Chat("c9")),
+            EntryRouting.backStack(plan, null),
+        )
+        val noChat = EntryRouting.plan(EntryRequest.OpenRecipe(null), canChat = true)
+        assertEquals(listOf(dev.wckdboy.autobot.navigation.Settings, dev.wckdboy.autobot.navigation.Recipes), EntryRouting.backStack(noChat, null))
+    }
 }
