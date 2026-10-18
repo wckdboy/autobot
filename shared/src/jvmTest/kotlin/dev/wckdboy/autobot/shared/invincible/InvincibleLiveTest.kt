@@ -130,9 +130,9 @@ class InvincibleLiveTest {
     fun theProviderStreamsARealAnswerFromTheNode() = runBlocking {
         assumeTrue("set INVINCIBLE_MODEL to a GGUF file for a real answer", model != null && File(model).isFile)
         val code = PairingCode.parse(admin("POST", "/v1/admin/pairing")["code"]!!.jsonPrimitive.content)!!
-        val device = NodeKeyPair.generate(crypto)
-        InvincibleNode.pair(crypto, connect(), code, device, "provider").channel.close()
-        val transport = NodeHttpTransport(crypto, code.nodeKey, device, { connect() })
+        // As the app does it: pair, keep only the stored secret, rebuild from it.
+        val secret = PairedNode.pair(crypto, code, "provider") { connect() }.toSecret()
+        val transport = PairedNode.fromSecret(secret)!!.transport(crypto) { connect() }
         val provider = dev.wckdboy.autobot.shared.TransportChatProvider("http://invincible/v1", null, transport, "node")
         // The engine loads the model in the background; wait until the node lists it healthy.
         repeat(120) {
