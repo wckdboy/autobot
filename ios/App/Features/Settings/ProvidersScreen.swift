@@ -29,7 +29,8 @@ struct ProviderDraft: Equatable, CustomStringConvertible {
     }
 
     /// Why the base URL cannot work from this phone (the kill switch refuses cleartext to anything but loopback).
-    var cleartextProblem: String? { ProviderDraft.cleartextProblem(baseUrl) }
+    /// A paired node is reached over Noise, not its placeholder http address.
+    var cleartextProblem: String? { kind == .invincibleNode ? nil : ProviderDraft.cleartextProblem(baseUrl) }
 
     var canSave: Bool {
         !displayName.trimmingCharacters(in: .whitespaces).isEmpty && baseUrlValid && cleartextProblem == nil
@@ -90,6 +91,8 @@ struct ProvidersScreen: View {
     @State private var editor: ProviderDraft?
     @State private var picking = false
     @State private var deleting: Provider?
+    /// The pairing sheet for "My node", with the code a link brought (empty: pasted by hand).
+    @State private var pairingCode: PairingItem?
 
     var body: some View {
         let providers = app.providers.providers
@@ -124,9 +127,18 @@ struct ProvidersScreen: View {
         .sheet(isPresented: $picking) {
             PresetPickerSheet { preset in
                 picking = false
-                editor = ProviderDraft.fromPreset(preset)
+                if preset.kind == .invincibleNode {
+                    pairingCode = PairingItem(code: "")
+                } else {
+                    editor = ProviderDraft.fromPreset(preset)
+                }
             }
         }
+        .sheet(item: $pairingCode) { item in
+            NodePairingSheet(code: item.code) { pairingCode = nil }
+        }
+        .onAppear(perform: takePendingPairing)
+        .onChange(of: nav.pendingPairing) { takePendingPairing() }
         .sheet(item: Binding(get: { editor.map(EditorItem.init) }, set: { if $0 == nil { editor = nil } })) { item in
             ProviderEditorSheet(initial: item.draft) { editor = nil }
         }
@@ -229,8 +241,7 @@ private struct PresetPickerSheet: View {
                                 .padding(.bottom, 4)
                         }
                         ForEach(group.presets) { preset in
-                            // "My node" pairs on Android today; the iOS connector is still to come.
-                            let unavailable = preset.isThisPhone || preset.kind == .invincibleNode
+                            let unavailable = preset.isThisPhone
                             Button { if !unavailable { onPick(preset) } } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 8) {
@@ -238,7 +249,7 @@ private struct PresetPickerSheet: View {
                                         if preset.kind == .anthropic { Tag("native") }
                                         if !preset.requiresApiKey && !unavailable { Tag("no key") }
                                     }
-                                    MicroLabel(preset.isThisPhone ? "added automatically" : preset.kind == .invincibleNode ? "not on iOS yet" : preset.host)
+                                    MicroLabel(preset.isThisPhone ? "added automatically" : preset.kind == .invincibleNode ? "pair with a code" : preset.host)
                                     if let note = preset.note {
                                         Text(note).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                                     }
@@ -667,5 +678,20 @@ struct ChipFlowLayout: Layout {
             x += size.width + spacing
             row = max(row, size.height)
         }
+    }
+}
+
+/// A pairing sheet to show, with its code (empty: the user pastes it).
+struct PairingItem: Identifiable {
+    let id = UUID()
+    let code: String
+}
+
+extension ProvidersScreen {
+    /// A code an `invincible://pair` link brought: the pairing sheet opens filled in.
+    fileprivate func takePendingPairing() {
+        guard let code = nav.pendingPairing else { return }
+        nav.pendingPairing = nil
+        pairingCode = PairingItem(code: code)
     }
 }

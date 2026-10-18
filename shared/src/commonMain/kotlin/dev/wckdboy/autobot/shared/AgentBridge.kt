@@ -2,6 +2,15 @@ package dev.wckdboy.autobot.shared
 
 import dev.wckdboy.autobot.shared.invincible.NodeCrypto
 import dev.wckdboy.autobot.shared.invincible.NodeLink
+import dev.wckdboy.autobot.shared.invincible.nodeCrypto
+import dev.wckdboy.autobot.shared.invincible.nodeConnector
+import dev.wckdboy.autobot.shared.invincible.fingerprint
+import dev.wckdboy.autobot.shared.invincible.PairedNode
+import dev.wckdboy.autobot.shared.invincible.PairingCode
+import dev.wckdboy.autobot.shared.invincible.PrivateTurns
+import dev.wckdboy.autobot.shared.invincible.NodeReceiptLog
+import dev.wckdboy.autobot.shared.invincible.HostNodeCrypto
+import dev.wckdboy.autobot.shared.invincible.HostNodeConnector
 import dev.wckdboy.autobot.shared.invincible.NodeProviders
 import dev.wckdboy.autobot.shared.invincible.UnavailableChatProvider
 import dev.wckdboy.autobot.agent.core.Disposable
@@ -434,11 +443,18 @@ class AgentBridge(
     @kotlin.concurrent.Volatile
     private var cascadeDefault = CascadePolicy.DEFAULT
 
+    /** Paired nodes' signed receipts for this host's turns, and the turns kept private on a node. */
+    private val nodeReceipts = NodeReceiptLog()
+    private val privateTurns = PrivateTurns()
+
     private val cascade = LocalFirstCascade(
         defaultPolicy = { cascadeDefault },
         onDevice = { quotaFallback.onDevice },
         // An unknown provider counts as cloud, as for redaction.
         cloud = { id -> withContext(IoDispatcher) { providers.provider(id) }?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
+        // "Phone first" on the user's own node: follow-ups go there and stay there (private).
+        owned = { id -> withContext(IoDispatcher) { providers.provider(id) }?.kind == ProviderKind.INVINCIBLE_NODE },
+        privateTurns = privateTurns,
     )
     private val interactions = MutableStateFlow<List<Pending>>(emptyList())
 
@@ -472,7 +488,7 @@ class AgentBridge(
             ),
         )
         root.plugin(
-            receiptsPlugin(audit, usage) { id ->
+            receiptsPlugin(audit, usage, nodeReceipts) { id ->
                 withContext(IoDispatcher) { providers.provider(id) }?.let {
                     ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset.id, it.preset.privacyNote)
                 }
@@ -558,6 +574,37 @@ class AgentBridge(
     var nodeConnector: (suspend (addresses: List<String>, route: String) -> NodeLink)? = null
     var nodeCrypto: NodeCrypto? = null
 
+    /** A host without coroutines (iOS) brings its crypto and connections this way. */
+    fun setNodeHost(crypto: HostNodeCrypto, connector: HostNodeConnector) {
+        nodeCrypto = nodeCrypto(crypto)
+        nodeConnector = nodeConnector(connector)
+    }
+
+    /**
+     * Pairs with the node in [code] (an `invincible://pair?…` link) as [deviceName], over the
+     * connector (route `INHERIT`). [callback] gets the pairing to store as the provider's secret,
+     * the node's name and key fingerprint, or an error.
+     */
+    fun pairNode(code: String, deviceName: String, callback: (secret: String?, node: String?, fingerprint: String?, error: String?) -> Unit) {
+        val connector = nodeConnector
+        val crypto = nodeCrypto
+        val parsed = PairingCode.parse(code.trim())
+        when {
+            connector == null || crypto == null -> return callback(null, null, null, "My node is not available on this device yet")
+            parsed == null -> return callback(null, null, null, "That is not an Invincible pairing code (invincible://pair?…)")
+        }
+        launchAnswering(
+            callback = { r: List<String?> -> callback(r[0], r[1], r[2], r[3]) },
+            failed = { listOf(null, null, null, it) },
+        ) {
+            val paired = PairedNode.pair(crypto!!, parsed!!, deviceName) { addresses -> connector!!(addresses, "INHERIT") }
+            listOf(paired.toSecret(), paired.name, paired.fingerprint, null)
+        }
+    }
+
+    /** The key fingerprint of a pairing code, to compare with what `invincible pair` printed; null when it is not one. */
+    fun pairingFingerprint(code: String): String? = PairingCode.parse(code.trim())?.let { fingerprint(it.nodeKey) }
+
     /** The chat client for a stored provider: the on-device engine, a paired node, or the host's HTTP transport. */
     fun chatProvider(spec: ProviderSpec): ChatProvider = when (spec.kind) {
         ProviderKind.LOCAL -> LocalEngineChatProvider(local)
@@ -567,7 +614,7 @@ class AgentBridge(
             if (connector == null || crypto == null) {
                 UnavailableChatProvider("My node is not available on this device yet")
             } else {
-                NodeProviders.chatProvider(crypto, spec.apiKey, spec.displayName, spec.preset) { addresses -> connector(addresses, spec.route) }
+                NodeProviders.chatProvider(crypto, spec.apiKey, spec.displayName, spec.preset, nodeReceipts, privateTurns) { addresses -> connector(addresses, spec.route) }
             }
         }
         else -> TransportChatProvider(spec.baseUrl, spec.apiKey, transport, spec.displayName, spec.route, spec.preset)

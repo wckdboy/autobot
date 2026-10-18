@@ -94,6 +94,8 @@ targets:
           - CFBundleURLName: ai.wckd.autobot
             CFBundleURLSchemes:
               - autobot
+              # A pairing code for "My node" (Invincible): opens the pairing sheet, never pairs by itself.
+              - invincible
         UIAppFonts:
           - antonio.ttf
           - jetbrains_mono.ttf
