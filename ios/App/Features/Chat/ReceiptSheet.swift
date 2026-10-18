@@ -66,6 +66,15 @@ struct ReceiptSheet: View {
                     }
                 }
 
+                if let cascade = receipt.cascade {
+                    Hairline().padding(.vertical, 2)
+                    MicroLabel(cascade.role == "cloud" ? "phone first · cloud follow-up" : "phone first", color: c.primary)
+                    Text(cascade.summary).textStyle(.bodySmall).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+                    ChatFlow(spacing: 6) {
+                        ForEach(Array(cascade.details.enumerated()), id: \.offset) { _, d in Tag(d) }
+                    }
+                }
+
                 if receipt.redacted {
                     Hairline().padding(.vertical, 2)
                     MicroLabel("redacted")

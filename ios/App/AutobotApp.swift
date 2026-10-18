@@ -78,13 +78,17 @@ struct RootView: View {
             if let inbox = SharedInbox.defaultRoot { Task.detached(priority: .utility) { SharedInbox.sweep(root: inbox) } }
             if app.lock.state == .unlocked { await app.unlockData() }
             #if DEBUG
-            // `-AutobotOpen chat|agent` (UI work): open the newest plain / tool session.
+            // `-AutobotOpen chat|agent|phone-first` (UI work): open the newest plain / tool session,
+            // or the demo's "phone first" chat.
             let args = ProcessInfo.processInfo.arguments
-            if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count, ["chat", "agent"].contains(args[i + 1]) {
+            if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count, ["chat", "agent", "phone-first"].contains(args[i + 1]) {
                 app.conversations.conversations.forEach { _ = app.agent.session($0.id) }
                 try? await Task.sleep(for: .milliseconds(1500))
                 let wantTools = args[i + 1] == "agent"
-                if let c = app.conversations.conversations.first(where: { app.agent.session($0.id).state.toolsEnabled == wantTools }) {
+                let phoneFirst = args[i + 1] == "phone-first"
+                if let c = app.conversations.conversations.first(where: {
+                    phoneFirst ? $0.title == "Who wrote Stiller?" : app.agent.session($0.id).state.toolsEnabled == wantTools
+                }) {
                     nav.push(.chat(conversationId: c.id))
                 }
             }

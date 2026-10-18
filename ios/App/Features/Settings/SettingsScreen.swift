@@ -1,3 +1,4 @@
+import AutobotShared
 import SwiftUI
 
 /// SETTINGS tab (port of `SettingsScreen.kt`), laid out by [SettingsSection]: privacy & security,
@@ -68,6 +69,8 @@ struct SettingsScreen: View {
                 isOn: Binding(get: { settings.redactCloud }, set: { app.settings.setRedactCloud($0) }),
                 info: "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
             )
+        case .cascade:
+            CascadeSettingRow(title: title, policy: settings.cascade) { app.settings.setCascade($0) }
         case .panicWipe:
             DestructiveRow(title: title, info: "Destroys every key and all data on this phone, then closes the app.") { showWipe = true }
         case .memory:
@@ -160,5 +163,31 @@ struct SettingsScreen: View {
         case .tor: "Tor"
         case .socks5: "SOCKS5"
         }
+    }
+}
+
+/// Settings → "Phone first": off, ask, auto or never for plain chats on a cloud model, with the
+/// chosen option's line (the shared `CascadePolicy` words, as on Android).
+private struct CascadeSettingRow: View {
+    let title: String
+    let policy: String
+    let onSelect: (String) -> Void
+    @Environment(\.scheme) private var c
+
+    /// What "Phone first" covers (the same words on Android).
+    static let scope = "For plain chats on a cloud model; chats can choose their own."
+
+    var body: some View {
+        let options = CascadePolicy.entries.map(\.name)
+        let chosen = CascadePolicy.companion.parse(value: policy) ?? CascadePolicy.off
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
+            Segmented(options: options, selected: chosen.name, label: { (CascadePolicy.companion.parse(value: $0)?.title ?? $0).lowercased() }) { onSelect($0) }
+                .accessibilityLabel(title)
+            Text(chosen.detail + " " + Self.scope).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, Tokens.Spacing.gutter)
+        .padding(.vertical, 8)
     }
 }

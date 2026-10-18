@@ -32,6 +32,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var quotaFallback = false
     /// Redaction gateway: personal data becomes placeholders before a cloud request (on by default).
     var redactCloud = true
+    /// Local-first cascade ("Phone first"): OFF (default), ASK, AUTO or NEVER, for plain chats on a cloud model.
+    var cascade = "OFF"
     /// Speculative decoding for on-device chat (`SpeculativeMode` id): "auto" (default), "on" or "off".
     var speculativeMode = "auto"
 
@@ -73,6 +75,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             searchRoute: SettingsSchema.shared.searchRoute(value: searchRoute.rawValue),
             quotaFallback: quotaFallback,
             redactCloud: redactCloud,
+            cascade: CascadePolicy.companion.parse(value: cascade) ?? CascadePolicy.off,
             speculativeMode: SettingsSchema.shared.speculativeMode(value: speculativeMode),
         )
         return SettingsSchema.shared.encode(settings: shared)
@@ -97,6 +100,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         searchRoute = ProviderRouting(rawValue: s.searchRoute.name) ?? .inherit
         quotaFallback = s.quotaFallback
         redactCloud = s.redactCloud
+        cascade = s.cascade.name
         speculativeMode = s.speculativeMode.id
     }
 }
@@ -165,6 +169,7 @@ final class SettingsStore {
     func setVaultEnabled(_ enabled: Bool) { update { $0.vaultEnabled = enabled } }
     func setQuotaFallback(_ enabled: Bool) { update { $0.quotaFallback = enabled } }
     func setRedactCloud(_ enabled: Bool) { update { $0.redactCloud = enabled } }
+    func setCascade(_ policy: String) { update { $0.cascade = policy } }
     func setSpeculativeMode(_ id: String) { update { $0.speculativeMode = SettingsSchema.shared.speculativeMode(value: id).id } }
 
     func setWebSearch(provider: String, baseUrl: String, route: ProviderRouting) {

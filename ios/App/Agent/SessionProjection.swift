@@ -219,6 +219,32 @@ struct Receipt: Codable, Equatable, Sendable {
     /// Whether the redaction gateway ran for this turn's cloud requests; [redactions] is what it hid.
     var redacted = false
     var redactions: [Redaction] = []
+    /// What the local-first cascade did in this turn (Kotlin `ReceiptCascadeInfo`); nil when it was not in play.
+    var cascade: Cascade? = nil
+
+    /// [role] `local` (this phone answered first) or `cloud` (the follow-up); [summary] and [details] in shared words.
+    struct Cascade: Codable, Equatable, Sendable {
+        var role: String
+        var policy: String
+        var verdict: String
+        var action: String
+        var summary: String
+        var details: [String] = []
+
+        init(role: String, policy: String, verdict: String, action: String, summary: String, details: [String] = []) {
+            (self.role, self.policy, self.verdict, self.action, self.summary, self.details) = (role, policy, verdict, action, summary, details)
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            role = try c.decodeIfPresent(String.self, forKey: .role) ?? "local"
+            policy = try c.decodeIfPresent(String.self, forKey: .policy) ?? ""
+            verdict = try c.decodeIfPresent(String.self, forKey: .verdict) ?? "NONE"
+            action = try c.decodeIfPresent(String.self, forKey: .action) ?? ""
+            summary = try c.decodeIfPresent(String.self, forKey: .summary) ?? ""
+            details = try c.decodeIfPresent([String].self, forKey: .details) ?? []
+        }
+    }
     /// The turn's tokens and cost in one line (`12k in · 410 out · 8.1k cached · $0.0042`); nil when not counted.
     var usage: String? = nil
     /// The same per model.
@@ -256,6 +282,7 @@ struct Receipt: Codable, Equatable, Sendable {
         fallbacks = try c.decodeIfPresent([String].self, forKey: .fallbacks) ?? []
         redacted = (try? c.decodeIfPresent(Bool.self, forKey: .redacted)) ?? false
         redactions = (try? c.decodeIfPresent([Redaction].self, forKey: .redactions)) ?? []
+        cascade = try? c.decodeIfPresent(Cascade.self, forKey: .cascade)
         usage = try c.decodeIfPresent(String.self, forKey: .usage)
         usageRows = (try? c.decodeIfPresent([UsageRow].self, forKey: .usageRows)) ?? []
     }
@@ -361,9 +388,11 @@ struct SessionProjection: Codable, Equatable, Sendable {
     var contextWindow: Int? = nil
     /// Files the agent changed in this session, per turn (absent from older states).
     var changes: [ChangeGroup] = []
+    /// "Ask <cloud model>" under the phone's latest answer, when the cascade's judge offered the cloud.
+    var cascadeOffer: CascadeOffer? = nil
 
-    init(items: [SessionItem] = [], todos: [TodoItem] = [], lastUsage: TokenUsage? = nil, contextWindow: Int? = nil, changes: [ChangeGroup] = []) {
-        (self.items, self.todos, self.lastUsage, self.contextWindow, self.changes) = (items, todos, lastUsage, contextWindow, changes)
+    init(items: [SessionItem] = [], todos: [TodoItem] = [], lastUsage: TokenUsage? = nil, contextWindow: Int? = nil, changes: [ChangeGroup] = [], cascadeOffer: CascadeOffer? = nil) {
+        (self.items, self.todos, self.lastUsage, self.contextWindow, self.changes, self.cascadeOffer) = (items, todos, lastUsage, contextWindow, changes, cascadeOffer)
     }
 
     init(from decoder: Decoder) throws {
@@ -373,7 +402,14 @@ struct SessionProjection: Codable, Equatable, Sendable {
         lastUsage = try c.decodeIfPresent(TokenUsage.self, forKey: .lastUsage)
         contextWindow = try c.decodeIfPresent(Int.self, forKey: .contextWindow)
         changes = try c.decodeIfPresent([ChangeGroup].self, forKey: .changes) ?? []
+        cascadeOffer = try? c.decodeIfPresent(CascadeOffer.self, forKey: .cascadeOffer)
     }
+}
+
+/// The cascade's offer under the phone's answer of [turn] (Kotlin `CascadeOffer`): [text] says why.
+struct CascadeOffer: Codable, Equatable, Sendable {
+    var turn: Int
+    var text: String
 }
 
 /// The in-flight model output of the current step.
@@ -433,6 +469,8 @@ struct ChatSessionState: Codable, Equatable, Sendable {
     var thinkingSupport: String? = nil
     /// ON / OFF for a cloud route, NONE on the phone.
     var redaction: String? = nil
+    /// The chat's "phone first" policy (OFF, ASK, AUTO, NEVER), NONE for agent runs and on-device routes.
+    var cascade: String? = nil
 
     init(sessionId: String) { self.sessionId = sessionId }
 

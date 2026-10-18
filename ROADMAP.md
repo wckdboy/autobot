@@ -120,9 +120,23 @@ models, shared core). Ordered by value.
    restored on the device, also across chunk boundaries, so tools and the log only see real
    values. The receipt counts what was hidden by kind, never the values. Not yet: an on-device
    model tier for names the rules miss.)*
-3. **Local-first cascade.** "This phone" answers first; a small on-device judge decides whether the
+3. ✅ **Local-first cascade.** "This phone" answers first; a small on-device judge decides whether the
    answer is good enough, and only then offers to escalate to the cloud (with the redacted prompt).
-   Per-chat policy: never / ask / auto for low-risk prompts.
+   Per-chat policy: never / ask / auto for low-risk prompts. *(done, both apps, off by default
+   ("Phone first" in Settings: off / ask / auto / never, a `phone first` chip per chat): in a plain
+   chat on a cloud model the installed on-device chat model answers; the judge is rules (no
+   answer, failed or cut off, refusals, "I don't know", loops, hedges, very short answers, prompts
+   that need fresh information) plus one self-check pass on the same model (at most 8 tokens,
+   Think off, rules only when it fails or times out), scored against a tunable threshold. Ask
+   offers "Ask <model>" under the answer; Auto sends a weak answer's prompt on its own only when
+   the risk rules find nothing personal, health, money, attachment or memory related; Never keeps
+   it on the phone. The follow-up is its own turn: the phone's answer stays on screen but leaves
+   the model surface, the request passes the redaction gateway, and both receipts say what
+   happened and why (verdict, reason codes, policy, risk, judge time; never content). No
+   on-device model: the cloud answers (Never refuses); a chat too long for the phone's window
+   goes straight to the cloud. Judge rules cost a few milliseconds per turn on the simulator.
+   Not yet: agent runs (tools on) and subagents; the self-check's latency on real hardware; a
+   separate small judge model.)*
 4. **Taint tracking for tools.** Data that came from memory, attachments or private files is
    tagged; when the agent tries to put tainted data into a network tool (web_fetch, web_search,
    MCP), the approval card highlights exactly which private fragment would leave. Defends against
