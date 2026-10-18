@@ -6,6 +6,12 @@ import Testing
 import UIKit
 @testable import Autobot
 
+/// A failure count the concurrent tasks share by reference: an `Atomic` cannot be copied, and
+/// Swift 6.3 (Xcode 26) refuses to let escaping task closures borrow one.
+private final class FailureCount: Sendable {
+    let value = Atomic<Int>(0)
+}
+
 /// The encrypted store's WAL mode and its two connections under concurrent use.
 struct EncryptedStoreConcurrencyTests {
     private func store() -> (EncryptedStore, URL) {
@@ -25,7 +31,7 @@ struct EncryptedStoreConcurrencyTests {
     @Test(.timeLimit(.minutes(5))) func readersAndWritersRunConcurrently() async throws {
         let (store, dir) = store()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let failures = Atomic<Int>(0)
+        let failures = FailureCount()
         await withTaskGroup(of: Void.self) { group in
             for writer in 0 ..< 4 {
                 group.addTask {
@@ -33,7 +39,7 @@ struct EncryptedStoreConcurrencyTests {
                         do {
                             try store.put("c", id: "w\(writer)-\(i)", i)
                             try store.appendEvents(sessionId: "s\(writer)", [(seq: Int64(i), json: Data("{\"seq\":\(i)}".utf8))])
-                        } catch { failures.add(1, ordering: .relaxed) }
+                        } catch { failures.value.add(1, ordering: .relaxed) }
                     }
                 }
             }
@@ -43,12 +49,12 @@ struct EncryptedStoreConcurrencyTests {
                         do {
                             _ = try store.all("c", as: Int.self)
                             _ = try store.loadEvents(sessionId: "s0")
-                        } catch { failures.add(1, ordering: .relaxed) }
+                        } catch { failures.value.add(1, ordering: .relaxed) }
                     }
                 }
             }
         }
-        #expect(failures.load(ordering: .relaxed) == 0)
+        #expect(failures.value.load(ordering: .relaxed) == 0)
         #expect(try store.all("c", as: Int.self).count == 200)
         for writer in 0 ..< 4 { #expect(try store.loadEvents(sessionId: "s\(writer)").count == 50) }
         #expect(try store.hasEvents(sessionId: "s1", before: 1))
