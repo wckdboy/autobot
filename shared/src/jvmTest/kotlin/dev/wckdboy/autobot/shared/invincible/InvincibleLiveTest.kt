@@ -142,7 +142,8 @@ class InvincibleLiveTest {
         val code = PairingCode.parse(admin("POST", "/v1/admin/pairing")["code"]!!.jsonPrimitive.content)!!
         // As the app does it: pair, keep only the stored secret, rebuild from it.
         val secret = PairedNode.pair(crypto, code, "provider") { connect() }.toSecret()
-        val transport = PairedNode.fromSecret(secret)!!.transport(crypto) { connect() }
+        val receipts = NodeReceiptLog()
+        val transport = PairedNode.fromSecret(secret)!!.transport(crypto, receipts) { connect() }
         val provider = dev.wckdboy.autobot.shared.TransportChatProvider("http://invincible/v1", null, transport, "node")
         // The engine loads the model in the background; wait until the node lists it healthy.
         repeat(120) {
@@ -161,11 +162,18 @@ class InvincibleLiveTest {
             // Room for thinking models (Qwen3.5 reasons before it answers).
             maxTokens = 1024,
         )
-        val events = kotlinx.coroutines.withTimeout(120_000) { provider.streamChat(request).toList() }
+        // As an agent turn: the node's receipt for it is kept for the turn's privacy receipt.
+        val turn = dev.wckdboy.autobot.agent.core.TurnTrace("live-chat", 1)
+        val events = kotlinx.coroutines.withTimeout(120_000) { kotlinx.coroutines.withContext(turn) { provider.streamChat(request).toList() } }
         val text = events.filterIsInstance<dev.wckdboy.autobot.providers.remote.ChatEvent.ContentDelta>().joinToString("") { it.text }
         assertTrue("events: $events", events.last() == dev.wckdboy.autobot.providers.remote.ChatEvent.Done)
         assertTrue("answer: $text", text.contains("node ok", ignoreCase = true))
         println("node answered through Autobot's provider: ${text.trim()}")
+        val signed = receipts.take("live-chat", 1).single()
+        assertTrue("receipt: $signed", signed.verified)
+        assertEquals("live", signed.model)
+        assertEquals("node", signed.tier)
+        assertTrue("nothing left the node", signed.egress.isEmpty())
     }
 
     @Test

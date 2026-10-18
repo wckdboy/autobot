@@ -80,6 +80,25 @@ data class Receipt(
     val usageRows: List<ReceiptUsageRow> = emptyList(),
     /** What the local-first cascade did in this turn; null when it was not in play. */
     val cascade: ReceiptCascadeInfo? = null,
+    /** What paired nodes signed about the requests they answered (Invincible), one per node. */
+    val nodes: List<ReceiptNodeInfo> = emptyList(),
+)
+
+/**
+ * A paired node's part of a turn, from its signed receipts: [verified] when every one of them
+ * checked out with the pinned key; [egress] what left the node (empty: nothing); [models] that ran
+ * there (`qwen3.5-4b`, or a cloud model with tier `cloud`); [missing] receipts it could not give.
+ */
+@Serializable
+data class ReceiptNodeInfo(
+    val node: String,
+    val requests: Int,
+    val verified: Boolean,
+    val models: List<String>,
+    val cloud: Boolean,
+    val egress: List<ReceiptHost>,
+    val redactions: List<ReceiptRedaction>,
+    val missing: Int,
 )
 
 /** One model's line of a receipt's usage. */
@@ -153,15 +172,25 @@ object Receipts {
         val redactions = redactions(event.redacted)
         val hidden = redactions.sumOf { it.count }
         val cascadeWord = event.cascade?.let(CascadeLabels::line)
+        val nodes = nodeInfo(event.nodes.orEmpty())
+        val nodeWord = nodes.joinToString(" · ") { n ->
+            when {
+                !n.verified -> "${n.node} unverified"
+                n.egress.isNotEmpty() -> "${n.node} → ${n.egress.size} ${if (n.egress.size == 1) "host" else "hosts"}"
+                else -> "kept on ${n.node} ✓"
+            }
+        }.ifEmpty { null }
         val line = when {
-            onDevice && hosts.any { it.blocked > 0 } -> listOfNotNull("on device · ${hosts.sumOf { it.blocked }} blocked", cascadeWord).joinToString(" · ")
-            onDevice -> listOfNotNull("on device", cascadeWord).joinToString(" · ")
+            onDevice && hosts.any { it.blocked > 0 } -> listOfNotNull("on device · ${hosts.sumOf { it.blocked }} blocked", nodeWord, cascadeWord).joinToString(" · ")
+            // A node reached over loopback (a tunnel) still ran the turn elsewhere: say where.
+            onDevice -> listOfNotNull("on device".takeIf { nodeWord == null }, nodeWord, cascadeWord).joinToString(" · ")
             else -> listOfNotNull(
                 if (tracked) "${off.size} ${if (off.size == 1) "host" else "hosts"}" else null,
                 if (tracked) "${formatBytes(sent)} out" else null,
                 routes.filter { it != "direct" }.joinToString(" + ").ifEmpty { null },
                 policyWord(remote),
                 if (hidden > 0) "$hidden redacted" else null,
+                nodeWord,
                 cascadeWord,
             ).joinToString(" · ").ifEmpty { "receipt" }
         }
@@ -186,8 +215,36 @@ object Receipts {
             cascade = event.cascade?.let { c ->
                 ReceiptCascadeInfo(c.role, c.policy, c.verdict, c.action, CascadeLabels.summary(c), CascadeLabels.details(c))
             },
+            nodes = nodes,
         )
     }
+
+    /** The node receipts of a turn, one entry per node; egress merged by host and route. */
+    fun nodeInfo(receipts: List<dev.wckdboy.autobot.agent.core.session.ReceiptNode>): List<ReceiptNodeInfo> =
+        receipts.filter { it.node.isNotEmpty() || it.missing != null }.groupBy { it.node.ifEmpty { "node" } }.map { (node, list) ->
+            val present = list.filter { it.missing == null }
+            val egress = present.flatMap { it.egress }.groupBy { it.host to it.route }.map { (key, hosts) ->
+                ReceiptHost(
+                    host = key.first,
+                    route = key.second,
+                    requests = hosts.sumOf { it.requests },
+                    bytesSent = hosts.sumOf { it.bytesSent },
+                    bytesReceived = hosts.sumOf { it.bytesReceived },
+                    tags = hosts.flatMap { it.tags }.distinct(),
+                )
+            }
+            val redacted = present.flatMap { it.redacted.entries }.groupBy({ it.key }, { it.value }).mapValues { (_, v) -> v.max() }
+            ReceiptNodeInfo(
+                node = node,
+                requests = list.size,
+                verified = present.isNotEmpty() && present.all { it.verified } && present.size == list.size,
+                models = present.mapNotNull { it.model }.distinct(),
+                cloud = present.any { it.tier == "cloud" },
+                egress = egress,
+                redactions = redactions(redacted),
+                missing = list.size - present.size,
+            )
+        }
 
     /** The receipt's redaction counts in a fixed order ([PiiKind] order; unknown kinds last). */
     fun redactions(counts: Map<String, Int>?): List<ReceiptRedaction> {
@@ -272,6 +329,8 @@ object Receipts {
 fun receiptsPlugin(
     audit: AuditLog?,
     meter: UsageMeter? = null,
+    /** Paired nodes' own receipts for the turn's requests (Invincible). */
+    nodes: dev.wckdboy.autobot.shared.invincible.NodeReceiptLog? = null,
     provider: suspend (id: String) -> ReceiptProvider?,
 ): Plugin = plugin("privacy-receipts") { ctx ->
     ctx.intercept(Hooks.TurnReceipt) { input, next ->
@@ -280,6 +339,7 @@ fun receiptsPlugin(
         val receipt = base.copy(
             models = counted.map { Receipts.describe(it, runCatching { provider(it.provider) }.getOrNull()) },
             network = audit?.let { Receipts.network(it.forTurn(input.agent.id, input.turn)) },
+            nodes = nodes?.take(input.agent.id, input.turn)?.ifEmpty { null },
         )
         // The turn's entries were kept apart from the ring until now.
         audit?.release(input.agent.id, input.turn)

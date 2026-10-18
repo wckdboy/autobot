@@ -51,6 +51,7 @@ import dev.wckdboy.autobot.providers.remote.LocalThinkingSupport
 import dev.wckdboy.autobot.providers.remote.ThinkingDefaults
 import dev.wckdboy.autobot.providers.remote.ThinkingSupport
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
+import dev.wckdboy.autobot.providers.remote.NodeConnections
 import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
 import dev.wckdboy.autobot.shared.chats.ChatNames
@@ -150,6 +151,7 @@ class AgentHost @Inject constructor(
     search: WebSearchRepository,
     clients: HttpClientFactory,
     audit: AuditLog,
+    nodes: NodeConnections,
     networkPolicy: NetworkPolicy,
     contributions: Set<@JvmSuppressWildcards AgentPluginProvider>,
 ) {
@@ -272,9 +274,10 @@ class AgentHost @Inject constructor(
                 eligible = { cfg -> providers.getProvider(cfg.provider)?.let { ModelDataPolicies.autoPickable(it.preset().id, cfg.model) } ?: true },
             ),
         )
-        // Each turn's privacy receipt: the traffic the audit log tied to it, models and policies.
+        // Each turn's privacy receipt: the traffic the audit log tied to it, models and policies,
+        // and what paired nodes signed about the requests they answered.
         root.plugin(
-            receiptsPlugin(audit, meter) { id ->
+            receiptsPlugin(audit, meter, nodes.receipts) { id ->
                 providers.getProvider(id)?.let { ReceiptProvider(it.displayName, it.kind == ProviderKind.LOCAL, it.preset().id, it.preset().privacyNote) }
             },
         )

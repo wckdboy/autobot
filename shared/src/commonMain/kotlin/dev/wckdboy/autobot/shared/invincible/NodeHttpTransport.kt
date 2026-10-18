@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.shared.invincible
 
+import dev.wckdboy.autobot.agent.core.TurnTrace
 import dev.wckdboy.autobot.shared.Cancellable
 import dev.wckdboy.autobot.shared.HttpRequestSpec
 import dev.wckdboy.autobot.shared.HttpSink
@@ -30,6 +31,8 @@ class NodeHttpTransport(
     private val device: NodeKeyPair,
     private val connect: suspend () -> NodeLink,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    /** Told the node's request id (`invincible-request-id`) of each answer made for an agent turn. */
+    private val onRequestId: (suspend (TurnTrace, String) -> Unit)? = null,
 ) : HttpTransport {
 
     override fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable {
@@ -41,7 +44,16 @@ class NodeHttpTransport(
                 val opened = connect().also { link = it }
                 val channel = InvincibleNode.session(crypto, opened, nodeKey, device)
                 channel.send(encode(request))
-                Http1Reader(channel).deliver(request.maxBytes, sink)
+                var requestId: String? = null
+                Http1Reader(channel).deliver(request.maxBytes, object : HttpSink by sink {
+                    override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
+                        requestId = headers["invincible-request-id"]
+                        sink.onResponse(status, headers, errorBody)
+                    }
+                })
+                val trace = request.trace
+                val id = requestId
+                if (trace != null && id != null) onRequestId?.invoke(trace, id)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: NodeBlockedException) {

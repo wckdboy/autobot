@@ -67,6 +67,7 @@ class ProviderFactory @Inject constructor(
                 apiKey?.reveal(),
                 provider.displayName,
                 provider.preset(),
+                nodes.receipts,
                 nodes.connector(provider.routing, provider.displayName),
             )
         }

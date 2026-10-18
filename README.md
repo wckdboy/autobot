@@ -227,8 +227,16 @@ only allowlisted commands and writes in the working directory.
 `InvincibleLiveTest` runs a real turn against `invincible` + `autobot` with a model, approving
 from the phone side (set `AUTOBOT_BIN` and `INVINCIBLE_MODEL` too).
 
-Not yet: the iOS connector (the preset shows "not on iOS yet"), and showing the node's own signed
-receipts in the turn receipt.
+**The node's own receipts.** Every answer from a node comes with its request id; when the turn's
+privacy receipt is built, the phone fetches the node's receipt for it (Invincible's
+[spec/receipts.md](https://github.com/wckdboy/invincible/blob/main/spec/receipts.md)) and checks
+its Ed25519 signature against the receipt key pinned at pairing. The receipt line then says
+`kept on studio ✓` (the signed receipt lists no outside host), `studio → 1 host` (the node used a
+cloud model, which the sheet lists with routes, bytes and what the node redacted), or
+`studio unverified` (the signature does not check out: shown, never trusted). `NodeReceiptLogTest`
+runs this on Invincible's own signed receipt vectors, tampered and mis-keyed copies included.
+
+Not yet: the iOS connector (the preset shows "not on iOS yet").
 
 ## On-device models
 

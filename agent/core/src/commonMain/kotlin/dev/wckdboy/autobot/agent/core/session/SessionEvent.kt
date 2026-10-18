@@ -50,6 +50,8 @@ sealed interface SessionEvent {
         val network: List<ReceiptHost>? = null,
         val redacted: Map<String, Int>? = null,
         val cascade: ReceiptCascade? = null,
+        /** What each paired Invincible node said about the requests it answered, from its signed receipts. */
+        val nodes: List<ReceiptNode>? = null,
     ) : SessionEvent
 
     @Serializable
@@ -313,6 +315,29 @@ data class ReceiptCascade(
  * `loopback`, `offline`). Bytes are bodies only; [blocked] requests were refused by the kill
  * switch before any I/O. [tags] are the audit labels (provider name, `agent:web_fetch`, …).
  */
+/**
+ * One request a paired Invincible node answered, from the node's own receipt (Invincible's
+ * spec/receipts.md): where it ran there and what left the node. [verified]: the signature checks
+ * out with the receipt key pinned at pairing; an unverified receipt is shown as such, never trusted.
+ *
+ * @property tier `node` (the node's own model) or `cloud` (a cloud model, through its redaction).
+ * @property egress hosts the node reached for this request; empty means nothing left the node.
+ * @property redacted what the node's redaction hid, by kind.
+ */
+@Serializable
+data class ReceiptNode(
+    val node: String,
+    val requestId: String,
+    val verified: Boolean,
+    val model: String? = null,
+    val tier: String? = null,
+    val dataPolicy: String? = null,
+    val egress: List<ReceiptHost> = emptyList(),
+    val redacted: Map<String, Int> = emptyMap(),
+    /** Why there is no receipt (the node did not keep it, could not be reached); null when there is one. */
+    val missing: String? = null,
+)
+
 @Serializable
 data class ReceiptHost(
     val host: String,

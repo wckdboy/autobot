@@ -29,9 +29,19 @@ class PairedNode(
         Stored(0, name, deviceName, b64.encode(nodeKey), addresses, receiptKey, b64.encode(device.privateKey), b64.encode(device.publicKey)),
     )
 
-    /** An [NodeHttpTransport] to this node; [connect] opens connections under the network policy. */
-    fun transport(crypto: NodeCrypto, connect: suspend (List<String>) -> NodeLink): NodeHttpTransport =
-        NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) })
+    /**
+     * An [NodeHttpTransport] to this node; [connect] opens connections under the network policy.
+     * With [receipts], the node's receipts for agent turns are kept for those turns' privacy receipts.
+     */
+    fun transport(crypto: NodeCrypto, receipts: NodeReceiptLog? = null, connect: suspend (List<String>) -> NodeLink): NodeHttpTransport {
+        val plain = NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) })
+        if (receipts == null) return plain
+        // Answers made for agent turns: their signed receipts are fetched (over [plain]) and checked
+        // with the pinned key when the turn's receipt is built.
+        return NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) }, onRequestId = { trace, id ->
+            receipts.record(trace) { NodeReceiptLog.fetch(crypto, plain, name, receiptKey, id) }
+        })
+    }
 
     override fun toString(): String = "PairedNode($name, $fingerprint, $addresses)"
 

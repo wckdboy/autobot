@@ -23,6 +23,6 @@ class NodeAgents @Inject constructor(
         if (provider.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = providers.apiKey(provider)?.reveal()?.let(PairedNode::fromSecret) ?: return null
         val tag = "${provider.displayName} · agent"
-        return NodeAgent(paired.transport(JvmNodeCrypto, nodes.connector(provider.routing, tag)), tag) to paired.deviceName
+        return NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag) to paired.deviceName
     }
 }
