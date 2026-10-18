@@ -18,6 +18,9 @@ enum EntryRequest: Equatable {
     case shared(id: String)
     /// A recipe notification: its result chat, or the Recipes screen.
     case recipe(conversationId: String?)
+    /// An Invincible pairing code (`invincible://pair?…`): the pairing sheet, filled in. Pairing
+    /// itself waits for the user, who compares the key fingerprint first.
+    case pairNode(code: String)
 }
 
 /// `autobot://` links (widgets, the control, the share extension).
@@ -33,6 +36,9 @@ enum EntryLink {
 
     /// Never a sending request: a link only opens a screen or fills a draft.
     static func parse(_ url: URL) -> EntryRequest? {
+        if url.scheme?.lowercased() == "invincible", url.host()?.lowercased() == "pair", url.absoluteString.count <= 2_000 {
+            return .pairNode(code: url.absoluteString)
+        }
         guard url.scheme?.lowercased() == scheme, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         func value(_ name: String) -> String? {
             let raw = components.queryItems?.first { $0.name == name }?.value?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,6 +72,8 @@ enum EntryPlan: Equatable {
     case setup
     /// A recipe's result chat (nil: the Recipes screen).
     case recipe(conversationId: String?)
+    /// The Providers screen's pairing sheet with [code].
+    case pairNode(code: String)
     /// Nothing to do (an expired or empty share).
     case none
 }
@@ -84,6 +92,8 @@ enum EntryRouting {
             return .chat(send ? ChatStart(send: prompt) : ChatStart(draft: prompt))
         case .recipe(let id):
             return .recipe(conversationId: id)
+        case .pairNode(let code):
+            return .pairNode(code: code)
         case .shared(let id):
             guard let item = shared(id) else { return .none }
             if let text = item.text, item.images.isEmpty, StudioWorkflowText.isWorkflow(text) { return .workflow(json: text) }
@@ -141,6 +151,9 @@ final class EntryRouter {
             } else {
                 nav.reset(.settings, [.recipes])
             }
+        case .pairNode(let code):
+            nav.pendingPairing = code
+            nav.reset(.remote, [.providers])
         case .setup:
             nav.switchTo(.models)
         case .none:

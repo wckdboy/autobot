@@ -63,6 +63,8 @@ final class Navigator {
     var studio: StudioRoom?
     /// A workflow handed over to import (share sheet), shown by the Workflows room.
     var pendingWorkflow: String?
+    /// An `invincible://pair?…` code from a link, for the Providers screen's pairing sheet.
+    var pendingPairing: String?
 
     init() {
         #if DEBUG

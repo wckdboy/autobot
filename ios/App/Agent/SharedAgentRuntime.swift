@@ -67,6 +67,9 @@ final class SharedAgentRuntime: AgentRuntime {
             audit: clients.auditLog.shared,
             journalDir: AppPaths.workspaceUndo.path,
         )
+        // "My node": CryptoKit for Noise and receipts, Network.framework connections under the
+        // kill switch, routes and audit log.
+        bridge.setNodeHost(crypto: SwiftNodeCrypto(), connector: SwiftNodeConnector(policy: clients.policy, audit: clients.auditLog))
         let listener = RunningListenerBox { [weak self] ids in
             guard let self else { return }
             let next = Set(ids)
@@ -322,6 +325,20 @@ final class SharedAgentRuntime: AgentRuntime {
         return (result.json, result.error.map(withNetworkHint))
     }
 
+    /// Pairs with the node in [code] as [deviceName]: the pairing to store as the provider's
+    /// secret, the node's name and key fingerprint, or an error.
+    func pairNode(code: String, deviceName: String) async -> (secret: String?, node: String?, fingerprint: String?, error: String?) {
+        let result = await call(stopped: PairReply(error: Self.stoppedMessage), late: PairReply(error: "The node did not answer within \(Self.testTimeout.components.seconds) seconds")) { done in
+            bridge.pairNode(code: code, deviceName: deviceName) { @Sendable secret, node, fingerprint, error in
+                done(PairReply(secret: secret, node: node, fingerprint: fingerprint, error: error))
+            }
+        }
+        return (result.secret, result.node, result.fingerprint, result.error)
+    }
+
+    /// The node key fingerprint in a pairing code, to compare with what `invincible pair` printed.
+    func pairingFingerprint(_ code: String) -> String? { bridge.pairingFingerprint(code: code) }
+
     private static let stoppedMessage = "The agent runtime was stopped"
 
     /**
@@ -342,6 +359,9 @@ final class SharedAgentRuntime: AgentRuntime {
     }
     private struct Reply3: Sendable { let ok: Bool, message: String, json: String? }
     private struct Reply2: Sendable { let json: String?, error: String? }
+    private struct PairReply: Sendable {
+        var secret: String? = nil, node: String? = nil, fingerprint: String? = nil, error: String? = nil
+    }
 
     /// The configured MCP servers; sessions pick up enabled servers' tools at their next turn.
     func setMcpServers(_ servers: [McpServer]) { bridge.setMcpServers(servers: servers.map(SharedMapping.mcpSpec)) }

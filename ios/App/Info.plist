@@ -30,6 +30,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>autobot</string>
+				<string>invincible</string>
 			</array>
 		</dict>
 	</array>
