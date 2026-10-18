@@ -279,6 +279,8 @@ class RunViewModel @Inject constructor(
          */
         fun providerRoute(p: Provider): Route = when {
             p.kind == ProviderKind.LOCAL -> Route.LOCAL
+            // A paired Invincible node is the user's own machine (its URL is only a name).
+            p.kind == ProviderKind.INVINCIBLE_NODE -> Route.PC_LAN
             Loopback.isLoopbackUrl(p.baseUrl) -> Route.LOCAL
             isPrivateHost(p.baseUrl) -> Route.PC_LAN
             else -> Route.CLOUD_API

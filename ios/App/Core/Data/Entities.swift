@@ -47,7 +47,7 @@ struct ChatFolder: Codable, Identifiable, Equatable, Sendable {
  */
 enum ProviderKind: String, Codable, CaseIterable, Sendable {
     case deepseek = "DEEPSEEK", openAICompatible = "OPENAI_COMPATIBLE", openRouter = "OPENROUTER", ollama = "OLLAMA", local = "LOCAL",
-         anthropic = "ANTHROPIC"
+         anthropic = "ANTHROPIC", invincibleNode = "INVINCIBLE_NODE"
 }
 
 /// Per-provider network routing. `.inherit` follows the global network mode.

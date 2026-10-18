@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.entry
 
 import android.content.Intent
 import dev.wckdboy.autobot.agent.runtime.recipes.RecipeNotifications
+import dev.wckdboy.autobot.shared.invincible.PairingCode
 
 /**
  * What a system entry point (share sheet, text selection menu, Quick Settings tile, launcher
@@ -26,6 +27,13 @@ sealed interface EntryRequest {
 
     /** A recipe notification: its result chat ([chatId]) over the Recipes screen. */
     data class OpenRecipe(val chatId: String? = null) : EntryRequest
+
+    /**
+     * An Invincible node's pairing link ([code], `invincible://pair?…`), usually from the system
+     * camera reading the node's QR code. It opens the pairing sheet filled in; pairing waits for
+     * the user.
+     */
+    data class PairNode(val code: String) : EntryRequest
 }
 
 /** Explicit actions used by the tile, the launcher shortcuts and the widget. */
@@ -58,7 +66,9 @@ object EntryParser {
         processText: CharSequence? = null,
         prompt: String? = null,
         chat: String? = null,
+        data: String? = null,
     ): EntryRequest? = when (action) {
+        Intent.ACTION_VIEW -> data?.trim()?.takeIf { PairingCode.parse(it) != null }?.let { EntryRequest.PairNode(it) }
         RecipeNotifications.ACTION_OPEN -> EntryRequest.OpenRecipe(chat?.trim()?.ifEmpty { null })
         EntryActions.NEW_CHAT -> EntryRequest.NewChat()
         EntryActions.VOICE -> EntryRequest.Voice

@@ -23,6 +23,7 @@ class ProviderPresetsTest {
             when {
                 p.id == ProviderPresets.LOCAL -> assertEquals(ProviderPresets.LOCAL_BASE_URL, p.baseUrl)
                 p.id == ProviderPresets.CUSTOM -> assertEquals("https://", p.baseUrl)
+                p.id == ProviderPresets.INVINCIBLE -> assertEquals(ProviderPresets.NODE_BASE_URL, p.baseUrl)
                 p.group == PresetGroup.LOCAL_SERVERS -> assertTrue(p.id, p.baseUrl.startsWith("http://127.0.0.1:") && Loopback.isLoopbackUrl(p.baseUrl))
                 else -> assertTrue(p.id, p.baseUrl.startsWith("https://") && ProviderAuth.origin(p.baseUrl) != null)
             }

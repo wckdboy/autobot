@@ -229,14 +229,16 @@ private struct PresetPickerSheet: View {
                                 .padding(.bottom, 4)
                         }
                         ForEach(group.presets) { preset in
-                            Button { if !preset.isThisPhone { onPick(preset) } } label: {
+                            // "My node" pairs on Android today; the iOS connector is still to come.
+                            let unavailable = preset.isThisPhone || preset.kind == .invincibleNode
+                            Button { if !unavailable { onPick(preset) } } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 8) {
                                         Text(preset.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface)
                                         if preset.kind == .anthropic { Tag("native") }
-                                        if !preset.requiresApiKey && !preset.isThisPhone { Tag("no key") }
+                                        if !preset.requiresApiKey && !unavailable { Tag("no key") }
                                     }
-                                    MicroLabel(preset.isThisPhone ? "added automatically" : preset.host)
+                                    MicroLabel(preset.isThisPhone ? "added automatically" : preset.kind == .invincibleNode ? "not on iOS yet" : preset.host)
                                     if let note = preset.note {
                                         Text(note).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                                     }
@@ -246,7 +248,7 @@ private struct PresetPickerSheet: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(PressStyle())
-                            .disabled(preset.isThisPhone)
+                            .disabled(unavailable)
                             .accessibilityIdentifier("preset-\(preset.id)")
                             Hairline()
                         }

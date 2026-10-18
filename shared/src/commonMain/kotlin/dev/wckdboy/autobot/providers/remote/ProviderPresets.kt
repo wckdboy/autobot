@@ -96,6 +96,11 @@ object ProviderPresets {
     const val OPENCODE_GO = "opencode-go"
     const val OLLAMA = "ollama"
     const val LOCAL = "local"
+    /** A paired Invincible node ("My node"). */
+    const val INVINCIBLE = "invincible"
+
+    /** The node provider's base URL: a name for the paired node, never resolved or dialled. */
+    const val NODE_BASE_URL = "http://invincible/v1"
     const val CUSTOM = "openai-compatible"
 
     val all: List<ProviderPreset> = listOf(
@@ -491,6 +496,20 @@ object ProviderPresets {
             note = "Any server with /chat/completions and /models.",
         ),
 
+        ProviderPreset(
+            id = INVINCIBLE, kind = ProviderKind.INVINCIBLE_NODE, displayName = "My node (Invincible)",
+            group = PresetGroup.LOCAL_SERVERS,
+            baseUrl = NODE_BASE_URL,
+            defaultModel = "auto",
+            suggestedModels = listOf("auto"),
+            requiresApiKey = false,
+            docsUrl = "https://github.com/wckdboy/invincible",
+            includeUsage = true,
+            note = "Your own computer or GPU box running Invincible: paired by its QR code, end-to-end encrypted, no account. " +
+                "\"auto\" lets the node choose a model.",
+            privacyNote = "Runs on hardware you own; the node's own rules decide whether anything goes further, redacted.",
+        ),
+
         // ---- This phone (added automatically when a chat model is installed) ---------------------
         ProviderPreset(
             id = LOCAL, kind = ProviderKind.LOCAL, displayName = "This phone", group = PresetGroup.THIS_PHONE,
@@ -516,6 +535,7 @@ object ProviderPresets {
         ProviderKind.LOCAL -> byId.getValue(LOCAL)
         ProviderKind.ANTHROPIC -> byId.getValue(ANTHROPIC)
         ProviderKind.OPENAI_COMPATIBLE -> byId.getValue(CUSTOM)
+        ProviderKind.INVINCIBLE_NODE -> byId.getValue(INVINCIBLE)
     }
 
     /**

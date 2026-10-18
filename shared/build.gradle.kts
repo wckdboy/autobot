@@ -39,6 +39,10 @@ kotlin {
             api(libs.kotlinx.serialization.json)
             api(libs.kotlinx.datetime)
         }
+        jvmMain.dependencies {
+            // Only org.bouncycastle.math.ec.rfc8032.Ed25519 (no provider is registered).
+            implementation(libs.bouncycastle.bcprov)
+        }
         jvmTest.dependencies {
             implementation(libs.junit)
             implementation(libs.kotlinx.coroutines.test)

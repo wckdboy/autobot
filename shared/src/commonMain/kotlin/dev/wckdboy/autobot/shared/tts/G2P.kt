@@ -28,8 +28,10 @@ internal data class Phonemized(val text: String, val phonemes: String, val white
 private val PUNCT_TAGS = setOf(".", ",", "-LRB-", "-RRB-", "``", "\"\"", "''", ":", "$", "#", "NFP")
 private val PUNCT_TAG_PHONEMES = mapOf("-LRB-" to "(", "-RRB-" to ")", "``" to "“", "\"\"" to "”", "''" to "”")
 
+// Numbers are `[,.]?\\d+(?:[,.]\\d+)*`, the same strings as misaki's `(?:\\d?[,.]?\\d)+`: that form makes
+// Java's regex engine recurse once per digit, so a long digit run overflowed the stack.
 private val SUBTOKEN = Regex(
-    "^['‘’]+|\\p{Lu}(?=\\p{Lu}\\p{Ll})|(?:^-)?(?:\\d?[,.]?\\d)+|[-_]+|['‘’]{2,}|\\p{L}*?(?:['‘’]\\p{L})*?\\p{Ll}(?=\\p{Lu})|" +
+    "^['‘’]+|\\p{Lu}(?=\\p{Lu}\\p{Ll})|(?:^-)?[,.]?\\d+(?:[,.]\\d+)*|[-_]+|['‘’]{2,}|\\p{L}*?(?:['‘’]\\p{L})*?\\p{Ll}(?=\\p{Lu})|" +
         "\\p{L}+(?:['‘’]\\p{L})*|[^-_\\p{L}'‘’\\d]|['‘’]+$",
 )
 

@@ -1,5 +1,12 @@
 package dev.wckdboy.autobot.feature.settings.providers
 
+import dev.wckdboy.autobot.providers.remote.NodeConnections
+import dev.wckdboy.autobot.providers.remote.NodePairingLinks
+import dev.wckdboy.autobot.shared.invincible.JvmNodeCrypto
+import dev.wckdboy.autobot.shared.invincible.NodeBlockedException
+import dev.wckdboy.autobot.shared.invincible.PairedNode
+import dev.wckdboy.autobot.shared.invincible.PairingCode
+import dev.wckdboy.autobot.shared.invincible.fingerprint
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -78,8 +85,10 @@ data class ProviderDraft(
     val isNew: Boolean get() = id == null
     val preset: ProviderPreset get() = ProviderPresets.resolve(presetId, kind, baseUrl)
     val baseUrlValid: Boolean get() = baseUrl.trim().toHttpUrlOrNull() != null
-    /** Why the base URL cannot work: the kill switch refuses cleartext to anything but loopback. */
-    val cleartextProblem: String? get() = cleartextProblem(baseUrl)
+    /** A paired Invincible node: its address and key come from pairing, not from the editor. */
+    val isNode: Boolean get() = kind == ProviderKind.INVINCIBLE_NODE
+    /** Why the base URL cannot work: the kill switch refuses cleartext to anything but loopback (a node's URL is only a name). */
+    val cleartextProblem: String? get() = if (isNode) null else cleartextProblem(baseUrl)
     val canSave: Boolean get() = saveProblem == null
 
     /** Why Save is disabled, said next to it (null: it can save). */
@@ -138,6 +147,27 @@ sealed interface TestState {
     data class Failure(val message: String) : TestState
 }
 
+/** The "pair with my node" sheet: the pasted (or linked) code and this phone's name on the node. */
+@Immutable
+data class PairingDraft(
+    val code: String = "",
+    val deviceName: String = "",
+    val running: Boolean = false,
+    val error: String? = null,
+) {
+    val parsed: PairingCode? get() = PairingCode.parse(code)
+    /** The node's key as `invincible pair` prints it, to compare before pairing. */
+    val fingerprint: String? get() = parsed?.let { fingerprint(it.nodeKey) }
+    val problem: String? get() = when {
+        code.isBlank() -> "Scan the node's QR code with the camera app, or paste its code"
+        parsed == null -> "Not an Invincible pairing code"
+        deviceName.isBlank() -> "Name this phone"
+        else -> null
+    }
+
+    override fun toString(): String = "PairingDraft(code=${if (code.isEmpty()) "" else Secret.REDACTED}, deviceName=$deviceName, running=$running)"
+}
+
 @Immutable
 data class ProvidersUiState(
     val providers: List<ProviderRow> = emptyList(),
@@ -150,6 +180,7 @@ data class ProvidersUiState(
     /** Why the last save failed (the editor stays open). */
     val error: String? = null,
     val now: Long = 0,
+    val pairing: PairingDraft? = null,
 )
 
 @HiltViewModel
@@ -158,7 +189,12 @@ class ProvidersViewModel @Inject constructor(
     conversations: ConversationRepository,
     private val providerFactory: ProviderFactory,
     @ApplicationScope private val appScope: CoroutineScope,
+    private val nodes: NodeConnections,
+    private val pairingLinks: NodePairingLinks,
 ) : ViewModel() {
+
+    private val pairing = MutableStateFlow<PairingDraft?>(null)
+
 
     private val picker = MutableStateFlow<String?>(null)
     private val editor = MutableStateFlow<ProviderDraft?>(null)
@@ -193,13 +229,24 @@ class ProvidersViewModel @Inject constructor(
 
     val uiState: StateFlow<ProvidersUiState> = combine(
         combine(rows, picker, editor) { r, p, e -> Triple(r, p, e) },
-        models,
-        test,
+        combine(models, test) { m, t -> m to t },
         saving,
         error,
-    ) { (r, p, e), m, t, s, err ->
-        ProvidersUiState(providers = r, pickerQuery = p, editor = e, models = m, test = t, saving = s, error = err, now = System.currentTimeMillis())
+        pairing,
+    ) { (r, p, e), (m, t), s, err, pair ->
+        ProvidersUiState(
+            providers = r, pickerQuery = p, editor = e, models = m, test = t, saving = s, error = err,
+            now = System.currentTimeMillis(), pairing = pair,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProvidersUiState())
+
+    init {
+        // A pairing link (the camera read a node's QR code) opens the sheet, filled in. Below
+        // every property it touches: with a link already waiting this runs during construction.
+        viewModelScope.launch {
+            pairingLinks.code.collect { if (it != null) pairingLinks.take()?.let(::openPairing) }
+        }
+    }
 
     /** Opens the preset search ("add provider"). */
     fun startAdd() {
@@ -220,6 +267,11 @@ class ProvidersViewModel @Inject constructor(
     fun choosePreset(presetId: String) {
         val preset = ProviderPresets.byId(presetId) ?: return
         if (preset.kind == ProviderKind.LOCAL) return
+        if (preset.kind == ProviderKind.INVINCIBLE_NODE) {
+            picker.value = null
+            openPairing("")
+            return
+        }
         picker.value = null
         resetTest()
         editor.value = ProviderDraft.fromPreset(preset)
@@ -392,6 +444,66 @@ class ProvidersViewModel @Inject constructor(
     }
 
     private fun offline(preset: ProviderPreset) = preset.suggestedModels.map { RemoteModel(it) }
+
+    /** Opens the pairing sheet with [code] (empty: to paste one). */
+    fun openPairing(code: String) {
+        picker.value = null
+        editor.value = null
+        pairing.value = PairingDraft(code = code, deviceName = android.os.Build.MODEL.orEmpty().ifBlank { "Autobot" })
+    }
+
+    fun updatePairing(transform: (PairingDraft) -> PairingDraft) {
+        pairing.update { it?.let(transform)?.copy(error = null) }
+    }
+
+    fun dismissPairing() {
+        pairing.value = null
+    }
+
+    /**
+     * Pairs with the node in the sheet's code: a Noise handshake over the network policy (the
+     * kill switch and routes apply; offline refuses), then the node is saved as a provider with
+     * its pairing stored encrypted where an API key would be.
+     */
+    fun pair() {
+        val draft = pairing.value ?: return
+        val code = draft.parsed
+        if (draft.problem != null || code == null || draft.running) return
+        pairing.value = draft.copy(running = true, error = null)
+        viewModelScope.launch {
+            try {
+                val paired = PairedNode.pair(JvmNodeCrypto, code, draft.deviceName.trim(), nodes.connector(ProviderRouting.INHERIT, "pairing"))
+                val provider = Provider(
+                    id = repository.newProviderId(),
+                    kind = ProviderKind.INVINCIBLE_NODE,
+                    displayName = paired.name,
+                    baseUrl = ProviderPresets.NODE_BASE_URL,
+                    defaultModel = "auto",
+                    routing = ProviderRouting.INHERIT,
+                    apiKeyRef = null,
+                    presetId = ProviderPresets.INVINCIBLE,
+                    helperModel = null,
+                )
+                val stored = repository.save(provider, ApiKeyUpdate.Set(Secret(paired.toSecret())))
+                pairing.value = null
+                appScope.launch {
+                    try {
+                        refreshStored(stored)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        problems.update { it + (stored.id to "Couldn't list models: ${userMessage(e)}") }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: NodeBlockedException) {
+                pairing.update { it?.copy(running = false, error = "Blocked by the network settings: ${e.message}") }
+            } catch (e: Exception) {
+                pairing.update { it?.copy(running = false, error = "Pairing failed: ${userMessage(e)} (the code works once, for 10 minutes)") }
+            }
+        }
+    }
 
     private fun resetTest() {
         testJob?.cancel()

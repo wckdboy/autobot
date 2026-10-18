@@ -107,7 +107,7 @@ fun RemoteScreen(
             item { SectionLabel("models · api & lan") }
             items(state.providers, key = { "p-${it.id}" }) { p ->
                 RunRow(p.displayName, "${p.defaultModel} · ${p.baseUrl.substringAfter("://").substringBefore('/')}", onClick = onOpenProviders) {
-                    RouteTag(if (Loopback.isLoopbackUrl(p.baseUrl) || p.kind == ProviderKind.OLLAMA) Route.PC_LAN else Route.CLOUD_API)
+                    RouteTag(if (Loopback.isLoopbackUrl(p.baseUrl) || p.kind == ProviderKind.OLLAMA || p.kind == ProviderKind.INVINCIBLE_NODE) Route.PC_LAN else Route.CLOUD_API)
                 }
             }
             item {

@@ -43,6 +43,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- An Invincible node's pairing link (the system camera reading its QR code): opens the
+                 pairing sheet filled in; nothing pairs until the user taps Pair. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="invincible" android:host="pair" />
+            </intent-filter>
             <!-- Share sheet: text and images become a new chat's draft (never sent by itself). -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

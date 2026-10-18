@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.entry
 
+import dev.wckdboy.autobot.navigation.Settings
+import dev.wckdboy.autobot.navigation.Providers
 import dev.wckdboy.autobot.feature.chat.conversation.ChatHandoff
 import dev.wckdboy.autobot.feature.chat.conversation.ChatStart
 import dev.wckdboy.autobot.navigation.Chat
@@ -65,5 +67,12 @@ class EntryRoutingTest {
         )
         val noChat = EntryRouting.plan(EntryRequest.OpenRecipe(null), canChat = true)
         assertEquals(listOf(dev.wckdboy.autobot.navigation.Settings, dev.wckdboy.autobot.navigation.Recipes), EntryRouting.backStack(noChat, null))
+    }
+
+    @Test
+    fun aPairingLinkOpensProvidersInSettings() {
+        val plan = EntryRouting.plan(EntryRequest.PairNode("invincible://pair?v=0"), canChat = false)
+        assertEquals(EntryPlan.PairNode("invincible://pair?v=0"), plan)
+        assertEquals(listOf(Settings, Providers), EntryRouting.backStack(plan, null))
     }
 }

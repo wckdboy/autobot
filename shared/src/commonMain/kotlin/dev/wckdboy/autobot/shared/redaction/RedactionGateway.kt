@@ -126,8 +126,13 @@ class RedactionGateway(
             "Personal details in this chat were replaced on the user's device with placeholders such as [PERSON_1] or [EMAIL_1]. " +
                 "Use them exactly as written, also in tool arguments; the device puts the real values back. Do not ask for the real values."
 
-        /** Whether a provider's requests leave the phone: not "This phone", not a loopback server. */
-        fun isCloud(kind: ProviderKind, baseUrl: String): Boolean = kind != ProviderKind.LOCAL && !Loopback.isLoopbackUrl(baseUrl)
+        /**
+         * Whether a provider's requests leave hardware the user owns: not "This phone", not a
+         * loopback server, not a paired node (which applies the same redaction before anything
+         * of its own goes further).
+         */
+        fun isCloud(kind: ProviderKind, baseUrl: String): Boolean =
+            kind != ProviderKind.LOCAL && kind != ProviderKind.INVINCIBLE_NODE && !Loopback.isLoopbackUrl(baseUrl)
 
         /** Programming words a memory note may capitalise; never hidden as memory facts. */
         private val TECH = setOf(

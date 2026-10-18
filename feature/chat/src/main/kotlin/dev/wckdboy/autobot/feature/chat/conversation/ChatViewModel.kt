@@ -465,6 +465,8 @@ class ChatViewModel @AssistedInject constructor(
             route = when {
                 isLocal -> Route.local((conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel)?.let { localBackend[it] }?.id)
                 loopback -> Route.LOCAL
+                // A paired Invincible node: the user's own machine.
+                provider?.kind == ProviderKind.INVINCIBLE_NODE -> Route.PC_LAN
                 else -> Route.CLOUD_API
             },
             modelLabel = conversation?.model?.let { m ->
