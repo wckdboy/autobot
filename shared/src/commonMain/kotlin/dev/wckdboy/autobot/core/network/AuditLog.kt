@@ -162,6 +162,7 @@ class AuditLog(
                 )
                 // [received] replaces the latest request's own part of the sum.
                 latestReceived[old.id] = entry.bytesReceived ?: 0L
+                latestSent[old.id] = entry.bytesSent ?: 0L
                 _entries.value = current.toMutableList().apply {
                     removeAt(match)
                     add(merged)
@@ -174,7 +175,9 @@ class AuditLog(
             } else {
                 _entries.value = (if (current.size >= capacity) current.drop(current.size - capacity + 1) else current) + entry
                 if (latestReceived.size > MAX_TURN_ENTRIES) latestReceived.clear()
+                if (latestSent.size > MAX_TURN_ENTRIES) latestSent.clear()
                 latestReceived[entry.id] = entry.bytesReceived ?: 0L
+                latestSent[entry.id] = entry.bytesSent ?: 0L
                 null
             }
         }
@@ -186,6 +189,9 @@ class AuditLog(
 
     /** The request's own bytes received so far, per entry id (for [received] on a collapsed entry). */
     private val latestReceived = HashMap<Long, Long>()
+
+    /** The same for bytes sent ([sent]). */
+    private val latestSent = HashMap<Long, Long>()
 
     private fun collapses(old: AuditEntry, new: AuditEntry): Boolean =
         old.method == new.method && old.host == new.host && old.path == new.path && old.status == new.status &&
@@ -205,6 +211,27 @@ class AuditLog(
             // A collapsed entry sums its requests: swap the latest request's part for [bytes].
             val previous = latestReceived.put(id, bytes) ?: 0L
             fun updated(e: AuditEntry) = e.copy(bytesReceived = if (e.count > 1) (e.bytesReceived ?: 0L) - previous + bytes else bytes)
+            val list = turnOf[id]?.let { turns[it] }
+            val index = list?.indexOfLast { it.id == id } ?: -1
+            if (list != null && index >= 0) list[index] = updated(list[index])
+            val current = _entries.value
+            val at = current.indexOfLast { it.id == id }
+            if (at >= 0) {
+                val next = updated(current[at])
+                if (next != current[at]) _entries.value = current.toMutableList().also { it[at] = next }
+            }
+        }
+    }
+
+    /**
+     * Sets the bytes actually sent for entry [id], for connections whose size is known only when
+     * they close (a node session). No-op if the entry is gone.
+     */
+    fun sent(id: Long, bytes: Long) {
+        if (bytes < 0) return
+        turnLock.withLock {
+            val previous = latestSent.put(id, bytes) ?: 0L
+            fun updated(e: AuditEntry) = e.copy(bytesSent = if (e.count > 1) (e.bytesSent ?: 0L) - previous + bytes else bytes)
             val list = turnOf[id]?.let { turns[it] }
             val index = list?.indexOfLast { it.id == id } ?: -1
             if (list != null && index >= 0) list[index] = updated(list[index])
