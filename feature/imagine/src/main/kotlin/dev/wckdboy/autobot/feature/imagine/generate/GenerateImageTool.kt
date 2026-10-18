@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.core.diffusion.DiffusionBackendRepository
 import dev.wckdboy.autobot.core.diffusion.DiffusionException
 import dev.wckdboy.autobot.core.diffusion.DiffusionMode
 import dev.wckdboy.autobot.core.diffusion.PromptSyntax
+import dev.wckdboy.autobot.shared.panic.IncognitoImages
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -21,7 +22,8 @@ import kotlinx.serialization.json.put
 /**
  * Lets the agent render images on the user's default image backend. Unspecified parameters
  * come from the last settings used on the Imagine screen, so the user's sampler, model and
- * LoRAs carry over. Results go to the encrypted gallery; the model gets their ids and seeds.
+ * LoRAs carry over. Results go to the encrypted gallery; the model gets their ids and seeds. In
+ * an incognito chat they stay in memory only, unsaved ([IncognitoImages]), until the user saves them.
  */
 class GenerateImageTool(
     private val backends: DiffusionBackendRepository,
@@ -32,7 +34,7 @@ class GenerateImageTool(
     override val description =
         "Generate images with Stable Diffusion on the user's configured image backend. Write prompts as comma-separated " +
             "visual tags or a short scene description (subject, style, lighting, composition). Omitted parameters reuse " +
-            "the user's current Imagine settings. Images are saved to the user's private gallery."
+            "the user's current Imagine settings. Images are saved to the user's private gallery (in an incognito chat they are only shown, unsaved)."
     override val parameters = schema {
         string("prompt", "Positive prompt; {a|b} makes one image per option (same seed)", required = true)
         string("negative_prompt", "What to avoid")
@@ -62,11 +64,12 @@ class GenerateImageTool(
             batchCount = args.int("count") ?: 1,
         )
         return try {
-            val images = generator.generate(backend, request.calls(), source = GenerationSource.AGENT)
+            val incognito = IncognitoImages.isIncognitoSession(run.sessionId)
+            val images = generator.generate(backend, request.calls(), source = GenerationSource.AGENT, incognitoOwner = run.sessionId.takeIf { incognito })
             ToolOutput(
                 content = "Generated ${images.size} image(s) on ${backend.name}: " +
-                    images.joinToString { "gallery:${it.galleryId} (seed ${it.seed}, ${it.width}×${it.height}, ${it.durationMs / 1000.0}s)" } +
-                    ". They are shown to the user in the chat and saved to the gallery.",
+                    images.joinToString { "${if (incognito) "image" else "gallery"}:${it.galleryId} (seed ${it.seed}, ${it.width}×${it.height}, ${it.durationMs / 1000.0}s)" } +
+                    if (incognito) ". ${IncognitoImages.toolNote(images.size)}" else ". They are shown to the user in the chat and saved to the gallery.",
                 meta = buildJsonObject {
                     put("gallery", buildJsonArray { images.forEach { add(kotlinx.serialization.json.JsonPrimitive(it.galleryId)) } })
                 },

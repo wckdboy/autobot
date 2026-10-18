@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 /**
@@ -117,6 +119,31 @@ class ModelLibrary @Inject constructor(
     internal suspend fun deleteFiles(id: String) = withContext(Dispatchers.IO) { dirOf(id).deleteRecursively() }
 
     /**
+     * The ready models' registry rows as text, for a panic wipe that keeps models: catalog
+     * metadata only (ids, titles, file lists and hashes), never anything the user wrote.
+     */
+    suspend fun exportReady(): String =
+        KeptJson.encodeToString(ListSerializer(KeptModel.serializer()), rows.all().filter { it.status == ModelStatus.READY.name }.map(KeptModel::of))
+
+    /**
+     * Registers the models a panic wipe kept (the registry it left in the models folder) and
+     * deletes that file. Run before [sweepOrphans], which would otherwise delete their folders.
+     */
+    internal suspend fun adoptKept(): Int {
+        val file = File(rootDir, KEPT_REGISTRY)
+        if (!file.isFile) return 0
+        val kept = runCatching { KeptJson.decodeFromString(ListSerializer(KeptModel.serializer()), file.readText()) }.getOrDefault(emptyList())
+        var adopted = 0
+        for (model in kept) {
+            if (!dirOf(model.id).isDirectory || rows.get(model.id) != null) continue
+            rows.upsert(model.row(System.currentTimeMillis()))
+            adopted++
+        }
+        file.delete()
+        return adopted
+    }
+
+    /**
      * Deletes model folders no registry entry owns (a removal interrupted after its entry was
      * deleted). Run before anything downloads in this process. Returns the folders deleted.
      */
@@ -164,6 +191,10 @@ class ModelLibrary @Inject constructor(
 
     companion object {
         private const val DIR = "models"
+
+        /** Same name as `WipeFiles.KEPT_REGISTRY` (core:security writes it, this module reads it). */
+        internal const val KEPT_REGISTRY = ".kept-registry.json"
+        private val KeptJson = Json { ignoreUnknownKeys = true }
 
         private val Unsafe = Regex("[^A-Za-z0-9._-]")
 
@@ -223,3 +254,33 @@ internal fun <T> sharedModels(rows: Flow<List<ModelRow>>, scope: CoroutineScope,
         .flowOn(dispatcher)
         .catch { e -> Log.w("ModelLibrary", "model registry query failed", e) }
         .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+/** A ready model's registry row carried across a panic wipe. */
+@Serializable
+internal data class KeptModel(
+    val id: String,
+    val kind: String,
+    val source: String,
+    val title: String,
+    val subtitle: String,
+    val format: String,
+    val engine: String,
+    val baseModel: String? = null,
+    val license: String? = null,
+    val nsfw: Boolean = false,
+    val totalBytes: Long,
+    val manifestJson: String,
+    val backend: String = "auto",
+) {
+    fun row(now: Long) = ModelRow(
+        id = id, kind = kind, source = source, title = title, subtitle = subtitle, format = format, engine = engine,
+        baseModel = baseModel, license = license, nsfw = nsfw, totalBytes = totalBytes, downloadedBytes = totalBytes,
+        status = ModelStatus.READY.name, error = null, manifestJson = manifestJson, addedAt = now, updatedAt = now, backend = backend,
+    )
+
+    companion object {
+        fun of(r: ModelRow) = KeptModel(
+            r.id, r.kind, r.source, r.title, r.subtitle, r.format, r.engine, r.baseModel, r.license, r.nsfw, r.totalBytes, r.manifestJson, r.backend,
+        )
+    }
+}

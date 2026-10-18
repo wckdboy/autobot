@@ -105,6 +105,8 @@ import dev.wckdboy.autobot.core.diffusion.engine.LocalSseEngine
 import dev.wckdboy.autobot.core.diffusion.engine.OnDeviceEngine
 import dev.wckdboy.autobot.feature.imagine.mask.MaskEditorDialog
 import dev.wckdboy.autobot.feature.imagine.mask.MaskOverlay
+import dev.wckdboy.autobot.shared.panic.IncognitoImages
+import dev.wckdboy.autobot.shared.panic.PanicCopy
 import dev.wckdboy.autobot.shared.studio.PromptLibrary
 import dev.wckdboy.autobot.shared.studio.PromptSnippet
 import java.util.Locale
@@ -260,6 +262,16 @@ fun ImagineScreen(
                     MicroLabel("seed ${result.seed} · ${result.width}×${result.height} · ${String.format(Locale.ROOT, "%.1f", result.durationMs / 1000f)} s", Modifier.weight(1f))
                     Tag("↺ seed", accent = MaterialTheme.colorScheme.primary, onClick = { actions.setSeed(result.seed) })
                     Tag("→ img2img", onClick = { actions.useAsInit(result.galleryId) })
+                }
+                if (IncognitoImages.isUnsaved(result.galleryId)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (state.saved.containsKey(result.galleryId)) {
+                            MicroLabel(PanicCopy.SAVED, Modifier.weight(1f))
+                        } else {
+                            MicroLabel(PanicCopy.NOT_SAVED, Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                            Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.primary, onClick = { actions.saveResult(result.galleryId) })
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -432,7 +444,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
                     running != null && running.byAgent -> "Agent is generating · ${(now - running.startedAt) / 1000} s"
                     running != null -> "Running ${if (state.backend?.kind == BackendKind.ON_DEVICE) "on device" else "on ${state.backend?.name}"} · ${(now - running.startedAt) / 1000} s"
                     state.results.isNotEmpty() -> "Done · ${state.results.size} image${if (state.results.size == 1) "" else "s"}"
-                    else -> "${state.request.mode.label} · ${state.request.sampler.ifBlank { "default sampler" }} · cfg ${state.request.cfgScale}"
+                    else -> "${if (state.incognito) "${PanicCopy.INCOGNITO_IMAGES_TITLE} · " else ""}${state.request.mode.label} · ${state.request.sampler.ifBlank { "default sampler" }} · cfg ${state.request.cfgScale}"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
@@ -518,6 +530,13 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
             Row(Modifier.inkStagger(0), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("tune", Modifier.weight(1f))
                 Tag("backends", onClick = { onDismiss(); onOpenBackends() })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(PanicCopy.INCOGNITO_IMAGES_TITLE, style = MaterialTheme.typography.titleSmall)
+                    Text(PanicCopy.INCOGNITO_IMAGES_INFO, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = state.incognito, onCheckedChange = actions::setIncognito)
             }
             val modes = caps?.modes?.let { m -> DiffusionMode.entries.filter { it in m } } ?: DiffusionMode.entries
             Segmented(modes, request.mode, actions::setMode, { it.label }, Modifier.fillMaxWidth().inkStagger(1))

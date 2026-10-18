@@ -7,12 +7,14 @@ import dev.wckdboy.autobot.core.data.di.IoDispatcher
 import dev.wckdboy.autobot.core.data.model.GalleryItem
 import dev.wckdboy.autobot.core.security.KeyManager
 import dev.wckdboy.autobot.core.security.crypto.AesGcmEnvelope
+import dev.wckdboy.autobot.shared.panic.IncognitoImages
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -30,6 +32,7 @@ class GalleryRepository @Inject constructor(
     private val database: DatabaseHolder,
     private val keyManager: KeyManager,
     @IoDispatcher private val io: CoroutineDispatcher,
+    private val unsaved: UnsavedImages,
 ) {
     private val dir: File get() = File(context.filesDir, DIR).apply { mkdirs() }
 
@@ -38,7 +41,8 @@ class GalleryRepository @Inject constructor(
     /** The [limit] newest images (LIMIT in SQL). */
     fun observeRecent(limit: Int): Flow<List<GalleryItem>> = flow { emitAll(database.get().galleryDao().observeRecent(limit)) }.flowOn(io)
 
-    suspend fun get(id: String): GalleryItem? = withContext(io) { database.get().galleryDao().get(id) }
+    suspend fun get(id: String): GalleryItem? =
+        if (IncognitoImages.isUnsaved(id)) unsaved.get(id)?.item else withContext(io) { database.get().galleryDao().get(id) }
 
     fun newId(): String = UUID.randomUUID().toString()
 
@@ -49,9 +53,28 @@ class GalleryRepository @Inject constructor(
         database.get().galleryDao().upsert(item)
     }
 
-    suspend fun image(id: String): ByteArray? = withContext(io) { read(file(id, IMAGE), id + IMAGE) }
+    suspend fun image(id: String): ByteArray? =
+        if (IncognitoImages.isUnsaved(id)) unsaved.get(id)?.image else withContext(io) { read(file(id, IMAGE), id + IMAGE) }
 
-    suspend fun thumbnail(id: String): ByteArray? = withContext(io) { read(file(id, THUMB), id + THUMB) }
+    suspend fun thumbnail(id: String): ByteArray? =
+        if (IncognitoImages.isUnsaved(id)) unsaved.get(id)?.thumbnail else withContext(io) { read(file(id, THUMB), id + THUMB) }
+
+    /**
+     * Saves an unsaved incognito image ([UnsavedImages]) into the gallery: the user tapped Save.
+     * Returns its gallery id (the same one when tapped again), or null when the image is gone.
+     */
+    /** Unsaved incognito images the user saved, by unsaved id → gallery id. */
+    val keptIncognito: StateFlow<Map<String, String>> get() = unsaved.saved
+
+    suspend fun keep(id: String): String? {
+        if (!IncognitoImages.isUnsaved(id)) return id
+        unsaved.saved.value[id]?.let { return it }
+        val entry = unsaved.get(id) ?: return null
+        val galleryId = newId()
+        save(entry.item.copy(id = galleryId, createdAt = System.currentTimeMillis()), entry.image.copyOf(), entry.thumbnail.copyOf())
+        unsaved.markSaved(id, galleryId)
+        return galleryId
+    }
 
     suspend fun setFavorite(id: String, favorite: Boolean) = withContext(io) { database.get().galleryDao().setFavorite(id, favorite) }
 

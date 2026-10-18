@@ -134,6 +134,8 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.chat.NameDialog
 import dev.wckdboy.autobot.providers.remote.ModelLists
+import dev.wckdboy.autobot.shared.panic.IncognitoImages
+import dev.wckdboy.autobot.shared.panic.PanicCopy
 import dev.wckdboy.autobot.shared.session.NoticeKind
 import dev.wckdboy.autobot.shared.session.Receipt
 import dev.wckdboy.autobot.shared.session.SessionItem
@@ -632,11 +634,27 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
             }
         }
         if (item.galleryIds.isNotEmpty()) {
+            val saved by actions.savedImages.collectAsStateWithLifecycle()
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 item.galleryIds.forEach { id ->
                     val bitmap by produceState<ImageBitmap?>(null, id) { value = actions.thumbnail(id) }
-                    Box(Modifier.size(120.dp).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(onClick = onOpenGallery)) {
-                        bitmap?.let { PrintReveal(it, Modifier.fillMaxSize(), animate = watched[0], contentDescription = "Generated image") }
+                    // An incognito image is in memory only until saved; only a saved one is in the gallery.
+                    val unsaved = IncognitoImages.isUnsaved(id)
+                    val inGallery = !unsaved || saved.containsKey(id)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Box(Modifier.size(120.dp).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(enabled = inGallery, onClick = onOpenGallery)) {
+                            bitmap?.let { PrintReveal(it, Modifier.fillMaxSize(), animate = watched[0], contentDescription = "Generated image") }
+                        }
+                        if (unsaved && bitmap != null) {
+                            if (saved.containsKey(id)) {
+                                MicroLabel(PanicCopy.SAVED)
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    MicroLabel(PanicCopy.NOT_SAVED)
+                                    Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.primary, onClick = { actions.saveImage(id) })
+                                }
+                            }
+                        }
                     }
                 }
             }

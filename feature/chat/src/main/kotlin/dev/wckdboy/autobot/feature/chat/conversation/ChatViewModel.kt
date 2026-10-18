@@ -1072,6 +1072,13 @@ class ChatViewModel @AssistedInject constructor(
 
     override fun dismissNotice() = notice.update { null }
 
+    override val savedImages: StateFlow<Map<String, String>> get() = gallery.keptIncognito
+
+    /** Saves an unsaved incognito image into the gallery (the user tapped Save). */
+    override fun saveImage(id: String) {
+        viewModelScope.launch { runCatching { gallery.keep(id) } }
+    }
+
     /** Decrypted gallery thumbnail for tool cards (cached for the screen's lifetime). */
     override suspend fun thumbnail(galleryId: String): ImageBitmap? {
         thumbs[galleryId]?.let { return it }

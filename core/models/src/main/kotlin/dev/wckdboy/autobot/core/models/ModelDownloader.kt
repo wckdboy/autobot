@@ -222,6 +222,8 @@ class ModelDownloader @Inject constructor(
             recovered = true
             runCatching {
                 DownloadQueue.recover(library.all()).forEach { library.progress(it.id, library.bytesOnDisk(it.id), ModelStatus.QUEUED) }
+                // Models a panic wipe kept are registered again before their folders look orphaned.
+                library.adoptKept()
                 // Files of models removed just before the process died.
                 library.sweepOrphans().forEach { Log.i(TAG, "deleted the files of a removed model: $it") }
                 // Ready models whose files were deleted outside the app are offered for download again.

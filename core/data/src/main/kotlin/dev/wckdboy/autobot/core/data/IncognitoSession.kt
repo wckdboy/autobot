@@ -17,7 +17,9 @@ import kotlinx.coroutines.flow.update
  * or backups; everything disappears with the process or on [clear].
  */
 @Singleton
-class IncognitoSession @Inject constructor() {
+class IncognitoSession @Inject constructor(private val unsavedImages: UnsavedImages) {
+
+    constructor() : this(UnsavedImages())
 
     private data class Thread(val conversation: Conversation, val messages: List<Message>)
 
@@ -55,9 +57,17 @@ class IncognitoSession @Inject constructor() {
         map + (message.conversationId to thread.copy(messages = (others + message).sortedBy { it.createdAt }))
     }
 
-    fun delete(conversationId: String) = mutate { it - conversationId }
+    /** Deletes the chat with the unsaved images it generated. */
+    fun delete(conversationId: String) {
+        mutate { it - conversationId }
+        unsavedImages.drop(conversationId)
+    }
 
-    fun clear() = mutate { emptyMap() }
+    /** Deletes every incognito chat and every unsaved incognito image. */
+    fun clear() {
+        mutate { emptyMap() }
+        unsavedImages.clear()
+    }
 
     private fun mutate(block: (Map<String, Thread>) -> Map<String, Thread>) {
         threads.update(block)
