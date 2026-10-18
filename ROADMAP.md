@@ -158,6 +158,10 @@ models, shared core). Ordered by value.
 6. **Pair your own devices.** End-to-end encrypted (Noise) pairing between the user's phones and
    computers over LAN or Tailscale: an iPhone can borrow the OnePlus NPU or a desktop GPU as "my
    own cloud"; sessions and the vault sync without a server.
+   *(in progress: the computer side is [Invincible](https://github.com/wckdboy/invincible); the
+   protocol layer (Noise pairing and sessions, signed receipts, shared conformance vectors) is in
+   `:shared`, checked against the node byte for byte and live. Not yet: the provider and QR scanner
+   in both apps, routing node connections through the kill switch and Tor/SOCKS5.)*
 7. ✅ **On-device agents on a schedule.** Recipes ("every morning: summarise these feeds over Tor") run
    with BGTaskScheduler / WorkManager on local models, with results as notifications and receipts.
    *(done, both apps: Settings › Recipes with three disabled templates (morning brief from feeds,

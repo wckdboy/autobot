@@ -177,6 +177,35 @@ longer. OpenCode Go starts with `glm-5.3-flash`. A used-up plan limit (HTTP 429 
 limit, fall back** (Settings → Agent, off by default), the turn runs once more on the helper
 model, else the on-device model, and the answer says so.
 
+## Your own node (Invincible) — in progress
+
+[Invincible](https://github.com/wckdboy/invincible) is a self-hosted node: a desktop or GPU box
+that serves open models and, when its rules allow, frontier models behind redaction. It is the
+"my own cloud" of ROADMAP Phase 2.5 #6, the tier between this phone and the cloud.
+
+The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
+
+- **Pairing and sessions.** `PairingCode` parses the node's QR code; `InvincibleNode.pair` /
+  `session` run Noise `IKpsk1` / `IK` (`25519_ChaChaPoly_SHA256`) over a `NodeLink`. The
+  `NodeChannel` that comes out carries HTTP/1.1 to the node's OpenAI-compatible API. No accounts,
+  no relay: the node's key comes from the QR code, and the phone's key is pinned on the node.
+- **Platform crypto only.** `NodeCrypto` is javax.crypto on Android (`JvmNodeCrypto`) and CryptoKit
+  on iOS (`SwiftNodeCrypto`): X25519, ChaCha20-Poly1305, SHA-256, HMAC, Ed25519. The Noise state
+  machine is common code; no primitive is.
+- **Signed receipts.** `NodeReceipts.verify` checks the node's per-request receipts (what ran where,
+  what left the node) against the receipt key pinned at pairing.
+- **Same rules as the node.** `scripts/sync-invincible-spec.sh` copies Invincible's conformance
+  vectors into `shared/src/jvmTest/resources/invincible`. `InvincibleSpecTest` checks Noise
+  byte for byte against the node's snow transcripts, receipts against OpenSSL-made signatures,
+  pairing codes, and runs `RedactionVault` on the node's redaction vectors: the phone and the node
+  hide the same things. `InvincibleLiveTest` pairs with a real `invincible serve` when
+  `INVINCIBLE_BIN` is set. On iOS, `InvincibleNodeTests` runs the same Noise and receipt vectors
+  on CryptoKit (passing on the iOS 26.1 simulator).
+
+Not yet: the "My node" provider and QR scanner in both apps, node connections routed through the
+kill switch and Tor/SOCKS5 routes, node receipts in the turn receipt. **Needs verification on a
+device:** Android's provider accepting the RFC 8410 X25519/Ed25519 key encodings `JvmNodeCrypto` uses.
+
 ## On-device models
 
 **Engines.** Two native engines are built from pinned git submodules in `third_party/`:
