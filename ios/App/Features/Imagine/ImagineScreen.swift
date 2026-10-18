@@ -115,6 +115,16 @@ struct ImagineScreen: View {
                             Tag("↺ seed", accent: c.primary) { m.setSeed(result.seed) }
                             Tag("→ img2img") { Task { await m.useAsInit(result.galleryId) } }
                         }
+                        if UnsavedImages.isUnsaved(result.galleryId) {
+                            HStack(spacing: 6) {
+                                if app.gallery.keptIncognito[result.galleryId] != nil {
+                                    MicroLabel(PanicCopy.shared.SAVED).frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    MicroLabel(PanicCopy.shared.NOT_SAVED, color: c.primary).frame(maxWidth: .infinity, alignment: .leading)
+                                    Tag(PanicCopy.shared.SAVE, accent: c.primary) { m.saveResult(result.galleryId) }
+                                }
+                            }
+                        }
                     }
                     Spacer().frame(height: 8)
                 }
@@ -456,6 +466,11 @@ private struct TuneSheet: View {
                     SectionLabel("tune")
                     Tag("backends", action: onOpenBackends)
                 }
+                SwitchRow(
+                    title: PanicCopy.shared.INCOGNITO_IMAGES_TITLE,
+                    subtitle: PanicCopy.shared.INCOGNITO_IMAGES_INFO,
+                    isOn: Binding(get: { model.incognito }, set: { model.incognito = $0 }),
+                )
                 let modes = DiffusionMode.allCases.filter { caps?.modes.contains($0) ?? true }
                 Segmented(options: modes, selected: request.mode, label: { $0.label }, onSelect: model.setMode)
 

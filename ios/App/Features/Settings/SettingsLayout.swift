@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 
 /**
@@ -22,7 +23,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var rows: [SettingsRow] {
         switch self {
-        case .privacy: [.privacyCenter, .appLock, .incognito, .redactCloud, .panicWipe]
+        case .privacy: [.privacyCenter, .appLock, .appPin, .incognito, .redactCloud, .panicWipe]
         case .agent: [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .usage, .mcpServers]
         case .appearance: [.theme, .amoled]
         case .data: [.exportImport, .deleteAll]
@@ -32,7 +33,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 }
 
 enum SettingsRow: String, CaseIterable, Identifiable {
-    case privacyCenter, appLock, incognito, redactCloud, panicWipe
+    case privacyCenter, appLock, appPin, incognito, redactCloud, panicWipe
     case memory, memoryNotes, vault, webSearch, quotaFallback, usage, mcpServers
     case theme, amoled
     case exportImport, deleteAll
@@ -45,6 +46,7 @@ enum SettingsRow: String, CaseIterable, Identifiable {
         switch self {
         case .privacyCenter: "Privacy Center"
         case .appLock: "App lock"
+        case .appPin: PanicCopy.shared.PIN_TITLE
         case .incognito: "Incognito by default"
         case .redactCloud: "Redact before cloud"
         case .panicWipe: "Panic wipe"

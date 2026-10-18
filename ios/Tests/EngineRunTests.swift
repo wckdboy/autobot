@@ -274,6 +274,51 @@ struct EngineRunTests {
         #expect(out.content.hasPrefix("Generated 2 image(s)"))
     }
 
+    /// In an incognito chat `generate_image` keeps its images in memory: nothing in the gallery or on
+    /// disk until the user saves one, and the chat's images go with the chat.
+    @Test func anIncognitoChatsImagesStayUnsavedUntilKept() async throws {
+        let base = "/\(run)/sdapi/v1/"
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).pngData { ctx in
+            UIColor.red.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        let answer = #"{"images":["\#(png.base64EncodedString())"],"info":"{\"seed\":7,\"width\":8,\"height\":8}"}"#
+        ServeStub.on(base + "txt2img") { _ in .body(status: 200, headers: ["Content-Type": "application/json"], data: Data(answer.utf8)) }
+        ServeStub.on(base + "progress") { _ in .body(status: 200, headers: [:], data: Data(#"{"state":{"sampling_step":0}}"#.utf8)) }
+        let clients = HttpClientFactory(policy: NetworkPolicy(), auditLog: AuditLog(), protocolClasses: [ServeStub.self])
+        let gallery = GalleryRepository(store: store, keys: KeyManager())
+        let backends = DiffusionBackendRepository(preferences: Preferences(url: dir.appendingPathComponent("p.json")))
+        backends.save(DiffusionBackend(id: "pc", kind: .sdApi, name: "PC", baseUrl: "http://127.0.0.1/\(run)"))
+        let generator = ImageGenerator(engines: DiffusionEngineFactory(clients: clients, llm: LocalLlm()), gallery: gallery, backends: backends, library: library)
+        let session = ConversationRepository.incognitoPrefix + "chat"
+
+        let out = await GenerateImageTool.run(["prompt": "a tram"], generator: generator, backends: backends, sessionId: session)
+        #expect(!out.isError)
+        #expect(out.content.contains("image:\(IncognitoImages.shared.ID_PREFIX)"))
+        #expect(out.content.hasSuffix(IncognitoImages.shared.toolNote(count: 1)))
+        #expect(gallery.items.isEmpty)
+        let id = try #require(gallery.unsaved.ids.first)
+        #expect(UnsavedImages.isUnsaved(id))
+        #expect(gallery.get(id)?.prompt == "a tram")
+        #expect(await gallery.image(id) != nil)
+        #expect(await gallery.thumbnail(id) != nil)
+
+        let kept = try #require(try await gallery.keep(id))
+        #expect(!UnsavedImages.isUnsaved(kept))
+        #expect(gallery.items.map(\.id) == [kept])
+        #expect(gallery.keptIncognito[id] == kept)
+        // Saving twice keeps one copy.
+        #expect(try await gallery.keep(id) == kept)
+        #expect(gallery.items.count == 1)
+
+        // A plain chat still saves to the gallery.
+        _ = await GenerateImageTool.run(["prompt": "a bus"], generator: generator, backends: backends, sessionId: "plain")
+        #expect(gallery.items.count == 2)
+        #expect(gallery.unsaved.ids.count == 1)
+        gallery.unsaved.drop(owner: session)
+        #expect(gallery.unsaved.ids.isEmpty)
+    }
+
     // MARK: Engine memory
 
     private final class Unloads: Sendable {

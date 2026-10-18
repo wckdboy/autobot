@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Observation
 import UIKit
@@ -16,7 +17,9 @@ final class AppContainer {
     let policy = NetworkPolicy()
     let auditLog = AuditLog()
     let preferences: Preferences
-    let lock = AppLockManager()
+    /// The app PIN, the duress PIN and the attempt counter (read before anything else opens).
+    let pinLock: PinLock
+    let lock: AppLockManager
     let settings: SettingsStore
     let clients: HttpClientFactory
 
@@ -68,6 +71,11 @@ final class AppContainer {
 
     init() {
         LaunchTrace.mark("container.start")
+        pinLock = PinLock()
+        // First of all: a wipe that a kill interrupted (keys already gone) is finished before the
+        // store, the preferences or anything else opens.
+        WipeSteps.live(lock: pinLock).resumeIfNeeded()
+        lock = AppLockManager(pin: pinLock)
         AppPaths.prepare()
         preferences = Preferences(background: true)
         settings = SettingsStore(preferences: preferences, policy: policy, lock: lock)
@@ -78,6 +86,7 @@ final class AppContainer {
         providers = ProviderRepository(store: store, secrets: secrets)
         mcpServers = McpServerRepository(store: store, secrets: secrets)
         gallery = GalleryRepository(store: store, keys: keys)
+        conversations.unsavedImages = gallery.unsaved
         attachments = AttachmentRepository(keys: keys)
         library = ModelLibrary(store: store)
         compute = ComputeProfile(store: store, library: library)
@@ -120,18 +129,29 @@ final class AppContainer {
         let agent = agent, conversations = conversations, downloader = downloader, generator = generator, clients = clients, store = store, llm = llm
         let preferences = preferences
         let studio = studio
-        panicWipe = PanicWipe(keys: keys, secrets: secrets, participants: [
+        let unsaved = gallery.unsaved
+        let library = library
+        panicWipe = PanicWipe(steps: WipeSteps.live(lock: pinLock), keptModels: { library.exportReady() }, participants: [
             { preferences.close() },
             { agent.shutdown() },
             { studio.close() },
             { downloader.cancelAll() },
             { generator.cancel() },
             { conversations.clearIncognito() },
+            { unsaved.clear() },
             { AppContainer.clearDecryptedCaches() },
             { await llm.unload() },
             { clients.evictAll(cancelInFlight: true) },
             { store.close() },
         ])
+
+        // After the duress PIN: an empty app that opens like a used one, past the welcome.
+        if pinLock.record.quietStart {
+            pinLock.clearQuietStart()
+            settings.setOnboarded()
+            lock.beginQuietStart()
+        }
+        lock.onPanic = { [weak self] landing, carried in await self?.panic(landing, carriedPin: carried) }
 
         providers.onChange = { [weak self] list in self?.providersChanged(list) }
         mcpServers.onChange = { [weak self] list in self?.mcpServersChanged(list) }
@@ -185,6 +205,17 @@ final class AppContainer {
             preferences.reloadIfNeeded()
         })
         LaunchTrace.mark("container.done")
+    }
+
+    /**
+     A wipe from the lock screen: the failed-unlock limit lands on the welcome screen, the duress
+     PIN on a quiet, empty app with [carriedPin] as its only PIN. The renamed data folder is
+     deleted in the background; then the scene starts over on a new container.
+     */
+    private func panic(_ landing: WipeLanding, carriedPin: PinVerifier?) async {
+        let record = pinLock.record
+        _ = await panicWipe.wipe(landing: landing, keepModels: !record.wipeModels, carriedPin: carriedPin, biometrics: record.biometrics, asyncDelete: true)
+        ContainerHolder.shared.restart()
     }
 
     /// Drops decrypted content cached for rendering (gallery thumbnails, parsed chat text): panic wipe.

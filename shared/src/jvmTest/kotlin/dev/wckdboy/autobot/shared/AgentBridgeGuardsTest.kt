@@ -129,7 +129,7 @@ class AgentBridgeGuardsTest {
                 override val kind = "GENERATE"
                 override val timeoutMs = 0L
                 override fun describe(argsJson: String) = ""
-                override fun execute(callId: String, argsJson: String, sink: HostToolSink) = Cancellable { }
+                override fun execute(callId: String, sessionId: String, argsJson: String, sink: HostToolSink) = Cancellable { }
             },
         )
         assertTrue(bridge.harness.tools.get("broken") != null)

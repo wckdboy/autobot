@@ -7,7 +7,8 @@ import Foundation
  description, schema, kind, summary, output text and `meta.gallery`). Renders on the user's
  default image backend (Core ML on this phone, or a PC backend). Unspecified parameters come from
  the last Imagine settings, so the user's sampler and model carry over. Results go to the
- encrypted gallery; the model gets their ids and seeds.
+ encrypted gallery; the model gets their ids and seeds. In an incognito chat they stay in memory
+ only, unsaved (`IncognitoImages`), until the user saves them.
  */
 final class GenerateImageTool: NSObject, HostTool, @unchecked Sendable {
     let name = "generate_image"
@@ -15,7 +16,7 @@ final class GenerateImageTool: NSObject, HostTool, @unchecked Sendable {
     let description_ =
         "Generate images with Stable Diffusion on the user's configured image backend. Write prompts as comma-separated " +
         "visual tags or a short scene description (subject, style, lighting, composition). Omitted parameters reuse " +
-        "the user's current Imagine settings. Images are saved to the user's private gallery."
+        "the user's current Imagine settings. Images are saved to the user's private gallery (in an incognito chat they are only shown, unsaved)."
     /// The JSON the Kotlin `schema { … }` DSL builds for Android's tool.
     let parametersJson = """
     {"type":"object","properties":{\
@@ -41,11 +42,11 @@ final class GenerateImageTool: NSObject, HostTool, @unchecked Sendable {
 
     func describe(argsJson: String) -> String { Self.args(argsJson)["prompt"] as? String ?? "" }
 
-    func execute(callId: String, argsJson: String, sink: HostToolSink) -> any AutobotShared.Cancellable {
+    func execute(callId: String, sessionId: String, argsJson: String, sink: HostToolSink) -> any AutobotShared.Cancellable {
         nonisolated(unsafe) let sink = sink
         let args = Self.args(argsJson)
         let task = Task { @MainActor [generator, backends] in
-            let result = await Self.run(args, generator: generator, backends: backends)
+            let result = await Self.run(args, generator: generator, backends: backends, sessionId: sessionId)
             sink.onResult(content: result.content, isError: result.isError, code: result.code, metaJson: result.meta)
         }
         return TaskHandle(task)
@@ -61,18 +62,20 @@ final class GenerateImageTool: NSObject, HostTool, @unchecked Sendable {
     }
 
     @MainActor
-    static func run(_ args: [String: Any], generator: ImageGenerator, backends: DiffusionBackendRepository) async -> Output {
+    static func run(_ args: [String: Any], generator: ImageGenerator, backends: DiffusionBackendRepository, sessionId: String = "") async -> Output {
         guard let backend = backends.defaultBackend else {
             return .error("no image backend is configured (Imagine → Backends)", "NO_BACKEND")
         }
         if generator.isBusy { return .error("the image backend is busy with another job; try again shortly", "BUSY") }
         let request = request(args, base: backends.lastRequest)
         do {
-            let images = try await generator.generate(backend, request.calls(), DiffusionInputs(), source: .agent, onResult: { _ in })
-            let list = images.map { "gallery:\($0.galleryId) (seed \($0.seed), \($0.width)×\($0.height), \(Double($0.durationMs) / 1000)s)" }
+            let incognito = IncognitoImages.shared.isIncognitoSession(sessionId: sessionId)
+            let images = try await generator.generate(backend, request.calls(), DiffusionInputs(), source: .agent, incognitoOwner: incognito ? sessionId : nil, onResult: { _ in })
+            let list = images.map { "\(incognito ? "image" : "gallery"):\($0.galleryId) (seed \($0.seed), \($0.width)×\($0.height), \(Double($0.durationMs) / 1000)s)" }
             let meta = try? JSONSerialization.data(withJSONObject: ["gallery": images.map(\.galleryId)])
+            let note = incognito ? IncognitoImages.shared.toolNote(count: Int32(images.count)) : "They are shown to the user in the chat and saved to the gallery."
             return Output(
-                content: "Generated \(images.count) image(s) on \(backend.name): \(list.joined(separator: ", ")). They are shown to the user in the chat and saved to the gallery.",
+                content: "Generated \(images.count) image(s) on \(backend.name): \(list.joined(separator: ", ")). \(note)",
                 meta: meta.map { String(decoding: $0, as: UTF8.self) },
             )
         } catch is CancellationError {
