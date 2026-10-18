@@ -180,30 +180,55 @@ struct ChatListScreen: View {
             .padding(.trailing, Tokens.Spacing.gutter)
             .padding(.top, 10)
             .padding(.bottom, 6)
-            HStack(spacing: 10) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(incognito ? c.inks.uv : c.outline)
-                MicroLabel("incognito", color: incognito ? c.inks.uv : c.onSurfaceVariant)
-                InfoButton(title: "Incognito", text: "New sessions are kept in memory only, never written to disk.")
-                Spacer(minLength: 0)
-                RisoToggle(isOn: Binding(get: { incognito }, set: { incognitoOverride = $0 }))
-                    .accessibilityLabel("Incognito")
-                Button(action: newChat) {
-                    HStack(spacing: 8) {
-                        AutobotIconView(icon: .terminal, size: 16, color: incognito ? AutobotColors.paperInk : c.onPrimary)
-                        Text("NEW").textStyle(.labelLarge)
-                    }
-                    .foregroundStyle(incognito ? AutobotColors.paperInk : c.onPrimary)
-                    .padding(.horizontal, 14)
-                    .frame(height: 44)
-                    .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(incognito ? AutobotColors.uv : c.primary))
+            // The incognito switch and New share a line; at accessibility sizes the switch and
+            // the button drop under the label rather than breaking "incognito" mid-word.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    incognitoLabel
+                    Spacer(minLength: 0)
+                    incognitoControls
                 }
-                .buttonStyle(PressStyle())
+                VStack(alignment: .leading, spacing: 6) {
+                    incognitoLabel
+                    HStack(spacing: 10) {
+                        Spacer(minLength: 0)
+                        incognitoControls
+                    }
+                }
             }
             .padding(.leading, 16)
             .padding(.trailing, Tokens.Spacing.gutter)
             .padding(.bottom, 8)
+        }
+    }
+
+    private var incognitoLabel: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.fill")
+                .symbolSize(12)
+                .foregroundStyle(incognito ? c.inks.uv : c.outline)
+            MicroLabel("incognito", color: incognito ? c.inks.uv : c.onSurfaceVariant).fixedSize()
+            InfoButton(title: "Incognito", text: "New sessions are kept in memory only, never written to disk.")
+        }
+    }
+
+    private var incognitoControls: some View {
+        HStack(spacing: 10) {
+            RisoToggle(isOn: Binding(get: { incognito }, set: { incognitoOverride = $0 }))
+                .accessibilityLabel("Incognito")
+            Button(action: newChat) {
+                HStack(spacing: 8) {
+                    AutobotIconView(icon: .terminal, size: 16, color: incognito ? AutobotColors.paperInk : c.onPrimary)
+                    Text("NEW").textStyle(.labelLarge).fixedSize()
+                }
+                .foregroundStyle(incognito ? AutobotColors.paperInk : c.onPrimary)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(incognito ? AutobotColors.uv : c.primary))
+            }
+            .buttonStyle(PressStyle())
+            .accessibilityLabel(incognito ? "New incognito session" : "New session")
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -585,7 +610,7 @@ private struct ConversationRow: View, Equatable {
                 ZStack {
                     if selecting {
                         Image(systemName: selected ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 16))
+                            .symbolSize(16)
                             .foregroundStyle(selected ? c.primary : c.outline)
                     } else if app.agent.running.contains(item.id) {
                         StatusDot(color: c.primary, live: true)
@@ -599,9 +624,9 @@ private struct ConversationRow: View, Equatable {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         if item.pinned {
-                            Image(systemName: "pin.fill").font(.system(size: 10)).foregroundStyle(c.primary).accessibilityLabel("Pinned")
+                            Image(systemName: "pin.fill").symbolSize(10).foregroundStyle(c.primary).accessibilityLabel("Pinned")
                         }
-                        title.textStyle(.bodyLarge).foregroundStyle(c.onSurface).lineLimit(1)
+                        title.textStyle(.bodyLarge).foregroundStyle(c.onSurface).textLines(1)
                     }
                     if let snippet = item.hit?.snippet {
                         Text(highlighted(snippet, item.hit?.snippetSpans ?? []))
@@ -612,7 +637,7 @@ private struct ConversationRow: View, Equatable {
                     Text([item.subtitle, relativeTime(item.updatedAt, now: minute)].filter { !$0.isEmpty }.joined(separator: " · "))
                         .textStyle(.codeBlock)
                         .foregroundStyle(c.onSurfaceVariant)
-                        .lineLimit(1)
+                        .textLines(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

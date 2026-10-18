@@ -105,8 +105,11 @@ struct AutobotIconView: View {
     var size: CGFloat = 24
     var color: Color? = nil
     @Environment(\.scheme) private var scheme
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
+        // Grows with the reader's text size, as the label beside it does.
+        let size = size * AutobotFonts.iconScale(dynamicType)
         IconShape(icon: icon)
             .stroke(color ?? scheme.onSurface, style: StrokeStyle(lineWidth: Tokens.Stroke.icon * size / 24, lineCap: .square, lineJoin: .miter))
             .frame(width: size, height: size)

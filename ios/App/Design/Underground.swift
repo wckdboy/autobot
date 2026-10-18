@@ -18,7 +18,7 @@ struct MicroLabel: View {
         Text(text.uppercased())
             .textStyle(.micro)
             .foregroundStyle(color ?? c.onSurfaceVariant)
-            .lineLimit(lines)
+            .textLines(lines)
             .truncationMode(.tail)
     }
 }
@@ -141,7 +141,7 @@ struct Tag: View {
         let label = InkBusyLabel(busy: busy, size: .inline, color: textColor) {
             Text(text.uppercased())
                 .textStyle(.micro)
-                .lineLimit(1)
+                .textLines(1)
                 .foregroundStyle(textColor)
         }
         .padding(.horizontal, Tokens.Spacing.tagPaddingHorizontal)
@@ -288,6 +288,20 @@ struct ValueSlider: View {
     }
 }
 
+/// Its items side by side when they fit on one line at the reader's text size, else stacked
+/// (a run of labels at an accessibility size wraps whole, not word by word).
+struct AdaptiveRow<Content: View>: View {
+    var spacing: CGFloat = 8
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: spacing) { content() }
+            VStack(alignment: .leading, spacing: 2) { content() }
+        }
+    }
+}
+
 /// Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The selection block slides
 /// with ease-out and leaves a one-frame registration ghost.
 struct Segmented<T: Hashable>: View {
@@ -297,21 +311,25 @@ struct Segmented<T: Hashable>: View {
     let onSelect: (T) -> Void
     @Environment(\.scheme) private var c
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicType
     @Namespace private var marker
     @State private var ghost = InkSelectionGhost()
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(Array(options.enumerated()), id: \.offset) { index, option in
-                if index > 0 { Rectangle().fill(c.outlineVariant).frame(width: Tokens.Stroke.hairline, height: Tokens.Spacing.segmentedHeight) }
+                if index > 0 { Rectangle().fill(c.outlineVariant).frame(width: Tokens.Stroke.hairline).frame(maxHeight: .infinity) }
                 let isSelected = option == selected
                 Button { onSelect(option) } label: {
                     Text(label(option).uppercased())
                         .textStyle(.micro)
-                        .lineLimit(1)
+                        // At accessibility sizes a label wraps (the control grows) before it shrinks.
+                        .lineLimit(dynamicType.isAccessibilitySize ? 3 : 1)
+                        .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.7)
                         .foregroundStyle(isSelected ? c.onPrimary : c.onSurfaceVariant)
-                        .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.segmentedHeight, maxHeight: Tokens.Spacing.segmentedHeight)
+                        .padding(.vertical, dynamicType.isAccessibilitySize ? 6 : 0)
+                        .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.segmentedHeight)
                         .background {
                             if ghost.key == AnyHashable(option) {
                                 Rectangle().fill(c.primary.opacity(0.35)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
@@ -324,6 +342,7 @@ struct Segmented<T: Hashable>: View {
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
         .animation(reduceMotion ? .inkReduced : .inkSlide, value: selected)
         .onChange(of: selected) { old, _ in ghost.moved(from: AnyHashable(old), reduceMotion: reduceMotion) }
         .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.small))
@@ -365,7 +384,7 @@ struct TerminalBlock<Actions: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             let header = HStack(spacing: 8) {
                 StatusDot(color: status.color(c), live: status == .running || status == .pending)
-                Text("▸ \(title)").textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1)
+                Text("▸ \(title)").textStyle(.code).foregroundStyle(c.onSurface).textLines(1)
                 Text(subtitle ?? "")
                     .textStyle(.codeBlock)
                     .foregroundStyle(c.onSurfaceVariant)

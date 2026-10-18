@@ -11,7 +11,7 @@ struct LockScreen: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "lock.fill")
-                .font(.system(size: 40, weight: .regular))
+                .symbolSize(40, weight: .regular)
                 .foregroundStyle(c.primary)
             Text("Autobot is locked").textStyle(.headlineSmall).foregroundStyle(c.onSurface)
             Text("Your conversations are encrypted on this device")

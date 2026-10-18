@@ -26,11 +26,12 @@ private struct MarkdownBlockView: View {
     /// Inside a quote: secondary text color.
     let muted: Bool
     @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dt
 
     var body: some View {
         switch block {
         case .paragraph(let spans):
-            Text(MdText.attributed(spans, base: Tokens.Typography.bodyLarge, c: c))
+            Text(MdText.attributed(spans, base: Tokens.Typography.bodyLarge, c: c, dynamicType: dt))
                 .textStyle(.bodyLarge)
                 .foregroundStyle(muted ? c.onSurfaceVariant : c.onSurface)
                 .fixedSize(horizontal: false, vertical: true)
@@ -41,7 +42,7 @@ private struct MarkdownBlockView: View {
             case 3: (Tokens.Typography.titleSmall, .titleSmall, 600)
             default: (Tokens.Typography.titleSmall, .titleSmall, nil)
             }
-            Text(MdText.attributed(spans, base: style, weight: weight, c: c))
+            Text(MdText.attributed(spans, base: style, weight: weight, c: c, dynamicType: dt))
                 .textStyle(type, weight: weight)
                 .foregroundStyle(level >= 4 || muted ? c.onSurfaceVariant : c.onSurface)
                 .fixedSize(horizontal: false, vertical: true)
@@ -141,6 +142,7 @@ private struct TaskBox: View {
 private struct TableView: View {
     let table: MdTable
     @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dt
 
     private static let cell = Tokens.TypeStyle(font: .sans, size: 14, lineHeight: 20, weight: 400, letterSpacing: 0.2, trim: false, tabular: true)
     private static let head = Tokens.TypeStyle(font: .sans, size: 14, lineHeight: 20, weight: 600, letterSpacing: 0.2, trim: false, tabular: true)
@@ -174,8 +176,8 @@ private struct TableView: View {
         let alignment: Alignment = align == .center ? .center : align == .right ? .trailing : .leading
         // Short cells keep one line; long ones wrap at 220 pt.
         let long = MdPlain.spans(spans, speech: false).count > 28
-        return Text(MdText.attributed(spans, base: style, c: c))
-            .font(Font(AutobotFonts.uiFont(style)))
+        return Text(MdText.attributed(spans, base: style, c: c, dynamicType: dt))
+            .font(Font(AutobotFonts.uiFont(style, dynamicType: dt)))
             .foregroundStyle(c.onSurface)
             .multilineTextAlignment(align == .center ? .center : align == .right ? .trailing : .leading)
             .frame(width: long ? 220 : nil, alignment: alignment)
@@ -242,47 +244,47 @@ enum MdText {
         var link: URL?
     }
 
-    static func attributed(_ spans: [MdSpan], base: Tokens.TypeStyle, weight: CGFloat? = nil, c: AutobotScheme) -> AttributedString {
+    static func attributed(_ spans: [MdSpan], base: Tokens.TypeStyle, weight: CGFloat? = nil, c: AutobotScheme, dynamicType: DynamicTypeSize = .large) -> AttributedString {
         var out = AttributedString()
-        append(&out, spans, Flags(), base, weight, c)
+        append(&out, spans, Flags(), base, weight, c, dynamicType)
         return out
     }
 
-    private static func append(_ out: inout AttributedString, _ spans: [MdSpan], _ f: Flags, _ base: Tokens.TypeStyle, _ weight: CGFloat?, _ c: AutobotScheme) {
+    private static func append(_ out: inout AttributedString, _ spans: [MdSpan], _ f: Flags, _ base: Tokens.TypeStyle, _ weight: CGFloat?, _ c: AutobotScheme, _ dt: DynamicTypeSize) {
         for span in spans {
             switch span {
             case .text(let t):
-                out += run(t, f, base, weight, c)
+                out += run(t, f, base, weight, c, dt)
             case .inlineCode(let t), .math(let t):
-                var a = run(t, f, base, weight, c)
-                a.font = Font(AutobotFonts.uiFont(Tokens.Typography.code, size: base.size - 1))
+                var a = run(t, f, base, weight, c, dt)
+                a.font = Font(AutobotFonts.uiFont(Tokens.Typography.code, size: base.size - 1, dynamicType: dt))
                 a.foregroundColor = f.link == nil ? c.tertiary : c.primary
                 a.backgroundColor = c.surfaceContainerHighest
                 out += a
             case .strong(let children):
                 var g = f
                 g.bold = true
-                append(&out, children, g, base, weight, c)
+                append(&out, children, g, base, weight, c, dt)
             case .emphasis(let children):
                 var g = f
                 g.italic = true
-                append(&out, children, g, base, weight, c)
+                append(&out, children, g, base, weight, c, dt)
             case .strike(let children):
                 var g = f
                 g.strike = true
-                append(&out, children, g, base, weight, c)
+                append(&out, children, g, base, weight, c, dt)
             case .link(let url, let children):
                 var g = f
                 g.link = URL(string: url) ?? URL(string: url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
                 if children.isEmpty {
-                    out += run(url, g, base, weight, c)
+                    out += run(url, g, base, weight, c, dt)
                 } else {
-                    append(&out, children, g, base, weight, c)
+                    append(&out, children, g, base, weight, c, dt)
                 }
                 // Plain http is marked where it is read, not only in the prompt.
                 if MdLinks.isInsecure(url) {
                     var mark = AttributedString(" (http)")
-                    mark.font = Font(AutobotFonts.uiFont(Tokens.Typography.code, size: base.size - 1))
+                    mark.font = Font(AutobotFonts.uiFont(Tokens.Typography.code, size: base.size - 1, dynamicType: dt))
                     mark.foregroundColor = c.onSurfaceVariant
                     out += mark
                 }
@@ -294,7 +296,7 @@ enum MdText {
                 if !host.isEmpty { label += " · " + host }
                 label += "]"
                 var a = AttributedString(label)
-                a.font = Font(AutobotFonts.uiFont(Tokens.Typography.code, size: base.size - 1))
+                a.font = Font(AutobotFonts.uiFont(Tokens.Typography.code, size: base.size - 1, dynamicType: dt))
                 a.foregroundColor = c.onSurfaceVariant
                 a.backgroundColor = c.surfaceContainerHighest
                 out += a
@@ -302,10 +304,10 @@ enum MdText {
         }
     }
 
-    private static func run(_ text: String, _ f: Flags, _ base: Tokens.TypeStyle, _ weight: CGFloat?, _ c: AutobotScheme) -> AttributedString {
+    private static func run(_ text: String, _ f: Flags, _ base: Tokens.TypeStyle, _ weight: CGFloat?, _ c: AutobotScheme, _ dt: DynamicTypeSize) -> AttributedString {
         var a = AttributedString(text)
         if f.bold || f.italic {
-            a.font = Font(font(base, weight: f.bold ? max(600, weight ?? base.weight) : weight, italic: f.italic))
+            a.font = Font(font(base, weight: f.bold ? max(600, weight ?? base.weight) : weight, italic: f.italic, dt))
         }
         if f.strike { a.swiftUI.strikethroughStyle = .single }
         if let link = f.link {
@@ -318,8 +320,8 @@ enum MdText {
 
     private static let italics = OSAllocatedUnfairLock(initialState: [String: UIFont]())
 
-    private static func font(_ base: Tokens.TypeStyle, weight: CGFloat?, italic: Bool) -> UIFont {
-        let plain = AutobotFonts.uiFont(base, weight: weight)
+    private static func font(_ base: Tokens.TypeStyle, weight: CGFloat?, italic: Bool, _ dt: DynamicTypeSize) -> UIFont {
+        let plain = AutobotFonts.uiFont(base, weight: weight, dynamicType: dt)
         guard italic else { return plain }
         let key = "\(plain.fontName)/\(plain.pointSize)"
         if let hit = italics.withLock({ $0[key] }) { return hit }
@@ -361,6 +363,6 @@ struct CopyMessageButton: View {
                 copied = false
             }
         }
-        .frame(width: 32, height: 32)
+        .compactActionFrame()
     }
 }

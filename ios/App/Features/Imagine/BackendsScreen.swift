@@ -23,12 +23,14 @@ struct BackendsScreen: View {
                             HStack(spacing: 10) {
                                 Button { repo.setDefault(backend.id) } label: {
                                     Image(systemName: backend.id == repo.defaultBackend?.id ? "largecircle.fill.circle" : "circle")
-                                        .font(.system(size: 20))
+                                        .symbolSize(20)
                                         .foregroundStyle(backend.id == repo.defaultBackend?.id ? c.primary : c.onSurfaceVariant)
-                                        .frame(width: 32, height: 32)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(PressStyle())
                                 .accessibilityLabel("Default backend")
+                                .accessibilityAddTraits(backend.id == repo.defaultBackend?.id ? .isSelected : [])
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(backend.name).textStyle(.titleSmall).foregroundStyle(c.onSurface)
                                     Text(backend.baseUrl).textStyle(.codeBlock).foregroundStyle(c.onSurfaceVariant).lineLimit(1)

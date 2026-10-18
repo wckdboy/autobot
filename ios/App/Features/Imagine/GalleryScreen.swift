@@ -73,7 +73,9 @@ struct GalleryScreen: View {
             .stamp(message) { $0 != nil }
             if items.isEmpty {
                 MicroLabel(all.isEmpty ? "nothing generated yet" : "no matches")
-                    .fixedSize()
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Tokens.Spacing.gutter)
                     .inkClearance(c.background)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .inkGround(fade: .center)
@@ -81,7 +83,7 @@ struct GalleryScreen: View {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 4)], spacing: 4) {
                         ForEach(items) { item in
-                            Thumb(item: item).onTapGesture { open = item.id }.transition(.inkDissolve)
+                            Thumb(item: item).onTapGesture { open = item.id }.accessibilityAddTraits(.isButton).transition(.inkDissolve)
                         }
                     }
                     .padding(8)
@@ -115,14 +117,14 @@ private struct Thumb: View {
             Color.clear
             if let image { Image(uiImage: image).resizable().scaledToFill().transition(.opacity) }
             if item.favorite {
-                Image(systemName: "star.fill").font(.system(size: 12)).foregroundStyle(AutobotColors.amber).padding(4)
+                Image(systemName: "star.fill").symbolSize(12).foregroundStyle(AutobotColors.amber).padding(4)
             }
         }
         .aspectRatio(1, contentMode: .fit)
         .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerLow))
         .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
         .contentShape(Rectangle())
-        .accessibilityLabel(String(item.prompt.prefix(60)))
+        .accessibilityLabel((item.favorite ? "Favorite. " : "") + String(item.prompt.prefix(60)))
         .task(id: item.id) {
             if let cached = GalleryThumbs.get(item.id) {
                 image = cached
