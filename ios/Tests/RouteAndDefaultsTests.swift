@@ -124,12 +124,15 @@ struct ImageDefaultsTests {
         let imagine = ImagineModel(app: app)
         let backendId = imagine.backend?.id ?? DiffusionBackendRepository.onDeviceId
         imagine.setSize(512, 512)
+        // What the hand-set size became: a fixed-size Core ML model already selected (the first
+        // installed one, or the last run's) turns 512² into its own canvas.
+        let handSet = (imagine.request.width, imagine.request.height)
         imagine.selectChip(ModelChip(backendId: backendId, model: model.id, label: model.title, onDevice: true))
         #expect(imagine.request.model == model.id)
         #expect(imagine.request.steps == 25)
         #expect(imagine.request.cfgScale == 7)
         // The size was set by hand before: it stays.
-        #expect(imagine.request.width == 512)
+        #expect(imagine.request.width == handSet.0 && imagine.request.height == handSet.1)
 
         // A square start (the last session's shape would be kept at the model's budget).
         app.backends.saveLastRequest(DiffusionRequest())
