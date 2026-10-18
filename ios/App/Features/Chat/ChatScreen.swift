@@ -500,19 +500,37 @@ private struct AssistantMessage: View {
             if let reasoning, !reasoning.isEmpty { ThinkingDisclosure(reasoning: reasoning, tokens: thinking?.tokens, stop: thinking?.stop) }
             if !text.isEmpty {
                 ChatBubble(role: .assistant, text: text) {
-                    HStack(spacing: 8) {
-                        if interrupted { Tag("interrupted", accent: c.inks.amber) }
-                        if let outputTokens { TokenRateLabel(totalTokens: outputTokens) }
-                        Spacer(minLength: 0)
-                        // Copies the message as written (markdown), not the rendered text.
-                        CopyMessageButton(markdown: text)
-                        IconAction(.speaker, label: speaking ? "Stop reading" : "Read aloud", tint: speaking ? c.primary : c.onSurfaceVariant, size: 18, action: onSpeak)
-                            .frame(width: 32, height: 32)
+                    // Status and actions on one line, or the actions under the status at large sizes.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            footerStatus
+                            Spacer(minLength: 0)
+                            footerActions
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            footerStatus
+                            HStack(spacing: 8) {
+                                Spacer(minLength: 0)
+                                footerActions
+                            }
+                        }
                     }
                 }
             }
             ReceiptLine(receipt: receipt, onOpen: onReceipt)
         }
+    }
+
+    @ViewBuilder private var footerStatus: some View {
+        if interrupted { Tag("interrupted", accent: c.inks.amber) }
+        if let outputTokens { TokenRateLabel(totalTokens: outputTokens) }
+    }
+
+    @ViewBuilder private var footerActions: some View {
+        // Copies the message as written (markdown), not the rendered text.
+        CopyMessageButton(markdown: text)
+        IconAction(.speaker, label: speaking ? "Stop reading" : "Read aloud", tint: speaking ? c.primary : c.onSurfaceVariant, size: 18, action: onSpeak)
+            .compactActionFrame()
     }
 }
 
@@ -658,11 +676,12 @@ private struct StepRow: View {
                 HStack(alignment: .top, spacing: 6) {
                     VStack(alignment: .leading, spacing: 4) {
                         AgentProof(tool: tool, model: model).onTapGesture { if let id = tool.galleryIds.first { open(id) } }
+                            .accessibilityAddTraits(tool.galleryIds.isEmpty ? [] : .isButton)
                         if let id = tool.galleryIds.first { UnsavedMark(id: id) }
                     }
                     ForEach(tool.galleryIds.dropFirst(), id: \.self) { id in
                         VStack(alignment: .leading, spacing: 4) {
-                            GalleryThumb(id: id, model: model).onTapGesture { open(id) }
+                            GalleryThumb(id: id, model: model).onTapGesture { open(id) }.accessibilityAddTraits(.isButton)
                             UnsavedMark(id: id)
                         }
                     }
@@ -672,7 +691,7 @@ private struct StepRow: View {
                 HStack(alignment: .top, spacing: 6) {
                     ForEach(tool.galleryIds, id: \.self) { id in
                         VStack(alignment: .leading, spacing: 4) {
-                            GalleryThumb(id: id, model: model).onTapGesture { open(id) }
+                            GalleryThumb(id: id, model: model).onTapGesture { open(id) }.accessibilityAddTraits(.isButton)
                             UnsavedMark(id: id)
                         }
                     }
@@ -1212,7 +1231,7 @@ private struct QuestionCard: View {
             HStack(alignment: .center, spacing: 8) {
                 ConsoleTextField(text: $free, placeholder: "or type an answer")
                 let answer = picked + (free.trimmingCharacters(in: .whitespaces).isEmpty ? [] : [free.trimmingCharacters(in: .whitespaces)])
-                PrimaryButton("Send", enabled: !answer.isEmpty) { onAnswer(answer) }.frame(width: 96)
+                PrimaryButton("Send", enabled: !answer.isEmpty) { onAnswer(answer) }.frame(minWidth: 96).fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(16)
@@ -1307,7 +1326,7 @@ private struct InputBar: View, Equatable {
                         text = ""
                     } label: {
                         Image(systemName: "paperplane.fill")
-                            .font(.system(size: 18, weight: .semibold))
+                            .symbolSize(18, weight: .semibold)
                             .foregroundStyle(enabled ? c.onPrimary : c.onSurface.opacity(0.38))
                             .frame(width: 52, height: 52)
                             .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(enabled ? c.primary : c.onSurface.opacity(0.12)))
@@ -1592,7 +1611,7 @@ private struct ModelSheet: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: option.id == selected?.id ? "largecircle.fill.circle" : "circle")
-                                .font(.system(size: 20))
+                                .symbolSize(20)
                                 .foregroundStyle(option.id == selected?.id ? c.primary : c.onSurfaceVariant)
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(option.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface)

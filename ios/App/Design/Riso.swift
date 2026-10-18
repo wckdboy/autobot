@@ -43,7 +43,7 @@ struct RouteTag: View {
     var body: some View {
         Text("\(route.glyph) \(route.label)".uppercased())
             .textStyle(.micro)
-            .lineLimit(1)
+            .textLines(1)
             .foregroundStyle(route.local ? c.onPrimary : c.onSurface)
             .padding(.horizontal, Tokens.Spacing.tagPaddingHorizontal)
             .padding(.vertical, Tokens.Spacing.tagPaddingVertical)
@@ -74,7 +74,7 @@ struct SectionLabel: View {
         Text("// \(text.uppercased())")
             .textStyle(.micro)
             .foregroundStyle(color ?? c.primary)
-            .lineLimit(2)
+            .textLines(2, accessibility: 4)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -103,7 +103,7 @@ struct PrimaryButton: View {
             InkBusyLabel(busy: busy, color: c.onPrimary) {
                 Text(text.uppercased())
                     .textStyle(.labelLarge)
-                    .lineLimit(1)
+                    .textLines(1)
             }
             .padding(.horizontal, Tokens.Spacing.primaryButtonPaddingHorizontal)
             .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.primaryButtonMinHeight)
@@ -145,7 +145,7 @@ struct GhostButton: View {
             InkBusyLabel(busy: busy, color: accent ?? c.primary) {
                 Text(text.uppercased())
                     .textStyle(.labelLarge)
-                    .lineLimit(1)
+                    .textLines(1)
             }
             .padding(.horizontal, Tokens.Spacing.ghostButtonPaddingHorizontal)
             .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.ghostButtonMinHeight)
@@ -175,7 +175,7 @@ struct PaperButton: View {
         Button(action: action) {
             Text(text.uppercased())
                 .textStyle(.labelLarge)
-                .lineLimit(1)
+                .textLines(1)
                 .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.ghostButtonMinHeight)
                 .foregroundStyle(AutobotColors.paperInk)
                 .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(AutobotColors.bone100))
@@ -210,7 +210,7 @@ struct TextAction: View {
             InkBusyLabel(busy: busy, size: .inline, color: color ?? c.primary) {
                 Text(text.uppercased())
                     .textStyle(style)
-                    .lineLimit(1)
+                    .textLines(1)
             }
             .foregroundStyle(enabled ? (color ?? c.primary) : c.onSurface.opacity(0.38))
             .padding(.horizontal, 12)
@@ -256,6 +256,7 @@ struct IconAction: View {
     var enabled = true
     let action: () -> Void
     @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     init(_ icon: AutobotIcon, label: String, tint: Color? = nil, size: CGFloat = 24, enabled: Bool = true, action: @escaping () -> Void) {
         self.glyph = .icon(icon)
@@ -281,16 +282,31 @@ struct IconAction: View {
             Group {
                 switch glyph {
                 case .icon(let icon): AutobotIconView(icon: icon, size: size, color: color)
-                case .symbol(let name): Image(systemName: name).font(.system(size: size, weight: .medium)).foregroundStyle(color)
+                case .symbol(let name): Image(systemName: name).symbolSize(size, weight: .medium).foregroundStyle(color)
                 }
             }
-            .frame(width: 44, height: 44)
+            // The target grows with the glyph, and never drops under 44 pt at the small sizes.
+            .frame(width: 44 * max(1, AutobotFonts.iconScale(dynamicType)), height: 44 * max(1, AutobotFonts.iconScale(dynamicType)))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
         .disabled(!enabled)
         .accessibilityLabel(label)
     }
+}
+
+/// A footer action laid out in 32 pt (its 44 pt target overhangs); at accessibility sizes it keeps
+/// its full, grown size so the glyph does not spill over its neighbours.
+private struct CompactActionFrame: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    func body(content: Content) -> some View {
+        if dynamicType.isAccessibilitySize { content } else { content.frame(width: 32, height: 32) }
+    }
+}
+
+extension View {
+    func compactActionFrame() -> some View { modifier(CompactActionFrame()) }
 }
 
 /// Top bar: mark + condensed wordmark (or a title) and trailing actions.
@@ -311,7 +327,7 @@ struct AutobotTopBar<Actions: View>: View {
             Text(title.uppercased())
                 .textStyle(.titleLarge)
                 .foregroundStyle(c.onBackground)
-                .lineLimit(1)
+                .textLines(1)
                 .truncationMode(.tail)
                 .titleGhost(c.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -320,6 +336,9 @@ struct AutobotTopBar<Actions: View>: View {
         .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
         .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
         .frame(minHeight: Tokens.Spacing.topBarMinHeight)
+        // Chrome stops growing at AX1 (the content below keeps growing), so the title keeps its
+        // room beside the actions instead of breaking mid-word.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(c.background)
     }
 }
@@ -470,14 +489,14 @@ struct RunRow<Leading: View, Trailing: View>: View {
                     Text(title)
                         .textStyle(.titleMedium)
                         .foregroundStyle(c.onSurface)
-                        .lineLimit(1)
+                        .textLines(1)
                     if !subtitle.isEmpty {
                         // Separators hold to both neighbours: a wrap never leaves a `·` dangling at a line end.
                         Text(subtitle.replacingOccurrences(of: " · ", with: "\u{00A0}·\u{00A0}"))
                             .textStyle(.micro)
                             .foregroundStyle(c.onSurfaceVariant)
                             // A status line wraps once instead of losing its end on narrow phones.
-                            .lineLimit(2)
+                            .textLines(2, accessibility: 4)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -514,7 +533,7 @@ struct Chevron: View {
 
     var body: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 14, weight: .semibold))
+            .symbolSize(14, weight: .semibold)
             .foregroundStyle(c.onSurfaceVariant)
             .accessibilityHidden(true)
     }

@@ -30,7 +30,7 @@ struct SelectField<T: Hashable>: View {
                         .frame(maxWidth: 280, alignment: .leading)
                     Spacer(minLength: 4)
                     if interactive {
-                        Image(systemName: "arrowtriangle.down.fill").font(.system(size: 8)).foregroundStyle(c.onSurfaceVariant).padding(.horizontal, 8)
+                        Image(systemName: "arrowtriangle.down.fill").symbolSize(8).foregroundStyle(c.onSurfaceVariant).padding(.horizontal, 8)
                     }
                 }
                 .padding(.leading, 10)
@@ -116,6 +116,7 @@ struct ConsoleTextField: View {
     var onSubmit: (() -> Void)? = nil
     @FocusState private var focused: Bool
     @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
         let mono = kind != .prose
@@ -167,7 +168,7 @@ struct ConsoleTextField: View {
     }
 
     private func prompt(mono: Bool, color: Color? = nil) -> Text? {
-        placeholder.map { Text($0).font(mono ? AutobotType.code.font : AutobotType.bodyMedium.font).foregroundColor(color ?? c.onSurfaceVariant) }
+        placeholder.map { Text($0).font(mono ? AutobotType.code.font(dynamicType) : AutobotType.bodyMedium.font(dynamicType)).foregroundColor(color ?? c.onSurfaceVariant) }
     }
 }
 
@@ -196,7 +197,7 @@ struct InfoButton: View {
     var body: some View {
         Button { shown = true } label: {
             Image(systemName: "info.circle")
-                .font(.system(size: 17, weight: .regular))
+                .symbolSize(17, weight: .regular)
                 .foregroundStyle(c.onSurfaceVariant)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -305,9 +306,9 @@ struct NavigationRow: View {
                 Text(title).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let value {
-                    Text(value).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
+                    Text(value).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).textLines(1)
                 }
-                Image(systemName: trailingSymbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(c.onSurfaceVariant)
+                Image(systemName: trailingSymbol).symbolSize(14, weight: .semibold).foregroundStyle(c.onSurfaceVariant)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, Tokens.Spacing.gutter)

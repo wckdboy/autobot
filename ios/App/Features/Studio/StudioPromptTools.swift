@@ -287,7 +287,7 @@ private struct GridCell: View {
         let asset = job?.outputs.first.flatMap { app.studio.library.asset($0) }
         ZStack {
             if let asset {
-                AssetThumb(asset: asset).onTapGesture { onOpen(asset) }
+                AssetThumb(asset: asset).onTapGesture { onOpen(asset) }.accessibilityAddTraits(.isButton)
             } else {
                 c.surfaceContainer
                 InkPlate(ink: job?.state == .running ? .flow(progress: Double(job?.progress ?? 0), loading: job?.steps == 0) : .idle,

@@ -118,7 +118,7 @@ private struct StudioTopBar: View {
         let studio = app.studio
         HStack(spacing: 6) {
             IconAction(symbol: "xmark", label: "Leave the Studio") { nav.leaveStudio() }
-            Text("STUDIO").textStyle(.titleLarge).foregroundStyle(c.onBackground).titleGhost(c.primary)
+            Text("STUDIO").textStyle(.titleLarge).foregroundStyle(c.onBackground).lineLimit(1).fixedSize().titleGhost(c.primary)
             Text("· \(room.label.uppercased())").textStyle(.titleLarge).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
             Spacer(minLength: 4)
             Menu {
@@ -136,7 +136,7 @@ private struct StudioTopBar: View {
                     // trailing edge (a max-width frame outside the border left a gap after it).
                     Text((studio.project?.name ?? "project").uppercased()).textStyle(.micro).lineLimit(1).foregroundStyle(c.onSurface)
                         .frame(maxWidth: 130)
-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(c.onSurfaceVariant)
+                    Image(systemName: "chevron.down").symbolSize(9, weight: .semibold).foregroundStyle(c.onSurfaceVariant)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -148,6 +148,9 @@ private struct StudioTopBar: View {
         .padding(.leading, 4)
         .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
         .frame(minHeight: Tokens.Spacing.topBarMinHeight)
+        // Chrome, like the tab bar: it stops growing at AX1 so the title, the room and the
+        // project chip share one line.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(c.background)
         .alert(naming == "" ? "New project" : "Rename project", isPresented: Binding(get: { naming != nil }, set: { if !$0 { naming = nil } })) {
             TextField("Name", text: Binding(get: { naming ?? "" }, set: { naming = $0 }))
@@ -304,7 +307,7 @@ struct StudioPanel<Content: View>: View {
             Button { withAnimation(.inkSlide) { collapsed.toggle() } } label: {
                 HStack {
                     SectionLabel(title)
-                    Image(systemName: collapsed ? "chevron.up" : "chevron.down").font(.system(size: 11, weight: .semibold)).foregroundStyle(c.onSurfaceVariant)
+                    Image(systemName: collapsed ? "chevron.up" : "chevron.down").symbolSize(11, weight: .semibold).foregroundStyle(c.onSurfaceVariant)
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .frame(minHeight: 36)
@@ -387,7 +390,7 @@ struct AssetThumb: View {
                 Image(uiImage: shown).resizable().scaledToFill()
             }
             if asset.type == .video {
-                Image(systemName: "play.fill").font(.system(size: 14)).foregroundStyle(.white).padding(6)
+                Image(systemName: "play.fill").symbolSize(14).foregroundStyle(.white).padding(6)
                     .background(Circle().fill(.black.opacity(0.5)))
             }
         }

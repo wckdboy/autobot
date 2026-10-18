@@ -36,15 +36,21 @@ struct AutobotNavBar<K: Hashable>: View {
                         Spacer().frame(height: Tokens.Spacing.navDotGap)
                         Text(item.label.uppercased())
                             .textStyle(.labelMedium)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                             .foregroundStyle(active ? c.onBackground : c.onSurfaceVariant)
                     }
-                    .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.navBarHeight, maxHeight: Tokens.Spacing.navBarHeight)
+                    .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.navBarHeight)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
+                // A tab bar holds four labels at any size: past xxxLarge a long press shows the
+                // label in the large content viewer, as the system tab bar does.
+                .accessibilityShowsLargeContentViewer { Text(item.label) }
                 .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
             }
         }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .animation(reduceMotion ? .inkReduced : .inkSlide, value: selected)
         .onChange(of: selected) { old, _ in if let old { ghost.moved(from: AnyHashable(old), reduceMotion: reduceMotion) } }
         .background(c.background)

@@ -32,12 +32,14 @@ struct ThinkingDisclosure: View {
                 } label: {
                     HStack(spacing: 8) {
                         if isThinking { HalftoneStrip(color: accent, cell: 3) }
-                        MicroLabel(isThinking ? "∴ thinking" : "∴ thought", color: accent)
-                        MicroLabel("· " + Self.size(tokens: tokens, reasoning: reasoning), color: c.outline)
-                        if let note = Self.stopNote(stop) { MicroLabel("· " + note, color: c.tertiary) }
+                        AdaptiveRow {
+                            MicroLabel(isThinking ? "∴ thinking" : "∴ thought", color: accent)
+                            MicroLabel("· " + Self.size(tokens: tokens, reasoning: reasoning), color: c.outline)
+                            if let note = Self.stopNote(stop) { MicroLabel("· " + note, color: c.tertiary) }
+                        }
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
+                            .symbolSize(12, weight: .semibold)
                             .foregroundStyle(c.onSurfaceVariant)
                             .rotationEffect(.degrees(expanded ? 180 : 0))
                     }

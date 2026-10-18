@@ -130,6 +130,7 @@ struct VideoRoom: View {
                         AssetThumb(asset: v, size: 64)
                             .overlay { if v.id == model.selected?.id { Rectangle().strokeBorder(c.primary, lineWidth: Tokens.Stroke.selection) } }
                             .onTapGesture { model.selectedId = v.id }
+                            .accessibilityAddTraits(v.id == model.selected?.id ? [.isButton, .isSelected] : .isButton)
                     }
                 }
             }

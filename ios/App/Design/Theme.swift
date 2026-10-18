@@ -179,8 +179,13 @@ enum AutobotFonts {
     /// evaluation, and building a variable font from a descriptor is not free (list rows).
     private static let cache = OSAllocatedUnfairLock(initialState: [FontKey: UIFont]())
 
-    static func uiFont(_ style: Tokens.TypeStyle, size: CGFloat? = nil, weight: CGFloat? = nil) -> UIFont {
-        let pointSize = size ?? style.size
+    /**
+     The font for [style] at the reader's text size: the token size times [scale] for
+     [dynamicType] (1 at the default `.large`), so every role follows the iOS Dynamic Type curve.
+     */
+    static func uiFont(_ style: Tokens.TypeStyle, size: CGFloat? = nil, weight: CGFloat? = nil, dynamicType: DynamicTypeSize = .large) -> UIFont {
+        let base = size ?? style.size
+        let pointSize = (base * scale(for: base, dynamicType)).rounded(toPlaces: 2)
         let w = weight ?? style.weight
         let role = switch style.font {
         case .sans: 0
@@ -224,6 +229,55 @@ enum AutobotFonts {
      */
     static func prewarm() {
         for style in AutobotType.allCases { _ = uiFont(style.token).lineHeight }
+    }
+
+    // MARK: Dynamic Type
+
+    /// The UIKit text style whose Dynamic Type curve a token of [size] points follows.
+    static func textStyle(for size: CGFloat) -> UIFont.TextStyle {
+        switch size {
+        case 40...: .largeTitle
+        case 27...: .title1
+        case 21...: .title2
+        case 18...: .title3
+        case 15.5...: .body
+        case 14.5...: .subheadline
+        case 13...: .footnote
+        case 11.5...: .caption1
+        default: .caption2
+        }
+    }
+
+    /**
+     How far a [size] token may grow. Display and headline type is set big already and would
+     push a screen's content off it, so it stops early (1.2× for the 44–72 pt hero lines, 1.5×
+     for headlines, 1.8× for titles); reading and label type follows iOS up to 3.2×.
+     */
+    static func maxScale(for size: CGFloat) -> CGFloat {
+        switch size {
+        case 40...: 1.2
+        case 24...: 1.5
+        case 20...: 1.8
+        default: 3.2
+        }
+    }
+
+    /**
+     Size multiplier for a [size]-point token at [dynamicType]: exactly 1 at `.large`, never above
+     1 below it and never below 1 above it. (The iOS caption curves floor at 11 pt, which would
+     grow a 10.5 pt token when the reader picks smaller text.)
+     */
+    static func scale(for size: CGFloat, _ dynamicType: DynamicTypeSize) -> CGFloat {
+        guard dynamicType != .large else { return 1 }
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicType))
+        let scaled = UIFontMetrics(forTextStyle: textStyle(for: size)).scaledValue(for: size, compatibleWith: traits) / size
+        return dynamicType < .large ? min(scaled, 1) : min(max(scaled, 1), maxScale(for: size))
+    }
+
+    /// Icons and tap targets grow with the text beside them, up to 1.6× so a bar of actions still fits.
+    static func iconScale(_ dynamicType: DynamicTypeSize) -> CGFloat {
+        guard dynamicType != .large else { return 1 }
+        return min(scale(for: 17, dynamicType), 1.6)
     }
 
     static func uiWeight(_ w: CGFloat) -> UIFont.Weight {
@@ -286,27 +340,63 @@ enum AutobotType: CaseIterable {
 
     var uiFont: UIFont { AutobotFonts.uiFont(token) }
     var font: Font { Font(uiFont) }
+
+    /// The font at the reader's text size.
+    func font(_ dynamicType: DynamicTypeSize) -> Font { Font(AutobotFonts.uiFont(token, dynamicType: dynamicType)) }
+}
+
+private extension CGFloat {
+    /// Keeps the font cache small: sizes that differ in the third decimal are one font.
+    func rounded(toPlaces places: Int) -> CGFloat {
+        let m = pow(10, CGFloat(places))
+        return (self * m).rounded() / m
+    }
 }
 
 private struct TypeStyleModifier: ViewModifier {
     let style: AutobotType
     let weight: CGFloat?
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     func body(content: Content) -> some View {
         let token = style.token
-        let font = AutobotFonts.uiFont(token, weight: weight)
+        let scale = AutobotFonts.scale(for: token.size, dynamicType)
+        let font = AutobotFonts.uiFont(token, weight: weight, dynamicType: dynamicType)
         let natural = font.lineHeight
+        let lineHeight = token.lineHeight * scale
         if #available(iOS 26.0, *) {
             content
                 .font(Font(font))
                 .tracking(token.letterSpacing)
-                .lineHeight(.exact(points: token.lineHeight))
+                .lineHeight(.exact(points: lineHeight))
         } else {
             content
                 .font(Font(font))
                 .tracking(token.letterSpacing)
-                .lineSpacing(max(0, token.lineHeight - natural))
+                .lineSpacing(max(0, lineHeight - natural))
         }
+    }
+}
+
+/// A line limit that lets the text wrap at accessibility sizes instead of truncating.
+private struct AccessibleLineLimit: ViewModifier {
+    let lines: Int
+    let accessibility: Int
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    func body(content: Content) -> some View {
+        content.lineLimit(dynamicType.isAccessibilitySize ? max(lines, accessibility) : lines)
+    }
+}
+
+/// An SF Symbol at [size] points, grown with the reader's text size (see [AutobotFonts.iconScale]).
+private struct ScaledSymbolModifier: ViewModifier {
+    let size: CGFloat
+    let weight: Font.Weight
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size * AutobotFonts.iconScale(dynamicType), weight: weight))
     }
 }
 
@@ -314,6 +404,17 @@ extension View {
     /// Applies a riso text style: font, letter spacing and line height from the tokens.
     func textStyle(_ style: AutobotType, weight: CGFloat? = nil) -> some View {
         modifier(TypeStyleModifier(style: style, weight: weight))
+    }
+
+    /// [lines] lines at the standard text sizes; at the accessibility sizes, where a label one line
+    /// long would cut off its essential words, it wraps to [accessibility] lines (the row grows).
+    func textLines(_ lines: Int, accessibility: Int = 3) -> some View {
+        modifier(AccessibleLineLimit(lines: lines, accessibility: accessibility))
+    }
+
+    /// An SF Symbol font of [size] points that scales with Dynamic Type (capped at 1.6×).
+    func symbolSize(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        modifier(ScaledSymbolModifier(size: size, weight: weight))
     }
 }
 
