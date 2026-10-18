@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.entry
 
 import android.content.Intent
+import dev.wckdboy.autobot.agent.runtime.recipes.RecipeNotifications
 
 /**
  * What a system entry point (share sheet, text selection menu, Quick Settings tile, launcher
@@ -22,6 +23,9 @@ sealed interface EntryRequest {
      * ([json]). It is only shown for review; nothing is saved or run on its own.
      */
     data class ImportWorkflow(val uri: String? = null, val json: String? = null) : EntryRequest
+
+    /** A recipe notification: its result chat ([chatId]) over the Recipes screen. */
+    data class OpenRecipe(val chatId: String? = null) : EntryRequest
 }
 
 /** Explicit actions used by the tile, the launcher shortcuts and the widget. */
@@ -53,7 +57,9 @@ object EntryParser {
         streams: List<String> = emptyList(),
         processText: CharSequence? = null,
         prompt: String? = null,
+        chat: String? = null,
     ): EntryRequest? = when (action) {
+        RecipeNotifications.ACTION_OPEN -> EntryRequest.OpenRecipe(chat?.trim()?.ifEmpty { null })
         EntryActions.NEW_CHAT -> EntryRequest.NewChat()
         EntryActions.VOICE -> EntryRequest.Voice
         EntryActions.IMAGINE -> EntryRequest.Imagine(clean(prompt))

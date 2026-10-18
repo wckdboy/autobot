@@ -71,6 +71,11 @@ import dev.wckdboy.autobot.agent.core.loop.chooseRedaction
 import dev.wckdboy.autobot.agent.core.loop.restoreRedaction
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.shared.session.SessionProjector
+import dev.wckdboy.autobot.shared.recipes.RecipeCodec
+import dev.wckdboy.autobot.shared.recipes.RecipeCopy
+import dev.wckdboy.autobot.shared.recipes.RecipeTrigger
+import dev.wckdboy.autobot.shared.recipes.RecipeTurnResult
+import dev.wckdboy.autobot.shared.recipes.RecipeTurns
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.concurrent.atomics.AtomicBoolean
@@ -873,6 +878,52 @@ class AgentBridge(
         if (prompt.isEmpty() && images.isEmpty()) return
         withAgent(sessionId) { it.followup(prompt, images) }
     }
+
+    /**
+     * Runs the recipe [recipeJson] headless in [sessionId] (a new chat) on [providerId]/[model]
+     * ([RecipeTurns]) and answers [callback] once with the run's record JSON ([RecipeCodec]).
+     * Only an on-device provider may run a recipe; anything else fails the run.
+     */
+    fun runRecipe(
+        sessionId: String,
+        providerId: String,
+        model: String,
+        recipeJson: String,
+        context: String?,
+        startedAt: Long,
+        manual: Boolean,
+        timeoutMs: Long,
+        callback: (String) -> Unit,
+    ) {
+        val trigger = if (manual) RecipeTrigger.MANUAL else RecipeTrigger.SCHEDULE
+        fun failed(reason: String) = RecipeCodec.encodeRecord(RecipeTurnResult.failed(reason).record(startedAt, nowMillis(), trigger, null))
+        val recipe = RecipeCodec.decode(recipeJson) ?: return callback(failed("This recipe cannot be read"))
+        scope.launch {
+            val record = try {
+                val spec = withContext(IoDispatcher) { providers.provider(providerId) }
+                if (spec == null || spec.kind != ProviderKind.LOCAL || model.isBlank()) {
+                    failed(RecipeCopy.ON_DEVICE_ONLY)
+                } else {
+                    rememberRoute(sessionId, providerId, model)
+                    val agent = agent(sessionId, providerId, model)
+                    retain(sessionId)
+                    try {
+                        RecipeCodec.encodeRecord(RecipeTurns.run(agent, recipe, providerId, model, context, timeoutMs).record(startedAt, nowMillis(), trigger, sessionId))
+                    } finally {
+                        release(sessionId)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                failed(t.message ?: (t::class.simpleName ?: "error"))
+            }
+            callback(record)
+        }
+    }
+
+    @OptIn(ExperimentalTime::class)
+    private fun nowMillis(): Long = Clock.System.now().toEpochMilliseconds()
 
     /** Delivers [text] at the next step boundary of the running turn. */
     fun steer(sessionId: String, text: String) = withAgent(sessionId) { it.steer(text) }

@@ -80,6 +80,31 @@ enum DemoSeed {
         ])
 
         seedCascade(app, sessions: sessions, now: now)
+        // Recipes: the three templates, and the morning brief switched on with a finished run.
+        let briefAt = now - 95 * 60_000
+        let briefTitle = RecipeRules.chatTitle("Morning brief from my feeds", at: briefAt)
+        seed(briefTitle, provider: ProviderPresets.localProviderId, model: plan.id, minutesAgo: 95, tools: true, [
+            .turnStart(turn: 1),
+            .userMessage(text: "Fetch each feed below with web_fetch and write a short morning brief."),
+            .assistantMessage(.init(turn: 1, step: 1,
+                                    text: "- Qualcomm details the Hexagon NPU in the 8 Elite Gen 5 (Ars Technica)\n- EU agrees on the AI Act's code of practice (The Guardian)\n- Show HN: a local-first notes app (Hacker News)",
+                                    model: plan.id)),
+            .turnEnd(turn: 1, reason: .completed, detail: nil),
+        ])
+        if let chat = app.conversations.conversations.first(where: { $0.title == briefTitle }), let folder = app.conversations.createFolder(RecipeRules.copy.FOLDER) {
+            app.conversations.move([chat.id], to: folder.id)
+            let repository = RecipeRepository(store: app.store)
+            if var brief = repository.load(now: now).first(where: { $0.template == "template-morning-brief" }) {
+                brief.enabled = true
+                brief = RecipeRules.saved(brief, previous: nil, now: now)
+                var run = RecipeRunDoc(startedAt: briefAt, finishedAt: briefAt + 140_000, status: "DONE", sessionId: chat.id,
+                                       summary: "Qualcomm details the Hexagon NPU in the 8 Elite Gen 5 (Ars Technica)")
+                run.hosts = 3
+                run.bytesSent = 2_400
+                brief.state.lastRun = run
+                try? repository.save(brief)
+            }
+        }
 
         let prompts = ["Isometric greenhouse, riso print", "Lighthouse on a cliff at dusk", "Portrait of a robot, halftone", "Red tram in fog"]
         Task {
