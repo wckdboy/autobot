@@ -96,4 +96,29 @@ class NodeAgentTest {
         assertEquals("app-Pixel9", NodeAgent.sessionFor("Pixel 9 ✓"))
         assertEquals("app-device", NodeAgent.sessionFor("✓"))
     }
+
+    @Test
+    fun schedulesParse() = runBlocking {
+        val transport = Scripted(
+            200,
+            listOf(
+                """{"schedules":[{"id":"t1","when":"@daily","task":"check backups","telegram":true,"next":1700000000,"last":{"at":1690000000,"ok":false,"result":"refused"}},""",
+                """{"id":"t2","when":"every 30m","task":"x","telegram":false,"next":null,"last":null}]}""",
+            ),
+        )
+        assertEquals(
+            listOf(
+                AgentSchedule("t1", "@daily", "check backups", true, 1700000000, 1690000000, false, "refused"),
+                AgentSchedule("t2", "every 30m", "x", false, null, null, null, null),
+            ),
+            NodeAgent(transport).schedules(),
+        )
+        assertEquals("http://invincible/v1/agent/schedules", transport.sent.single().url)
+        val add = Scripted(200, listOf("""{"id":"t3"}"""))
+        assertEquals("t3", NodeAgent(add).addSchedule("@hourly", "ping", telegram = false))
+        assertEquals("""{"when":"@hourly","task":"ping","telegram":false}""", add.sent.single().body)
+        val bad = Scripted(400, emptyList(), """{"error":{"message":"minute: 99 is outside 0-59","type":"invalid_request_error"}}""")
+        val e = runCatching { NodeAgent(bad).addSchedule("99 * * * *", "x") }.exceptionOrNull()
+        assertEquals("minute: 99 is outside 0-59", e?.message)
+    }
 }

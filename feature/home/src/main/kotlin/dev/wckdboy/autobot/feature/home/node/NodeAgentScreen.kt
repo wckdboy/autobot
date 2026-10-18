@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,7 +55,22 @@ import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
     val viewModel = hiltViewModel<NodeAgentViewModel, NodeAgentViewModel.Factory>(key = providerId) { it.create(providerId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    NodeAgentScreen(state, onBack, viewModel::send, viewModel::answer, viewModel::newConversation, viewModel::connect)
+    var showSchedules by rememberSaveable { mutableStateOf(false) }
+    NodeAgentScreen(
+        state,
+        onBack,
+        viewModel::send,
+        viewModel::answer,
+        viewModel::newConversation,
+        viewModel::connect,
+        onOpenSchedules = {
+            showSchedules = true
+            viewModel.loadSchedules()
+        },
+    )
+    if (showSchedules) {
+        NodeSchedulesSheet(state, onDismiss = { showSchedules = false }, onAdd = viewModel::addSchedule, onRemove = viewModel::removeSchedule)
+    }
 }
 
 @Composable
@@ -65,6 +81,7 @@ fun NodeAgentScreen(
     onAnswer: (String, ApprovalAnswer) -> Unit,
     onNewConversation: () -> Unit,
     onRetry: () -> Unit,
+    onOpenSchedules: () -> Unit = {},
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val list = rememberLazyListState()
@@ -76,6 +93,9 @@ fun NodeAgentScreen(
                 showMark = false,
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
+                    IconButton(onClick = onOpenSchedules, enabled = state.info != null) {
+                        Icon(Icons.Filled.DateRange, contentDescription = "Scheduled tasks")
+                    }
                     IconButton(onClick = onNewConversation, enabled = !state.running && state.info != null) {
                         Icon(Icons.Filled.Refresh, contentDescription = "New conversation")
                     }

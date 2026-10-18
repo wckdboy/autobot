@@ -220,7 +220,10 @@ write and every read outside the agent's working directory comes to the phone as
 Allow, Always (this conversation), or Deny. Answers show the model and tier that ran each turn. It
 all goes through the same Noise session as the node's models: `NodeAgent` (`:shared`) speaks
 Invincible's [spec/agent.md](https://github.com/wckdboy/invincible/blob/main/spec/agent.md), and
-the conversation lives on the machine, so it is there again after the app restarts.
+the conversation lives on the machine, so it is there again after the app restarts. The calendar
+button lists the agent's scheduled tasks (next run, how the last one went), adds them (cron in the
+machine's local time, `@daily`, `every 30m`) and removes them; they run with nobody to ask, so
+only allowlisted commands and writes in the working directory.
 `InvincibleLiveTest` runs a real turn against `invincible` + `autobot` with a model, approving
 from the phone side (set `AUTOBOT_BIN` and `INVINCIBLE_MODEL` too).
 

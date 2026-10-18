@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.providers.remote.NodeAgents
 import dev.wckdboy.autobot.shared.invincible.AgentAction
 import dev.wckdboy.autobot.shared.invincible.AgentEvent
 import dev.wckdboy.autobot.shared.invincible.AgentInfo
+import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
 import kotlinx.coroutines.Job
@@ -43,6 +44,10 @@ data class NodeAgentUiState(
     val problem: String? = null,
     val rows: List<AgentRow> = emptyList(),
     val running: Boolean = false,
+    /** Scheduled tasks on the machine; null until loaded. */
+    val schedules: List<AgentSchedule>? = null,
+    /** Why the last schedule change did not work (a schedule that does not parse, …). */
+    val scheduleProblem: String? = null,
 )
 
 /** Folds a turn's events into the transcript; pure, so the screen's logic is testable on its own. */
@@ -149,6 +154,37 @@ class NodeAgentViewModel @AssistedInject constructor(
             runCatching { agent.reset(session) }
                 .onSuccess { _state.update { it.copy(rows = emptyList()) } }
                 .onFailure { e -> _state.update { it.copy(rows = it.rows + AgentRow.Note(nextKey(), e.message ?: "Could not start over.", AgentRow.Tone.ERROR)) } }
+        }
+    }
+
+    fun loadSchedules() {
+        val agent = agent ?: return
+        viewModelScope.launch {
+            runCatching { agent.schedules() }
+                .onSuccess { list -> _state.update { it.copy(schedules = list, scheduleProblem = null) } }
+                .onFailure { e -> _state.update { it.copy(scheduleProblem = e.message ?: "The node did not answer.") } }
+        }
+    }
+
+    /** Adds a scheduled task; [onAdded] runs when it was accepted (so the form can clear). */
+    fun addSchedule(schedule: String, task: String, telegram: Boolean, onAdded: () -> Unit) {
+        val agent = agent ?: return
+        viewModelScope.launch {
+            runCatching { agent.addSchedule(schedule.trim(), task.trim(), telegram) }
+                .onSuccess {
+                    onAdded()
+                    loadSchedules()
+                }
+                .onFailure { e -> _state.update { it.copy(scheduleProblem = e.message ?: "Could not add it.") } }
+        }
+    }
+
+    fun removeSchedule(id: String) {
+        val agent = agent ?: return
+        viewModelScope.launch {
+            runCatching { agent.removeSchedule(id) }
+                .onSuccess { loadSchedules() }
+                .onFailure { e -> _state.update { it.copy(scheduleProblem = e.message ?: "Could not remove it.") } }
         }
     }
 

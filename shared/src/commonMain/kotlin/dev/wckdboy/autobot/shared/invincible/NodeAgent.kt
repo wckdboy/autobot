@@ -50,6 +50,21 @@ data class AgentInfo(val name: String, val model: String, val workdir: String, v
 
 data class AgentSession(val id: String, val modified: Long)
 
+/**
+ * A task the agent runs on a schedule (spec/agent.md): [schedule] is a cron expression, `@daily`,
+ * or `every 30m`; times are Unix seconds.
+ */
+data class AgentSchedule(
+    val id: String,
+    val schedule: String,
+    val task: String,
+    val telegram: Boolean,
+    val next: Long?,
+    val lastAt: Long?,
+    val lastOk: Boolean?,
+    val lastResult: String?,
+)
+
 /** A line of a conversation's history: who and what (tool calls summarized). */
 data class AgentLine(val role: String, val text: String)
 
@@ -131,6 +146,36 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
 
     suspend fun reset(session: String) {
         request("POST", "/sessions/$session/reset", "")
+    }
+
+    suspend fun schedules(): List<AgentSchedule> =
+        json.parseToJsonElement(request("GET", "/schedules")).jsonObject["schedules"]?.jsonArray.orEmpty().mapNotNull {
+            val o = it as? JsonObject ?: return@mapNotNull null
+            val last = o["last"] as? JsonObject
+            AgentSchedule(
+                id = o.text("id") ?: return@mapNotNull null,
+                schedule = o.text("when").orEmpty(),
+                task = o.text("task").orEmpty(),
+                telegram = o["telegram"]?.jsonPrimitive?.booleanOrNull ?: false,
+                next = (o["next"] as? JsonPrimitive)?.longOrNull,
+                lastAt = last?.get("at")?.jsonPrimitive?.longOrNull,
+                lastOk = last?.get("ok")?.jsonPrimitive?.booleanOrNull,
+                lastResult = last?.text("result"),
+            )
+        }
+
+    /** Adds a scheduled task; its id. A schedule that does not parse comes back as [NodeAgentException] (400). */
+    suspend fun addSchedule(schedule: String, task: String, telegram: Boolean = false): String {
+        val body = buildJsonObject {
+            put("when", schedule)
+            put("task", task)
+            put("telegram", telegram)
+        }.toString()
+        return json.parseToJsonElement(request("POST", "/schedules", body)).jsonObject.text("id") ?: error("no id")
+    }
+
+    suspend fun removeSchedule(id: String) {
+        request("DELETE", "/schedules/$id")
     }
 
     private fun spec(method: String, path: String, body: String?, accept: String = "application/json") = HttpRequestSpec(
