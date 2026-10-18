@@ -11,6 +11,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.GalleryRepository
+import dev.wckdboy.autobot.core.data.model.GalleryItem
+import dev.wckdboy.autobot.core.diffusion.Aspect
+import dev.wckdboy.autobot.core.diffusion.ModelTraits
+import dev.wckdboy.autobot.core.diffusion.SizeSupport
+import dev.wckdboy.autobot.core.diffusion.engine.OnDeviceEngine
+import dev.wckdboy.autobot.feature.imagine.viewer.GalleryImages
+import dev.wckdboy.autobot.shared.panic.IncognitoImages
+import dev.wckdboy.autobot.feature.imagine.viewer.ViewerAction
 import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackend
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackendRepository
@@ -78,6 +86,8 @@ data class ModelChip(
     val onDevice: Boolean,
     /** Where an on-device model runs: "npu", "gpu" or null (CPU). */
     val accelerator: String? = null,
+    /** What this model can do (sizes, modes, LoRAs) when it differs from its backend; null = the backend's. */
+    val traits: ModelTraits? = null,
 )
 
 @Immutable
@@ -103,11 +113,35 @@ data class ImagineUiState(
     val error: String? = null,
     val loaded: Boolean = false,
     val chips: List<ModelChip> = emptyList(),
+    /** Gallery rows of [results], for the full-screen viewer. */
+    val resultItems: List<GalleryItem> = emptyList(),
+    /** The viewer is open on this result. */
+    val viewing: String? = null,
+    /** Whether an upscaler model is installed (the viewer offers upscale). */
+    val canUpscale: Boolean = false,
+    /** What the viewer is doing (upscaling, saving), or a one-line outcome. */
+    val viewerBusy: String? = null,
+    /** One-shot: a handoff asked for the mask editor (inpaint from the viewer or the gallery). */
+    val openMask: Boolean = false,
     /** Results stay in memory only, never in the gallery or the Studio, until saved ([dev.wckdboy.autobot.shared.panic.IncognitoImages]). */
     val incognito: Boolean = false,
     /** Unsaved incognito results the user saved, by unsaved id → gallery id. */
     val saved: Map<String, String> = emptyMap(),
 ) {
+    /**
+     * What the selected model can do: its own traits (an NPU package's one square, no LoRAs),
+     * else its backend's capabilities.
+     */
+    val traits: ModelTraits
+        get() = selectedChip?.traits ?: ModelTraits(
+            sizes = capabilities?.sizes ?: SizeSupport(),
+            modes = capabilities?.modes ?: DiffusionMode.entries.toSet(),
+            runtimeLora = capabilities?.runtimeLora ?: true,
+        )
+
+    /** The size the next image comes out at (a fixed-size model's crop of its square). */
+    val outputSize: Pair<Int, Int> get() = traits.sizes.output(request.width, request.height)
+
     val selectedChip: ModelChip?
         get() = chips.firstOrNull { it.backendId == backend?.id && (it.model == request.model || (request.model == null && it.model == catalog.currentModel)) }
             ?: chips.firstOrNull { it.backendId == backend?.id }
@@ -121,6 +155,7 @@ data class ImagineUiState(
     val plannedImages: Int get() = PromptRuns.images(request.prompt, request.batchCount)
     val canGenerate: Boolean
         get() = backend != null && running == null && request.prompt.isNotBlank() &&
+            request.mode in traits.modes &&
             (request.mode == DiffusionMode.TXT2IMG || initImage != null) &&
             (request.mode != DiffusionMode.INPAINT || !mask.isEmpty)
 }
@@ -138,6 +173,7 @@ class ImagineViewModel @Inject constructor(
     private val generator: ImageGenerator,
     private val gallery: GalleryRepository,
     private val library: ModelLibrary,
+    val images: GalleryImages,
 ) : AndroidViewModel(application) {
 
     private data class Local(
@@ -150,6 +186,10 @@ class ImagineViewModel @Inject constructor(
         val catalogStatus: CatalogStatus = CatalogStatus.IDLE,
         val catalogError: String? = null,
         val error: String? = null,
+        val viewing: String? = null,
+        val canUpscale: Boolean = false,
+        val viewerBusy: String? = null,
+        val openMask: Boolean = false,
         val incognito: Boolean = false,
     )
 
@@ -167,6 +207,9 @@ class ImagineViewModel @Inject constructor(
     private var residentHold: AutoCloseable? = null
     private var initSource: Bitmap? = null
     private var catalogJob: Job? = null
+
+    /** A gallery image's settings were handed in (see [handoff]); opening applies no model defaults over them. */
+    @Volatile private var handedOff = false
 
     private val running = generator.state.mapLatest { state ->
         (state as? GenerationState.Running)?.let { s ->
@@ -197,6 +240,13 @@ class ImagineViewModel @Inject constructor(
         }
     }
 
+    /** The gallery rows of the latest results, in order (favorites and deletions show at once). */
+    private val resultItems = combine(generator.lastResults, gallery.observe()) { results, all -> results to all }.mapLatest { (results, all) ->
+        val byId = all.associateBy { it.id }
+        // Unsaved incognito results live in memory, not in the gallery's table.
+        results.mapNotNull { byId[it.galleryId] ?: if (IncognitoImages.isUnsaved(it.galleryId)) gallery.get(it.galleryId) else null }
+    }.distinctUntilChanged()
+
     /** Engine capabilities per backend: creating an engine touches files, so not on every keystroke. */
     private val capabilities = CapabilityCache { engines.create(it).capabilities }
 
@@ -210,8 +260,8 @@ class ImagineViewModel @Inject constructor(
         backendsRepo.defaultBackendId,
         local,
         combine(running, results, generator.lastError) { r, res, e -> Triple(r, res, e) },
-        combine(backendsRepo.lastRequest, chips, gallery.keptIncognito) { s, c, k -> Triple(s, c, k) },
-    ) { backends, defaultId, l, (run, res, genError), (stored, chips, kept) ->
+        combine(backendsRepo.lastRequest, chips, gallery.keptIncognito, resultItems) { s, c, k, items -> Stored(s, c, k, items) },
+    ) { backends, defaultId, l, (run, res, genError), (stored, chips, kept, items) ->
         val backend = backends.firstOrNull { it.id == (l.selectedBackendId ?: defaultId) } ?: backends.firstOrNull()
         ImagineUiState(
             backends = backends,
@@ -229,6 +279,11 @@ class ImagineViewModel @Inject constructor(
             error = l.error ?: genError,
             loaded = true,
             chips = chips,
+            resultItems = items,
+            viewing = l.viewing,
+            canUpscale = l.canUpscale,
+            viewerBusy = l.viewerBusy,
+            openMask = l.openMask,
             incognito = l.incognito,
             saved = kept,
         )
@@ -251,9 +306,12 @@ class ImagineViewModel @Inject constructor(
         if (chip.onDevice && chip.model != null) {
             viewModelScope.launch {
                 val rec = library.get(chip.model)?.let(::recommendedFor) ?: return@launch
-                edit { r -> r.withRecommended(chip.model, rec) }
+                edit { r -> r.withRecommended(chip.model, rec, chip.traits?.sizes ?: SizeSupport()) }
             }
         }
+        // A model that cannot take an input image (an NPU package without a VAE encoder).
+        val modes = chip.traits?.modes
+        if (modes != null && uiState.value.request.mode !in modes) setMode(DiffusionMode.TXT2IMG)
     }
 
     /**
@@ -266,9 +324,10 @@ class ImagineViewModel @Inject constructor(
         val state = uiState.first { it.loaded && it.chips.isNotEmpty() }
         val chip = state.selectedChip?.takeIf { it.onDevice } ?: return
         val id = chip.model ?: return
-        if (!needsRecommended(state.request, id)) return
+        // A gallery handoff brought its own settings: they are not replaced by the model's.
+        if (handedOff || !needsRecommended(state.request, id)) return
         val rec = library.get(id)?.let(::recommendedFor)
-        edit { r -> if (needsRecommended(r, id)) r.withRecommended(id, rec) else r }
+        edit { r -> if (needsRecommended(r, id)) r.withRecommended(id, rec, chip.traits?.sizes ?: SizeSupport()) else r }
     }
 
     /** Selects an installed on-device model (tapped on the Models screen) with its recommended settings. */
@@ -334,9 +393,23 @@ class ImagineViewModel @Inject constructor(
     fun setNegative(text: String) = edit { it.copy(negativePrompt = text) }
     fun setSteps(steps: Int) = edit { it.copy(steps = steps) }
     fun setCfg(cfg: Float) = edit { it.copy(cfgScale = (cfg * 2).toInt() / 2f) }
+    /** Any size, made one the selected model renders (snapped, in range, never reshaped). */
     fun setSize(width: Int, height: Int) = edit {
-        val multiple = uiState.value.capabilities?.sizeMultiple ?: 8
-        it.copy(width = PromptSyntax.snap(width, multiple), height = PromptSyntax.snap(height, multiple))
+        val (w, h) = uiState.value.traits.sizes.output(width, height)
+        it.copy(width = w, height = h)
+    }
+
+    /** [aspect] at the current pixel budget (a 16:9 tap on a 1024² setup gives 1368×768). */
+    fun setAspect(aspect: Aspect) = edit {
+        val sizes = uiState.value.traits.sizes
+        val (w, h) = sizes.size(sizes.baseOf(it.width, it.height), aspect)
+        it.copy(width = w, height = h)
+    }
+
+    /** The pixel budget [base]² at the current shape. */
+    fun setBase(base: Int) = edit {
+        val (w, h) = uiState.value.traits.sizes.size(base, it.width.toDouble() / it.height.coerceAtLeast(1))
+        it.copy(width = w, height = h)
     }
     fun setSeed(seed: Long) = edit { it.copy(seed = seed) }
     fun randomizeSeed() = edit { it.copy(seed = Random.nextLong(0, MAX_SEED)) }
@@ -439,19 +512,111 @@ class ImagineViewModel @Inject constructor(
 
     /** Takes a gallery image as the init image (img2img), keeping its aspect ratio. */
     fun useAsInit(galleryId: String) {
-        viewModelScope.launch {
-            val bitmap = runCatching { gallery.image(galleryId) }.getOrNull()?.let { withContext(Dispatchers.Default) { ImageCodec.decode(it, MAX_INIT_SIDE) } } ?: return@launch
-            useInit(bitmap)
-        }
+        viewModelScope.launch { loadInit(galleryId) }
     }
 
+    private suspend fun loadInit(galleryId: String): Boolean {
+        val bitmap = runCatching { gallery.image(galleryId) }.getOrNull()?.let { withContext(Dispatchers.Default) { ImageCodec.decode(it, MAX_INIT_SIDE) } }
+        if (bitmap == null) {
+            local.update { it.copy(error = "Could not read that image") }
+            return false
+        }
+        useInit(bitmap)
+        return true
+    }
+
+    /**
+     * Makes [bitmap] the input image. The size takes its shape at the current pixel budget (a
+     * 1344×768 image stays 16:9; a 12 MP photo is not sampled at 4000 px).
+     */
     private fun useInit(bitmap: Bitmap) {
         initSource = bitmap
         local.update { it.copy(initImage = bitmap.asImageBitmap(), mask = MaskState(), preferInit = true) }
-        val longSide = maxOf(bitmap.width, bitmap.height).coerceAtMost(1024).coerceAtLeast(512)
-        val scale = longSide.toFloat() / maxOf(bitmap.width, bitmap.height)
-        setSize((bitmap.width * scale).toInt(), (bitmap.height * scale).toInt())
+        val (w, h) = initSize(uiState.value.request, uiState.value.traits.sizes, bitmap.width, bitmap.height)
+        edit { it.copy(width = w, height = h) }
         if (uiState.value.request.mode == DiffusionMode.TXT2IMG) setMode(DiffusionMode.IMG2IMG)
+    }
+
+    /**
+     * A gallery image handed to the studio (from the viewer here, or the gallery): its settings
+     * shaped for [action] (see [GalleryImages.handoffRequest]); img2img, inpaint and vary also
+     * take the image as input, inpaint opens the mask editor and vary starts at once.
+     */
+    fun handoff(galleryId: String, action: ViewerAction) {
+        viewModelScope.launch {
+            local.first { it.request != null }
+            val item = gallery.get(galleryId) ?: run {
+                local.update { it.copy(error = "That image is no longer in the gallery") }
+                return@launch
+            }
+            handedOff = true
+            val request = GalleryImages.handoffRequest(item, generator.decodeParams(item), action)
+            local.update { it.copy(request = request, viewing = null, preferInit = request.mode != DiffusionMode.TXT2IMG) }
+            if (request.mode == DiffusionMode.TXT2IMG) {
+                if (initSource != null) {
+                    initSource = null
+                    local.update { it.copy(initImage = null, mask = MaskState()) }
+                }
+                return@launch
+            }
+            if (!loadInit(galleryId)) return@launch
+            // useInit keeps the mode the request asked for (img2img or inpaint).
+            edit { it.copy(mode = request.mode) }
+            when (action) {
+                ViewerAction.INPAINT -> local.update { it.copy(openMask = true) }
+                ViewerAction.VARY -> {
+                    // The state carries the input image once the flows have caught up.
+                    uiState.first { it.initImage != null && it.request.mode == request.mode }
+                    generate()
+                }
+                else -> Unit
+            }
+        }
+    }
+
+    fun maskOpened() = local.update { it.copy(openMask = false) }
+
+    // ---------------------------------------------------------------------------------------
+    // Viewer
+
+    fun openViewer(galleryId: String) {
+        local.update { it.copy(viewing = galleryId) }
+        viewModelScope.launch {
+            val can = images.canUpscale()
+            local.update { it.copy(canUpscale = can) }
+        }
+    }
+
+    fun closeViewer() = local.update { it.copy(viewing = null, viewerBusy = null) }
+
+    /** In-place viewer actions (handoffs go through [handoff]). */
+    fun viewerAction(action: ViewerAction, item: GalleryItem, launchIntent: (android.content.Intent) -> Unit) {
+        if (action.handoff) return handoff(item.id, action)
+        // An unsaved incognito image leaves memory only through Keep (the user's explicit save).
+        if (IncognitoImages.isUnsaved(item.id) && action !in ViewerAction.UNSAVED) return
+        viewModelScope.launch {
+            when (action) {
+                ViewerAction.KEEP -> {
+                    val id = runCatching { gallery.keep(item.id) }.getOrNull()
+                    local.update { it.copy(viewerBusy = if (id != null) "saved to the gallery" else "could not save") }
+                }
+                ViewerAction.FAVORITE -> images.toggleFavorite(item)
+                ViewerAction.DELETE -> images.delete(item.id)
+                ViewerAction.SAVE -> {
+                    local.update { it.copy(viewerBusy = "saving…") }
+                    val ok = images.export(item)
+                    local.update { it.copy(viewerBusy = if (ok) "saved to Pictures/Autobot" else "could not save") }
+                }
+                ViewerAction.SHARE -> images.shareIntent(item)?.let(launchIntent) ?: local.update { it.copy(viewerBusy = "could not share") }
+                ViewerAction.UPSCALE -> {
+                    if (local.value.viewerBusy?.startsWith("upscaling") == true) return@launch
+                    local.update { it.copy(viewerBusy = "upscaling 4× on the npu…") }
+                    val result = runCatching { images.upscale(item) }
+                    local.update { it.copy(viewerBusy = result.fold({ c -> "upscaled to ${c.width}×${c.height} · in the gallery" }, { e -> "upscale failed: ${e.message}" })) }
+                }
+                else -> Unit
+            }
+        }
     }
 
     fun clearInitImage() {
@@ -460,13 +625,8 @@ class ImagineViewModel @Inject constructor(
         setMode(DiffusionMode.TXT2IMG)
     }
 
-    /** Copies every parameter of a gallery item into the form. */
-    fun reuseParams(galleryId: String) {
-        viewModelScope.launch {
-            val item = gallery.get(galleryId) ?: return@launch
-            generator.decodeParams(item)?.let { params -> local.update { it.copy(request = params.copy(batchCount = 1)) } }
-        }
-    }
+    /** Copies every parameter of a gallery item into the form (its seed included). */
+    fun reuseParams(galleryId: String) = handoff(galleryId, ViewerAction.SAME_SEED)
 
     fun addStroke(stroke: MaskStroke) = local.update { it.copy(mask = it.mask.add(stroke), preferInit = true) }
     fun undoStroke() = local.update { it.copy(mask = it.mask.undo()) }
@@ -528,6 +688,17 @@ class ImagineViewModel @Inject constructor(
     }
 }
 
+private data class Stored(val request: DiffusionRequest, val chips: List<ModelChip>, val kept: Map<String, String>, val items: List<GalleryItem>)
+
+/**
+ * The size for an input image of [imageW]×[imageH]: its shape at [request]'s pixel budget, in
+ * sizes the model renders.
+ */
+internal fun initSize(request: DiffusionRequest, sizes: SizeSupport, imageW: Int, imageH: Int): Pair<Int, Int> {
+    val base = kotlin.math.sqrt(request.width.toDouble() * request.height).toInt()
+    return sizes.size(base, imageW.toDouble() / imageH.coerceAtLeast(1))
+}
+
 /** The studio's chip row: on-device image models, else each remote backend's first catalog models (or the backend itself). */
 internal fun buildChips(backends: List<DiffusionBackend>, models: List<InstalledModel>, catalog: Map<String, EngineCatalog>): List<ModelChip> {
     val onDeviceModels = models.filter(::isOnDeviceImageModel)
@@ -536,7 +707,7 @@ internal fun buildChips(backends: List<DiffusionBackend>, models: List<Installed
         when {
             b.kind == BackendKind.ON_DEVICE -> onDeviceModels.map { m ->
                 val accel = imageAccelerator(m)
-                ModelChip(b.id, m.id, m.title + (accel?.let { " · $it" } ?: ""), onDevice = true, accelerator = accel)
+                ModelChip(b.id, m.id, m.title + (accel?.let { " · $it" } ?: ""), onDevice = true, accelerator = accel, traits = OnDeviceEngine.traits(m))
             }
             listed.isNullOrEmpty() -> listOf(ModelChip(b.id, null, b.name, onDevice = false))
             else -> listed.take(6).map { m -> ModelChip(b.id, m, shortModelName(m) + " · " + b.name, onDevice = false) }

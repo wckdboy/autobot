@@ -9,7 +9,9 @@ import dev.wckdboy.autobot.core.diffusion.DiffusionEngineFactory
 import dev.wckdboy.autobot.core.diffusion.DiffusionEvent
 import dev.wckdboy.autobot.core.diffusion.DiffusionException
 import dev.wckdboy.autobot.core.diffusion.DiffusionInputs
+import dev.wckdboy.autobot.core.diffusion.DiffusionMode
 import dev.wckdboy.autobot.core.diffusion.DiffusionRequest
+import dev.wckdboy.autobot.core.diffusion.SizeSupport
 import dev.wckdboy.autobot.shared.studio.PromptRuns
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -76,6 +78,15 @@ sealed interface GenerationState {
  */
 fun DiffusionRequest.calls(): List<DiffusionRequest> =
     PromptRuns.plan(prompt, batchCount, seed).map { copy(prompt = it.prompt, batchCount = it.count, seed = it.seed) }
+
+/**
+ * The centred crop (`left, top, width, height`) that gives a [width]×[height] txt2img result the
+ * shape [request] asked for, or null when it already has it.
+ */
+fun shapeCrop(request: DiffusionRequest, width: Int, height: Int): IntArray? {
+    if (request.mode != DiffusionMode.TXT2IMG || request.width <= 0 || request.height <= 0) return null
+    return SizeSupport.centerCrop(width, height, request.width.toDouble() / request.height)
+}
 
 /** One stored result. */
 data class GeneratedImage(val galleryId: String, val seed: Long, val width: Int, val height: Int, val durationMs: Long)
@@ -184,7 +195,7 @@ class ImageGenerator @Inject constructor(
                         is DiffusionEvent.Phase -> _state.update { s -> (s as? GenerationState.Running)?.on(event) ?: s }
                         is DiffusionEvent.Progress -> _state.update { s -> (s as? GenerationState.Running)?.on(event) ?: s }
                         is DiffusionEvent.Result -> {
-                            val stored = store(backend, request, event, incognitoOwner)
+                            val stored = store(backend, request, toShape(request, event), incognitoOwner)
                             saved += stored
                             onResult(stored)
                             _state.update { s -> (s as? GenerationState.Running)?.copy(done = s.done + stored.galleryId, preview = event.image, phase = null) ?: s }
@@ -199,7 +210,18 @@ class ImageGenerator @Inject constructor(
         }
     }
 
-    private suspend fun store(backend: DiffusionBackend, request: DiffusionRequest, result: DiffusionEvent.Result, incognitoOwner: String?): GeneratedImage {
+    /**
+     * A backend that renders one fixed size (a Local Dream host with a QNN model, a server that
+     * ignores the size) returns a square for a 16:9 request: the image is cut to the shape asked
+     * for instead of being stored square. Input-image jobs keep the backend's framing.
+     */
+    private suspend fun toShape(request: DiffusionRequest, result: DiffusionEvent.Result): DiffusionEvent.Result {
+        val rect = shapeCrop(request, result.width, result.height) ?: return result
+        val png = withContext(Dispatchers.Default) { ImageCodec.crop(result.image, rect) } ?: return result
+        return DiffusionEvent.Result(result.index, png, result.seed, rect[2], rect[3], result.durationMs, result.info)
+    }
+
+        private suspend fun store(backend: DiffusionBackend, request: DiffusionRequest, result: DiffusionEvent.Result, incognitoOwner: String?): GeneratedImage {
         val id = if (incognitoOwner != null) unsaved.newId() else gallery.newId()
         val thumb = withContext(Dispatchers.Default) { ImageCodec.thumbnail(result.image) } ?: result.image
         val effective = request.copy(seed = result.seed, width = result.width, height = result.height, batchCount = 1)

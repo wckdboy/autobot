@@ -96,8 +96,8 @@ import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
 import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.diffusion.Aspect
 import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionMode
 import dev.wckdboy.autobot.core.diffusion.MaskEncoding
@@ -105,6 +105,9 @@ import dev.wckdboy.autobot.core.diffusion.PromptSyntax
 import dev.wckdboy.autobot.core.diffusion.engine.LocalSseEngine
 import dev.wckdboy.autobot.core.diffusion.engine.OnDeviceEngine
 import dev.wckdboy.autobot.feature.imagine.mask.MaskEditorDialog
+import dev.wckdboy.autobot.feature.imagine.viewer.ImageViewer
+import dev.wckdboy.autobot.feature.imagine.viewer.ViewerAction
+import androidx.compose.ui.platform.LocalContext
 import dev.wckdboy.autobot.feature.imagine.mask.MaskOverlay
 import dev.wckdboy.autobot.shared.panic.IncognitoImages
 import dev.wckdboy.autobot.shared.panic.PanicCopy
@@ -113,8 +116,12 @@ import dev.wckdboy.autobot.shared.studio.PromptSnippet
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-/** One-shot instruction from the gallery (reuse parameters / use as init). */
-data class GalleryHandoff(val galleryId: String, val asInit: Boolean)
+/** One-shot instruction from the gallery or a viewer elsewhere (reuse settings, img2img, inpaint, vary…). */
+data class GalleryHandoff(
+    val galleryId: String,
+    val asInit: Boolean = false,
+    val action: ViewerAction = if (asInit) ViewerAction.IMG2IMG else ViewerAction.SAME_SEED,
+)
 
 @Composable
 fun ImagineRoute(
@@ -135,17 +142,16 @@ fun ImagineRoute(
         if (prompt != null && !promptApplied) viewModel.setPrompt(prompt)
         promptApplied = true
     }
+    // Once per screen, like the prompt: coming back from the gallery must not apply it again.
+    var handoffApplied by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(handoff) {
-        handoff ?: return@LaunchedEffect
-        viewModel.reuseParams(handoff.galleryId)
-        if (handoff.asInit) viewModel.useAsInit(handoff.galleryId)
+        if (handoff != null && !handoffApplied) viewModel.handoff(handoff.galleryId, handoff.action)
+        handoffApplied = true
     }
     LaunchedEffect(modelId) { modelId?.let(viewModel::useModel) }
     ImagineScreen(state, viewModel, onBack, onOpenGallery, onOpenBackends, onOpenModels, onOpenStudio)
 }
 
-private val ASPECTS = listOf("1:1" to (1 to 1), "2:3" to (2 to 3), "3:2" to (3 to 2), "3:4" to (3 to 4), "4:3" to (4 to 3), "9:16" to (9 to 16), "16:9" to (16 to 9))
-private val BASES = listOf(512, 768, 1024)
 private val IMAGE_NEGATIVES = setOf("neg-general", "neg-anatomy", "neg-photo")
 private val DEFAULT_SAMPLERS = listOf("DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "LCM", "DDIM", "UniPC")
 
@@ -163,6 +169,13 @@ fun ImagineScreen(
 ) {
     var showTune by rememberSaveable { mutableStateOf(false) }
     var showMask by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.openMask) {
+        if (state.openMask) {
+            showMask = true
+            actions.maskOpened()
+        }
+    }
+    val context = LocalContext.current
     var selected by rememberSaveable { mutableIntStateOf(-1) }
     val request = state.request
     // The empty proofs are living paper; they hold still while an image is being made.
@@ -247,7 +260,7 @@ fun ImagineScreen(
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BigReadout("Steps", request.steps.toString(), onClick = { showTune = true })
                 BigReadout("Seed", if (request.seed < 0) "rnd" else request.seed.toString().takeLast(6), onClick = { showTune = true })
-                BigReadout("Size", sizeLabel(request.width, request.height), onClick = { showTune = true })
+                BigReadout("Size", state.outputSize.let { (w, h) -> sizeLabel(w, h) }, onClick = { showTune = true })
                 BigReadout("Batch", request.batchCount.toString(), onClick = { showTune = true })
             }
             Hairline(color = MaterialTheme.colorScheme.onBackground)
@@ -256,13 +269,18 @@ fun ImagineScreen(
                 InitStrip(state, actions, onEditMask = { showMask = true })
             }
 
-            ProofGrid(state, selected, ambient, onSelect = { selected = it })
+            // A tap opens the result full size (zoom, swipe through the batch, img2img and more).
+            ProofGrid(state, selected, ambient, onSelect = { i ->
+                selected = i
+                state.results.getOrNull(i)?.let { actions.openViewer(it.galleryId) }
+            })
 
             state.results.getOrNull(selected.coerceAtLeast(0))?.takeIf { state.running == null }?.let { result ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     MicroLabel("seed ${result.seed} · ${result.width}×${result.height} · ${String.format(Locale.ROOT, "%.1f", result.durationMs / 1000f)} s", Modifier.weight(1f))
+                    Tag("view", onClick = { actions.openViewer(result.galleryId) })
                     Tag("↺ seed", accent = MaterialTheme.colorScheme.primary, onClick = { actions.setSeed(result.seed) })
-                    Tag("→ img2img", onClick = { actions.useAsInit(result.galleryId) })
+                    Tag("→ img2img", accent = AutobotTheme.inks.uv, onClick = { actions.handoff(result.galleryId, ViewerAction.IMG2IMG) })
                 }
                 if (IncognitoImages.isUnsaved(result.galleryId)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -280,6 +298,18 @@ fun ImagineScreen(
     }
 
     if (showTune) TuneSheet(state, actions, onDismiss = { showTune = false }, onOpenBackends = onOpenBackends)
+    state.viewing?.let { id ->
+        ImageViewer(
+            items = state.resultItems,
+            initialId = id,
+            loadImage = actions.images::image,
+            onAction = { action, item -> actions.viewerAction(action, item) { intent -> context.startActivity(intent) } },
+            onDismiss = actions::closeViewer,
+            actionsFor = { ViewerAction.forImage(it.id, state.canUpscale) },
+            params = actions.images::params,
+            busy = state.viewerBusy,
+        )
+    }
     if (showMask && state.initImage != null) {
         MaskEditorDialog(
             image = state.initImage,
@@ -361,7 +391,9 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient,
     val running = state.running
     val count = if (running != null) running.batch.coerceAtLeast(1) else state.results.size
     val slots = count.coerceAtLeast(1).coerceAtMost(4)
-    val ratio = (state.request.width.toFloat() / state.request.height).coerceIn(0.5f, 2f)
+    // The shape of what is shown: the results as they came out, else what the next run makes.
+    val shown = state.results.firstOrNull()?.takeIf { running == null }?.let { it.width to it.height } ?: state.outputSize
+    val ratio = (shown.first.toFloat() / shown.second.coerceAtLeast(1)).coerceIn(0.5f, 2f)
     val cols = if (slots == 1) 1 else 2
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         for (row in 0 until (slots + cols - 1) / cols) {
@@ -379,7 +411,7 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient,
                             .aspectRatio(ratio)
                             .background(MaterialTheme.colorScheme.surfaceContainerLow)
                             .then(if (i == selected && result != null) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
-                            .clickable(enabled = result != null) { onSelect(i) },
+                            .clickable(enabled = result != null, onClickLabel = "View full size") { onSelect(i) },
                     ) {
                         // Results that arrive while we watch get printed; ones already there just show.
                         val sampled = remember { booleanArrayOf(false) }
@@ -539,7 +571,8 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
                 }
                 Switch(checked = state.incognito, onCheckedChange = actions::setIncognito)
             }
-            val modes = caps?.modes?.let { m -> DiffusionMode.entries.filter { it in m } } ?: DiffusionMode.entries
+            val traits = state.traits
+            val modes = DiffusionMode.entries.filter { it in traits.modes }
             Segmented(modes, request.mode, actions::setMode, { it.label }, Modifier.fillMaxWidth().inkStagger(1))
 
             ConsoleTextField(request.negativePrompt, actions::setNegative, Modifier.fillMaxWidth().inkStagger(2), label = "Negative", minLines = 2, maxLines = 5, mono = true)
@@ -568,16 +601,7 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
             ValueSlider("Steps", request.steps.toFloat(), { actions.setSteps(it.toInt()) }, 1f..(caps?.maxSteps ?: 150).toFloat(), Modifier.inkStagger(4), format = { it.toInt().toString() })
             ValueSlider("CFG", request.cfgScale, actions::setCfg, 1f..20f, Modifier.inkStagger(5), format = { String.format(Locale.ROOT, "%.1f", it) })
 
-            MicroLabel("size · ${request.width}×${request.height}")
-            var base by rememberSaveable { mutableIntStateOf(512) }
-            Segmented(BASES, base, { base = it }, { "$it" }, Modifier.fillMaxWidth())
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                ASPECTS.forEach { (label, ratio) ->
-                    val (w, h) = aspectSize(base, ratio)
-                    val active = w == request.width && h == request.height
-                    Tag(label, accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = active, onClick = { actions.setSize(w, h) })
-                }
-            }
+            SizeControls(state, actions)
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Column(Modifier.weight(1f)) {
@@ -601,9 +625,14 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MicroLabel("lora", Modifier.weight(1f))
-                if (caps?.runtimeLora == true) Tag("+ add", accent = MaterialTheme.colorScheme.primary, onClick = { showLoras = true })
+                if (traits.runtimeLora) Tag("+ add", accent = MaterialTheme.colorScheme.primary, onClick = { showLoras = true })
             }
-            if (caps?.runtimeLora == false) MicroLabel("this backend runs a fixed model; merge loras before conversion")
+            if (!traits.runtimeLora) {
+                MicroLabel(
+                    if (request.loras.isEmpty()) "this model runs a fixed graph; merge loras before conversion" else "this model runs a fixed graph: the loras below are not applied",
+                    maxLines = 3,
+                )
+            }
             request.loras.forEach { lora ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ValueSlider(lora.name, lora.weight, { actions.setLoraWeight(lora.name, it) }, -1f..2f, Modifier.weight(1f))
@@ -618,12 +647,37 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
     }
 }
 
-private fun aspectSize(base: Int, ratio: Pair<Int, Int>): Pair<Int, Int> {
-    val (rw, rh) = ratio
-    val area = base.toDouble() * base
-    val w = kotlin.math.sqrt(area * rw / rh)
-    val h = area / w
-    return PromptSyntax.snap(w.toInt()) to PromptSyntax.snap(h.toInt())
+/**
+ * Pixel budget and shape. Every shape chip names the size it makes on this model, the budget
+ * follows the current request, and a model compiled for one square says so (other shapes are cut
+ * from it) instead of quietly rendering the square.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SizeControls(state: ImagineUiState, actions: ImagineViewModel) {
+    val request = state.request
+    val traits = state.traits
+    val sizes = traits.sizes
+    val (outW, outH) = state.outputSize
+    MicroLabel("size · ${outW}×$outH" + if (outW != request.width || outH != request.height) " (asked ${request.width}×${request.height})" else "")
+    if (sizes.bases.size > 1) {
+        Segmented(sizes.bases, sizes.baseOf(request.width, request.height), actions::setBase, { "~$it²" }, Modifier.fillMaxWidth())
+    }
+    val current = Aspect.of(outW, outH)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Aspect.ALL.forEach { aspect ->
+            val active = aspect == current
+            val (w, h) = sizes.size(sizes.baseOf(request.width, request.height), aspect)
+            Tag(
+                "${aspect.label} · ${w}×$h",
+                Modifier.semantics { contentDescription = "${aspect.label}, $w by $h pixels" },
+                accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                filled = active,
+                onClick = { actions.setAspect(aspect) },
+            )
+        }
+    }
+    traits.sizeNote?.let { MicroLabel(it, color = MaterialTheme.colorScheme.primary, maxLines = 3) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

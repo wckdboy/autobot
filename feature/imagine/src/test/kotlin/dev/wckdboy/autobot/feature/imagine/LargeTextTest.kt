@@ -10,6 +10,9 @@ import dev.wckdboy.autobot.feature.imagine.gallery.GalleryUiState
 import dev.wckdboy.autobot.feature.imagine.generate.ImagineScreen
 import dev.wckdboy.autobot.feature.imagine.generate.ImagineUiState
 import dev.wckdboy.autobot.feature.imagine.generate.ModelChip
+import dev.wckdboy.autobot.feature.imagine.viewer.ImageViewerContent
+import dev.wckdboy.autobot.feature.imagine.viewer.InfoSheet
+import dev.wckdboy.autobot.feature.imagine.viewer.ViewerAction
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -46,6 +49,28 @@ class LargeTextTest {
     private fun auditGallery(width: Int, scale: Float) = LargeTextAudit.render(compose, "gallery", width, scale, heightDp = 800) {
         Themed { GalleryScreen(GalleryUiState(loaded = true), LargeTextAudit.uncalled(), onBack = {}, onReuse = { _, _ -> }) }
     }
+
+    private val viewed = dev.wckdboy.autobot.core.data.model.GalleryItem(
+        id = "g1", createdAt = 0, mode = "TXT2IMG", prompt = "a lighthouse on a cliff at dusk, film grain", negativePrompt = "blurry",
+        width = 1368, height = 768, seed = 4242, steps = 30, cfgScale = 6f, sampler = "DPM++ 2M", engine = "This phone", model = "sdxl", durationMs = 2500, paramsJson = "{}",
+    )
+
+    // The viewer's chrome over a loading image, and its info sheet.
+    private fun auditViewer(width: Int, scale: Float) = LargeTextAudit.render(compose, "viewer", width, scale, heightDp = 800) {
+        Themed {
+            ImageViewerContent(listOf(viewed, viewed.copy(id = "g2")), "g1", { null }, { _, _ -> }, {}, actionsFor = { ViewerAction.forImage(it.id, true) })
+        }
+    }
+
+    private fun auditInfo(width: Int, scale: Float) = LargeTextAudit.render(compose, "viewer-info", width, scale) {
+        Themed { androidx.compose.material3.Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerLow) { InfoSheet(viewed, 1368 to 768, null, onCopy = {}) } }
+    }
+
+    @Test fun viewerDefaultTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditViewer(411, 1f))
+
+    @Test fun viewerLargestTextFitsOnANarrowPhone() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditViewer(360, 2f))
+
+    @Test fun viewerInfoLargestTextFitsOnANarrowPhone() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditInfo(360, 2f))
 
     @Test fun imagineDefaultTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditImagine(411, 1f))
 

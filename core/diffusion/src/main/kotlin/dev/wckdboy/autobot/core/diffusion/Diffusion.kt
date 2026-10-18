@@ -104,6 +104,21 @@ data class EngineCapabilities(
     val hires: Boolean = false,
     /** Takes [DiffusionRequest.vae]. */
     val vae: Boolean = false,
+) {
+    /** The sizes this backend renders (per model where [DiffusionEngine.traits] says otherwise). */
+    val sizes: SizeSupport get() = SizeSupport(multiple = sizeMultiple)
+}
+
+/**
+ * What one model can do where it differs from its backend's [EngineCapabilities]: an NPU
+ * package compiled for one square, a graph that cannot take LoRAs or an input image.
+ */
+data class ModelTraits(
+    val sizes: SizeSupport = SizeSupport(),
+    val modes: Set<DiffusionMode> = DiffusionMode.entries.toSet(),
+    val runtimeLora: Boolean = true,
+    /** Why the sizes are limited, for the UI (e.g. "compiled for 1024² on the NPU"). */
+    val sizeNote: String? = null,
 )
 
 /** Discoverable resources of a backend. */

@@ -66,6 +66,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.GalleryItem
+import dev.wckdboy.autobot.feature.imagine.viewer.ImageViewer
+import dev.wckdboy.autobot.feature.imagine.viewer.ViewerAction
+import androidx.compose.ui.platform.LocalContext
 import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
@@ -85,12 +88,14 @@ import kotlinx.coroutines.launch
 @Composable
 fun GalleryRoute(
     onBack: (() -> Unit)?,
-    onReuse: (galleryId: String, asInit: Boolean) -> Unit,
+    onReuse: (galleryId: String, action: ViewerAction) -> Unit,
     openId: String? = null,
+    /** Images to swipe through when opened on [openId] from elsewhere (a chat's batch); empty = the whole gallery. */
+    scope: List<String> = emptyList(),
     viewModel: GalleryViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(openId) { openId?.let(viewModel::open) }
+    LaunchedEffect(openId) { openId?.let { viewModel.open(it, scope, returnOnClose = true) } }
     GalleryScreen(state, viewModel, onBack, onReuse)
 }
 
@@ -99,7 +104,7 @@ fun GalleryScreen(
     state: GalleryUiState,
     actions: GalleryViewModel,
     onBack: (() -> Unit)?,
-    onReuse: (galleryId: String, asInit: Boolean) -> Unit,
+    onReuse: (galleryId: String, action: ViewerAction) -> Unit,
 ) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) {
@@ -163,17 +168,23 @@ fun GalleryScreen(
     }
 
     state.open?.let { item ->
-        DetailDialog(
-            item = item,
-            image = state.openImage,
-            parameters = actions.parametersText(item),
-            onClose = actions::close,
-            onFavorite = { actions.toggleFavorite(item) },
-            onReuse = { actions.close(); onReuse(item.id, false) },
-            onInit = { actions.close(); onReuse(item.id, true) },
-            onExport = { actions.export(item) },
-            onUpscale = { actions.upscale(item) },
-            onDelete = { actions.delete(item) },
+        val context = LocalContext.current
+        ImageViewer(
+            items = state.viewerItems,
+            initialId = item.id,
+            loadImage = actions.images::image,
+            onAction = { action, current ->
+                if (action.handoff) {
+                    actions.close()
+                    onReuse(current.id, action)
+                } else {
+                    actions.act(action, current) { intent -> context.startActivity(intent) }
+                }
+            },
+            onDismiss = { if (state.returnOnClose && onBack != null) onBack() else actions.close() },
+            actionsFor = { ViewerAction.forImage(it.id, state.canUpscale) },
+            params = actions.images::params,
+            busy = state.busy,
         )
     }
 }
@@ -190,127 +201,6 @@ private fun Thumb(item: GalleryItem, actions: GalleryViewModel, onClick: () -> U
         bitmap?.let { Image(it, contentDescription = item.prompt.take(60), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         Box(Modifier.align(Alignment.TopEnd).stamp(item.favorite, enabled = item.favorite)) {
             if (item.favorite) Icon(Icons.Filled.Star, null, tint = AutobotTheme.inks.amber, modifier = Modifier.padding(4.dp).size(14.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun DetailDialog(
-    item: GalleryItem,
-    image: ImageBitmap?,
-    parameters: String,
-    onClose: () -> Unit,
-    onFavorite: () -> Unit,
-    onReuse: () -> Unit,
-    onInit: () -> Unit,
-    onExport: () -> Unit,
-    onUpscale: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var confirmDelete by rememberSaveable { mutableStateOf(false) }
-    var confirmExport by rememberSaveable { mutableStateOf(false) }
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceContainerLowest) {
-            Column(Modifier.statusBarsPadding().navigationBarsPadding()) {
-                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Close") }
-                    MicroLabel(DateUtils.getRelativeTimeSpanString(item.createdAt).toString(), Modifier.weight(1f))
-                    IconButton(onClick = onFavorite) {
-                        Icon(
-                            Icons.Filled.Star,
-                            "Favorite",
-                            tint = if (item.favorite) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.stamp(item.favorite, enabled = item.favorite),
-                        )
-                    }
-                }
-                Hairline()
-                ZoomableImage(image, Modifier.fillMaxWidth().weight(1f))
-                Hairline()
-                Column(
-                    Modifier.fillMaxWidth().weight(0.8f).verticalScroll(rememberScrollState()).padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    MicroLabel("Prompt")
-                    Text(item.prompt, style = AutobotTheme.styles.code)
-                    if (item.negativePrompt.isNotBlank()) {
-                        MicroLabel("Negative")
-                        Text(item.negativePrompt, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Readout("Seed", item.seed.toString(), valueColor = MaterialTheme.colorScheme.primary)
-                        Readout("Size", "${item.width}×${item.height}")
-                        Readout("Steps", item.steps.toString())
-                        Readout("CFG", String.format(Locale.ROOT, "%.1f", item.cfgScale))
-                        Readout("Sampler", item.sampler)
-                        Readout("Mode", item.mode.lowercase())
-                        Readout("Engine", item.engine)
-                        Readout("Time", String.format(Locale.ROOT, "%.1fs", item.durationMs / 1000f))
-                        item.model?.let { Readout("Model", it) }
-                    }
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Tag("reuse params", accent = MaterialTheme.colorScheme.primary, onClick = onReuse)
-                        Tag("→ img2img", accent = AutobotTheme.inks.uv, onClick = onInit)
-                        Tag("upscale 4×", accent = MaterialTheme.colorScheme.primary, onClick = onUpscale)
-                        Tag(
-                            "copy params",
-                            accent = MaterialTheme.colorScheme.onSurfaceVariant,
-                            onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("parameters", parameters))) } },
-                        )
-                        Tag("export", accent = AutobotTheme.inks.amber, onClick = { confirmExport = true })
-                        Tag("delete", accent = MaterialTheme.colorScheme.error, onClick = { confirmDelete = true })
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-            }
-        }
-    }
-    if (confirmExport) {
-        AlertDialog(
-            onDismissRequest = { confirmExport = false },
-            title = { Text("Export unencrypted copy?") },
-            text = { Text("A plain image will be written to Pictures/Autobot, where other apps and backups can read it.") },
-            confirmButton = { TextButton(onClick = { confirmExport = false; onExport() }) { Text("EXPORT") } },
-            dismissButton = { TextButton(onClick = { confirmExport = false }) { Text("CANCEL") } },
-        )
-    }
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete image?") },
-            text = { Text("The encrypted file and its parameters are removed. This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("DELETE", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("CANCEL") } },
-        )
-    }
-}
-
-@Composable
-private fun ZoomableImage(image: ImageBitmap?, modifier: Modifier) {
-    var scale by remember(image) { mutableFloatStateOf(1f) }
-    var offset by remember(image) { mutableStateOf(Offset.Zero) }
-    val transform = rememberTransformableState { _, zoom, pan, _ ->
-        scale = (scale * zoom).coerceIn(1f, 8f)
-        offset = if (scale == 1f) Offset.Zero else offset + pan
-    }
-    Box(modifier.transformable(transform), contentAlignment = Alignment.Center) {
-        if (image == null) {
-            InkLoaderBlock("decrypting")
-        } else {
-            Image(
-                image,
-                contentDescription = "Generated image",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offset.x
-                    translationY = offset.y
-                },
-            )
         }
     }
 }

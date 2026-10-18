@@ -27,6 +27,7 @@ dependencies {
     implementation(projects.core.network)
     implementation(projects.agent.runtime)
 
+    implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -35,4 +36,5 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.activity.compose)
 }

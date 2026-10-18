@@ -44,6 +44,7 @@ import dev.wckdboy.autobot.feature.imagine.backends.BackendsRoute
 import dev.wckdboy.autobot.feature.imagine.gallery.GalleryRoute
 import dev.wckdboy.autobot.feature.imagine.generate.GalleryHandoff
 import dev.wckdboy.autobot.feature.imagine.generate.ImagineRoute
+import dev.wckdboy.autobot.feature.imagine.viewer.ViewerAction
 import dev.wckdboy.autobot.feature.models.AccountsRoute
 import dev.wckdboy.autobot.feature.models.ComputeRoute
 import dev.wckdboy.autobot.feature.models.ModelsRoute
@@ -210,6 +211,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                             onOpenProviders = { navigate(Providers) },
                             onOpenGallery = { navigate(Gallery()) },
+                            onOpenImage = { id, batch -> navigate(Gallery(openId = id, scope = batch)) },
                             onOpenUsage = { navigate(Usage) },
                         )
                     }
@@ -221,7 +223,10 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                                 onOpenBackends = { navigate(ImageBackends) },
                                 onOpenModels = { switchTo(Models) },
                                 onOpenStudio = { navigate(Studio()) },
-                                handoff = key.handoffId?.let { GalleryHandoff(it, key.asInit) },
+                                handoff = key.handoffId?.let { id ->
+                                    val action = key.action?.let { name -> ViewerAction.entries.firstOrNull { it.name == name } }
+                                    if (action != null) GalleryHandoff(id, action = action) else GalleryHandoff(id, key.asInit)
+                                },
                                 modelId = key.modelId,
                                 prompt = key.prompt,
                             )
@@ -240,7 +245,8 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                         GalleryRoute(
                             onBack = ::back,
                             openId = key.openId,
-                            onReuse = { id, asInit -> navigate(Imagine(id, asInit)) },
+                            scope = key.scope,
+                            onReuse = { id, action -> navigate(Imagine(id, asInit = action == ViewerAction.IMG2IMG, action = action.name)) },
                         )
                     }
                     entry<Providers> { ProvidersRoute(onBack = ::back) }

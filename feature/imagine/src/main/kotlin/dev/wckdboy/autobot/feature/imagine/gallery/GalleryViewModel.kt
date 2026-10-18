@@ -1,9 +1,7 @@
 package dev.wckdboy.autobot.feature.imagine.gallery
 
 import android.app.Application
-import android.content.ContentValues
-import android.os.Environment
-import android.provider.MediaStore
+import android.content.Intent
 import android.util.LruCache
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.ImageBitmap
@@ -13,8 +11,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.model.GalleryItem
-import dev.wckdboy.autobot.core.diffusion.Upscaler
 import dev.wckdboy.autobot.feature.imagine.generate.ImageCodec
+import dev.wckdboy.autobot.feature.imagine.viewer.GalleryImages
+import dev.wckdboy.autobot.feature.imagine.viewer.ViewerAction
+import dev.wckdboy.autobot.shared.panic.IncognitoImages
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,8 +34,15 @@ data class GalleryUiState(
     val total: Int = 0,
     val favoritesOnly: Boolean = false,
     val query: String = "",
+    /** The image the viewer is open on. */
     val open: GalleryItem? = null,
-    val openImage: ImageBitmap? = null,
+    /** The viewer's pages: the scope it was opened with (a chat's batch), else the filtered grid. */
+    val viewerItems: List<GalleryItem> = emptyList(),
+    /** Opened from elsewhere (chat, home): closing the viewer goes back there. */
+    val returnOnClose: Boolean = false,
+    val canUpscale: Boolean = false,
+    /** What the viewer is doing, or how it went (saving, upscaling). */
+    val busy: String? = null,
     val message: String? = null,
     val loaded: Boolean = false,
 )
@@ -45,13 +52,18 @@ data class GalleryUiState(
 class GalleryViewModel @Inject constructor(
     application: Application,
     private val gallery: GalleryRepository,
-    private val upscaler: Upscaler,
+    val images: GalleryImages,
 ) : AndroidViewModel(application) {
 
     private data class Local(
         val favoritesOnly: Boolean = false,
         val openId: String? = null,
-        val openImage: ImageBitmap? = null,
+        val scope: List<String> = emptyList(),
+        /** Unsaved incognito items of the scope (in memory, not in the table). */
+        val unsaved: Map<String, GalleryItem> = emptyMap(),
+        val returnOnClose: Boolean = false,
+        val canUpscale: Boolean = false,
+        val busy: String? = null,
         val message: String? = null,
     )
 
@@ -69,13 +81,18 @@ class GalleryViewModel @Inject constructor(
             (!l.favoritesOnly || item.favorite) &&
                 (q.isBlank() || item.prompt.contains(q, ignoreCase = true) || item.engine.contains(q, ignoreCase = true))
         }
+        val byId = all.associateBy { it.id }
+        val pages = viewerPages(l.scope, byId, l.unsaved, filtered, l.openId)
         GalleryUiState(
             items = filtered,
             total = all.size,
             favoritesOnly = l.favoritesOnly,
             query = q,
-            open = all.firstOrNull { it.id == l.openId },
-            openImage = l.openImage,
+            open = l.openId?.let { byId[it] ?: l.unsaved[it] },
+            viewerItems = pages,
+            returnOnClose = l.returnOnClose,
+            canUpscale = l.canUpscale,
+            busy = l.busy,
             message = l.message,
             loaded = true,
         )
@@ -93,111 +110,87 @@ class GalleryViewModel @Inject constructor(
         query.value = text
     }
 
-    fun open(id: String) {
-        local.update { it.copy(openId = id, openImage = null) }
+    /** Opens the viewer on [id]; with a [scope] it swipes through those images only. */
+    fun open(id: String, scope: List<String> = emptyList(), returnOnClose: Boolean = false) {
+        local.update { it.copy(openId = id, scope = scope, returnOnClose = returnOnClose, busy = null) }
         viewModelScope.launch {
-            val image = runCatching { gallery.image(id) }.getOrNull()?.let { withContext(Dispatchers.Default) { ImageCodec.decode(it, 2048)?.asImageBitmap() } }
-            local.update { if (it.openId == id) it.copy(openImage = image) else it }
+            val unsaved = (scope + id).distinct().filter(IncognitoImages::isUnsaved).mapNotNull { u -> gallery.get(u)?.let { u to it } }.toMap()
+            val can = images.canUpscale()
+            local.update { it.copy(unsaved = unsaved, canUpscale = can) }
         }
     }
 
-    fun close() = local.update { it.copy(openId = null, openImage = null) }
+    fun close() = local.update { it.copy(openId = null, scope = emptyList(), returnOnClose = false, busy = null) }
 
-    fun toggleFavorite(item: GalleryItem) {
-        viewModelScope.launch { gallery.setFavorite(item.id, !item.favorite) }
-    }
-
-    fun delete(item: GalleryItem) {
+    /** In-place viewer actions; handoffs to the studio go through navigation. */
+    fun act(action: ViewerAction, item: GalleryItem, launchIntent: (Intent) -> Unit) {
+        // An unsaved incognito image is written nowhere except by Keep.
+        if (IncognitoImages.isUnsaved(item.id) && action !in ViewerAction.UNSAVED) return
         viewModelScope.launch {
-            gallery.delete(item.id)
-            thumbs.remove(item.id)
-            local.update { it.copy(openId = null, openImage = null, message = "Deleted") }
-        }
-    }
-
-    /** Upscales an image 4× on the NPU and stores the result as a new gallery item. */
-    fun upscale(item: GalleryItem) {
-        if (local.value.message?.startsWith("Upscaling") == true) return
-        viewModelScope.launch {
-            local.update { it.copy(message = "Upscaling 4× on the NPU…") }
-            val result = runCatching {
-                val bytes = gallery.image(item.id) ?: error("image unavailable")
-                val started = System.currentTimeMillis()
-                val png = upscaler.upscale(bytes)
-                // Never the 4× PNG itself as the thumbnail: decoding it in the grid would take a 64 MB bitmap.
-                val thumb = withContext(Dispatchers.Default) { ImageCodec.thumbnail(png) } ?: gallery.thumbnail(item.id) ?: error("cannot make a thumbnail")
-                val copy = item.copy(
-                    id = gallery.newId(),
-                    createdAt = System.currentTimeMillis(),
-                    width = item.width * 4,
-                    height = item.height * 4,
-                    engine = item.engine + " · 4× npu",
-                    durationMs = System.currentTimeMillis() - started,
-                    favorite = false,
-                )
-                gallery.save(copy, png, thumb)
-                copy
+            when (action) {
+                ViewerAction.KEEP -> {
+                    val id = runCatching { gallery.keep(item.id) }.getOrNull()
+                    local.update { it.copy(busy = if (id != null) "saved to the gallery" else "could not save") }
+                }
+                ViewerAction.FAVORITE -> images.toggleFavorite(item)
+                ViewerAction.DELETE -> {
+                    // The viewer stays open on the next image (the previous one at the end), or closes.
+                    val pages = uiState.value.viewerItems
+                    val at = pages.indexOfFirst { it.id == item.id }
+                    val next = pages.getOrNull(at + 1) ?: pages.getOrNull(at - 1)
+                    images.delete(item.id)
+                    thumbs.remove(item.id)
+                    local.update { it.copy(openId = next?.id, scope = it.scope - item.id, message = "Deleted") }
+                }
+                ViewerAction.SAVE -> {
+                    local.update { it.copy(busy = "saving…") }
+                    val ok = images.export(item)
+                    local.update { it.copy(busy = if (ok) "saved to Pictures/Autobot" else "could not save") }
+                }
+                ViewerAction.SHARE -> images.shareIntent(item)?.let(launchIntent) ?: local.update { it.copy(busy = "could not share") }
+                ViewerAction.UPSCALE -> upscale(item)
+                else -> Unit
             }
-            local.update {
-                result.fold(
-                    { copy -> it.copy(openId = copy.id, openImage = null, message = "Upscaled to ${copy.width}×${copy.height}") },
-                    { e -> it.copy(message = "Upscale failed: ${e.message}") },
-                )
-            }
-            result.getOrNull()?.let { open(it.id) }
         }
     }
 
-    /**
-     * Writes a decrypted copy to `Pictures/Autobot` via MediaStore (no storage permission). This
-     * deliberately leaves the encrypted vault, so the UI asks first.
-     */
-    fun export(item: GalleryItem) {
-        viewModelScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                // Storage can refuse the new entry (full, no Pictures volume): a message, not a crash.
-                runCatching { exportNow(item) }.getOrDefault(false)
-            }
-            local.update { it.copy(message = if (ok) "Exported to Pictures/Autobot" else "Export failed") }
+    /** Upscales an image 4× on the NPU, stores it as a new item and shows it. */
+    private suspend fun upscale(item: GalleryItem) {
+        if (local.value.busy?.startsWith("upscaling") == true) return
+        local.update { it.copy(busy = "upscaling 4× on the npu…") }
+        val result = runCatching { images.upscale(item) }
+        local.update {
+            result.fold(
+                // Shown at once: the viewer moves to the new image (in the grid's order it is first).
+                { copy -> it.copy(openId = copy.id, scope = if (it.scope.isEmpty()) it.scope else listOf(copy.id) + it.scope, busy = "upscaled to ${copy.width}×${copy.height}") },
+                { e -> it.copy(busy = "upscale failed: ${e.message}") },
+            )
         }
-    }
-
-    private suspend fun exportNow(item: GalleryItem): Boolean {
-        val bytes = gallery.image(item.id) ?: return false
-        val png = bytes.size > 8 && bytes[1] == 'P'.code.toByte() && bytes[2] == 'N'.code.toByte()
-        val resolver = getApplication<Application>().contentResolver
-        val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "autobot_${item.createdAt}_${item.seed}.${if (png) "png" else "jpg"}")
-            put(MediaStore.Images.Media.MIME_TYPE, if (png) "image/png" else "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Autobot")
-            put(MediaStore.Images.Media.IS_PENDING, 1)
-        }
-        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
-        return runCatching {
-            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no stream")
-            resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
-        }.onFailure { runCatching { resolver.delete(uri, null, null) } }.isSuccess
-    }
-
-    /** A1111-style "parameters" text, for pasting into other tools. */
-    fun parametersText(item: GalleryItem): String = buildString {
-        append(item.prompt)
-        if (item.negativePrompt.isNotBlank()) append("\nNegative prompt: ").append(item.negativePrompt)
-        append("\nSteps: ").append(item.steps)
-        append(", Sampler: ").append(item.sampler)
-        append(", CFG scale: ").append(item.cfgScale)
-        append(", Seed: ").append(item.seed)
-        append(", Size: ").append(item.width).append('x').append(item.height)
-        item.model?.let { append(", Model: ").append(it) }
     }
 
     fun consumeMessage() = local.update { it.copy(message = null) }
 
-    private companion object {
-        const val THUMB_CACHE_KB = 32 * 1024
-        const val QUERY_DEBOUNCE_MS = 150L
+    companion object {
+        private const val THUMB_CACHE_KB = 32 * 1024
+        private const val QUERY_DEBOUNCE_MS = 150L
 
         /** Grid cells are small; a thumbnail is never decoded larger than this. */
-        const val THUMB_SIDE = 512
+        private const val THUMB_SIDE = 512
+
+        /**
+         * The viewer's pages: the [scope]'s images in its order (gallery rows, else unsaved ones),
+         * or the [filtered] grid; an [openId] outside the grid (filtered out) is still shown.
+         */
+        internal fun viewerPages(
+            scope: List<String>,
+            byId: Map<String, GalleryItem>,
+            unsaved: Map<String, GalleryItem>,
+            filtered: List<GalleryItem>,
+            openId: String?,
+        ): List<GalleryItem> {
+            if (scope.isNotEmpty()) return scope.mapNotNull { byId[it] ?: unsaved[it] }
+            if (openId == null || filtered.any { it.id == openId }) return filtered
+            return listOfNotNull(byId[openId] ?: unsaved[openId])
+        }
     }
 }

@@ -156,6 +156,8 @@ fun ChatRoute(
     onOpenProviders: () -> Unit,
     onOpenGallery: () -> Unit = {},
     onOpenUsage: () -> Unit = {},
+    /** A generated image full size ([id], swiping through its [batch]). */
+    onOpenImage: (id: String, batch: List<String>) -> Unit = { _, _ -> onOpenGallery() },
 ) {
     val viewModel = hiltViewModel<ChatViewModel, ChatViewModel.Factory>(key = conversationId) { factory ->
         factory.create(conversationId)
@@ -168,6 +170,7 @@ fun ChatRoute(
     ChatScreen(
         state, viewModel, onBack, onOpenPrivacyCenter, onOpenProviders, onOpenGallery,
         live = { live.value }, micLevels = { levels.value }, liveDictation = { words.value }, onOpenUsage = onOpenUsage,
+        onOpenImage = onOpenImage,
     )
 }
 
@@ -230,6 +233,8 @@ fun ChatScreen(
     micLevels: () -> List<Float> = { emptyList() },
     /** The spend and quota board (from a receipt's token line). */
     onOpenUsage: () -> Unit = {},
+    /** A generated image full size ([id], swiping through its [batch]). */
+    onOpenImage: (id: String, batch: List<String>) -> Unit = { _, _ -> onOpenGallery() },
     /** Words heard so far while dictating or listening: read by the live words line only. */
     liveDictation: () -> DictationText? = { null },
 ) {
@@ -325,7 +330,7 @@ fun ChatScreen(
                         running = state.running,
                         actions = actions,
                         onReceipt = onReceipt,
-                        onOpenGallery = onOpenGallery,
+                        onOpenImage = onOpenImage,
                     )
                 }
                 if (empty) {
@@ -442,7 +447,7 @@ private fun TranscriptRow(
     running: Boolean,
     actions: ChatActions,
     onReceipt: (Receipt) -> Unit,
-    onOpenGallery: () -> Unit,
+    onOpenImage: (String, List<String>) -> Unit,
 ) {
     chatCompositionProbe?.invoke("rowBody")
     Box(Modifier.inkEnter(fresh)) {
@@ -462,7 +467,7 @@ private fun TranscriptRow(
             is SessionItem.Tool -> if (approval != null) {
                 ApprovalCard(stepNumber, item, approval, actions, ghost)
             } else {
-                StepRow(stepNumber, item, actions, onOpenGallery, running)
+                StepRow(stepNumber, item, actions, onOpenImage, running)
             }
             is SessionItem.Notice -> NoticeRow(item)
         }
@@ -557,7 +562,7 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
 
 /** `01  Read file / read · notes.md   ✓ 0.4 s` */
 @Composable
-private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, onOpenGallery: () -> Unit, running: Boolean = false) {
+private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, onOpenImage: (String, List<String>) -> Unit, running: Boolean = false) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
     // Images this row saw being made get printed in; older ones just show.
     val watched = remember(item.key) { booleanArrayOf(false) }
@@ -655,11 +660,16 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 item.galleryIds.forEach { id ->
                     val bitmap by produceState<ImageBitmap?>(null, id) { value = actions.thumbnail(id) }
-                    // An incognito image is in memory only until saved; only a saved one is in the gallery.
+                    // An incognito image is in memory only until saved: it opens full size from memory
+                    // (the viewer writes it nowhere but through Save); a saved one opens as its gallery copy.
                     val unsaved = IncognitoImages.isUnsaved(id)
-                    val inGallery = !unsaved || saved.containsKey(id)
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Box(Modifier.size(120.dp).background(MaterialTheme.colorScheme.surfaceContainerLow).clickable(enabled = inGallery, onClick = onOpenGallery)) {
+                        Box(
+                            Modifier
+                                .size(120.dp)
+                                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                .clickable(onClickLabel = "View full size") { onOpenImage(saved[id] ?: id, item.galleryIds.map { saved[it] ?: it }) },
+                        ) {
                             bitmap?.let { PrintReveal(it, Modifier.fillMaxSize(), animate = watched[0], contentDescription = "Generated image") }
                         }
                         if (unsaved && bitmap != null) {

@@ -11,7 +11,9 @@ import dev.wckdboy.autobot.agent.core.tools.string
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackendRepository
 import dev.wckdboy.autobot.core.diffusion.DiffusionException
 import dev.wckdboy.autobot.core.diffusion.DiffusionMode
-import dev.wckdboy.autobot.core.diffusion.PromptSyntax
+import dev.wckdboy.autobot.core.diffusion.Aspect
+import dev.wckdboy.autobot.core.diffusion.DiffusionRequest
+import dev.wckdboy.autobot.core.diffusion.resolveSize
 import dev.wckdboy.autobot.shared.panic.IncognitoImages
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonObject
@@ -38,7 +40,8 @@ class GenerateImageTool(
     override val parameters = schema {
         string("prompt", "Positive prompt; {a|b} makes one image per option (same seed)", required = true)
         string("negative_prompt", "What to avoid")
-        integer("width", "Width in px (multiple of 8)", minimum = 256, maximum = 2048)
+        string("aspect_ratio", "Shape: 1:1, 2:3, 3:2, 3:4, 4:3, 9:16 or 16:9 (or square / portrait / landscape / wide). Keeps the user's resolution")
+        integer("width", "Width in px (multiple of 8); with only aspect_ratio or alone, the height follows the shape", minimum = 256, maximum = 2048)
         integer("height", "Height in px (multiple of 8)", minimum = 256, maximum = 2048)
         integer("steps", "Sampling steps", minimum = 1, maximum = 100)
         integer("seed", "Seed, or -1 for random", minimum = -1)
@@ -53,16 +56,10 @@ class GenerateImageTool(
             ?: return ToolOutput.error("no image backend is configured (Imagine → Backends)", "NO_BACKEND")
         if (generator.isBusy) return ToolOutput.error("the image backend is busy with another job; try again shortly", "BUSY")
         val base = backends.lastRequest.first()
-        val request = base.copy(
-            mode = DiffusionMode.TXT2IMG,
-            prompt = args.string("prompt").orEmpty(),
-            negativePrompt = args.string("negative_prompt") ?: base.negativePrompt,
-            width = args.int("width")?.let { PromptSyntax.snap(it) } ?: base.width,
-            height = args.int("height")?.let { PromptSyntax.snap(it) } ?: base.height,
-            steps = args.int("steps") ?: base.steps,
-            seed = args.long("seed") ?: -1,
-            batchCount = args.int("count") ?: 1,
-        )
+        val request = agentRequest(base, args)
+        if (args.string("aspect_ratio") != null && Aspect.parse(args.string("aspect_ratio")) == null) {
+            return ToolOutput.error("aspect_ratio must look like 16:9, 3:2, 1:1 or be square / portrait / landscape", "BAD_ASPECT")
+        }
         return try {
             val incognito = IncognitoImages.isIncognitoSession(run.sessionId)
             val images = generator.generate(backend, request.calls(), source = GenerationSource.AGENT, incognitoOwner = run.sessionId.takeIf { incognito })
@@ -76,6 +73,29 @@ class GenerateImageTool(
             )
         } catch (e: DiffusionException) {
             ToolOutput.error(e.message ?: "generation failed", "IMAGE_${e.code}")
+        }
+    }
+
+    companion object {
+        /**
+         * The job for [args] on top of the user's [base] settings. The shape is never lost: an aspect
+         * ratio keeps the user's pixel budget, one side alone keeps the shape (asking for width 1344
+         * on a 1024² setup used to give 1344×1024).
+         */
+        fun agentRequest(base: DiffusionRequest, args: JsonObject): DiffusionRequest {
+            val aspectText = args.string("aspect_ratio")
+            val aspect = Aspect.parse(aspectText)
+            val (width, height) = resolveSize(base.width to base.height, args.int("width"), args.int("height"), aspect)
+            return base.copy(
+                mode = DiffusionMode.TXT2IMG,
+                prompt = args.string("prompt").orEmpty(),
+                negativePrompt = args.string("negative_prompt") ?: base.negativePrompt,
+                width = width,
+                height = height,
+                steps = args.int("steps")?.coerceIn(1, 100) ?: base.steps,
+                seed = args.long("seed")?.coerceAtLeast(-1) ?: -1,
+                batchCount = args.int("count")?.coerceIn(1, 4) ?: 1,
+            )
         }
     }
 }

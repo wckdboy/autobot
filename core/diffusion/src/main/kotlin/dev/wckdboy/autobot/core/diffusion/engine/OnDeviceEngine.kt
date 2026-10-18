@@ -9,7 +9,10 @@ import dev.wckdboy.autobot.core.diffusion.DiffusionRequest
 import dev.wckdboy.autobot.core.diffusion.EngineCapabilities
 import dev.wckdboy.autobot.core.diffusion.EngineCatalog
 import dev.wckdboy.autobot.core.diffusion.MaskEncoding
+import dev.wckdboy.autobot.core.diffusion.ModelTraits
 import dev.wckdboy.autobot.core.diffusion.PromptSyntax
+import dev.wckdboy.autobot.core.diffusion.SizeSupport
+import dev.wckdboy.autobot.core.models.NpuPackage
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.InstalledModel
@@ -73,6 +76,11 @@ class OnDeviceEngine(
         val model = all.firstOrNull { it.id == request.model && it.kind == ModelKind.IMAGE }
             ?: all.firstOrNull { it.kind == ModelKind.IMAGE }
             ?: throw DiffusionException("No image model installed — get one in the Models tab", DiffusionException.Code.UNSUPPORTED)
+        // Without its image an img2img job would quietly run as txt2img.
+        if (request.mode != DiffusionMode.TXT2IMG && inputs.initImage == null) {
+            throw DiffusionException("${request.mode.label} needs an input image", DiffusionException.Code.UNSUPPORTED)
+        }
+        if (request.mode == DiffusionMode.INPAINT && inputs.mask == null) throw DiffusionException("Paint a mask first", DiffusionException.Code.UNSUPPORTED)
         if (model.engine == EngineKind.NPU && npuImages != null) {
             llm.unloadModel()
             npuImages.generate(this, model, request, inputs)
@@ -92,26 +100,7 @@ class OnDeviceEngine(
         // Waits for the model being loaded ahead of time (the engine runs requests in order).
         if (sd.isPreparing) emit(DiffusionEvent.Phase(LOADING))
         try {
-            sd.generate(
-                SdRequest(
-                    bundle = bundleOf(model),
-                    prompt = PromptSyntax.stripLoraTags(request.prompt),
-                    negativePrompt = request.negativePrompt,
-                    width = request.width,
-                    height = request.height,
-                    steps = request.steps,
-                    cfg = request.cfgScale,
-                    sampler = samplerId(request.sampler),
-                    scheduler = schedulerId(request.scheduler),
-                    seed = request.seed,
-                    batch = request.batchCount.coerceIn(1, 8),
-                    strength = request.denoiseStrength,
-                    clipSkip = request.clipSkip ?: -1,
-                    loras = loras,
-                    initImagePath = initFile?.path,
-                    maskPath = maskFile?.path,
-                ),
-            ).collect { event -> events.map(event)?.let { emit(it) } }
+            sd.generate(sdRequest(model, request, loras, initFile?.path, maskFile?.path)).collect { event -> events.map(event)?.let { emit(it) } }
         } finally {
             initFile?.delete()
             maskFile?.delete()
@@ -165,6 +154,49 @@ class OnDeviceEngine(
     companion object {
         const val MIN_SIDE = 64
         const val MAX_SIDE = 2048
+
+        /** The stable-diffusion.cpp job for [request] on [model]: every parameter the studio sets. */
+        fun sdRequest(model: InstalledModel, request: DiffusionRequest, loras: List<SdLora>, initPath: String?, maskPath: String?): SdRequest =
+            SdRequest(
+                bundle = bundleOf(model),
+                prompt = PromptSyntax.stripLoraTags(request.prompt),
+                negativePrompt = request.negativePrompt,
+                width = request.width,
+                height = request.height,
+                steps = request.steps,
+                cfg = request.cfgScale,
+                sampler = samplerId(request.sampler),
+                scheduler = schedulerId(request.scheduler),
+                seed = request.seed,
+                batch = request.batchCount.coerceIn(1, 8),
+                strength = request.denoiseStrength,
+                clipSkip = request.clipSkip ?: -1,
+                loras = loras,
+                initImagePath = initPath?.takeIf { request.mode != DiffusionMode.TXT2IMG },
+                maskPath = maskPath?.takeIf { request.mode == DiffusionMode.INPAINT },
+            )
+
+        /** The sizes an NPU/GPU package renders: QNN binaries one square, MNN graphs any multiple of 64. */
+        fun npuSizes(pkg: NpuPackage): SizeSupport =
+            if (pkg.runtime == "qnn") SizeSupport(fixedSide = if (pkg.arch == "sdxl") 1024 else 512) else SizeSupport.MNN
+
+        /**
+         * What [model] can do on this phone: stable-diffusion.cpp takes any size, LoRAs and input
+         * images; an NPU/GPU package has its graph's sizes, no runtime LoRAs, and img2img only
+         * when it ships a VAE encoder.
+         */
+        fun traits(model: InstalledModel): ModelTraits {
+            val pkg = model.manifest.npu
+            if (model.engine != EngineKind.NPU || pkg == null) return ModelTraits(sizes = SizeSupport.SD_CPP)
+            val sizes = npuSizes(pkg)
+            val encoder = FileRole.VAE_ENCODER in model.paths || model.manifest.files.any { it.role == FileRole.VAE_ENCODER }
+            return ModelTraits(
+                sizes = sizes,
+                modes = if (encoder) DiffusionMode.entries.toSet() else setOf(DiffusionMode.TXT2IMG),
+                runtimeLora = false,
+                sizeNote = sizes.fixedSide?.let { "compiled for $it² on the npu · other shapes are cut from the square" },
+            )
+        }
 
         /** Why stable-diffusion.cpp can't run [request] as asked (user-facing), or null when it can. */
         fun validate(request: DiffusionRequest, maxSteps: Int): String? {

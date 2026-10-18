@@ -78,4 +78,23 @@ object ImageCodec {
         Canvas(out).drawBitmap(source, matrix, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
         return out
     }
+
+    /** Pixel size of an encoded image without decoding it, or null when unreadable. */
+    fun bounds(bytes: ByteArray): Pair<Int, Int>? {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
+        return if (o.outWidth > 0 && o.outHeight > 0) o.outWidth to o.outHeight else null
+    }
+
+    /** [bytes] cut to `left, top, width, height` ([rect]) as PNG, or null when unreadable. */
+    fun crop(bytes: ByteArray, rect: IntArray): ByteArray? {
+        val source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val (l, t, w, h) = rect.toList()
+        if (l < 0 || t < 0 || l + w > source.width || t + h > source.height) return null
+        val cut = Bitmap.createBitmap(source, l, t, w, h)
+        return png(cut).also {
+            if (cut !== source) cut.recycle()
+            source.recycle()
+        }
+    }
 }

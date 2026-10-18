@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.studio.ui.image
 
+import dev.wckdboy.autobot.core.diffusion.Aspect
+import dev.wckdboy.autobot.core.diffusion.SizeSupport
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -93,8 +95,6 @@ import dev.wckdboy.autobot.shared.studio.StudioAsset
 import dev.wckdboy.autobot.shared.studio.Wildcards
 import java.util.Locale
 
-private val ASPECTS = listOf("1:1" to (1 to 1), "2:3" to (2 to 3), "3:2" to (3 to 2), "3:4" to (3 to 4), "4:3" to (4 to 3), "9:16" to (9 to 16), "16:9" to (16 to 9))
-private val BASES = listOf(512, 768, 1024)
 private val DEFAULT_SAMPLERS = listOf("DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "LCM", "DDIM", "UniPC")
 
 /**
@@ -378,13 +378,20 @@ private fun SizeControls(state: ImageRoomState, actions: ImageActions) {
         }
         return
     }
-    var base by rememberSaveable { mutableIntStateOf(512) }
-    dev.wckdboy.autobot.core.designsystem.component.Segmented(BASES, base, { base = it }, { "$it" }, Modifier.fillMaxWidth())
+    // The budget follows the request (it reset to 512 each time, so a 16:9 tap after picking
+    // 1024 once gave 680×384), and a shape chip is lit by the request's shape, not an exact size.
+    val sizes = state.capabilities?.sizes ?: SizeSupport()
+    val base = sizes.baseOf(request.width, request.height)
+    dev.wckdboy.autobot.core.designsystem.component.Segmented(sizes.bases, base, { b ->
+        val (w, h) = sizes.size(b, request.width.toDouble() / request.height.coerceAtLeast(1))
+        actions.setSize(w, h)
+    }, { "~$it²" }, Modifier.fillMaxWidth())
+    val shape = Aspect.of(request.width, request.height)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ASPECTS.forEach { (label, ratio) ->
-            val (w, h) = aspectSize(base, ratio, state.capabilities?.sizeMultiple ?: 8)
-            val active = w == request.width && h == request.height
-            Tag(label, accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = active, onClick = { actions.setSize(w, h) })
+        Aspect.ALL.forEach { aspect ->
+            val (w, h) = sizes.size(base, aspect)
+            val active = aspect == shape
+            Tag("${aspect.label} · ${w}×$h", accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = active, onClick = { actions.setSize(w, h) })
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -393,13 +400,6 @@ private fun SizeControls(state: ImageRoomState, actions: ImageActions) {
     }
 }
 
-private fun aspectSize(base: Int, ratio: Pair<Int, Int>, multiple: Int): Pair<Int, Int> {
-    val (rw, rh) = ratio
-    val area = base.toDouble() * base
-    val w = kotlin.math.sqrt(area * rw / rh)
-    val h = area / w
-    return dev.wckdboy.autobot.core.diffusion.PromptSyntax.snap(w.toInt(), multiple) to dev.wckdboy.autobot.core.diffusion.PromptSyntax.snap(h.toInt(), multiple)
-}
 
 /** The input: pick from the library or the phone; img2img strength, inpaint mask, extend canvas. */
 @OptIn(ExperimentalLayoutApi::class)

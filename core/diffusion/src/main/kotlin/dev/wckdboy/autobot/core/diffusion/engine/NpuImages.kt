@@ -13,6 +13,7 @@ import dev.wckdboy.autobot.core.models.Backend
 import dev.wckdboy.autobot.core.models.FileRole
 import dev.wckdboy.autobot.core.models.InstalledModel
 import dev.wckdboy.autobot.core.models.LocalDream
+import dev.wckdboy.autobot.core.models.NpuPackage
 import dev.wckdboy.autobot.engine.npu.LocalNpu
 import dev.wckdboy.autobot.engine.npu.NpuEngineDiedException
 import dev.wckdboy.autobot.engine.npu.NpuEngineUnavailableException
@@ -31,11 +32,14 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
 
     suspend fun generate(out: FlowCollector<DiffusionEvent>, model: InstalledModel, request: DiffusionRequest, inputs: DiffusionInputs) {
         val pkg = model.manifest.npu ?: throw DiffusionException("${model.title} is not an NPU package", DiffusionException.Code.UNSUPPORTED)
-        val qnn = pkg.runtime == "qnn"
-        val native = if (pkg.arch == "sdxl") 1024 else 512
-        // QNN binaries are compiled for one resolution; MNN graphs take any multiple of 64.
-        val width = if (qnn) native else request.width.coerceIn(256, 1536) / 64 * 64
-        val height = if (qnn) native else request.height.coerceIn(256, 1536) / 64 * 64
+        if (request.mode != DiffusionMode.TXT2IMG && FileRole.VAE_ENCODER !in model.paths) {
+            throw DiffusionException("${model.title} has no VAE encoder, so it can only make new images (txt2img)", DiffusionException.Code.UNSUPPORTED)
+        }
+        // QNN binaries are compiled for one square: other shapes are sampled on the square and cut
+        // out of it (an input image sits in the middle). MNN graphs take any multiple of 64.
+        val plan = planFor(pkg, request)
+        val width = plan.width
+        val height = plan.height
         scratchDir.mkdirs()
         val temp = mutableListOf<File>()
         try {
@@ -60,11 +64,11 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
                 .put("out_dir", scratchDir.path)
             if (request.mode != DiffusionMode.TXT2IMG && inputs.initImage != null) {
                 val init = File.createTempFile("init", ".rgb", scratchDir).also(temp::add)
-                init.writeBytes(rgb(inputs.initImage, width, height))
+                init.writeBytes(if (plan.crops) rgb(inputs.initImage, plan) else rgb(inputs.initImage, width, height))
                 json.put("init_image", init.path)
                 if (request.mode == DiffusionMode.INPAINT && inputs.mask != null) {
                     val mask = File.createTempFile("mask", ".gray", scratchDir).also(temp::add)
-                    mask.writeBytes(gray(inputs.mask, width, height))
+                    mask.writeBytes(if (plan.crops) gray(inputs.mask, plan) else gray(inputs.mask, width, height))
                     json.put("mask", mask.path)
                 }
             }
@@ -78,12 +82,14 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
                     is NpuEvent.Image -> {
                         done = event.index + 1
                         val file = File(event.path)
+                        val (w, h) = if (plan.crops && event.width == plan.width && event.height == plan.height) plan.outWidth to plan.outHeight else event.width to event.height
                         val png = try {
-                            png(file.readBytes(), event.width, event.height)
+                            val rgb = file.readBytes()
+                            png(if (w != event.width || h != event.height) cut(rgb, event.width, plan) else rgb, w, h)
                         } finally {
                             file.delete()
                         }
-                        out.emit(DiffusionEvent.Result(event.index, png, event.seed, event.width, event.height, clock() - started, info(model)))
+                        out.emit(DiffusionEvent.Result(event.index, png, event.seed, w, h, clock() - started, info(model)))
                     }
                     is NpuEvent.Result -> JSONObject(event.json).optJSONObject("error")?.let { e ->
                         if (e.optString("code") != "CANCELLED") throw DiffusionException(failure(model, e), DiffusionException.Code.BACKEND)
@@ -165,7 +171,56 @@ internal class NpuImages(private val npu: LocalNpu, private val scratchDir: File
         return listOfNotNull(model.title, if (pkg?.runtime == "qnn") "npu" else "gpu", pkg?.htpArch).joinToString(" · ")
     }
 
+    /**
+     * An NPU job's size: the graph samples [width]×[height]; the image returned is the centred
+     * [outWidth]×[outHeight] of it (a QNN square cut to the shape asked for).
+     */
+    internal data class Plan(val width: Int, val height: Int, val outWidth: Int, val outHeight: Int) {
+        val crops: Boolean get() = outWidth != width || outHeight != height
+        val left: Int get() = (width - outWidth) / 2
+        val top: Int get() = (height - outHeight) / 2
+    }
+
     companion object {
+        internal fun planFor(pkg: NpuPackage, request: DiffusionRequest): Plan {
+            val sizes = OnDeviceEngine.npuSizes(pkg)
+            val (ow, oh) = sizes.output(request.width, request.height)
+            val side = sizes.fixedSide ?: return Plan(ow, oh, ow, oh)
+            return Plan(side, side, ow, oh)
+        }
+
+        /** The [plan]'s centred band out of packed RGB [rgb] that is [w] px wide. */
+        internal fun cut(rgb: ByteArray, w: Int, plan: Plan): ByteArray {
+            val out = ByteArray(plan.outWidth * plan.outHeight * 3)
+            for (y in 0 until plan.outHeight) {
+                System.arraycopy(rgb, ((plan.top + y) * w + plan.left) * 3, out, y * plan.outWidth * 3, plan.outWidth * 3)
+            }
+            return out
+        }
+
+        /**
+         * An input image for a cropping [plan]: the image fills the centred band; above and below
+         * (or beside) it, the same image stretched over the square, so the model sees a plausible
+         * surround it can ignore (the band is all that is kept).
+         */
+        private fun rgb(encoded: ByteArray, plan: Plan): ByteArray {
+            val ground = decodeScaled(encoded, plan.width, plan.height, filter = true, what = "init image")
+            val band = decodeScaled(encoded, plan.outWidth, plan.outHeight, filter = true, what = "init image")
+            val canvas = ground.copy(Bitmap.Config.ARGB_8888, true)
+            ground.recycle()
+            android.graphics.Canvas(canvas).drawBitmap(band, plan.left.toFloat(), plan.top.toFloat(), null)
+            band.recycle()
+            return rgbOf(canvas).also { canvas.recycle() }
+        }
+
+        /** A mask for a cropping [plan]: painted only inside the band (the surround is kept). */
+        private fun gray(encoded: ByteArray, plan: Plan): ByteArray {
+            val band = gray(encoded, plan.outWidth, plan.outHeight)
+            val out = ByteArray(plan.width * plan.height)
+            for (y in 0 until plan.outHeight) System.arraycopy(band, y * plan.outWidth, out, (plan.top + y) * plan.width + plan.left, plan.outWidth)
+            return out
+        }
+
         /** NPU upscalers enlarge 4×. */
         const val UPSCALE = 4
 
