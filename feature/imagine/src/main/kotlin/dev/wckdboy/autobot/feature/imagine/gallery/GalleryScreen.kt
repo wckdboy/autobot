@@ -66,6 +66,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.GalleryItem
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
@@ -111,6 +112,9 @@ fun GalleryScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().hairlineEdge()) {
+                // A large font leaves the title no room beside the count: the count goes on a line under it.
+                val large = isLargeText()
+                val count = "${state.items.size}/${state.total} · encrypted"
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (onBack != null) {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -118,7 +122,7 @@ fun GalleryScreen(
                         Spacer(Modifier.size(12.dp))
                     }
                     Text("GALLERY", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    MicroLabel("${state.items.size}/${state.total} · encrypted", Modifier.padding(end = 8.dp))
+                    if (!large) MicroLabel(count, Modifier.padding(end = 8.dp))
                     IconButton(onClick = { actions.setFavoritesOnly(!state.favoritesOnly) }) {
                         Icon(
                             Icons.Filled.Star,
@@ -127,6 +131,7 @@ fun GalleryScreen(
                         )
                     }
                 }
+                if (large) MicroLabel(count, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 // Typed text stays here; the list filters a moment later (no dropped keys).
                 val query = rememberLocalText(state.query, actions::setQuery)
                 ConsoleTextField(

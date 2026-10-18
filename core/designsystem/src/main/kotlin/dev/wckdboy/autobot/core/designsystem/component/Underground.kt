@@ -68,7 +68,8 @@ fun MicroLabel(
         modifier = modifier,
         style = AutobotTheme.styles.micro,
         color = color,
-        maxLines = maxLines,
+        // A large font wraps a label to up to three lines rather than cutting its end.
+        maxLines = if (isLargeText()) maxOf(maxLines, 3) else maxLines,
         overflow = TextOverflow.Ellipsis,
     )
 }
@@ -263,7 +264,8 @@ fun <T> Segmented(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .heightIn(min = 34.dp)
+                    // 48 dp: the smallest touch target Android's accessibility guidance allows.
+                    .heightIn(min = 48.dp)
                     .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(option) })
                     .padding(horizontal = 4.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
@@ -273,7 +275,7 @@ fun <T> Segmented(
                     style = AutobotTheme.styles.micro,
                     color = text,
                     textAlign = TextAlign.Center,
-                    maxLines = 2,
+                    maxLines = linesFor(2, 4),
                     overflow = TextOverflow.Ellipsis,
                 )
             }

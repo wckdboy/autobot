@@ -10,6 +10,14 @@ android {
     testOptions.unitTests.isIncludeAndroidResources = true
 }
 
+// The large-text audit (renders at 200 % font and lists text that does not fit), shared by the
+// feature modules' LargeTextTest.
+androidComponents {
+    onVariants { variant ->
+        variant.hostTests.values.forEach { it.sources.kotlin?.addStaticSourceDirectory(rootProject.file("core/designsystem/src/largeTextTest/kotlin").path) }
+    }
+}
+
 dependencies {
     implementation(projects.core.designsystem)
     implementation(projects.core.data)

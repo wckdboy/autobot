@@ -115,11 +115,11 @@ fun NavRow(
     ) {
         // ⓘ sits right after the title on every row, so the icons line up with the text, not the trailing controls.
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyLarge, color = titleColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyLarge, color = titleColor, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
             if (info != null) InfoButton(title, info)
         }
         if (value != null) {
-            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = linesFor(1, 2))
         }
         if (chevron) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -156,12 +156,13 @@ fun SwitchRow(
                     Modifier.weight(1f, fill = false),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    // A large font wraps the title rather than cutting its end.
+                    maxLines = linesFor(1, 3),
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (info != null) InfoButton(title, info)
             }
-            if (state != null) Text(state, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            if (state != null) Text(state, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = linesFor(1, 3))
         }
         Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }

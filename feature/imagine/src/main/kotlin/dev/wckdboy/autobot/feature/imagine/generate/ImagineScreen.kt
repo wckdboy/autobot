@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.wckdboy.autobot.core.designsystem.component.linesFor
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
@@ -436,7 +437,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
+                maxLines = linesFor(1, 3),
                 overflow = TextOverflow.Ellipsis,
             )
             if (running != null) {

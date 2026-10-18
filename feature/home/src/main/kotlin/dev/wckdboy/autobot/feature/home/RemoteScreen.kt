@@ -83,6 +83,17 @@ fun RemoteRoute(
     viewModel: RemoteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy)
+}
+
+@Composable
+fun RemoteScreen(
+    state: RemoteUiState,
+    onOpenProviders: () -> Unit,
+    onOpenBackends: () -> Unit,
+    onOpenAccounts: () -> Unit,
+    onOpenPrivacy: () -> Unit,
+) {
     Scaffold(
         topBar = {
             AutobotTopBar(

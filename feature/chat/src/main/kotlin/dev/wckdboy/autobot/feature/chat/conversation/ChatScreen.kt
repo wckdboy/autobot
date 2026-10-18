@@ -93,6 +93,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.TodoStatus
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
@@ -893,11 +894,8 @@ private fun InputBar(
             if (state.dictation != Dictation.IDLE) {
                 LiveWords(liveDictation, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp))
             }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            val large = isLargeText()
+            val tools = @Composable {
                 IconButton(
                     onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     enabled = state.pendingImages.size < MAX_ATTACHMENTS,
@@ -920,6 +918,15 @@ private fun InputBar(
                         Dictation.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, contentDescription = "Transcribing")
                     }
                 }
+            }
+            // A large font leaves the field too narrow beside the attach and dictate buttons: they take a row above it.
+            if (large) Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { tools() }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!large) tools()
                 ConsoleTextField(
                     value = text,
                     onValueChange = { text = it },
