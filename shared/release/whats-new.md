@@ -1,36 +1,36 @@
-Cleaner prints, a faster start, and dictation that keeps up: a polish release.
+Images come out the shape you pick, a full-screen viewer, recipes that run on their own, phone-first answers and a panic PIN.
 
-## Cleaner ink (both platforms)
-- **No more doubled dots.** On Android, the paper behind the Image screen, chat, voice, Models, Gallery and the lock drew every dot twice, with a faint copy a few pixels off. Paper is one plate again.
-- **Prints land on their own dots.** When a result printed, its colour plate started half a dot away and read as a second grid. It now starts as a thin rim on the same dots and settles.
-- **Pictures print in where they show.** A wide image in a square chat thumbnail or a Studio chip no longer prints a stretched copy next to the cropped one.
-- One dot field per screen: the voice panel, the empty Models search and empty chat no longer stack a second field under the first, and image proofs sit on whole pixels.
-- iOS: a halftone preview always matches its own image. A new image could pick up an old image's dots.
+## Images (both platforms)
+- **16:9 means 16:9.** Picking a wide or tall shape could still give a square: on-device models compiled for one size (Core ML on iOS, QNN on Android) quietly swapped your size for theirs. They now render their square and return your shape cut from it, and Tune says "compiled for 1024² · other shapes are cut from the square".
+- **The resolution is a pixel budget.** 16:9 at 1024 is about a million pixels in that shape (1368×768), so wide images keep the detail of the square. Every shape chip names the exact size it makes, and the picker remembers your choice instead of snapping back to 512.
+- Picking a model keeps your shape instead of resetting to its square. MNN sizes round to the nearest 64 instead of always down.
+- A server that sends back a square anyway is cut to your shape (Android) or named in a notice (iOS), and the gallery records the size it really got.
+- **Full-screen viewer.** Tap a result, a gallery image or an image in chat: pinch or double-tap to zoom, pan, swipe through the batch, swipe down to close. The info sheet shows the real pixel size and every setting used.
+- **Do more with an image:** use it for img2img (prompt and settings carried over, strength showing), inpaint, vary, reuse settings, same seed, upscale 4× (when an upscaler is installed), share, save, copy settings, favorite, delete.
+- The agent's `generate_image` takes an aspect ratio and keeps the shape when given one side.
+- img2img without an input image now says so instead of quietly running as text-to-image; Tune says when a model can't apply your LoRAs.
 
-## Faster (both platforms)
-- **Android starts sooner.** The app now ships a Baseline Profile, so startup code runs precompiled even on a sideloaded install. On the emulator: 13–17% less time to the first real screen and about 20% less main-thread work.
-- **iOS starts sooner.** Fonts and device checks load in the background, about 90 ms earlier to the first frame in the simulator.
-- **Live dictation shows words sooner and more often.** Partial passes only encode the audio heard so far, 2–4× less work. Stopping usually has nothing left to transcribe.
-- **Faster draft-model checks.** Each speculative step costs less, a draft that failed to load is retried later, and a failed check carries on without the draft instead of ending the answer.
-- **Image model warm-up.** It loads again ahead of Generate after it was freed, switching models no longer loads both, and on Android it stays loaded while the Image screen is open.
-- Smoother lists: the iOS chat list scrolls with fewer hitches, and Android's Models list only redraws rows that changed. Catalog previews and parsed chat text have a memory limit on iOS.
+## Recipes (both platforms)
+- **On-device agents on a schedule.** Settings → Recipes: a prompt, a schedule, a model and the tools it may use. Runs in the background on the phone (WorkManager on Android, background processing on iOS), once for a missed time, safe across daylight-saving changes.
+- A private notification opens the result chat after the app lock. While the phone is locked, iOS says "Unlock to run <name>". Recipe data is encrypted and goes with a wipe.
 
-## Fixed
-- Read-aloud no longer cuts off the last words before the assistant uses a tool.
-- Talking over a spoken answer no longer triggers by itself when the voice resumes after a pause.
-- iOS: the last words you say before tapping stop are no longer lost from dictation.
-- A quick double tap on the mic starts one dictation, not two.
-- The Image screen no longer jumps when the style row appears, and its readouts stay readable at large text sizes.
-- Android: tabs and switches grow with large text instead of clipping, the chat title fits on 360 dp phones, and unlocking no longer flashes the app for a frame.
-- Usage: limits read "1 of 10 requests"; on iOS a limit typed as 1,000,000 saves correctly, a mistyped number can't be saved, and quick edits in a row all stick.
-- iOS Studio: a video ending no longer stops another, Play/Pause shows the right state after coming back, and Play replays a finished clip.
-- Android: the Compute benchmark explains a failed draft check in words, not an engine code.
-- The image model is no longer reported as loaded after it was freed for another engine, and a malformed draft output can't pick a wrong token.
+## Phone first (both platforms)
+- **The phone answers first.** Off by default. Settings → Privacy → Phone first (ask / auto / never) and a chip per chat: in a cloud chat the installed on-device model answers, and a quick judge decides whether the answer is good enough.
+- **Ask** offers "Ask <model>" under a weak answer; **Auto** sends it on only when nothing personal, health, money, attachment or memory related is involved; **Never** keeps it on the phone. A follow-up passes the redaction gateway, and the receipt says what happened and why.
+
+## Panic protection (both platforms)
+- **App PIN** with back-off after wrong tries, an optional **wipe after N failed unlocks**, and a **duress PIN** that wipes and opens as a fresh app. The wipe survives being interrupted and can keep downloaded models.
+- **Incognito images** stay out of the gallery: they're marked "Not saved" in chat and Imagine, and only Save keeps them.
+
+## Accessibility (both platforms)
+- Red, amber, cyan and UV text now reads at WCAG AA contrast on both ink and paper.
+- Android holds at 200% font size: crowded rows stack, labels wrap instead of cutting off, segmented tabs are 48 dp tall. An automated audit renders the main screens at 200%.
+- iOS follows Dynamic Type up to the largest accessibility sizes, icons and tap targets grow with the text, and thumbnails tell VoiceOver they're buttons.
 
 ## Files
-- `autobot-1.7.1-release.apk`: signed release (`ai.wckd.autobot`, arm64-v8a, Android 14+). Signer certificate SHA-256 `9a1378acf9587885e7920355558c85a1ec0e89304f58c153feebf90fdee7f3f1`.
-- `autobot-1.7.1-debug.apk`
-- `autobot-1.7.1-mapping.txt`: R8 mapping, for reading crash reports
+- `autobot-1.8.0-release.apk`: signed release (`ai.wckd.autobot`, arm64-v8a, Android 14+). Signer certificate SHA-256 `9a1378acf9587885e7920355558c85a1ec0e89304f58c153feebf90fdee7f3f1`.
+- `autobot-1.8.0-debug.apk`
+- `autobot-1.8.0-mapping.txt`: R8 mapping, for reading crash reports
 - `SHA256SUMS.txt`
 
-iOS: TestFlight build 1.7.1.
+iOS: TestFlight build 1.8.0.
