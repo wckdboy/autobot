@@ -169,8 +169,20 @@ final class ImageRoomModel: MaskEditing {
         }
     }
 
+    /// The canvas the on-device model is compiled for (nil on a PC backend: any size works).
+    var nativeSize: (width: Int, height: Int)? {
+        guard backend?.kind == .onDevice, let model = request.model.flatMap({ id in onDeviceModels.first { $0.id == id } }) ?? onDeviceModels.first else { return nil }
+        return OnDeviceSizing.native(model)
+    }
+
     func setSize(_ w: Int, _ h: Int) {
         let m = capabilities?.sizeMultiple ?? 8
+        if let native = nativeSize {
+            // What the fixed-size model really delivers for this shape (cut from its canvas).
+            let plan = ImageSizing.fixed(native: native, requested: (w, h))
+            edit { $0.width = plan.width; $0.height = plan.height }
+            return
+        }
         edit { $0.width = PromptSyntax.snap(w, multiple: m); $0.height = PromptSyntax.snap(h, multiple: m) }
     }
 
@@ -187,11 +199,10 @@ final class ImageRoomModel: MaskEditing {
         initImage = image
         mask = MaskState()
         if mode == .txt2img { mode = .img2img }
-        if backend?.kind != .onDevice {
-            let long = min(max(max(asset.width, asset.height), 512), 1024)
-            let scale = Double(long) / Double(max(asset.width, asset.height, 1))
-            setSize(Int(Double(asset.width) * scale), Int(Double(asset.height) * scale))
-        }
+        // The input's own shape (a fixed-size model cuts it from its canvas instead of squashing it).
+        let pixels = (Double(max(asset.width, 1)) * Double(max(asset.height, 1))).squareRoot()
+        let scale = min(max(pixels, 512), 1024) / pixels
+        setSize(Int((Double(asset.width) * scale).rounded()), Int((Double(asset.height) * scale).rounded()))
     }
 
     /// A picked photo goes into the project first (re-encoded, encrypted), then becomes the input.
@@ -562,8 +573,18 @@ struct ImageRoom: View {
         ValueSlider(label: "Steps", value: Binding(get: { Double(model.request.steps) }, set: { v in model.edit { $0.steps = Int(v) } }),
                     range: 1 ... Double(caps?.maxSteps ?? 150), step: 1, format: { "\(Int($0))" })
         ValueSlider(label: "CFG", value: Binding(get: { model.request.cfgScale }, set: { v in model.edit { $0.cfgScale = (v * 2).rounded() / 2 } }), range: 1 ... 20, format: { String(format: "%.1f", $0) })
-        if kind == .onDevice {
-            MicroLabel("size · \(r.width)×\(r.height) · fixed by the core ml model", lines: 2)
+        if kind == .onDevice, let native = model.nativeSize {
+            let out = ImageSizing.fixed(native: native, requested: (r.width, r.height))
+            MicroLabel("size · \(out.width)×\(out.height) · \(ImageSizing.compiledNote(native))", lines: 3)
+            ImagineTagFlow(spacing: 6) {
+                ForEach(AspectRatio.all) { aspect in
+                    let s = ImageSizing.fixedSize(native: native, aspect: aspect)
+                    let active = s.width == out.width && s.height == out.height
+                    Tag("\(aspect.label) · \(s.width)×\(s.height)", accent: active ? c.primary : c.onSurfaceVariant, filled: active) { model.setSize(s.width, s.height) }
+                        .accessibilityLabel("\(aspect.spoken), \(s.width) by \(s.height)")
+                        .accessibilityAddTraits(active ? .isSelected : [])
+                }
+            }
         } else {
             MicroLabel("size · \(r.width)×\(r.height)")
             ImagineTagFlow(spacing: 6) {

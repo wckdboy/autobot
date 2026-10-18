@@ -77,6 +77,8 @@ final class ImageGenerator {
     /// Results of the latest user-started job (kept so the screen can be left and reopened).
     private(set) var lastResults: [GeneratedImage] = []
     private(set) var lastError: String?
+    /// The backend returned another shape than asked for (e.g. a fixed-size server model), or nil.
+    private(set) var lastNotice: String?
     /// What the running job is doing before its first step (model loading), or nil.
     private(set) var phase: String?
     /// A job runs. Stored apart from [state] (which changes every step) so views that only need
@@ -88,6 +90,8 @@ final class ImageGenerator {
     @ObservationIgnored private let backends: DiffusionBackendRepository
     @ObservationIgnored private let library: ModelLibrary
     @ObservationIgnored private var userJob: Task<Void, Never>?
+    /// Tests put a recording engine here (every backend then uses it).
+    @ObservationIgnored var engineOverride: ((DiffusionBackend) -> any DiffusionEngine)?
 
     init(engines: DiffusionEngineFactory, gallery: GalleryRepository, backends: DiffusionBackendRepository, library: ModelLibrary) {
         self.engines = engines
@@ -96,7 +100,7 @@ final class ImageGenerator {
         self.library = library
     }
 
-    func engine(for backend: DiffusionBackend) -> any DiffusionEngine { engines.create(backend, library: library) }
+    func engine(for backend: DiffusionBackend) -> any DiffusionEngine { engineOverride?(backend) ?? engines.create(backend, library: library) }
 
     /**
      Starts a user job. Results stream into [lastResults]; failures land in [lastError]. An
@@ -106,6 +110,7 @@ final class ImageGenerator {
     func start(_ backend: DiffusionBackend, _ request: DiffusionRequest, _ inputs: DiffusionInputs, incognito: Bool = false) {
         guard userJob == nil, !isBusy else { return }
         lastError = nil
+        lastNotice = nil
         lastResults = []
         gallery.unsaved.drop(owner: UnsavedImages.imageScreen)
         let owner = incognito ? UnsavedImages.imageScreen : nil
@@ -126,7 +131,10 @@ final class ImageGenerator {
     /// Cancels the user job (the backend is interrupted / the stream dropped).
     func cancel() { userJob?.cancel() }
 
-    func dismissError() { lastError = nil }
+    func dismissError() {
+        lastError = nil
+        lastNotice = nil
+    }
 
     /// Runs one job in the caller's task and stores every result.
     func generate(
@@ -157,7 +165,7 @@ final class ImageGenerator {
         guard !isBusy else { throw DiffusionError(message: "Another image is being generated", code: .backend) }
         guard var job = calls.first else { return [] }
         job.batchCount = calls.reduce(0) { $0 + max($1.batchCount, 1) }
-        let engine = engines.create(backend, library: library)
+        let engine = engine(for: backend)
         let started = Date()
         var saved: [GeneratedImage] = []
         isBusy = true
@@ -179,7 +187,10 @@ final class ImageGenerator {
                         state = .running(source: s, backend: b, request: r, image: offset + image, step: step, totalSteps: total, preview: preview ?? old, startedAt: t)
                     }
                 case .result(_, let image, let seed, let width, let height, let durationMs, _):
-                    let stored = try await store(backend, request, image: image, seed: seed, width: width, height: height, durationMs: durationMs, incognitoOwner: incognitoOwner)
+                    // The pixels decide the size (a backend's own report can be stale or missing).
+                    let real = ImageSizing.pixelSize(image) ?? (width, height)
+                    if let notice = Self.sizeNotice(backend: backend.name, asked: (request.width, request.height), got: real) { lastNotice = notice }
+                    let stored = try await store(backend, request, image: image, seed: seed, width: real.width, height: real.height, durationMs: durationMs, incognitoOwner: incognitoOwner)
                     saved.append(stored)
                     onResult(stored)
                     if case .running(let s, let b, let r, let i, let st, let tt, _, let t) = state {
@@ -225,6 +236,12 @@ final class ImageGenerator {
             try await gallery.save(item, image: image, thumbnail: thumb)
         }
         return GeneratedImage(galleryId: id, seed: seed, width: width, height: height, durationMs: durationMs)
+    }
+
+    /// What to tell the user when [got] is not the shape that was [asked] for, else nil.
+    nonisolated static func sizeNotice(backend: String, asked: (Int, Int), got: (width: Int, height: Int)) -> String? {
+        guard !ImageSizing.sameAspect(asked, (got.width, got.height)) else { return nil }
+        return "\(backend) returned \(got.width)×\(got.height) instead of \(asked.0)×\(asked.1): its model only renders that size"
     }
 
     /// The full request stored with a gallery item ("reuse parameters").

@@ -2,22 +2,14 @@ import AutobotShared
 import PhotosUI
 import SwiftUI
 
-private let aspects: [(String, (Int, Int))] = [("1:1", (1, 1)), ("2:3", (2, 3)), ("3:2", (3, 2)), ("3:4", (3, 4)), ("4:3", (4, 3)), ("9:16", (9, 16)), ("16:9", (16, 9))]
-private let bases = [512, 768, 1024]
 private let defaultSamplers = ["DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "LCM", "DDIM", "UniPC"]
 
 private func sizeLabel(_ w: Int, _ h: Int) -> String { w == h ? "\(w)²" : "\(w)×\(h)" }
 
-private func aspectSize(_ base: Int, _ ratio: (Int, Int)) -> (Int, Int) {
-    let area = Double(base) * Double(base)
-    let w = (area * Double(ratio.0) / Double(ratio.1)).squareRoot()
-    return (PromptSyntax.snap(Int(w)), PromptSyntax.snap(Int(area / w)))
-}
-
 /// The image studio (mockup 04): paper surface, big prompt, model chips, readouts, 2×2 proofs.
 struct ImagineScreen: View {
     var handoffId: String? = nil
-    var asInit = false
+    var intent: ImageHandoff = .reuse
     var modelId: String? = nil
     var prompt: String? = nil
     @Environment(AppContainer.self) private var app
@@ -27,6 +19,7 @@ struct ImagineScreen: View {
     @State private var showTune = false
     @State private var showMask = false
     @State private var selected = -1
+    @State private var viewer: ImageViewerTarget?
 
     var body: some View {
         let _ = InkProbe.hit("body.imagine")
@@ -48,8 +41,8 @@ struct ImagineScreen: View {
                 if let modelId { m.useModel(modelId) }
                 if let prompt { m.setPrompt(prompt) }
                 if let handoffId {
-                    m.reuseParams(handoffId)
-                    if asInit { await m.useAsInit(handoffId) }
+                    await m.handoff(handoffId, intent)
+                    if intent == .inpaint, m.initImage != nil { showMask = true }
                 }
             }
         }
@@ -66,6 +59,7 @@ struct ImagineScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if let error = m.error { ErrorLine(message: error, onDismiss: m.dismissError) }
+                    else if let notice = m.notice { ErrorLine(message: notice, onDismiss: m.dismissError) }
                     if m.backends.isEmpty {
                         // One short sentence, one action; a PC is the secondary path.
                         Text("No image model yet.")
@@ -101,19 +95,23 @@ struct ImagineScreen: View {
                         Spacer()
                         BigReadout(label: "Seed", value: request.seed < 0 ? "rnd" : String(String(request.seed).suffix(6))) { showTune = true }
                         Spacer()
-                        BigReadout(label: "Size", value: sizeLabel(request.width, request.height)) { showTune = true }
+                        BigReadout(label: "Size", value: sizeLabel(m.outputSize.width, m.outputSize.height)) { showTune = true }
                         Spacer()
                         BigReadout(label: "Batch", value: "\(request.batchCount)") { showTune = true }
                     }
                     Hairline(color: c.onBackground)
                     if request.mode != .txt2img { InitStrip(model: m) { showMask = true } }
-                    ProofGrid(model: m, selected: $selected)
+                    ProofGrid(model: m, selected: $selected) { id in
+                        viewer = ImageViewerTarget(ids: m.results.map(\.galleryId), start: id)
+                    }
                     if !m.isRunning, let result = m.results[imagineSafe: max(selected, 0)] {
                         HStack(spacing: 6) {
                             MicroLabel("seed \(result.seed) · \(result.width)×\(result.height) · \(String(format: "%.1f", Double(result.durationMs) / 1000)) s")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Tag("↺ seed", accent: c.primary) { m.setSeed(result.seed) }
                             Tag("→ img2img") { Task { await m.useAsInit(result.galleryId) } }
+                            Tag("view", accent: c.onBackground) { viewer = ImageViewerTarget(ids: m.results.map(\.galleryId), start: result.galleryId) }
+                                .accessibilityLabel("View full screen")
                         }
                         if UnsavedImages.isUnsaved(result.galleryId) {
                             HStack(spacing: 6) {
@@ -144,6 +142,12 @@ struct ImagineScreen: View {
             .paperTheme()
             .presentationDetents([.large])
             .presentationBackground(AutobotScheme.light.surfaceContainerLow)
+        }
+        .imageViewer($viewer) { id, intent in
+            Task {
+                await m.handoff(id, intent)
+                if intent == .inpaint, m.initImage != nil { showMask = true }
+            }
         }
         .fullScreenCover(isPresented: $showMask) {
             if let image = m.initImage {
@@ -242,6 +246,8 @@ private struct ErrorLine: View {
 private struct ProofGrid: View {
     let model: ImagineModel
     @Binding var selected: Int
+    /// Opens a result full screen.
+    var onOpen: (String) -> Void = { _ in }
     @Environment(\.scheme) private var c
     /// The latest latent preview (its luma), for the image being sampled.
     @State private var preview: (image: Int, ink: PlateImage)?
@@ -260,7 +266,9 @@ private struct ProofGrid: View {
         }()
         let count = running.map { max($0.batch, 1) } ?? max(model.results.count, pendingSlots)
         let slots = min(max(count, 1), 4)
-        let ratio = min(max(CGFloat(model.request.width) / CGFloat(max(model.request.height, 1)), 0.5), 2)
+        // The shape of what comes out (results keep their own; a fixed-size model's cut-out otherwise).
+        let shape = model.results.first.map { ($0.width, $0.height) } ?? model.outputSize
+        let ratio = min(max(CGFloat(shape.0) / CGFloat(max(shape.1, 1)), 0.5), 2)
         let cols = slots == 1 ? 1 : 2
         VStack(spacing: 6) {
             ForEach(0 ..< (slots + cols - 1) / cols, id: \.self) { row in
@@ -335,8 +343,14 @@ private struct ProofGrid: View {
         .clipped()
         .overlay { if i == selected && result != nil { Rectangle().strokeBorder(c.primary, lineWidth: Tokens.Stroke.selection) } }
         .contentShape(Rectangle())
-        .onTapGesture { if result != nil { selected = i } }
+        .onTapGesture {
+            guard let result else { return }
+            selected = i
+            onOpen(result.galleryId)
+        }
         .accessibilityLabel(result != nil ? "Result \(i + 1)" : "Proof \(i + 1)")
+        .accessibilityAddTraits(result != nil ? .isButton : [])
+        .accessibilityHint(result != nil ? "Opens the image full screen" : "")
     }
 }
 
@@ -432,7 +446,7 @@ private struct InitStrip: View {
             .accessibilityLabel("Pick an image")
             VStack(alignment: .leading, spacing: 4) {
                 MicroLabel(model.request.mode == .inpaint ? "inpaint · \(model.mask.isEmpty ? "no mask" : counted(model.mask.strokes.count, "stroke"))" : "img2img")
-                ValueSlider(label: "Denoise", value: Binding(get: { model.request.denoiseStrength }, set: { model.setDenoise($0) }), range: 0.05 ... 1)
+                ValueSlider(label: "Strength", value: Binding(get: { model.request.denoiseStrength }, set: { model.setDenoise($0) }), range: 0.05 ... 1)
             }
             if model.request.mode == .inpaint && model.initImage != nil {
                 IconAction(.brush, label: "Edit mask", action: onEditMask)
@@ -453,7 +467,8 @@ private struct TuneSheet: View {
     let model: ImagineModel
     let onOpenBackends: () -> Void
     @Environment(\.scheme) private var c
-    @State private var base = 512
+    /// The resolution row's choice (nil: the request's own long side).
+    @State private var base: Int?
     @State private var showLoras = false
 
     var body: some View {
@@ -508,19 +523,7 @@ private struct TuneSheet: View {
                             range: 1 ... Double(caps?.maxSteps ?? 150), step: 1, format: { "\(Int($0))" })
                 ValueSlider(label: "CFG", value: Binding(get: { model.request.cfgScale }, set: { model.setCfg($0) }), range: 1 ... 20, format: { String(format: "%.1f", $0) })
 
-                if kind == .onDevice {
-                    MicroLabel("size · \(request.width)×\(request.height) · fixed by the core ml model", lines: 2)
-                } else {
-                    MicroLabel("size · \(request.width)×\(request.height)")
-                    Segmented(options: bases, selected: base, label: { "\($0)" }, onSelect: { base = $0 })
-                    ImagineTagFlow(spacing: 6) {
-                        ForEach(aspects, id: \.0) { label, ratio in
-                            let (w, h) = aspectSize(base, ratio)
-                            let active = w == request.width && h == request.height
-                            Tag(label, accent: active ? c.primary : c.onSurfaceVariant, filled: active) { model.setSize(w, h) }
-                        }
-                    }
-                }
+                SizePicker(model: model, base: $base)
 
                 HStack(alignment: .bottom, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -609,3 +612,44 @@ private struct LoraSheet: View {
     }
 }
 
+
+/**
+ Aspect × resolution. The resolution is a pixel budget (16:9 · 1024 = about 1024² px = 1368×768);
+ each aspect shows the exact size it gives. A Core ML model is compiled for one canvas: the resolution row gives way to
+ that size, and each aspect shows what is cut from it, so nothing comes out square by surprise.
+ */
+private struct SizePicker: View {
+    let model: ImagineModel
+    @Binding var base: Int?
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        let request = model.request
+        let native = model.nativeSize
+        let resolution = base ?? model.resolution
+        let multiple = model.capabilities?.sizeMultiple ?? 8
+        let out = model.outputSize
+        VStack(alignment: .leading, spacing: 8) {
+            if let native {
+                MicroLabel("size · \(out.width)×\(out.height) · \(ImageSizing.compiledNote(native))", lines: 3)
+            } else {
+                MicroLabel("size · \(request.width)×\(request.height) · pixel budget")
+                Segmented(options: ImageSizing.resolutions, selected: resolution, label: { "\($0)" }, onSelect: { r in
+                    base = r
+                    model.setResolution(r)
+                })
+            }
+            ImagineTagFlow(spacing: 6) {
+                ForEach(AspectRatio.all) { aspect in
+                    let s = ImagineModel.size(aspect: aspect, resolution: resolution, native: native, multiple: multiple)
+                    let active = s.width == request.width && s.height == request.height
+                    Tag("\(aspect.label) · \(s.width)×\(s.height)", accent: active ? c.primary : c.onSurfaceVariant, filled: active) {
+                        model.setAspect(aspect, resolution: resolution)
+                    }
+                    .accessibilityLabel("\(aspect.spoken), \(s.width) by \(s.height)")
+                    .accessibilityAddTraits(active ? .isSelected : [])
+                }
+            }
+        }
+    }
+}

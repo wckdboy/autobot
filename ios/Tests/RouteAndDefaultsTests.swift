@@ -131,6 +131,8 @@ struct ImageDefaultsTests {
         // The size was set by hand before: it stays.
         #expect(imagine.request.width == 512)
 
+        // A square start (the last session's shape would be kept at the model's budget).
+        app.backends.saveLastRequest(DiffusionRequest())
         let fresh = ImagineModel(app: app)
         fresh.selectChip(ModelChip(backendId: backendId, model: model.id, label: model.title, onDevice: true))
         #expect(fresh.request.width == 768 && fresh.request.height == 768)

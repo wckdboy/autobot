@@ -69,6 +69,8 @@ final class ChatModel {
     static let maxAttachments = 4
 
     var notice: String?
+    /// Generated images shown full screen (tapped in a `generate_image` step).
+    var viewer: ImageViewerTarget?
     /// Images attached to the message being written (attachment ids).
     var pendingImages: [String] = []
     var dictation: Dictation = .idle

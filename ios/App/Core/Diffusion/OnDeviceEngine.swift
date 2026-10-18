@@ -78,11 +78,17 @@ struct OnDeviceEngine: DiffusionEngine {
         }
         // The chat model and the pipeline never share memory on a phone: LocalDiffusion unloads it
         // (EngineMemory) before the pipeline loads.
+        // The model renders its compiled canvas; another aspect is cut from its middle (and an
+        // img2img input placed there), never squashed or silently returned square.
+        let plan = ImageSizing.fixed(native: (info.width, info.height), requested: (request.width, request.height))
         var sized = request
-        sized.width = info.width
-        sized.height = info.height
+        sized.width = plan.nativeWidth
+        sized.height = plan.nativeHeight
+        let placed = try Self.place(inputs, plan)
         do {
-            try await diffusion.generate(info, request: sized, inputs: inputs, backend: resolved.backend, onEvent: emit)
+            try await diffusion.generate(info, request: sized, inputs: placed, backend: resolved.backend) { event in
+                emit(Self.fit(event, plan))
+            }
         } catch let e as LocalEngineError where e.code == "CANCELLED" {
             throw CancellationError()
         } catch is CancellationError {
@@ -90,5 +96,51 @@ struct OnDeviceEngine: DiffusionEngine {
         } catch {
             throw DiffusionError(message: error.localizedDescription, code: .backend)
         }
+    }
+
+    /// The img2img input and inpaint mask (at the requested size) on the model's canvas.
+    static func place(_ inputs: DiffusionInputs, _ plan: ImageSizing.FixedPlan) throws -> DiffusionInputs {
+        guard plan.cropped, inputs.initImage != nil || inputs.mask != nil else { return inputs }
+        var out = DiffusionInputs()
+        if let data = inputs.initImage {
+            guard let image = ImageCodec.decode(data)?.cgImage, let placed = ImageSizing.embed(image, in: plan).flatMap(ImageCodec.png) else {
+                throw DiffusionError(message: "Could not read the input image", code: .unsupported)
+            }
+            out.initImage = placed
+        }
+        if let data = inputs.mask {
+            guard let mask = ImageCodec.decode(data)?.cgImage, let placed = ImageSizing.embedMask(mask, in: plan).flatMap(ImageCodec.png) else {
+                throw DiffusionError(message: "Could not read the mask", code: .unsupported)
+            }
+            out.mask = placed
+        }
+        return out
+    }
+
+    /// A finished image cut to the requested aspect (progress and phases pass through).
+    static func fit(_ event: DiffusionEvent, _ plan: ImageSizing.FixedPlan) -> DiffusionEvent {
+        guard plan.cropped, case .result(let index, let image, let seed, _, _, let durationMs, let info) = event,
+              let decoded = ImageCodec.decode(image)?.cgImage, let cut = ImageSizing.crop(decoded, to: plan.crop),
+              let png = ImageCodec.png(cut) else { return event }
+        return .result(index: index, image: png, seed: seed, width: cut.width, height: cut.height, durationMs: durationMs, info: info)
+    }
+}
+
+/// The canvas each on-device model is compiled for (read from its files once), for the size pickers.
+@MainActor
+enum OnDeviceSizing {
+    private static var cache: [String: (width: Int, height: Int)] = [:]
+
+    static func native(_ model: InstalledModel) -> (width: Int, height: Int) {
+        if let known = cache[model.id] { return known }
+        var size: (width: Int, height: Int)?
+        if Engines.linked, let folder = LocalDiffusion.resourceFolder(in: ModelLibrary.dir(of: model.id)),
+           let info = try? LocalDiffusion().inspect(folder) {
+            size = (info.width, info.height)
+        }
+        let rec = ImageDefaults.recommended(for: model)
+        let resolved = size ?? (rec.width ?? 512, rec.height ?? 512)
+        if size != nil { cache[model.id] = resolved }
+        return resolved
     }
 }

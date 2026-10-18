@@ -63,7 +63,7 @@ below).
 **Debug launch arguments** (Debug builds only, like Android's debug `allow_screenshots` extra):
 `-AutobotScreenshots` skips the app lock and the app-switcher cover; `-AutobotDemo` seeds an
 empty install with sample sessions, providers, gallery images and audit entries;
-`-AutobotOpen <screen>` (run, sessions, chat, agent, imagine, gallery, models, compute, accounts,
+`-AutobotOpen <screen>` (run, sessions, chat, agent, imagine, gallery, viewer, models, compute, accounts,
 remote, settings, privacy, providers, backends, licenses, memory) starts on that screen.
 
 ```sh

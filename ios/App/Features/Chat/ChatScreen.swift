@@ -252,6 +252,7 @@ struct ChatScreen: View {
             }
         }
         .background(c.background)
+        .imageViewer(Binding(get: { model.viewer }, set: { model.viewer = $0 })) { id, intent in nav.push(.imagine(handoffId: id, intent: intent)) }
         .sheet(isPresented: $showModels) {
             ModelSheet(conversationId: conversationId, routing: routing) { showModels = false }
         }
@@ -440,7 +441,7 @@ private struct TranscriptRow: View, Equatable {
                     number: number, tool: tool, model: model, running: running,
                     onUndo: { app.agent.undoStep(conversationId, callId: $0) },
                     onRedo: { app.agent.redo(conversationId, revertId: $0) },
-                ) { id in if app.studio.library.asset(id) != nil { nav.enterStudio(.library) } else { nav.push(.gallery(openId: id)) } }
+                ) { id, all in if app.studio.library.asset(id) != nil { nav.enterStudio(.library) } else { model.viewer = ImageViewerTarget(ids: all, start: id) } }
             }
         case .notice(_, let text, let kind):
             NoticeRow(text: text, kind: kind)
@@ -576,15 +577,21 @@ private struct StepRow: View {
     var onUndo: (String) -> Void = { _ in }
     var onRedo: (String) -> Void = { _ in }
     /// Opens that gallery item's detail.
-    let onOpenGallery: (String) -> Void
+    let onOpenGallery: (_ id: String, _ all: [String]) -> Void
     @State private var expanded = false
     @Environment(\.scheme) private var c
     @Environment(AppContainer.self) private var app
 
-    /// A gallery image opens in the gallery; an incognito one only once saved (under its gallery id).
+    /**
+     Opens an image full screen with the step's other images. A saved incognito image opens under
+     its gallery id; an unsaved one is shown from memory (viewing writes nothing anywhere).
+     */
     private func open(_ id: String) {
-        guard UnsavedImages.isUnsaved(id) else { return onOpenGallery(id) }
-        if let saved = app.gallery.keptIncognito[id] { onOpenGallery(saved) }
+        if app.studio.library.asset(id) != nil { return onOpenGallery(id, tool.galleryIds) }
+        let resolve: (String) -> String = { app.gallery.keptIncognito[$0] ?? $0 }
+        let start = resolve(id)
+        guard app.gallery.get(start) != nil else { return }
+        onOpenGallery(start, tool.galleryIds.map(resolve).filter { app.gallery.get($0) != nil })
     }
 
     /// A step mark stamps in when the step reaches one of these.
@@ -741,6 +748,8 @@ private struct GalleryThumb: View {
         .frame(width: 120, height: 120)
         .clipped()
         .accessibilityLabel("Generated image")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens the image full screen")
         .task(id: id) { image = await model.galleryThumbnail(id, app: app) }
     }
 }

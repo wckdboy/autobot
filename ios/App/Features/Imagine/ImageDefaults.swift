@@ -38,8 +38,10 @@ enum ImageDefaults {
             request.scheduler = rec.scheduler
         }
         if !kept.contains(.size), let w = rec.width, let h = rec.height {
-            request.width = w
-            request.height = h
+            // The model's pixel budget in the shape already chosen (16:9 stays 16:9).
+            let s = ImageSizing.keepingShape(width: request.width, height: request.height, budget: (w, h))
+            request.width = s.width
+            request.height = s.height
         }
         if request.negativePrompt.isEmpty, let negative = rec.negativePrompt { request.negativePrompt = negative }
     }

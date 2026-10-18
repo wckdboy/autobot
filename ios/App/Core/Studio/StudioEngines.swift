@@ -245,7 +245,9 @@ final class DiffusionStudioEngine: StudioHostEngine, @unchecked Sendable {
                     events.progress(step, total)
                     if let preview { events.preview(preview) }
                 case .result(_, let image, _, let width, let height, _, _):
-                    outputs.append(Self.output(.image, ImageCodec.isPNG(image) ? "image/png" : "image/jpeg", image, width: width, height: height))
+                    // The pixels decide the size (a backend's own report can be stale or missing).
+                    let real = ImageSizing.pixelSize(image) ?? (width, height)
+                    outputs.append(Self.output(.image, ImageCodec.isPNG(image) ? "image/png" : "image/jpeg", image, width: real.width, height: real.height))
                 }
             }
         } catch {

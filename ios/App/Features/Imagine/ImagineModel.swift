@@ -25,6 +25,23 @@ struct ResultUi: Identifiable, Equatable {
 
 enum CatalogStatus { case idle, loading, ready, error }
 
+/// What a gallery image brings into Imagine (from the viewer, the gallery or a chat image).
+enum ImageHandoff: String, Hashable, Sendable {
+    /// Every setting of the image, with a new random seed.
+    case reuse
+    /// Every setting including the seed (the same picture again, or a controlled change).
+    case sameSeed
+    /// The image as the img2img input, its prompt and settings filled in.
+    case img2img
+    /// A close variation: img2img at a low strength, new seed.
+    case vary
+    /// The image as the inpaint input; the mask editor opens.
+    case inpaint
+
+    /// Denoise strength a variation runs at: keeps the composition, changes the details.
+    static let varyStrength = 0.45
+}
+
 /**
  Imagine screen state (port of `ImagineViewModel.kt`). The request is persisted (debounced) so the
  next session starts from the same settings. The init image only lives in memory.
@@ -121,6 +138,49 @@ final class ImagineModel {
     var isRunning: Bool { app.generator.isBusy }
     var error: String? { localError ?? app.generator.lastError }
     var tokenEstimate: Int { PromptSyntax.estimateTokens(request.prompt) }
+    /// The last job's image came back in another shape than asked for.
+    var notice: String? { app.generator.lastNotice }
+
+    // MARK: Size
+
+    /// The canvas the selected on-device Core ML model is compiled for, or nil (any size works).
+    var nativeSize: (width: Int, height: Int)? {
+        guard backend?.kind == .onDevice, let id = selectedChip?.model, let model = app.library.get(id) else { return nil }
+        return OnDeviceSizing.native(model)
+    }
+
+    /// The size the next image will really have (a fixed-size model cuts the aspect from its canvas).
+    var outputSize: (width: Int, height: Int) {
+        Self.outputSize(request: (request.width, request.height), native: nativeSize)
+    }
+
+    nonisolated static func outputSize(request: (Int, Int), native: (width: Int, height: Int)?) -> (width: Int, height: Int) {
+        guard let native else { return request }
+        let plan = ImageSizing.fixed(native: native, requested: request)
+        return (plan.width, plan.height)
+    }
+
+    /// The listed aspect of the request, or nil for an odd size.
+    var aspect: AspectRatio? { ImageSizing.aspect(width: request.width, height: request.height) }
+
+    /// The listed pixel budget the request is nearest to.
+    var resolution: Int { ImageSizing.resolution(width: request.width, height: request.height) }
+
+    /// The request size for [aspect] at about [resolution]² pixels on this backend; a fixed-size
+    /// model gets the aspect cut from its canvas.
+    nonisolated static func size(aspect: AspectRatio, resolution: Int, native: (width: Int, height: Int)?, multiple: Int) -> (width: Int, height: Int) {
+        if let native { return ImageSizing.fixedSize(native: native, aspect: aspect) }
+        return ImageSizing.size(aspect, resolution: resolution, multiple: multiple)
+    }
+
+    func setAspect(_ aspect: AspectRatio, resolution: Int? = nil) {
+        let s = Self.size(aspect: aspect, resolution: resolution ?? self.resolution, native: nativeSize, multiple: capabilities?.sizeMultiple ?? 8)
+        setSize(s.width, s.height)
+    }
+
+    func setResolution(_ resolution: Int) {
+        setAspect(aspect ?? .square, resolution: resolution)
+    }
 
     /// `{a|b}` in the prompt: what the run will make (`wildcards · 2 prompts × 2 = 4 images`), or nil.
     var wildcards: String? { PromptRuns.shared.summary(template: request.prompt, batch: Int32(request.batchCount), maxImages: PromptRuns.shared.MAX_IMAGES) }
@@ -166,7 +226,8 @@ final class ImagineModel {
     func sizeForModel() {
         guard !userEdited.contains(.size), let chip = selectedChip, let rec = recommended(chip),
               let w = rec.width, let h = rec.height, w * h > request.width * request.height else { return }
-        edit { $0.width = w; $0.height = h }
+        let s = ImageSizing.keepingShape(width: request.width, height: request.height, budget: (w, h))
+        edit { $0.width = s.width; $0.height = s.height }
     }
 
     /// Loads the decoded images of the latest results (kept by the generator across screens).
@@ -319,6 +380,12 @@ final class ImagineModel {
 
     private func resize(_ width: Int, _ height: Int) {
         let multiple = capabilities?.sizeMultiple ?? 8
+        if let native = nativeSize {
+            // A fixed-size model: what it really delivers for this shape.
+            let plan = ImageSizing.fixed(native: native, requested: (width, height))
+            edit { $0.width = plan.width; $0.height = plan.height }
+            return
+        }
         edit {
             $0.width = PromptSyntax.snap(width, multiple: multiple)
             $0.height = PromptSyntax.snap(height, multiple: multiple)
@@ -434,9 +501,10 @@ final class ImagineModel {
         initImage = UIImage(cgImage: image)
         mask = MaskState()
         preferInit = true
-        let longSide = min(max(max(image.width, image.height), 512), 1024)
-        let scale = Double(longSide) / Double(max(image.width, image.height))
-        resize(Int(Double(image.width) * scale), Int(Double(image.height) * scale))
+        // The input's shape at a 512²–1024² pixel budget.
+        let pixels = (Double(image.width) * Double(image.height)).squareRoot()
+        let scale = min(max(pixels, 512), 1024) / max(pixels, 1)
+        resize(Int((Double(image.width) * scale).rounded()), Int((Double(image.height) * scale).rounded()))
         if request.mode == .txt2img { setMode(.img2img) }
     }
 
@@ -447,11 +515,51 @@ final class ImagineModel {
         setMode(.txt2img)
     }
 
-    /// Copies every parameter of a gallery item into the form.
-    func reuseParams(_ galleryId: String) {
-        guard let item = app.gallery.get(galleryId), var params = ImageGenerator.decodeParams(item) else { return }
-        params.batchCount = 1
+    /// Copies every parameter of a gallery item into the form (its seed too).
+    func reuseParams(_ galleryId: String, _ intent: ImageHandoff = .sameSeed) {
+        guard let item = app.gallery.get(galleryId), let params = Self.handoffRequest(item, intent) else { return }
+        // The backend that made it, when it is still configured (its model name means nothing to another).
+        if let made = backends.first(where: { $0.name == item.engine.components(separatedBy: " · ").first }), made.id != backend?.id {
+            selectBackend(made.id)
+        }
+        initSource = nil
+        initImage = nil
+        mask = MaskState()
+        preferInit = false
         edit { $0 = params }
+        userEdited.formUnion([.size, .steps, .cfg, .sampler])
+    }
+
+    /**
+     Brings a gallery image in for [intent]: its settings (seed per intent), and for img2img, vary
+     and inpaint the image itself as the input, at its own aspect, with the strength shown.
+     */
+    func handoff(_ galleryId: String, _ intent: ImageHandoff) async {
+        reuseParams(galleryId, intent)
+        switch intent {
+        case .reuse, .sameSeed: break
+        case .img2img, .vary, .inpaint:
+            await useAsInit(galleryId)
+            // The image as input shows in the proof slot with the strength beside it.
+            preferInit = true
+        }
+    }
+
+    /// The request a gallery item hands to Imagine for [intent] (pure: no init image involved).
+    nonisolated static func handoffRequest(_ item: GalleryItem, _ intent: ImageHandoff) -> DiffusionRequest? {
+        guard var params = ImageGenerator.decodeParams(item) else { return nil }
+        params.batchCount = 1
+        // The stored size is what came out; the image itself is not there for img2img unless asked.
+        params.width = item.width
+        params.height = item.height
+        switch intent {
+        case .reuse: params.seed = -1; params.mode = .txt2img
+        case .sameSeed: params.seed = item.seed; params.mode = .txt2img
+        case .img2img: params.seed = -1; params.mode = .img2img
+        case .vary: params.seed = -1; params.mode = .img2img; params.denoiseStrength = ImageHandoff.varyStrength
+        case .inpaint: params.seed = -1; params.mode = .inpaint
+        }
+        return params
     }
 
     func addStroke(_ stroke: MaskStroke) {

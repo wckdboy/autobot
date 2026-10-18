@@ -18,7 +18,7 @@ struct NavigationTests {
         let nav = Navigator()
         nav.switchTo(.models)
         nav.push(.imagine(modelId: "catalog:sd"))
-        #expect(nav.tab == .models && nav.path == [.imagine(handoffId: nil, asInit: false, modelId: "catalog:sd")])
+        #expect(nav.tab == .models && nav.path == [.imagine(handoffId: nil, intent: .reuse, modelId: "catalog:sd")])
         #expect(nav.path != [.imagine()])
     }
 }
