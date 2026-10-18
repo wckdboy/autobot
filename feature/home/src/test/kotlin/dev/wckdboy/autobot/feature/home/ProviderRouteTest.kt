@@ -14,6 +14,8 @@ class ProviderRouteTest {
     fun cloudLanAndLoopbackProvidersGetTheirRoute() {
         assertEquals(Route.CLOUD_API, RunViewModel.providerRoute(provider(ProviderKind.DEEPSEEK, "https://api.deepseek.com")))
         assertEquals(Route.PC_LAN, RunViewModel.providerRoute(provider(ProviderKind.OLLAMA, "http://192.168.1.20:11434")))
+        // A paired Invincible node: the user's own machine, whatever its name-only URL says.
+        assertEquals(Route.PC_LAN, RunViewModel.providerRoute(provider(ProviderKind.INVINCIBLE_NODE, "http://invincible/v1")))
         assertEquals(Route.LOCAL, RunViewModel.providerRoute(provider(ProviderKind.OPENAI_COMPATIBLE, "http://127.0.0.1:8080/v1")))
         assertEquals(Route.LOCAL, RunViewModel.providerRoute(provider(ProviderKind.LOCAL, "")))
     }

@@ -195,12 +195,6 @@ class ProvidersViewModel @Inject constructor(
 
     private val pairing = MutableStateFlow<PairingDraft?>(null)
 
-    init {
-        // A pairing link (the camera read a node's QR code) opens the sheet, filled in.
-        viewModelScope.launch {
-            pairingLinks.code.collect { if (it != null) pairingLinks.take()?.let(::openPairing) }
-        }
-    }
 
     private val picker = MutableStateFlow<String?>(null)
     private val editor = MutableStateFlow<ProviderDraft?>(null)
@@ -245,6 +239,14 @@ class ProvidersViewModel @Inject constructor(
             now = System.currentTimeMillis(), pairing = pair,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProvidersUiState())
+
+    init {
+        // A pairing link (the camera read a node's QR code) opens the sheet, filled in. Below
+        // every property it touches: with a link already waiting this runs during construction.
+        viewModelScope.launch {
+            pairingLinks.code.collect { if (it != null) pairingLinks.take()?.let(::openPairing) }
+        }
+    }
 
     /** Opens the preset search ("add provider"). */
     fun startAdd() {

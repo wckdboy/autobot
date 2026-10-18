@@ -120,4 +120,17 @@ class NodeEgressTest {
         assertTrue(entry.blocked)
         assertEquals("192.168.1.20", entry.host)
     }
+
+    @Test
+    fun aConnectionMadeForATurnIsAuditedForThatTurn() = runBlocking {
+        val echo = echoServer()
+        val audit = AuditLog()
+        kotlinx.coroutines.withContext(dev.wckdboy.autobot.agent.core.TurnTrace("chat-1", 3)) {
+            connector(NetworkMode.Direct, audit).open(listOf("127.0.0.1:${echo.localPort}")).close()
+        }
+        val entry = audit.entries.value.single()
+        assertEquals("chat-1", entry.session)
+        assertEquals(3, entry.turn)
+        assertEquals(listOf(entry.id), audit.forTurn("chat-1", 3).map { it.id })
+    }
 }

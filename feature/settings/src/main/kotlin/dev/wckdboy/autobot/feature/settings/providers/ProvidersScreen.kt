@@ -248,7 +248,7 @@ private fun PresetPickerSheet(initialQuery: String, actions: ProvidersActions) {
                     if (group == PresetGroup.LOCAL_SERVERS) {
                         item(key = "n-${group.name}") {
                             Text(
-                                "127.0.0.1 is this phone: these presets only reach a server running on the phone. For a server on your PC or network use its https address (Tailscale or a reverse proxy) — plain http only works on the phone itself.",
+                                "127.0.0.1 is this phone: these presets only reach a server running on the phone. For a server on your PC or network use its https address (Tailscale or a reverse proxy) — plain http only works on the phone itself. My node pairs with an Invincible node on your PC instead, end-to-end encrypted.",
                                 modifier = Modifier.padding(bottom = 4.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,

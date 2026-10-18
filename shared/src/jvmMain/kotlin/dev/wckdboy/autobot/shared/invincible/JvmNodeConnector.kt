@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.shared.invincible
 
+import dev.wckdboy.autobot.agent.core.TurnTrace
 import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.RouteOverride
@@ -32,13 +33,15 @@ class JvmNodeConnector(
 ) {
     /** Tries [addresses] in order; throws [NodeBlockedException] when policy refuses, else the last failure. */
     suspend fun open(addresses: List<String>): NodeLink = withContext(Dispatchers.IO) {
+        // The turn this connection is made for (if any): its audit entries belong to that turn's receipt.
+        val trace = TurnTrace.current()
         var last: Exception = IOException("the node has no address")
         for (text in addresses) {
             val address = NodeAddress.parse(text) ?: continue
             val p = policy()
             val route = NodeEgress.plan(p.global, p.override, p.socksFallback, p.allowLoopbackWhenOffline, address.host)
             if (route is NodeRoute.Blocked) {
-                audit.record("NOISE", address.host, "/", tag = tag, route = route.label, blocked = true, error = route.reason)
+                audit.record("NOISE", address.host, "/", tag = tag, route = route.label, session = trace?.sessionId, turn = trace?.turn, blocked = true, error = route.reason)
                 throw NodeBlockedException(route.reason)
             }
             val socket = when (route) {
@@ -55,11 +58,11 @@ class JvmNodeConnector(
                 socket.tcpNoDelay = true
             } catch (e: IOException) {
                 socket.close()
-                audit.record("NOISE", address.host, "/", tag = tag, route = route.label, blocked = false, error = e.javaClass.simpleName)
+                audit.record("NOISE", address.host, "/", tag = tag, route = route.label, session = trace?.sessionId, turn = trace?.turn, blocked = false, error = e.javaClass.simpleName)
                 last = e
                 continue
             }
-            val entry = audit.record("NOISE", address.host, "/", tag = tag, route = route.label, blocked = false)
+            val entry = audit.record("NOISE", address.host, "/", tag = tag, route = route.label, session = trace?.sessionId, turn = trace?.turn, blocked = false)
             return@withContext CountingLink(SocketNodeLink(socket)) { sent, received ->
                 audit.sent(entry.id, sent)
                 audit.received(entry.id, received)

@@ -202,9 +202,19 @@ The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
   `INVINCIBLE_BIN` is set. On iOS, `InvincibleNodeTests` runs the same Noise and receipt vectors
   on CryptoKit (passing on the iOS 26.1 simulator).
 
-Not yet: the "My node" provider and QR scanner in both apps, node connections routed through the
-kill switch and Tor/SOCKS5 routes, node receipts in the turn receipt. **Needs verification on a
-device:** Android's provider accepting the RFC 8410 X25519/Ed25519 key encodings `JvmNodeCrypto` uses.
+**On Android, "My node" works end to end** (checked on an Android 16 emulator against a real node):
+Settings › Providers › + › *My node (Invincible)* opens a pairing sheet. Scanning the node's QR code
+with the system camera opens it filled in (an `invincible://pair?…` link: no camera permission, no
+new dependency), or the code can be pasted. The sheet shows the node's key fingerprint to compare
+with what `invincible pair` printed. The pairing is stored encrypted in the provider's API-key slot
+and never sent as one. Node connections go through the kill switch (offline mode refuses them, Tor
+and SOCKS5 carry them with remote DNS), every attempt is in the Privacy Center's audit log, and
+the turn's privacy receipt counts the bytes that went to the node. Ed25519 receipt checks use
+BouncyCastle's RFC 8032 verifier, because Android's software provider has no Ed25519.
+`NodeCryptoDeviceTest` (instrumented) runs the Noise and receipt vectors on the device.
+
+Not yet: the iOS connector (the preset shows "not on iOS yet"), and showing the node's own signed
+receipts in the turn receipt.
 
 ## On-device models
 

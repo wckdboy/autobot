@@ -4,6 +4,7 @@ import dev.wckdboy.autobot.shared.Cancellable
 import dev.wckdboy.autobot.shared.HttpRequestSpec
 import dev.wckdboy.autobot.shared.HttpSink
 import dev.wckdboy.autobot.shared.HttpTransport
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +34,9 @@ class NodeHttpTransport(
 
     override fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable {
         var link: NodeLink? = null
-        val job = scope.launch {
+        // The request's turn travels with it, so the connection is audited for that turn and
+        // shows up in its privacy receipt.
+        val job = scope.launch(request.trace ?: EmptyCoroutineContext) {
             try {
                 val opened = connect().also { link = it }
                 val channel = InvincibleNode.session(crypto, opened, nodeKey, device)

@@ -134,4 +134,16 @@ class NodeHttpTransportTest {
             bytes.decodeToString(),
         )
     }
+
+    @Test
+    fun theTurnReachesTheConnector() = runBlocking {
+        val seen = CompletableDeferred<dev.wckdboy.autobot.agent.core.TurnTrace?>()
+        val transport = NodeHttpTransport(crypto, node.publicKey, device, {
+            seen.complete(dev.wckdboy.autobot.agent.core.TurnTrace.current())
+            throw NodeBlockedException("stop here")
+        })
+        val provider = TransportChatProvider("http://invincible/v1", null, transport, "node")
+        kotlinx.coroutines.withContext(dev.wckdboy.autobot.agent.core.TurnTrace("chat-9", 2)) { provider.streamChat(hello).toList() }
+        assertEquals(dev.wckdboy.autobot.agent.core.TurnTrace("chat-9", 2), withTimeout(5_000) { seen.await() })
+    }
 }
