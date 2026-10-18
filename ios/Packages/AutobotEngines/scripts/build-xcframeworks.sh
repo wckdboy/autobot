@@ -14,7 +14,7 @@ REPO="$(cd "$PKG/../../.." && pwd)"
 BUILD="${BUILD_DIR:-$PKG/.build-native}"
 OUT="$PKG/Frameworks"
 IOS_MIN="18.0"
-VERSION="1.8.0"
+VERSION="1.9.0"
 JOBS="$(sysctl -n hw.logicalcpu)"
 
 for tool in cmake ninja xcrun; do
