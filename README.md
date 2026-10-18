@@ -213,6 +213,17 @@ the turn's privacy receipt counts the bytes that went to the node. Ed25519 recei
 BouncyCastle's RFC 8032 verifier, because Android's software provider has no Ed25519.
 `NodeCryptoDeviceTest` (instrumented) runs the Noise and receipt vectors on the device.
 
+**The agent on your machine.** If the machine also runs the Autobot Agent (`autobot serve`,
+installed with the node by Invincible's `install.sh`), REMOTE › *Agents · my node* opens it.
+Tasks run on that machine: shell commands and file work, on its models. Every command, every file
+write and every read outside the agent's working directory comes to the phone as a card first:
+Allow, Always (this conversation), or Deny. Answers show the model and tier that ran each turn. It
+all goes through the same Noise session as the node's models: `NodeAgent` (`:shared`) speaks
+Invincible's [spec/agent.md](https://github.com/wckdboy/invincible/blob/main/spec/agent.md), and
+the conversation lives on the machine, so it is there again after the app restarts.
+`InvincibleLiveTest` runs a real turn against `invincible` + `autobot` with a model, approving
+from the phone side (set `AUTOBOT_BIN` and `INVINCIBLE_MODEL` too).
+
 Not yet: the iOS connector (the preset shows "not on iOS yet"), and showing the node's own signed
 receipts in the turn receipt.
 

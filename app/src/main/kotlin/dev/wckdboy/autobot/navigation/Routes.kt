@@ -52,6 +52,10 @@ data class Gallery(val openId: String? = null, val scope: List<String> = emptyLi
 @Serializable
 data object Providers : NavKey
 
+/** The Autobot Agent on a paired Invincible node ([providerId]: its "My node" provider). */
+@Serializable
+data class NodeAgent(val providerId: String) : NavKey
+
 @Serializable
 data object McpServers : NavKey
 
