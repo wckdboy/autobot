@@ -144,7 +144,7 @@ fun BackupDialog(onDismiss: () -> Unit, viewModel: BackupViewModel = hiltViewMod
                 MicroLabel("at least $MIN_PASSPHRASE characters · it cannot be recovered")
                 when (val s = state) {
                     is BackupState.Working -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        MicroLabel(s.status.removeSuffix("…"), color = MaterialTheme.colorScheme.primary)
+                        MicroLabel(s.status.removeSuffix("…"))
                         // Export/import report phases, not a fraction: the indeterminate ink bar.
                         InkProgressBar(null, Modifier.fillMaxWidth().height(2.dp))
                     }

@@ -19,7 +19,7 @@ class RunStatusTest {
     fun headerIsShort() {
         val line = RunViewModel.runStatus("SM8850", busy = false, freeBytes = 142_800_000_000)
         assertEquals("SM8850 · idle · 143 GB free", line)
-        // "// " + the line is well under the ~44 characters that showed before the old line truncated.
+        // The line is well under the ~44 characters that showed before the old line truncated.
         assertTrue(line.length + 3 <= 32)
         assertEquals("busy · 9.5 GB free", RunViewModel.runStatus("", busy = true, freeBytes = 9_500_000_000))
         assertEquals("SM8850 · idle", RunViewModel.runStatus("SM8850", busy = false, freeBytes = null))

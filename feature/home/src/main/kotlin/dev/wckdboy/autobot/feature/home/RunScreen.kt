@@ -23,14 +23,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.CountBadge
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneImage
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.ModeCard
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
@@ -80,14 +79,12 @@ fun RunScreen(
             ) {
                 item {
                     SectionLabel(state.status)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Run\nanything.", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(14.dp))
                 }
                 // One 2-column grid: every row splits at the same x with the same gutter.
                 item {
                     // Grows past 268 dp when a large font needs it (Chat and Agent each stack a tag, title and model).
-                    Row(Modifier.fillMaxWidth().heightIn(min = 268.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 236.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
                         val last by produceState<ImageBitmap?>(null, state.lastImageId) { value = state.lastImageId?.let { actions.thumbnail(it) } }
                         ModeCard(
                             index = "01",
@@ -96,12 +93,15 @@ fun RunScreen(
                             route = state.imageRoute,
                             onClick = onOpenImagine,
                             modifier = Modifier.weight(1f).fillMaxSize(),
-                            background = {
-                                val image = last
-                                if (image != null) {
-                                    HalftoneImage(image, Modifier.fillMaxSize(), cell = 7.dp)
-                                } else {
-                                    HalftoneField(Modifier.fillMaxSize(), cell = 8.dp, ambient = ambient)
+                            // The last image, as it is, above the words; nothing when there is none.
+                            background = last?.let { image ->
+                                {
+                                    androidx.compose.foundation.Image(
+                                        image,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.extraSmall),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    )
                                 }
                             },
                         )
@@ -131,7 +131,7 @@ fun RunScreen(
                     item {
                         Row {
                             MicroLabel("recent runs", Modifier.weight(1f).padding(top = 14.dp))
-                            TextButton(onClick = onOpenAllRuns) { Text("ALL →", style = MaterialTheme.typography.labelMedium) }
+                            TextButton(onClick = onOpenAllRuns) { Text("All", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }

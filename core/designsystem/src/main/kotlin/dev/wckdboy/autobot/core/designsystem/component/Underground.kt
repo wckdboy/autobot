@@ -54,7 +54,7 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.Locale
 
-/** Uppercase, tracked mono caption: `// SAMPLER`, `CTX`, `SEED`. */
+/** Uppercase, tracked mono caption: `SAMPLER`, `CTX`, `SEED`. */
 @Composable
 fun MicroLabel(
     text: String,
@@ -198,7 +198,7 @@ fun ValueSlider(
     Column(modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             MicroLabel(label, Modifier.weight(1f))
-            Text(format(value), style = AutobotTheme.styles.readout, color = MaterialTheme.colorScheme.primary)
+            Text(format(value), style = AutobotTheme.styles.readout, color = MaterialTheme.colorScheme.onSurface)
         }
         Slider(
             value = value,
@@ -219,8 +219,9 @@ fun ValueSlider(
 }
 
 /**
- * Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The red selection block slides
- * to the new option (ease-out, `transitionMillis`) and leaves a one-frame registration ghost.
+ * Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The selection is a neutral
+ * block (ink on bone, bone on ink): a choice is not a signal. It slides to the new option
+ * (ease-out, `transitionMillis`).
  */
 @Composable
 fun <T> Segmented(
@@ -232,7 +233,7 @@ fun <T> Segmented(
 ) {
     val shape = MaterialTheme.shapes.small
     val slide = rememberInkSlide(options.indexOf(selected).coerceAtLeast(0))
-    val block = MaterialTheme.colorScheme.primary
+    val block = MaterialTheme.colorScheme.onSurface
     val n = options.size.coerceAtLeast(1)
     Row(
         modifier = modifier
@@ -244,10 +245,6 @@ fun <T> Segmented(
             .drawBehind {
                 val divider = 1.dp.toPx()
                 val slot = (size.width - divider * (n - 1)) / n
-                if (slide.ghost) {
-                    val g = Motion.registerOffset.dp.toPx()
-                    drawRect(block, Offset(slide.ghostSlot * (slot + divider) + g, g), Size(slot, size.height), alpha = 0.4f)
-                }
                 drawRect(block, Offset(slide.position * (slot + divider), 0f), Size(slot, size.height))
             }
             .selectableGroup(),
@@ -256,7 +253,7 @@ fun <T> Segmented(
             val isSelected = option == selected
             if (index > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
             val text by animateColorAsState(
-                if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                if (isSelected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
                 tween(if (LocalInkMotion.current.reduced) 0 else Motion.transitionMillis),
                 label = "segment",
             )

@@ -166,7 +166,7 @@ private fun JobSheet(job: StudioJob, actions: ShellActions, onDismiss: () -> Uni
                 modifier = Modifier.inkStagger(1),
             )
             MicroLabel(StudioRecipes.summary(job.recipe), Modifier.inkStagger(2))
-            job.status?.let { MicroLabel(it, color = MaterialTheme.colorScheme.primary) }
+            job.status?.let { MicroLabel(it) }
             if (job.state == JobState.RUNNING && job.steps > 0) MicroLabel("step ${job.step} / ${job.steps}")
             job.error?.let { Text(jobError(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

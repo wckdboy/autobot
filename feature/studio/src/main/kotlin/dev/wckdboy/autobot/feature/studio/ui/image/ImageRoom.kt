@@ -263,7 +263,7 @@ private fun RunBar(state: ImageRoomState, pending: Int, onRun: () -> Unit, onGri
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             RunsOn(state.backend?.takeIf { !it.onDevice }?.name, Modifier.weight(1f))
-            if (pending > 0) MicroLabel("$pending in queue", color = MaterialTheme.colorScheme.primary)
+            if (pending > 0) MicroLabel("$pending in queue")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GhostButton("X/Y grid", onGrid, Modifier.weight(1f), enabled = state.canRun)
@@ -472,7 +472,7 @@ private fun LoraSheet(available: List<String>, selected: Set<String>, onPick: (S
                 filtered.forEach { name ->
                     Row(Modifier.fillMaxWidth().clickable(enabled = name !in selected) { onPick(name) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(name, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (name in selected) MicroLabel("added", color = MaterialTheme.colorScheme.primary)
+                        if (name in selected) MicroLabel("added")
                     }
                 }
             }

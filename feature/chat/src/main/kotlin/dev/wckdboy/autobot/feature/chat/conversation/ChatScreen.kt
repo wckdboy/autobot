@@ -749,7 +749,7 @@ private fun NoticeRow(item: SessionItem.Notice) {
     if (item.kind == NoticeKind.ERROR) {
         var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
         Text(
-            "// ${item.text}",
+            "${item.text}",
             modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { expanded = !expanded },
             style = MaterialTheme.typography.bodySmall,
             color = color,
@@ -758,7 +758,7 @@ private fun NoticeRow(item: SessionItem.Notice) {
         )
     } else {
         Text(
-            "// ${item.text.uppercase(Locale.ROOT)}",
+            "${item.text.uppercase(Locale.ROOT)}",
             style = AutobotTheme.styles.micro,
             color = color,
             maxLines = 3,

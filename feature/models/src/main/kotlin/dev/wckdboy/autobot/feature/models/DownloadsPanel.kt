@@ -42,7 +42,7 @@ internal fun DownloadsPanel(state: DownloadsState, actions: ModelsActions) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            MicroLabel("downloads", color = MaterialTheme.colorScheme.primary)
+            MicroLabel("downloads")
             InfoButton("Downloads", "Downloads keep going when you leave Autobot. Pause and cancel them from the notification.", Modifier.weight(1f))
             Tag(
                 if (state.wifiOnly) "wi-fi only" else "any network",

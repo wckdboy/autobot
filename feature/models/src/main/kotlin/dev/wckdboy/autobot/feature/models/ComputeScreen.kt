@@ -339,7 +339,7 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
             system?.let { s -> item { SystemModelRow(s, onDownload = viewModel::downloadSystemModel) } }
             item {
                 state.running?.let {
-                    MicroLabel("benchmarking · $it", color = MaterialTheme.colorScheme.primary)
+                    MicroLabel("benchmarking · $it")
                     // The benchmark reports phases, not a fraction: the indeterminate ink bar.
                     InkProgressBar(null, Modifier.fillMaxWidth().padding(vertical = 6.dp).height(2.dp))
                 }

@@ -59,6 +59,10 @@ object AutobotColors {
     val RedDeep = Color(0xFFB8300F)
     val RedDim = Color(0xFF3A140A)
 
+    /** Invincible's signal (the node), on paper and on ink: screens about the node mark it in this. */
+    val Verdigris = Color(0xFF3F8A7E)
+    val VerdigrisLight = Color(0xFF4FA394)
+
     val Amber = Color(0xFFE3A33B)
     val Cyan = Color(0xFF9DB4B0)
     val Error = Color(0xFFFF6A47)
@@ -170,9 +174,9 @@ private val Tight = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeight
 
 private val Base = Typography()
 
-private fun display(size: Int, line: Int, weight: Int, tracking: Double = -0.5) = TextStyle(
-    fontFamily = DisplayFontFamily,
-    fontWeight = FontWeight(weight),
+private fun heading(size: Int, line: Int, tracking: Double) = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.SemiBold,
     fontSize = size.sp,
     lineHeight = line.sp,
     letterSpacing = tracking.sp,
@@ -188,15 +192,18 @@ private fun label(size: Double, line: Int, tracking: Double, weight: FontWeight 
     lineHeightStyle = Tight,
 )
 
-/** Display for headlines, sans for reading, mono for every label. */
+/**
+ * Headings in the system sans (semibold, tight), sans for reading, mono for every label. The
+ * condensed display face is kept for the few places that print a single large word.
+ */
 val AutobotTypography = Typography(
-    displayLarge = display(72, 70, 300, -1.0),
-    displayMedium = display(58, 58, 300, -0.8),
-    displaySmall = display(44, 46, 300, -0.5),
-    headlineLarge = display(36, 40, 300),
-    headlineMedium = display(30, 34, 400),
-    headlineSmall = display(25, 29, 400, -0.2),
-    titleLarge = display(22, 26, 500, 0.4),
+    displayLarge = heading(44, 50, -0.8),
+    displayMedium = heading(36, 42, -0.6),
+    displaySmall = heading(30, 36, -0.4),
+    headlineLarge = heading(26, 32, -0.3),
+    headlineMedium = heading(22, 28, -0.2),
+    headlineSmall = heading(19, 24, -0.1),
+    titleLarge = heading(18, 24, 0.0),
     titleMedium = Base.titleMedium.copy(fontWeight = FontWeight.Medium, fontSize = 16.sp, letterSpacing = 0.sp),
     titleSmall = Base.titleSmall.copy(fontWeight = FontWeight.Medium),
     bodyLarge = Base.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.sp, letterSpacing = 0.1.sp),
@@ -224,7 +231,7 @@ data class AutobotExtraStyles(
     val micro: TextStyle,
     /** Small numeric telemetry (tok/s, sizes): tabular mono. */
     val readout: TextStyle,
-    /** Big numbers (STEPS 4, SEED 4182): condensed display. */
+    /** Big numbers (STEPS 4, SEED 4182): tabular mono. */
     val number: TextStyle,
 )
 
@@ -245,7 +252,14 @@ val DefaultExtraStyles = AutobotExtraStyles(
         lineHeight = 16.sp,
         fontFeatureSettings = "tnum",
     ),
-    number = display(30, 32, 400, 0.0),
+    number = TextStyle(
+        fontFamily = CodeFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 26.sp,
+        lineHeight = 30.sp,
+        fontFeatureSettings = "tnum",
+        lineHeightStyle = Tight,
+    ),
 )
 
 /**
@@ -316,6 +330,11 @@ val LightInks = AutobotInks(amber = Color(0xFF7E5512), cyan = Color(0xFF4B615D),
 /** Extra text styles (mono code, micro labels, readouts, display numbers). */
 object AutobotTheme {
     val styles: AutobotExtraStyles get() = DefaultExtraStyles
+
+    /** Invincible's verdigris for the current ground: the mark on anything about the node. */
+    val node: Color
+        @Composable @ReadOnlyComposable
+        get() = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) AutobotColors.VerdigrisLight else AutobotColors.Verdigris
 
     /** Accent inks for the current ground (follows nested Paper and Darkroom themes). */
     val inks: AutobotInks

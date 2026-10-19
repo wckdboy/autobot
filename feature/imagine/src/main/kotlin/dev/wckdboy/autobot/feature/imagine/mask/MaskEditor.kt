@@ -92,7 +92,7 @@ fun MaskEditorDialog(
 
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                MicroLabel("// Mask", Modifier.padding(start = 8.dp).weight(1f), color = MaterialTheme.colorScheme.primary)
+                MicroLabel("Mask", Modifier.padding(start = 8.dp).weight(1f))
                 MicroLabel(
                     if (mask.inverted) "inverted · ${counted(mask.strokes.size, "stroke")}" else counted(mask.strokes.size, "stroke"),
                     Modifier.padding(end = 8.dp),

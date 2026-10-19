@@ -27,6 +27,8 @@ import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackend
@@ -111,7 +113,13 @@ fun RemoteScreen(
                 // The Autobot Agent on each paired node: tasks run there, approvals come here.
                 item { SectionLabel("agents · my node") }
                 items(nodes, key = { "a-${it.id}" }) { n ->
-                    RunRow("Agent on ${n.displayName}", "tasks run on that machine · you approve", onClick = { onOpenNodeAgent(n.id) }) {
+                    RunRow(
+                        "Agent on ${n.displayName}",
+                        "tasks run on that machine · you approve",
+                        // The node's own mark: Invincible's verdigris square.
+                        leading = { AutobotMark(color = AutobotTheme.node) },
+                        onClick = { onOpenNodeAgent(n.id) },
+                    ) {
                         RouteTag(Route.PC_LAN)
                     }
                 }

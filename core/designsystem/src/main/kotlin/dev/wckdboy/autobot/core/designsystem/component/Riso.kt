@@ -54,6 +54,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import dev.wckdboy.autobot.core.designsystem.R
 import dev.wckdboy.autobot.core.designsystem.motion.FlowPhase
 import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
@@ -94,30 +96,29 @@ enum class Route(val glyph: String, val label: String, val local: Boolean) {
     }
 }
 
-/** `● LOCAL · CPU` (filled red) / `◐ PC · LAN` / `○ CLOUD · API` (outlined). */
+/**
+ * `● local · cpu` / `◐ pc · lan` / `○ cloud · api`: a quiet hairline tag; the glyph says where
+ * (filled: on this phone). Not in the signal colour: where a run goes is information, not an alarm.
+ */
 @Composable
 fun RouteTag(route: Route, modifier: Modifier = Modifier) {
     val shape = MaterialTheme.shapes.extraSmall
-    val base = if (route.local) {
-        modifier.background(MaterialTheme.colorScheme.primary, shape)
-    } else {
-        modifier.border(1.dp, MaterialTheme.colorScheme.outline, shape)
-    }
+    val base = modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
     Text(
-        "${route.glyph} ${route.label}".uppercase(Locale.ROOT),
+        "${route.glyph} ${route.label}",
         modifier = base.padding(horizontal = 6.dp, vertical = 3.dp),
         style = AutobotTheme.styles.micro,
-        color = if (route.local) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         // A large font wraps the tag ("● LOCAL ·" / "NPU") rather than cutting its end.
         maxLines = linesFor(1, 3),
     )
 }
 
-/** Red `// SECTION · DETAIL` line. */
+/** A quiet `SECTION · DETAIL` caption in mono. */
 @Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(
-        "// ${text.uppercase(Locale.ROOT)}",
+        text.uppercase(Locale.ROOT),
         modifier = modifier,
         style = AutobotTheme.styles.micro,
         color = color,
@@ -174,17 +175,33 @@ fun PaperButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
     ) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) }
 }
 
-/** The brand mark (halftone "a" on red). */
+/** The lab's mark: a small solid square in the product's signal (Autobot: the scheme's primary). */
 @Composable
-fun AutobotMark(modifier: Modifier = Modifier, size: Dp = 22.dp) {
-    Image(painterResource(R.drawable.ic_autobot_mark), contentDescription = null, modifier = modifier.size(size))
+fun AutobotMark(modifier: Modifier = Modifier, size: Dp = 10.dp, color: Color = MaterialTheme.colorScheme.primary) {
+    Box(modifier.size(size).background(color))
 }
+
+/** `■ autobot` (or `■ invincible` in its verdigris): the mark and the lowercase mono name. */
+@Composable
+fun Wordmark(name: String = "autobot", modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AutobotMark(color = color)
+        Text(name, style = WordmarkStyle, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
+    }
+}
+
+private val WordmarkStyle = TextStyle(
+    fontFamily = dev.wckdboy.autobot.core.designsystem.theme.CodeFontFamily,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 17.sp,
+    letterSpacing = 0.sp,
+)
 
 /** Top bar: mark + condensed wordmark (or a title) and trailing actions. */
 @Composable
 fun AutobotTopBar(
     modifier: Modifier = Modifier,
-    title: String = "AUTOBOT",
+    title: String = WORDMARK,
     showMark: Boolean = true,
     navigation: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
@@ -198,12 +215,17 @@ fun AutobotTopBar(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 navigation?.invoke()
-                if (showMark && navigation == null) AutobotMark()
+                // The home bar is the wordmark; every other bar is its title, in sentence case.
+                if (title == WORDMARK) {
+                    Wordmark(modifier = Modifier.weight(1f))
+                    if (!large) actions()
+                    return@Row
+                }
                 // Steps down (to [TOP_BAR_TITLE_MIN]) before it truncates: at 360 dp a bar with a few
                 // actions (chat: voice, route, more) left room for "AG…" of "AGENT RUN".
                 val titleStyle = MaterialTheme.typography.titleLarge
                 Text(
-                    title.uppercase(Locale.ROOT),
+                    title,
                     style = titleStyle,
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = linesFor(1, 2),
@@ -227,6 +249,9 @@ fun AutobotTopBar(
     }
 }
 
+/** The default top bar title: shows the wordmark instead. */
+const val WORDMARK = "autobot"
+
 /** The smallest the top bar's title steps down to before it truncates. */
 private val TOP_BAR_TITLE_MIN = 14.sp
 
@@ -242,8 +267,9 @@ fun CountBadge(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * A mode tile on the Run screen: `03` / big title / model / route tag. [living]: a quiet
- * [inkCard] field behind the content (ignored when there is [background] art).
+ * A mode tile on the Run screen: title, model, and where it runs. Flat: a hairline-free panel,
+ * no art behind the words. [index] and [living] are kept for callers and no longer drawn;
+ * [background] art (a recent image) sits above the text, never behind it.
  */
 @Composable
 fun ModeCard(
@@ -259,69 +285,30 @@ fun ModeCard(
     Surface(
         onClick = onClick,
         modifier = modifier,
-        shape = MaterialTheme.shapes.extraSmall,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        val card = MaterialTheme.colorScheme.surfaceContainerHigh
-        Box {
-            // The field and the art each get their own layer: an ambient tick re-records only the
-            // dots that move, not the cards' text or the other cards (a screen's cards share one
-            // list item). The art is rendered offscreen once and reused until it changes.
-            if (living && background == null) Spacer(Modifier.matchParentSize().graphicsLayer().inkCard())
+        Column(Modifier.padding(14.dp)) {
+            // Where it runs, at the top: the titles below line up across cards with or without one.
+            route?.let {
+                RouteTag(it)
+                Spacer(Modifier.height(10.dp))
+            }
             if (background != null) {
-                Box(Modifier.matchParentSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) { background() }
-            }
-            if (background != null || living) {
-                // Fade the art (or the living field) into the card colour so the title stays legible.
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            if (background != null) {
-                                // Art also fades under the index and route tag at the top: no plate cutting a hole in the dots.
-                                Brush.verticalGradient(0f to card.copy(alpha = 0.85f), 0.2f to Color.Transparent, 0.45f to Color.Transparent, 0.78f to card.copy(alpha = 0.92f), 1f to card)
-                            } else {
-                                Brush.verticalGradient(0.45f to Color.Transparent, 0.78f to card.copy(alpha = 0.92f), 1f to card)
-                            },
-                        ),
-                )
-            }
-            // No dots behind the index or the route tag (as on iOS): each clears the field under it.
-            val clear = if (background != null || living) Modifier.inkClearance(card) else Modifier
-            Column(Modifier.padding(12.dp)) {
-                val indexText = @Composable {
-                    Text(
-                        index,
-                        modifier = clear,
-                        style = AutobotTheme.styles.micro,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (isLargeText()) {
-                    // A large font leaves no room for the tag beside the index on a half-width card: it goes under it.
-                    indexText()
-                    route?.let {
-                        Spacer(Modifier.height(8.dp))
-                        Box(clear) { RouteTag(it) }
-                    }
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        indexText()
-                        Spacer(Modifier.weight(1f))
-                        route?.let { Box(clear) { RouteTag(it) } }
-                    }
-                }
+                Box(Modifier.fillMaxWidth().weight(1f, fill = true).padding(bottom = 12.dp)) { background() }
+            } else {
                 Spacer(Modifier.weight(1f, fill = true))
-                Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
-                // A model name wraps to a second line on a half-width card rather than losing its end.
-                Text(
-                    subtitle,
-                    style = AutobotTheme.styles.micro,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = linesFor(2, 4),
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
+            Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(2.dp))
+            // A model name wraps to a second line on a half-width card rather than losing its end.
+            Text(
+                subtitle,
+                style = AutobotTheme.styles.micro,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = linesFor(2, 4),
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

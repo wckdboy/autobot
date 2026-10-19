@@ -137,7 +137,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
 
     Scaffold(
         topBar = {
-            AutobotTopBar(title = "Models", actions = { TextButton(onClick = onOpenCompute) { Text("COMPUTE", style = MaterialTheme.typography.labelMedium) } })
+            AutobotTopBar(title = "Models", actions = { TextButton(onClick = onOpenCompute) { Text("COMPUTE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } })
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
@@ -404,7 +404,7 @@ private fun CatalogRow(plan: ModelPlan, fit: Fit?, installed: Boolean, onGet: ()
         if (installed) {
             Tag("added", accent = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
+            Tag("get", accent = MaterialTheme.colorScheme.onSurface, onClick = onGet)
         }
     }
 }
@@ -452,7 +452,7 @@ private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsActions
                 val fit = state.device?.fit(kind, f.sizeBytes, dev.wckdboy.autobot.core.models.engineFor(kind, dev.wckdboy.autobot.core.models.formatOf(f.path, repo.id.substringBefore('/'))))
                 RunRow(f.path.substringAfterLast('/'), "${formatBytes(f.sizeBytes)}${if (f.sha256 != null) " · sha-256 known" else ""}") {
                     fit?.let { Tag(it.label, accent = if (it == Fit.GOOD) MaterialTheme.colorScheme.onSurfaceVariant else AutobotTheme.inks.amber) }
-                    Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = { actions.installHfFile(repo, f.path) })
+                    Tag("get", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.installHfFile(repo, f.path) })
                 }
             }
         }
@@ -516,7 +516,7 @@ private fun CivitaiRow(model: CivitaiModel, actions: ModelsActions, installed: S
         when {
             version?.earlyAccess == true -> Tag("early access", accent = AutobotTheme.inks.amber)
             version != null && "civitai:${version.id}" in installed -> Tag("added")
-            else -> Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
+            else -> Tag("get", accent = MaterialTheme.colorScheme.onSurface, onClick = onGet)
         }
     }
 }
@@ -531,8 +531,8 @@ private fun NpuOfferRow(offer: NpuOffer, arch: String?, installed: Boolean, onGe
     ) {
         when {
             installed -> Tag("added", accent = MaterialTheme.colorScheme.onSurfaceVariant)
-            file == null -> Tag("no build", accent = MaterialTheme.colorScheme.error)
-            else -> Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
+            file == null -> Tag("no build")
+            else -> Tag("get", accent = MaterialTheme.colorScheme.onSurface, onClick = onGet)
         }
     }
 }

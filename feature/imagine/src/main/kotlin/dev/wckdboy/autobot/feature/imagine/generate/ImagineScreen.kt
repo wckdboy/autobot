@@ -287,7 +287,7 @@ fun ImagineScreen(
                         if (state.saved.containsKey(result.galleryId)) {
                             MicroLabel(PanicCopy.SAVED, Modifier.weight(1f))
                         } else {
-                            MicroLabel(PanicCopy.NOT_SAVED, Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                            MicroLabel(PanicCopy.NOT_SAVED, Modifier.weight(1f))
                             Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.primary, onClick = { actions.saveResult(result.galleryId) })
                         }
                     }
@@ -357,7 +357,7 @@ private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, 
             )
         }
         if (wildcards != null) {
-            MicroLabel(wildcards, color = MaterialTheme.colorScheme.primary)
+            MicroLabel(wildcards)
         } else {
             MicroLabel("~$tokens / 75 tokens", color = if (tokens > 75) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -699,7 +699,7 @@ private fun LoraSheet(available: List<String>, selected: Set<String>, onPick: (S
                         Icon(AutobotIcons.Layers, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.size(10.dp))
                         Text(name, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (name in selected) MicroLabel("added", color = MaterialTheme.colorScheme.primary)
+                        if (name in selected) MicroLabel("added")
                     }
                 }
             }

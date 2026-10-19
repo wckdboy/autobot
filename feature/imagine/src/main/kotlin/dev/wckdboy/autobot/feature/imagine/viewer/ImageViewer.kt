@@ -211,7 +211,7 @@ internal fun ImageViewerContent(
         AnimatedVisibility(chrome && drag == 0f, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             Column(Modifier.fillMaxWidth().background(paper.copy(alpha = 0.92f)).navigationBarsPadding()) {
                 Hairline(color = ink)
-                busy?.let { MicroLabel(it, Modifier.padding(start = 16.dp, top = 8.dp), color = MaterialTheme.colorScheme.primary) }
+                busy?.let { MicroLabel(it, Modifier.padding(start = 16.dp, top = 8.dp)) }
                 // The whole prompt, scrolling in a short box (large text never cuts it off).
                 Text(
                     current.prompt.ifBlank { "no prompt" },

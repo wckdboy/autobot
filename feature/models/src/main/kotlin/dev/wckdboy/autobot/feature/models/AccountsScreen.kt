@@ -139,7 +139,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
             SectionLabel("model hubs · tokens are encrypted on this phone")
             state.message?.let {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MicroLabel(it, Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+                    MicroLabel(it, Modifier.weight(1f))
                     TextButton(onClick = viewModel::consume) { Text("OK") }
                 }
             }

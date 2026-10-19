@@ -244,7 +244,7 @@ private fun PresetPickerSheet(initialQuery: String, actions: ProvidersActions) {
             LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (groups.isEmpty()) item { MicroLabel("no match · try “Other OpenAI-compatible”", Modifier.padding(vertical = 16.dp)) }
                 groups.forEach { (group, presets) ->
-                    item(key = "g-${group.name}") { MicroLabel("// ${group.label} · ${presets.size}", Modifier.padding(top = 14.dp, bottom = 4.dp), MaterialTheme.colorScheme.primary) }
+                    item(key = "g-${group.name}") { MicroLabel("${group.label} · ${presets.size}", Modifier.padding(top = 14.dp, bottom = 4.dp)) }
                     if (group == PresetGroup.LOCAL_SERVERS) {
                         item(key = "n-${group.name}") {
                             Text(

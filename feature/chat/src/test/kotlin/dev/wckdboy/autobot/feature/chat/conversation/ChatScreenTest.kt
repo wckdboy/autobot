@@ -81,7 +81,7 @@ class ChatScreenTest {
     fun aFailedTurnExplainsTheRejectedKey() {
         val error = "The provider rejected the API key. Check it under Settings › Model providers (HTTP 401: invalid key)"
         show(ChatUiState(loaded = true, providers = listOf(provider), items = listOf(SessionItem.User("u1", "hi"), SessionItem.Notice("n1", error, NoticeKind.ERROR))))
-        compose.onNodeWithText("// $error").assertIsDisplayed()
+        compose.onNodeWithText("$error").assertIsDisplayed()
     }
 
     @Test

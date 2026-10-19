@@ -205,7 +205,7 @@ private fun BackendEditor(initial: DiffusionBackend, isNew: Boolean, onSave: (Di
         Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        MicroLabel(if (isNew) "// new backend" else "// edit backend", color = MaterialTheme.colorScheme.primary)
+        MicroLabel(if (isNew) "new backend" else "edit backend")
         Segmented(listOf(BackendKind.SD_API, BackendKind.LOCAL_SSE), kind, { kind = it }, { if (it == BackendKind.SD_API) "A1111 API" else "Local SSE" }, Modifier.fillMaxWidth())
         ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
         ConsoleTextField(
