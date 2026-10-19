@@ -143,6 +143,12 @@ final class RecipeCenter {
         }
     }
 
+    /// [syncNodes], awaited (tests, a background task).
+    func syncNodesNow() async {
+        guard loaded else { return }
+        await collectNodes()
+    }
+
     private func collectNodes() async {
         var notice: String?
         for recipe in recipes where recipe.runsOn != nil {
