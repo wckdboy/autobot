@@ -278,8 +278,9 @@ class ReceiptsTest {
         val handle = bridge.open("s1", "p", "glm-5") { states += json.decodeFromString(SessionState.serializer(), it) }
         withTimeout(5_000) { while (states.isEmpty()) delay(10) }
         bridge.send("s1", "What is in notes.md?", emptyList())
+        // The receipt is built as the turn ends, and can land just after "not running".
         withTimeout(10_000) {
-            while (states.lastOrNull()?.let { s -> !s.running && s.projection.items.any { it is SessionItem.Assistant } } != true) delay(20)
+            while (states.lastOrNull()?.let { s -> !s.running && s.projection.items.filterIsInstance<SessionItem.Assistant>().lastOrNull()?.receipt != null } != true) delay(20)
         }
         handle.cancel()
 

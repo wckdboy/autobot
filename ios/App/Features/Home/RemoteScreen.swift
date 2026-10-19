@@ -19,6 +19,17 @@ struct RemoteScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     // The Privacy Center is the status pill above (one way in, with its state).
+                    let nodes = providers.filter { $0.kind == .invincibleNode }
+                    if !nodes.isEmpty {
+                        // The Autobot Agent on each paired node: tasks run there, approvals come here.
+                        SectionLabel("agents · my node")
+                        ForEach(nodes) { n in
+                            RunRow(title: "Agent on \(n.displayName)", subtitle: "tasks run on that machine · you approve", action: { nav.push(.nodeAgent(providerId: n.id)) }) {
+                                RouteTag(route: routeOf(n))
+                            }
+                        }
+                        Spacer().frame(height: 24)
+                    }
                     SectionLabel("providers")
                     ForEach(providers) { p in
                         RunRow(title: p.displayName, subtitle: p.defaultModel, action: { nav.push(.providers) }) {

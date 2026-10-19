@@ -153,6 +153,26 @@ struct NodeConnectorTests {
                 if case .assistant(_, _, _, _, _, _, let receipt?, _, _) = item { receipt.line.contains("kept on \(node) ✓") } else { false }
             }
         }, "\(session.transcript.items)")
+
+        // The agent on that machine (when `autobot serve` runs there): a task, approved on the card.
+        guard ProcessInfo.processInfo.environment["INVINCIBLE_AGENT"] == "1" else { return }
+        let agent = NodeAgentModel(providerId: provider.id)
+        await agent.connect(runtime: runtime, node: node)
+        #expect(agent.info?.approvals == "ask", "\(agent.problem ?? "")")
+        agent.send("Use the terminal tool to run exactly this command: echo ios-agent-ok")
+        #expect(await eventually(.seconds(180)) { agent.rows.contains { if case .question = $0 { true } else { false } } }, "\(agent.rows)")
+        guard case .question(_, let approval, let title, let detail, _)? = agent.rows.first(where: { if case .question = $0 { true } else { false } }) else { return }
+        #expect(title == "Run a command?" && detail.contains("ios-agent-ok"))
+        agent.answer(approval, .once)
+        #expect(await eventually(.seconds(180)) { !agent.running }, "\(agent.rows)")
+        #expect(agent.rows.contains { if case .note(_, let text, .tool) = $0 { text.contains("ios-agent-ok") } else { false } })
+        #expect(agent.rows.contains { if case .reply = $0 { true } else { false } }, "\(agent.rows)")
+    }
+
+    @Test func approvalCardsSayWhatIsAsked() {
+        #expect(NodeAgentModel.describe(AgentActionCommand(command: "ls -la"), fallback: "") == ("Run a command?", "ls -la"))
+        #expect(NodeAgentModel.describe(AgentActionWrite(path: "/w/x", bytes: 5, inside: false), fallback: "") == ("Write outside the working directory?", "/w/x · 5 bytes"))
+        #expect(NodeAgentModel.describe(AgentActionOther(kind: "teleport"), fallback: "run: x") == ("Approve?", "run: x"))
     }
 
     @Test func aPairingLinkOpensThePairingSheetOnly() {

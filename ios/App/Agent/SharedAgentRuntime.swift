@@ -339,6 +339,61 @@ final class SharedAgentRuntime: AgentRuntime {
     /// The node key fingerprint in a pairing code, to compare with what `invincible pair` printed.
     func pairingFingerprint(_ code: String) -> String? { bridge.pairingFingerprint(code: code) }
 
+    // MARK: The agent on a paired node (Invincible)
+
+    private struct Opened: @unchecked Sendable { var value: NodeAgentOpened? = nil, error: String? = nil }
+    private struct Answered: Sendable { let ok: Bool }
+    private struct Problem: Sendable { let message: String? }
+    private struct Schedules: @unchecked Sendable { var list: [AgentSchedule]? = nil, error: String? = nil }
+
+    /// This device's conversation with the node's agent, the agent's settings and the conversation so far.
+    func nodeAgentOpen(_ providerId: String) async -> (opened: NodeAgentOpened?, error: String?) {
+        let r = await call(stopped: Opened(error: Self.stoppedMessage), late: Opened(error: "The node did not answer")) { done in
+            bridge.nodeAgentOpen(providerId: providerId) { @Sendable opened, error in done(Opened(value: opened, error: error)) }
+        }
+        return (r.value, r.error)
+    }
+
+    /// A turn on the node's agent; [onEvent] runs on the main actor for each event. Cancel to stop listening.
+    func nodeAgentTurn(_ providerId: String, session: String, text: String, onEvent: @escaping @MainActor (AgentEvent) -> Void) -> AutobotShared.Cancellable {
+        // Kotlin calls this from its own queue: hop to the main actor with the event.
+        bridge.nodeAgentTurn(providerId: providerId, session: session, text: text) { @Sendable event in
+            let box = Unchecked(event)
+            Task { @MainActor in onEvent(box.value) }
+        }
+    }
+
+    func nodeAgentAnswer(_ providerId: String, id: String, answer: ApprovalAnswer) async -> Bool {
+        await call(stopped: Answered(ok: false), late: Answered(ok: false)) { done in
+            bridge.nodeAgentAnswer(providerId: providerId, id: id, answer: answer) { @Sendable ok in done(Answered(ok: ok.boolValue)) }
+        }.ok
+    }
+
+    func nodeAgentReset(_ providerId: String, session: String) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeAgentReset(providerId: providerId, session: session) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
+    func nodeAgentSchedules(_ providerId: String) async -> (list: [AgentSchedule]?, error: String?) {
+        let r = await call(stopped: Schedules(error: Self.stoppedMessage), late: Schedules(error: "The node did not answer")) { done in
+            bridge.nodeAgentSchedules(providerId: providerId) { @Sendable list, error in done(Schedules(list: list, error: error)) }
+        }
+        return (r.list, r.error)
+    }
+
+    func nodeAgentAddSchedule(_ providerId: String, schedule: String, task: String, telegram: Bool) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeAgentAddSchedule(providerId: providerId, schedule: schedule, task: task, telegram: telegram) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
+    func nodeAgentRemoveSchedule(_ providerId: String, id: String) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeAgentRemoveSchedule(providerId: providerId, id: id) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
     private static let stoppedMessage = "The agent runtime was stopped"
 
     /**

@@ -1,0 +1,320 @@
+import AutobotShared
+import Observation
+import SwiftUI
+
+/// One line of the agent transcript on screen.
+enum NodeAgentRow: Identifiable, Equatable {
+    case user(id: Int, text: String)
+    case reply(id: Int, text: String, route: String?)
+    /// A tool run, a refusal or a failure: one short line.
+    case note(id: Int, text: String, tone: Tone)
+    case question(id: Int, approval: String, title: String, detail: String, answer: ApprovalAnswer?)
+
+    enum Tone { case tool, refused, error }
+
+    var id: Int {
+        switch self {
+        case .user(let id, _), .reply(let id, _, _), .note(let id, _, _), .question(let id, _, _, _, _): id
+        }
+    }
+}
+
+/**
+ The Autobot Agent on a paired node (Invincible's agent API through the Noise channel): tasks run
+ on that machine, and every command, file write or read outside its working folder comes here as a
+ card first. The conversation lives on the machine.
+ */
+@MainActor
+@Observable
+final class NodeAgentModel {
+    let providerId: String
+    private(set) var node = ""
+    private(set) var info: AgentInfo?
+    private(set) var problem: String?
+    private(set) var rows: [NodeAgentRow] = []
+    private(set) var running = false
+    private(set) var schedules: [AgentSchedule]?
+    private(set) var scheduleProblem: String?
+    @ObservationIgnored private var session = ""
+    @ObservationIgnored private var counter = 0
+    @ObservationIgnored private var turn: AutobotShared.Cancellable?
+    @ObservationIgnored private var route: String?
+    @ObservationIgnored private weak var runtime: SharedAgentRuntime?
+
+    init(providerId: String) { self.providerId = providerId }
+
+    func connect(app: AppContainer) async {
+        await connect(runtime: app.agent as? SharedAgentRuntime, node: app.providers.get(providerId)?.displayName ?? "my node")
+    }
+
+    func connect(runtime: SharedAgentRuntime?, node: String) async {
+        self.runtime = runtime
+        self.node = node
+        guard let runtime else { return problem = "My node is not available here" }
+        problem = nil
+        let (opened, error) = await runtime.nodeAgentOpen(providerId)
+        guard let opened else { return problem = error ?? "The node did not answer" }
+        session = opened.session
+        info = opened.info
+        rows = opened.history.map { line in
+            switch line.role {
+            case "user": .user(id: next(), text: line.text)
+            case "tool": .note(id: next(), text: line.text, tone: .tool)
+            default: .reply(id: next(), text: line.text, route: nil)
+            }
+        }
+    }
+
+    func send(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let runtime, !trimmed.isEmpty, !running, info != nil else { return }
+        rows.append(.user(id: next(), text: trimmed))
+        running = true
+        route = nil
+        turn = runtime.nodeAgentTurn(providerId, session: session, text: trimmed) { [weak self] event in self?.apply(event) }
+    }
+
+    private func apply(_ event: AgentEvent) {
+        switch event {
+        case let e as AgentEventReceipt:
+            route = [e.model, e.tier].compactMap { $0 }.joined(separator: " · ")
+        case let e as AgentEventTool:
+            rows.append(.note(id: next(), text: e.text, tone: .tool))
+        case let e as AgentEventRefused:
+            rows.append(.note(id: next(), text: e.text, tone: .refused))
+        case let e as AgentEventApproval:
+            let (title, detail) = Self.describe(e.action, fallback: e.text)
+            rows.append(.question(id: next(), approval: e.id, title: title, detail: detail, answer: nil))
+        case let e as AgentEventAnswer:
+            rows.append(.reply(id: next(), text: e.text, route: route))
+            running = false
+        case let e as AgentEventFailed:
+            rows.append(.note(id: next(), text: e.text, tone: .error))
+            running = false
+        default:
+            break
+        }
+    }
+
+    nonisolated static func describe(_ action: AgentAction, fallback: String) -> (String, String) {
+        switch action {
+        case let a as AgentActionCommand: ("Run a command?", a.command)
+        case let a as AgentActionWrite: (a.inside ? "Write a file?" : "Write outside the working directory?", "\(a.path) · \(a.bytes) bytes")
+        case let a as AgentActionRead: ("Read outside the working directory?", a.path)
+        case let a as AgentActionCloud: ("Use a cloud model for this?", a.reason)
+        default: ("Approve?", fallback)
+        }
+    }
+
+    func answer(_ approval: String, _ answer: ApprovalAnswer) {
+        guard let runtime else { return }
+        rows = rows.map { row in
+            if case .question(let id, approval, let title, let detail, nil) = row { return .question(id: id, approval: approval, title: title, detail: detail, answer: answer) }
+            return row
+        }
+        Task {
+            if !(await runtime.nodeAgentAnswer(providerId, id: approval, answer: answer)) {
+                rows.append(.note(id: next(), text: "That question had expired.", tone: .error))
+            }
+        }
+    }
+
+    func newConversation() async {
+        guard let runtime, !running else { return }
+        if let error = await runtime.nodeAgentReset(providerId, session: session) {
+            rows.append(.note(id: next(), text: error, tone: .error))
+        } else {
+            rows = []
+        }
+    }
+
+    func loadSchedules() async {
+        guard let runtime else { return }
+        let (list, error) = await runtime.nodeAgentSchedules(providerId)
+        if let list { schedules = list; scheduleProblem = nil } else { scheduleProblem = error }
+    }
+
+    /// True when the node accepted it.
+    func addSchedule(_ schedule: String, task: String, telegram: Bool) async -> Bool {
+        guard let runtime else { return false }
+        if let error = await runtime.nodeAgentAddSchedule(providerId, schedule: schedule.trimmingCharacters(in: .whitespaces), task: task.trimmingCharacters(in: .whitespacesAndNewlines), telegram: telegram) {
+            scheduleProblem = error
+            return false
+        }
+        await loadSchedules()
+        return true
+    }
+
+    func removeSchedule(_ id: String) async {
+        guard let runtime else { return }
+        if let error = await runtime.nodeAgentRemoveSchedule(providerId, id: id) { scheduleProblem = error } else { await loadSchedules() }
+    }
+
+    func stopListening() { turn?.cancel() }
+
+    private func next() -> Int {
+        counter += 1
+        return counter
+    }
+}
+
+struct NodeAgentScreen: View {
+    @Environment(AppContainer.self) private var app
+    @Environment(Navigator.self) private var nav
+    @Environment(\.scheme) private var c
+    @State private var model: NodeAgentModel
+    @State private var draft = ""
+    @State private var showSchedules = false
+
+    init(providerId: String) { _model = State(initialValue: NodeAgentModel(providerId: providerId)) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            AutobotTopBar(title: "Agent · \(model.node)", onBack: { nav.back() }) {
+                IconAction(symbol: "calendar", label: "Scheduled tasks", enabled: model.info != nil) {
+                    showSchedules = true
+                    Task { await model.loadSchedules() }
+                }
+                IconAction(symbol: "arrow.clockwise", label: "New conversation", enabled: model.info != nil && !model.running) {
+                    Task { await model.newConversation() }
+                }
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        header
+                        ForEach(model.rows) { row in rowView(row).id(row.id) }
+                        if model.running { InkLoader(.inline) }
+                    }
+                    .padding(.horizontal, Tokens.Spacing.gutter)
+                    .padding(.vertical, 8)
+                }
+                .onChange(of: model.rows.count) {
+                    if let last = model.rows.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                }
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                ConsoleTextField(text: $draft, placeholder: "A task for your machine", minLines: 1, maxLines: 5, enabled: model.info != nil)
+                IconAction(symbol: "paperplane.fill", label: "Send", tint: c.primary, enabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty && !model.running && model.info != nil) {
+                    model.send(draft)
+                    draft = ""
+                }
+            }
+            .padding(Tokens.Spacing.gutter)
+        }
+        .background(c.background)
+        .task { await model.connect(app: app) }
+        .onDisappear { model.stopListening() }
+        .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
+    }
+
+    @ViewBuilder private var header: some View {
+        if let problem = model.problem {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(problem).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+                GhostButton("Retry") { Task { await model.connect(app: app) } }
+            }
+        } else if let info = model.info {
+            let folder = info.workdir.split(separator: "/").suffix(2).joined(separator: "/")
+            SectionLabel(["runs on \(model.node)", "approvals: \(info.approvals)", info.private_ ? "local models only" : nil, "…/\(folder)"].compactMap { $0 }.joined(separator: " · "))
+        } else {
+            InkLoader(.inline)
+        }
+    }
+
+    @ViewBuilder private func rowView(_ row: NodeAgentRow) -> some View {
+        switch row {
+        case .user(_, let text):
+            ChatBubble(role: .user, text: text, hasFooter: false) { EmptyView() }
+        case .reply(_, let text, let route):
+            ChatBubble(role: .assistant, text: text, hasFooter: route != nil) {
+                if let route { MicroLabel(route) }
+            }
+        case .note(_, let text, let tone):
+            Text((tone == .tool ? "› " : "✗ ") + text)
+                .textStyle(.code)
+                .foregroundStyle(tone == .tool ? c.onSurfaceVariant : c.error)
+        case .question(_, let approval, let title, let detail, let answer):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).textStyle(.titleSmall).foregroundStyle(c.onSurface)
+                Text(detail).textStyle(.code).foregroundStyle(c.onSurface)
+                switch answer {
+                case nil:
+                    HStack(spacing: 8) {
+                        PrimaryButton("Allow") { model.answer(approval, .once) }
+                        GhostButton("Always") { model.answer(approval, .always) }
+                        GhostButton("Deny") { model.answer(approval, .deny) }
+                    }
+                case .always?: MicroLabel("allowed for this conversation")
+                case .deny?: MicroLabel("denied")
+                default: MicroLabel("allowed")
+                }
+            }
+            .padding(12)
+            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.medium).stroke(c.outlineVariant))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Approval: \(title) \(detail)")
+        }
+    }
+}
+
+/// The agent's scheduled tasks on the machine: list, remove, add.
+struct NodeSchedulesSheet: View {
+    let model: NodeAgentModel
+    @Environment(\.scheme) private var c
+    @State private var schedule = ""
+    @State private var task = ""
+    @State private var telegram = false
+    @State private var adding = false
+
+    var body: some View {
+        ScrollView {
+            InkStack(alignment: .leading, spacing: 12) {
+                SectionLabel("scheduled on \(model.node)")
+                Text("Runs on the machine with nobody to ask: only allowlisted commands and writes in its working directory.")
+                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                if let problem = model.scheduleProblem {
+                    Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+                }
+                if let list = model.schedules {
+                    if list.isEmpty { Text("Nothing scheduled yet.").textStyle(.bodyMedium).foregroundStyle(c.onSurface) }
+                    ForEach(list, id: \.id) { item in scheduleRow(item) }
+                } else {
+                    InkLoader(.inline)
+                }
+                SectionLabel("add")
+                ConsoleTextField(text: $schedule, placeholder: "0 8 * * 1-5 · @daily · every 30m", kind: .mono)
+                ConsoleTextField(text: $task, placeholder: "What to do, e.g. check disk space and warn me", minLines: 2, maxLines: 5)
+                SwitchRow(title: "Send answers to Telegram", isOn: $telegram)
+                PrimaryButton("Schedule", enabled: !schedule.isEmpty && !task.isEmpty, busy: adding) {
+                    adding = true
+                    Task {
+                        if await model.addSchedule(schedule, task: task, telegram: telegram) { schedule = ""; task = "" }
+                        adding = false
+                    }
+                }
+            }
+            .padding(Tokens.Spacing.gutter)
+        }
+        .background(c.background)
+        .presentationDetents([.large])
+    }
+
+    private func scheduleRow(_ item: AgentSchedule) -> some View {
+        let format = { (seconds: Int64) in Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(date: .abbreviated, time: .shortened) }
+        return HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.task).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
+                MicroLabel([item.schedule, item.next.map { "next \(format($0.int64Value))" }, item.telegram ? "→ Telegram" : nil].compactMap { $0 }.joined(separator: " · "))
+                if let at = item.lastAt {
+                    Text("\(item.lastOk?.boolValue == true ? "✓" : "✗") \(format(at.int64Value)) · \(item.lastResult?.split(separator: "\n").first.map(String.init) ?? "")")
+                        .textStyle(.bodySmall)
+                        .foregroundStyle(item.lastOk?.boolValue == true ? c.onSurfaceVariant : c.error)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 8)
+            IconAction(symbol: "trash", label: "Remove \(item.task)") { Task { await model.removeSchedule(item.id) } }
+        }
+    }
+}
