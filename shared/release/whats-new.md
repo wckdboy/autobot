@@ -1,17 +1,26 @@
-Your own computer as Autobot's next tier: pair a machine running Invincible, chat with its models, hand its agent tasks you approve from the phone, and check what it signed.
+My node on iPhone too, what your machine did at a glance, recipes that run on your node, and the team of agents your machine can now run.
 
-## My node (Android)
-- **Pair a computer.** Install Invincible on a desktop or VPS (`curl -fsSL https://raw.githubusercontent.com/wckdboy/invincible/main/install.sh | sh`), run `invincible pair`, and scan the code with the camera app (or paste it). Settings › Providers › My node (Invincible). No account, no relay: the phone and the node pin each other's keys (Noise).
-- **Chat with its models** like any provider. Connections follow the kill switch (offline refuses them; Tor and SOCKS5 carry them with remote DNS) and show in the Privacy Center's audit log.
-- **Signed receipts.** Every answer from the node is checked against the receipt key pinned when you paired: the receipt line says "kept on studio ✓" when nothing left the node, "studio → 1 host" when it used a cloud model (with the hosts, routes and what it redacted), or "studio unverified".
-- **Phone first, then my node.** With "phone first" on a node chat, this phone answers first and a weak answer goes to your node instead of a cloud model. The node is hardware you own, so a sensitive prompt may go there and "Never" allows it; these turns are marked private, so the node never sends them on to a cloud model.
+## My node on iOS
+- **Pair your computer** in Settings › Providers › + › My node (Invincible). Paste the code, or open the `invincible://pair` link from the camera.
+- **Chats, signed receipts and "phone first, then my node"** all work as on Android.
+- **The agent screen.** Remote › Agents · my node: tasks on that machine, approval cards, and scheduled tasks.
 
-## The agent on your machine (Android)
-- **REMOTE › Agents · my node.** Give the Autobot Agent running on that machine a task: shell commands and file work, on its models. Every command, file write and read outside its working folder comes to the phone as a card first: Allow, Always (this conversation) or Deny.
-- **Scheduled tasks.** The calendar button lists what the agent runs on a schedule (next run, how the last one went), adds tasks (cron, @daily, every 30m) and removes them. Scheduled runs only do what you allowlisted.
+## What your machine did (Android and iOS)
+The list button on the agent screen opens the node's Activity, read from its own logs:
+- **Requests:** every request the node answered: who asked, which model, tokens, and whether anything left. Each receipt is checked against the key pinned at pairing.
+- **Actions:** what the agent ran, and who allowed it.
+- **Memory and skills:** what the agent remembered (you can make it forget), and your skills.
+
+## Recipes on your node
+- **Runs on** in the recipe editor: this phone, or your node.
+- **On the node,** a recipe runs on its schedule, always on and with no 8-minute limit, on the node's models, with only the recipe's tool groups (web included).
+- **Your time, wherever the node is.** "07:00" means 07:00 where the phone is.
+- **Results come back** as chats in the Recipes folder, with the node's signed receipts and a notification.
+
+## A team on your machine
+- **Team members.** When the node's agent has a team, each member's answer shows under its name.
+- **You know who's asking.** An approval says which member wants it ("coder: Run a command?").
+- **New approval cards** for web fetches and MCP tools.
 
 ## Fixes
-- Node chats no longer show a REDACT chip: nothing is redacted for hardware you own.
-- The streaming check with a real node leaves room for thinking models.
-
-iOS: the pairing and receipt code is shared and tested on CryptoKit; the iOS node connector comes next, so "My node" says "not on iOS yet".
+- Several CI tests that depended on timing are steadier.
