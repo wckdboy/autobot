@@ -23,8 +23,8 @@ enum Tokens {
         static let lilacDeep: UInt32 = 0x5444BA
         static let lilacDim: UInt32 = 0x221D3D
         static let line: UInt32 = 0x2F2F2E
-        static let orange: UInt32 = 0xC2651A
-        static let orangeLight: UInt32 = 0xF0882E
+        static let orange: UInt32 = 0xFF9A3D
+        static let orangeLight: UInt32 = 0xFF9A3D
         static let paper: UInt32 = 0xEFEAE2
         static let paperInk: UInt32 = 0x141414
         static let paperLine: UInt32 = 0xCFC8BC

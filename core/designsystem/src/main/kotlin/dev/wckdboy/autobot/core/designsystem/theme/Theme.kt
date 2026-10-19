@@ -65,8 +65,8 @@ object AutobotColors {
     val LilacDim = Color(0xFF221D3D)
 
     /** Invincible's signal (the node), on paper and on ink: screens about the node mark it in this. */
-    val Orange = Color(0xFFC2651A)
-    val OrangeLight = Color(0xFFF0882E)
+    val Orange = Color(0xFFFF9A3D)
+    val OrangeLight = Color(0xFFFF9A3D)
 
     val Amber = Color(0xFFE3A33B)
     val Cyan = Color(0xFF9DB4B0)
