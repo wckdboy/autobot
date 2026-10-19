@@ -181,9 +181,44 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         request("DELETE", "/schedules/$id")
     }
 
-    private fun spec(method: String, path: String, body: String?, accept: String = "application/json") = HttpRequestSpec(
+    /**
+     * The node's audit log (Invincible's spec/audit.md), newest first: the requests it answered,
+     * each receipt checked against [receiptKey], the key pinned at pairing.
+     */
+    suspend fun requests(crypto: NodeCrypto, node: String, receiptKey: String?, limit: Int = 100): List<NodeRequest> =
+        NodeActivityParser.requests(request("GET", "?limit=$limit", root = AUDIT), node, receiptKey, crypto)
+
+    /** The agent's action log, newest first: what it asked to do, whether it ran, who decided. */
+    suspend fun actions(limit: Int = 100): List<AgentActionEntry> = NodeActivityParser.actions(request("GET", "/actions?limit=$limit"))
+
+    /** What the agent remembered between conversations, newest first. */
+    suspend fun memory(): List<AgentFact> = NodeActivityParser.facts(request("GET", "/memory"))
+
+    /** Removes a remembered fact; false when there was none. */
+    suspend fun forget(id: Long): Boolean = try {
+        request("DELETE", "/memory/$id")
+        true
+    } catch (e: NodeAgentException) {
+        if (e.status == 404) false else throw e
+    }
+
+    /** The owner's skills on the node. */
+    suspend fun skills(): List<AgentSkill> = NodeActivityParser.skills(request("GET", "/skills"))
+
+    /** All of it at once; the agent's part is empty, with [NodeActivity.agentProblem] set, when it is not running. */
+    suspend fun activity(crypto: NodeCrypto, node: String, receiptKey: String?): NodeActivity {
+        val requests = requests(crypto, node, receiptKey)
+        return try {
+            NodeActivity(requests, actions(), memory(), skills())
+        } catch (e: NodeAgentException) {
+            if (e.status == 0) throw e
+            NodeActivity(requests, emptyList(), emptyList(), emptyList(), agentProblem = e.message)
+        }
+    }
+
+    private fun spec(method: String, path: String, body: String?, accept: String = "application/json", root: String = BASE) = HttpRequestSpec(
         method = method,
-        url = "$BASE$path",
+        url = "$root$path",
         headers = buildMap {
             put("Accept", accept)
             if (body != null) put("Content-Type", "application/json")
@@ -194,9 +229,9 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     )
 
     /** One request; the body, or [NodeAgentException]. */
-    private suspend fun request(method: String, path: String, body: String? = null): String = suspendCancellableCoroutine { cont ->
+    private suspend fun request(method: String, path: String, body: String? = null, root: String = BASE): String = suspendCancellableCoroutine { cont ->
         val text = StringBuilder()
-        val running = transport.send(spec(method, path, body), object : HttpSink {
+        val running = transport.send(spec(method, path, body, root = root), object : HttpSink {
             private var failed = false
 
             override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
@@ -223,6 +258,7 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
 
     companion object {
         private const val BASE = "http://invincible/v1/agent"
+        private const val AUDIT = "http://invincible/v1/audit"
         private const val MAX_BYTES = 8L * 1024 * 1024
         private val json = Json { ignoreUnknownKeys = true }
 

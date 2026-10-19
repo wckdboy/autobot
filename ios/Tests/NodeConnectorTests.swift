@@ -167,6 +167,16 @@ struct NodeConnectorTests {
         #expect(await eventually(.seconds(180)) { !agent.running }, "\(agent.rows)")
         #expect(agent.rows.contains { if case .note(_, let text, .tool) = $0 { text.contains("ios-agent-ok") } else { false } })
         #expect(agent.rows.contains { if case .reply = $0 { true } else { false } }, "\(agent.rows)")
+
+        // The node's own logs, as the activity sheet shows them: this device's chat in the audit
+        // log, signed; the agent's command, approved here.
+        await agent.loadActivity()
+        let activity = try #require(agent.activity, "\(agent.activityProblem ?? "")")
+        #expect(activity.requests.contains { $0.device?.hasPrefix("iPhone-test") == true && $0.receipt.verified }, "\(activity.requests)")
+        #expect(activity.requests.contains { $0.client == "autobot-agent" })
+        #expect(activity.unverified == 0)
+        #expect(activity.actions.contains { $0.action.contains("ios-agent-ok") && $0.ran && $0.by == "app" }, "\(activity.actions)")
+        #expect(activity.agentProblem == nil)
     }
 
     @Test func approvalCardsSayWhatIsAsked() {

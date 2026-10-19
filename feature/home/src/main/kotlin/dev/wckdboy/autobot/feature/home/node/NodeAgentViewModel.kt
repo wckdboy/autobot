@@ -14,6 +14,7 @@ import dev.wckdboy.autobot.shared.invincible.AgentEvent
 import dev.wckdboy.autobot.shared.invincible.AgentInfo
 import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
+import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +49,9 @@ data class NodeAgentUiState(
     val schedules: List<AgentSchedule>? = null,
     /** Why the last schedule change did not work (a schedule that does not parse, …). */
     val scheduleProblem: String? = null,
+    /** What the node and the agent did and know; null until loaded. */
+    val activity: NodeActivity? = null,
+    val activityProblem: String? = null,
 )
 
 /** Folds a turn's events into the transcript; pure, so the screen's logic is testable on its own. */
@@ -185,6 +189,29 @@ class NodeAgentViewModel @AssistedInject constructor(
             runCatching { agent.removeSchedule(id) }
                 .onSuccess { loadSchedules() }
                 .onFailure { e -> _state.update { it.copy(scheduleProblem = e.message ?: "Could not remove it.") } }
+        }
+    }
+
+    fun loadActivity() {
+        viewModelScope.launch {
+            val provider = providers.observeProviders().first().firstOrNull { it.id == providerId } ?: return@launch
+            runCatching { agents.activity(provider) }
+                .onSuccess { activity ->
+                    _state.update { it.copy(activity = activity, activityProblem = if (activity == null) "The pairing is unreadable; pair again in Providers." else null) }
+                }
+                .onFailure { e -> _state.update { it.copy(activityProblem = e.message ?: "The node did not answer.") } }
+        }
+    }
+
+    /** Makes the agent forget a remembered fact. */
+    fun forget(id: Long) {
+        val agent = agent ?: return
+        _state.update { s -> s.copy(activity = s.activity?.let { a -> a.copy(facts = a.facts.filterNot { it.id == id }) }) }
+        viewModelScope.launch {
+            runCatching { agent.forget(id) }.onFailure { e ->
+                _state.update { it.copy(activityProblem = e.message ?: "Could not forget it.") }
+                loadActivity()
+            }
         }
     }
 
