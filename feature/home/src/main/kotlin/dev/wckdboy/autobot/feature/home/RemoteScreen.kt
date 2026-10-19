@@ -27,7 +27,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import dev.wckdboy.autobot.core.designsystem.component.NodeMark
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.diffusion.BackendKind
@@ -116,8 +116,8 @@ fun RemoteScreen(
                     RunRow(
                         "Agent on ${n.displayName}",
                         "tasks run on that machine · you approve",
-                        // The node's own mark: Invincible's orange square.
-                        leading = { AutobotMark(color = AutobotTheme.node) },
+                        // The node's own mark: Invincible's pixel i.
+                        leading = { NodeMark() },
                         onClick = { onOpenNodeAgent(n.id) },
                     ) {
                         RouteTag(Route.PC_LAN)

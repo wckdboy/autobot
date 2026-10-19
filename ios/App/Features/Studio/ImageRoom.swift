@@ -429,7 +429,7 @@ struct ImageRoom: View {
                     } else if let asset {
                         CanvasImage(asset: asset)
                     } else {
-                        Color.clear.inkCard(seed: 0.6, fade: .bottomLeading, cornerRadius: 0)
+                        Color.clear
                             .accessibilityLabel("Empty canvas")
                     }
                     if let running {

@@ -26,8 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.Wordmark
+import dev.wckdboy.autobot.core.designsystem.component.QuietField
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
@@ -47,7 +47,7 @@ fun WelcomeScreen(onSetUp: () -> Unit, onPairPc: () -> Unit, onAddApiKey: () -> 
         // scrolls with it, so no text sits on the densest dots.
         val large = isLargeText()
         if (!large) {
-            HalftoneField(Modifier.fillMaxWidth().height(380.dp), cell = 10.dp, ambient = ambient)
+            QuietField(Modifier.fillMaxWidth().height(380.dp), cell = 10.dp, ambient = ambient)
             Box(Modifier.fillMaxWidth().height(380.dp).background(fade))
         }
         // Scrolls when a large font makes the promise taller than the screen; otherwise it sits at the bottom as before.
@@ -63,20 +63,17 @@ fun WelcomeScreen(onSetUp: () -> Unit, onPairPc: () -> Unit, onAddApiKey: () -> 
             ) {
                 Box(Modifier.fillMaxWidth().then(if (large) Modifier.height(200.dp) else Modifier)) {
                     if (large) {
-                        HalftoneField(Modifier.matchParentSize(), cell = 10.dp, ambient = ambient)
+                        QuietField(Modifier.matchParentSize(), cell = 10.dp, ambient = ambient)
                         Box(Modifier.matchParentSize().background(fade))
                     }
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AutobotMark()
-                        Text("  AUTOBOT", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
-                    }
+                    Wordmark(modifier = Modifier.padding(16.dp))
                 }
                 Column(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    SectionLabel("01 — welcome")
-                    Text("Local or\ncloud? Both.", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
+                    SectionLabel("welcome")
+                    Text("Local or cloud? Both.", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
                     Text(
                         "Small models run on this phone. Big ones run on your own machine. The cloud is optional, and you hold the keys.",
                         style = MaterialTheme.typography.bodyLarge,
@@ -91,8 +88,8 @@ fun WelcomeScreen(onSetUp: () -> Unit, onPairPc: () -> Unit, onAddApiKey: () -> 
                     Spacer(Modifier.height(6.dp))
                     PrimaryButton("Set up this phone", onSetUp, Modifier.fillMaxWidth())
                     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        TextButton(onClick = onPairPc) { Text("PAIR A PC", style = MaterialTheme.typography.labelMedium) }
-                        TextButton(onClick = onAddApiKey) { Text("ADD AN API KEY", style = MaterialTheme.typography.labelMedium) }
+                        TextButton(onClick = onPairPc) { Text("Pair a PC", style = MaterialTheme.typography.labelMedium) }
+                        TextButton(onClick = onAddApiKey) { Text("Add an API key", style = MaterialTheme.typography.labelMedium) }
                     }
                 }
             }

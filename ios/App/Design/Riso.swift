@@ -229,20 +229,50 @@ struct PressStyle: ButtonStyle {
 }
 
 /// The lab's mark: a small solid square in the product's signal (Autobot: the scheme's primary).
-struct AutobotMark: View {
-    var size: CGFloat = 10
-    var color: Color? = nil
-    @Environment(\.scheme) private var c
+/// The products' symbols, as pixels: Autobot's a and Invincible's i (BRAND.md).
+enum Glyph {
+    static let a = [".####.", "....##", ".#####", "##..##", "##..##", ".#####"]
+    static let i = ["##", "..", "##", "##", "##", "##"]
+}
+
+/// A pixel symbol [size] points tall: square cells, no smoothing.
+struct PixelSymbol: View {
+    let rows: [String]
+    let color: Color
+    var size: CGFloat = 12
 
     var body: some View {
-        Rectangle()
-            .fill(color ?? c.primary)
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        let cell = size / CGFloat(rows.count)
+        Canvas { ctx, _ in
+            for (y, row) in rows.enumerated() {
+                for (x, ch) in row.enumerated() where ch == "#" {
+                    ctx.fill(Path(CGRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell + 0.5, height: cell + 0.5)), with: .color(color))
+                }
+            }
+        }
+        .frame(width: cell * CGFloat(rows[0].count), height: size)
+        .accessibilityHidden(true)
     }
 }
 
-/// `■ autobot` (or `■ invincible` in its orange): the mark and the lowercase mono name.
+/// Autobot's symbol, the pixel a, in the scheme's primary (lilac).
+struct AutobotMark: View {
+    var size: CGFloat = 12
+    var color: Color? = nil
+    @Environment(\.scheme) private var c
+
+    var body: some View { PixelSymbol(rows: Glyph.a, color: color ?? c.primary, size: size) }
+}
+
+/// Invincible's symbol, the pixel i, in its orange: on anything about the node.
+struct NodeMark: View {
+    var size: CGFloat = 12
+    @Environment(\.scheme) private var c
+
+    var body: some View { PixelSymbol(rows: Glyph.i, color: c.node, size: size) }
+}
+
+/// The pixel a and the lowercase mono name: Autobot's wordmark.
 struct Wordmark: View {
     var name = "autobot"
     var color: Color? = nil
@@ -254,7 +284,7 @@ struct Wordmark: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            AutobotMark(color: color)
+            AutobotMark(size: 14, color: color)
             Text(name)
                 .font(Font(AutobotFonts.uiFont(Self.style, dynamicType: dynamicType)))
                 .foregroundStyle(c.onBackground)
@@ -266,16 +296,17 @@ struct Wordmark: View {
     }
 }
 
-/// The app icon (halftone "a" on red), for the places that show the icon itself.
+/// The app icon (the pixel a on ink), for the places that show the icon itself.
 struct AppIconImage: View {
     var size: CGFloat = Tokens.Spacing.markSize
 
     var body: some View {
-        Image("AutobotMark")
-            .resizable()
-            .interpolation(.high)
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(Color(rgb: Tokens.Palette.ink950))
+            PixelSymbol(rows: Glyph.a, color: AutobotColors.lilac, size: size * 0.5)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

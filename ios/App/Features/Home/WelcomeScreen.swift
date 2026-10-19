@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// First-run welcome (mockup 01): halftone hero, the promise, three routes, set up.
+/// First-run welcome: the wordmark, the promise, three routes, set up.
 struct WelcomeScreen: View {
     let onSetUp: () -> Void
     let onPairPc: () -> Void
@@ -10,15 +10,6 @@ struct WelcomeScreen: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             c.background.ignoresSafeArea()
-            ZStack {
-                // The hero field drifts, very slowly (living paper).
-                InkGround(plate: false, hero: true, cell: 10)
-                LinearGradient(stops: [.init(color: .clear, location: 0.5), .init(color: c.background, location: 1)], startPoint: .top, endPoint: .bottom)
-            }
-            .frame(height: 380 + 60)
-            .frame(maxWidth: .infinity)
-            .ignoresSafeArea(edges: .top)
-
             Wordmark()
                 .padding(16)
 
@@ -36,8 +27,8 @@ struct WelcomeScreen: View {
     private func column(fill: Bool) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             if fill { Spacer() }
-            SectionLabel("01 — welcome")
-            Text("Local or\ncloud? Both.").textStyle(.displayMedium).foregroundStyle(c.onBackground)
+            SectionLabel("welcome")
+            Text("Local or cloud? Both.").textStyle(.displayMedium).foregroundStyle(c.onBackground)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Small models run on this phone. Big ones run on your own machine. The cloud is optional, and you hold the keys.")
                 .textStyle(.bodyLarge)

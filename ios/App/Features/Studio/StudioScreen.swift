@@ -359,7 +359,7 @@ struct StudioEmpty: View {
             // Full width as on Android: a 260 pt cap cut longer labels ("Get the audio model in M…").
             if let action, let onAction { PrimaryButton(action, action: onAction) }
             // The living field gets its own band below the text (never behind it).
-            Color.clear.frame(height: 40).inkCard(seed: 1.7, fade: .top)
+            Color.clear.frame(height: 40)
                 .padding(.top, 6)
         }
         .padding(Tokens.Spacing.gutter)

@@ -105,7 +105,7 @@ import dev.wckdboy.autobot.core.designsystem.component.CopyMessageButton
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.QuietField
 import dev.wckdboy.autobot.core.designsystem.component.HalftoneStrip
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkLoaderSize
@@ -1059,7 +1059,7 @@ private fun VoicePanel(
                     if (voice.phase == VoicePhase.SPEAKING) {
                         // A slow flow strip while the answer is read aloud, on plain paper: its 6dp
                         // screen over the ground's 14dp one read as two misaligned dot grids.
-                        HalftoneField(
+                        QuietField(
                             Modifier.fillMaxWidth().height(36.dp).background(MaterialTheme.colorScheme.background),
                             cell = 6.dp,
                             flowing = true,

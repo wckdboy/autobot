@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 // Generates the iOS brand assets from the Android vector drawables (single source of truth):
 //
-//   core/designsystem/src/main/res/drawable/ic_autobot_mark.xml  → AutobotMark.imageset (SVG)
+//   core/designsystem/src/main/res/drawable/ic_autobot_mark.xml  → AutobotMark.imageset (SVG, the pixel a)
 //   app/src/main/res/drawable/ic_launcher_foreground.xml
 //     + ic_launcher_background colour                            → AppIcon.appiconset (1024 PNG)
 //
@@ -82,8 +82,10 @@ let bgRange = colors.range(of: #"ic_launcher_background">#([0-9A-Fa-f]{8})<"#, o
 let bg = "#" + colors[bgRange].dropLast().suffix(6)
 let foreground = parse("app/src/main/res/drawable/ic_launcher_foreground.xml")
 let inset = (foreground.viewportWidth - 72) / 2
-// Every launcher path is a run of dots drawn as two arcs: `Mx,y a r,r 0 1,0 2r,0 …`.
+// Launcher paths are dots drawn as two arcs (`Mx,y a r,r 0 1,0 2r,0 …`) or pixel runs drawn as
+// rectangles (`Mx,y h w v h h-w z`).
 let circle = try! NSRegularExpression(pattern: #"M([0-9.]+),([0-9.]+)a([0-9.]+),[0-9.]+ 0 1,0"#)
+let rect = try! NSRegularExpression(pattern: #"M([0-9.]+),([0-9.]+)h([0-9.]+)v([0-9.]+)h-[0-9.]+z"#)
 // No alpha channel: App Store icons must be opaque.
 let context = CGContext(data: nil, width: 1024, height: 1024, bitsPerComponent: 8, bytesPerRow: 0,
                         space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
@@ -104,6 +106,13 @@ for path in foreground.paths {
         let cx = (x + r - inset) * scale
         let cy = 1024 - (y - inset) * scale
         context.fillEllipse(in: CGRect(x: cx - r * scale, y: cy - r * scale, width: 2 * r * scale, height: 2 * r * scale))
+    }
+    for match in rect.matches(in: path.data, range: NSRange(location: 0, length: ns.length)) {
+        let n = (1...4).map { Double(ns.substring(with: match.range(at: $0)))! }
+        let x = (n[0] - inset) * scale, w = n[2] * scale, h = n[3] * scale
+        let y = 1024 - (n[1] - inset) * scale - h
+        context.setShouldAntialias(false)   // pixels meet without seams
+        context.fill(CGRect(x: x.rounded(), y: y.rounded(), width: w.rounded(), height: h.rounded()))
     }
 }
 let iconDir = assets.appendingPathComponent("AppIcon.appiconset")

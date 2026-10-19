@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.home.node
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -47,7 +48,6 @@ import dev.wckdboy.autobot.core.designsystem.component.Notice
 import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.inkCard
 import dev.wckdboy.autobot.shared.invincible.AgentAction
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 
@@ -192,7 +192,7 @@ private fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAnsw
         is AgentAction.Mcp -> "Use ${a.tool}?" to a.arguments
         is AgentAction.Other -> "Approve?" to row.text
     }.let { (title, detail) -> (row.agent?.let { "$it: $title" } ?: title) to detail }
-    Column(Modifier.fillMaxWidth().inkCard().padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small).padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(detail, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 8.dp))
         when (row.answer) {

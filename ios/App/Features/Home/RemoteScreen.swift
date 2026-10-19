@@ -29,7 +29,7 @@ struct RemoteScreen: View {
                                 subtitle: "tasks run on that machine · you approve",
                                 action: { nav.push(.nodeAgent(providerId: n.id)) },
                                 // The node's own mark: Invincible's orange square.
-                                leading: { AutobotMark(color: c.node) },
+                                leading: { NodeMark() },
                             ) {
                                 RouteTag(route: routeOf(n))
                             }

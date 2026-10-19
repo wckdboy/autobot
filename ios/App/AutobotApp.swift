@@ -228,7 +228,6 @@ struct PrivacyCover: View {
     var body: some View {
         ZStack {
             c.background
-            HalftoneField(cell: 10).opacity(0.5)
             AppIconImage(size: 56)
         }
         .ignoresSafeArea()

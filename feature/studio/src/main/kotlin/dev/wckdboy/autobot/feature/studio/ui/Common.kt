@@ -56,7 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.QuietField
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.SelectField
@@ -112,7 +112,7 @@ fun AssetThumb(asset: StudioAsset, modifier: Modifier = Modifier, contentScale: 
                 if (img != null) {
                     Image(img, contentDescription = null, contentScale = contentScale, modifier = Modifier.fillMaxSize())
                 } else {
-                    HalftoneField(Modifier.fillMaxSize(), cell = 7.dp, dot = MaterialTheme.colorScheme.outlineVariant)
+                    QuietField(Modifier.fillMaxSize(), cell = 7.dp, dot = MaterialTheme.colorScheme.outlineVariant)
                 }
                 if (asset.type == AssetType.VIDEO) {
                     Tag("▶ ${duration(asset.durationMs)}", Modifier.align(Alignment.BottomStart).padding(4.dp), accent = MaterialTheme.colorScheme.primary, filled = true)

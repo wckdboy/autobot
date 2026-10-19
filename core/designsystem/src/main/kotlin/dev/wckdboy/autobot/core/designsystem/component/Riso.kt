@@ -175,17 +175,58 @@ fun PaperButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
     ) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) }
 }
 
-/** The lab's mark: a small solid square in the product's signal (Autobot: the scheme's primary). */
+/**
+ * Where a halftone field used to be: an empty, quiet area (BRAND.md: no textures, the pixel
+ * symbols are the only ornament). Takes [HalftoneField]'s arguments so screens swap names only.
+ */
 @Composable
-fun AutobotMark(modifier: Modifier = Modifier, size: Dp = 10.dp, color: Color = MaterialTheme.colorScheme.primary) {
-    Box(modifier.size(size).background(color))
+@Suppress("UNUSED_PARAMETER")
+fun QuietField(
+    modifier: Modifier = Modifier,
+    dot: Color = Color.Unspecified,
+    cell: Dp = 9.dp,
+    phase: Float = 0f,
+    flowing: Boolean = false,
+    fill: Float = 1f,
+    speed: Float = 1f,
+    ambient: InkAmbient? = null,
+) {
+    Spacer(modifier)
 }
 
-/** `■ autobot` (or `■ invincible` in its orange): the mark and the lowercase mono name. */
+/** The products' symbols, as pixels: Autobot's a and Invincible's i (BRAND.md). */
+val GlyphA = listOf(".####.", "....##", ".#####", "##..##", "##..##", ".#####")
+val GlyphI = listOf("##", "..", "##", "##", "##", "##")
+
+/** A pixel symbol [size] tall, in [color]: square cells, no smoothing. */
+@Composable
+fun PixelSymbol(rows: List<String>, color: Color, modifier: Modifier = Modifier, size: Dp = 12.dp) {
+    val cell = size / rows.size
+    androidx.compose.foundation.Canvas(modifier.size(width = cell * rows[0].length, height = size)) {
+        val c = this.size.height / rows.size
+        rows.forEachIndexed { y, row ->
+            row.forEachIndexed { x, ch -> if (ch == '#') drawRect(color, Offset(x * c, y * c), Size(c + 0.5f, c + 0.5f)) }
+        }
+    }
+}
+
+/** Autobot's symbol, the pixel a, in the scheme's primary (lilac). */
+@Composable
+fun AutobotMark(modifier: Modifier = Modifier, size: Dp = 12.dp, color: Color = MaterialTheme.colorScheme.primary) {
+    PixelSymbol(GlyphA, color, modifier, size)
+}
+
+/** Invincible's symbol, the pixel i, in its orange: on anything about the node. */
+@Composable
+fun NodeMark(modifier: Modifier = Modifier, size: Dp = 12.dp) {
+    PixelSymbol(GlyphI, AutobotTheme.node, modifier, size)
+}
+
+/** The pixel a and the lowercase mono name: Autobot's wordmark. */
 @Composable
 fun Wordmark(name: String = "autobot", modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        AutobotMark(color = color)
+        AutobotMark(color = color, size = 14.dp)
         Text(name, style = WordmarkStyle, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
     }
 }

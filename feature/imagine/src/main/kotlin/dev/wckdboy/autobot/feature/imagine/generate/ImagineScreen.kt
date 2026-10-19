@@ -73,7 +73,7 @@ import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.QuietField
 import dev.wckdboy.autobot.core.designsystem.component.InkAmbient
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
@@ -432,7 +432,7 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient,
                                 loading = !live || running.totalSteps <= 0 || running.phase != null,
                                 seed = i.toFloat(),
                             )
-                            else -> HalftoneField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant, ambient = ambient)
+                            else -> QuietField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant, ambient = ambient)
                         }
                         if (running != null && i == running.image) {
                             if (running.totalSteps > 0 && running.phase == null) {

@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
+import dev.wckdboy.autobot.core.designsystem.component.QuietField
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
@@ -252,7 +252,7 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
                 Image(state.inputImage, contentDescription = "Input image", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 if (state.inpaint) MaskOverlay(state.mask, Modifier.fillMaxSize())
             }
-            else -> HalftoneField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant)
+            else -> QuietField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
