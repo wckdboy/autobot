@@ -227,6 +227,15 @@ only allowlisted commands and writes in the working directory.
 `InvincibleLiveTest` runs a real turn against `invincible` + `autobot` with a model, approving
 from the phone side (set `AUTOBOT_BIN` and `INVINCIBLE_MODEL` too).
 
+**What the node did.** The list button on the agent screen opens the node's activity, from its
+own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
+*Requests* is every request the node answered (which device or the agent asked, the model and
+tier, tokens, and whether anything left the node), each receipt checked against the key pinned at
+pairing, so an entry that does not verify says so in red. *Actions* is everything the agent asked
+to do and who decided: the rules, an "always" earlier, or you on the app, the CLI or Telegram.
+*Memory* shows what the agent remembered between conversations (forget any of it) and the skills
+on the machine. The requests show even when the agent is not running.
+
 **The node's own receipts.** Every answer from a node comes with its request id; when the turn's
 privacy receipt is built, the phone fetches the node's receipt for it (Invincible's
 [spec/receipts.md](https://github.com/wckdboy/invincible/blob/main/spec/receipts.md)) and checks
@@ -249,9 +258,10 @@ is redacted for the node; it redacts what it sends on itself.
 connector is Network.framework under the same kill switch, routes and audit log as every request
 (`SwiftNodeConnector`; Tor and SOCKS5 get the node's name unresolved), and the crypto is CryptoKit.
 Chats, signed receipts, "phone first, then my node" and the agent screen (Remote › Agents · my
-node: tasks, approval cards, scheduled tasks) work as on Android. `NodeConnectorTests` checks the connector over a real `NWConnection` and,
+node: tasks, approval cards, scheduled tasks, activity) work as on Android. `NodeConnectorTests` checks the connector over a real `NWConnection` and,
 with `TEST_RUNNER_INVINCIBLE_PAIR_CODE` set, pairs and chats with a real node from the simulator
-(and with `TEST_RUNNER_INVINCIBLE_AGENT=1`, runs an agent task approved from the phone).
+(and with `TEST_RUNNER_INVINCIBLE_AGENT=1`, runs an agent task approved from the phone and finds
+it, and the phone's own chat, in the node's logs).
 
 ## On-device models
 

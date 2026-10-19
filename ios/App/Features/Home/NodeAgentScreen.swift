@@ -35,6 +35,11 @@ final class NodeAgentModel {
     private(set) var running = false
     private(set) var schedules: [AgentSchedule]?
     private(set) var scheduleProblem: String?
+    /// What the node and the agent did and know; nil until loaded.
+    private(set) var activity: NodeActivity?
+    private(set) var activityProblem: String?
+    /// The runtime is there to ask (the node may still be unreachable).
+    private(set) var connected = false
     @ObservationIgnored private var session = ""
     @ObservationIgnored private var counter = 0
     @ObservationIgnored private var turn: AutobotShared.Cancellable?
@@ -51,6 +56,7 @@ final class NodeAgentModel {
         self.runtime = runtime
         self.node = node
         guard let runtime else { return problem = "My node is not available here" }
+        connected = true
         problem = nil
         let (opened, error) = await runtime.nodeAgentOpen(providerId)
         guard let opened else { return problem = error ?? "The node did not answer" }
@@ -150,6 +156,18 @@ final class NodeAgentModel {
         if let error = await runtime.nodeAgentRemoveSchedule(providerId, id: id) { scheduleProblem = error } else { await loadSchedules() }
     }
 
+    func loadActivity() async {
+        guard let runtime else { return }
+        let (value, error) = await runtime.nodeActivity(providerId)
+        if let value { activity = value; activityProblem = nil } else { activityProblem = error }
+    }
+
+    func forget(_ id: Int64) async {
+        guard let runtime else { return }
+        if let error = await runtime.nodeAgentForget(providerId, id: id) { activityProblem = error }
+        await loadActivity()
+    }
+
     func stopListening() { turn?.cancel() }
 
     private func next() -> Int {
@@ -165,12 +183,17 @@ struct NodeAgentScreen: View {
     @State private var model: NodeAgentModel
     @State private var draft = ""
     @State private var showSchedules = false
+    @State private var showActivity = false
 
     init(providerId: String) { _model = State(initialValue: NodeAgentModel(providerId: providerId)) }
 
     var body: some View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Agent · \(model.node)", onBack: { nav.back() }) {
+                IconAction(symbol: "list.bullet.rectangle", label: "Activity: what the node and the agent did", enabled: model.connected) {
+                    showActivity = true
+                    Task { await model.loadActivity() }
+                }
                 IconAction(symbol: "calendar", label: "Scheduled tasks", enabled: model.info != nil) {
                     showSchedules = true
                     Task { await model.loadSchedules() }
@@ -206,6 +229,7 @@ struct NodeAgentScreen: View {
         .task { await model.connect(app: app) }
         .onDisappear { model.stopListening() }
         .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
+        .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model) }
     }
 
     @ViewBuilder private var header: some View {
@@ -315,6 +339,117 @@ struct NodeSchedulesSheet: View {
             }
             Spacer(minLength: 8)
             IconAction(symbol: "trash", label: "Remove \(item.task)") { Task { await model.removeSchedule(item.id) } }
+        }
+    }
+}
+
+/// What the node answered, what its agent did, and what it remembers: from the node's own logs.
+struct NodeActivitySheet: View {
+    let model: NodeAgentModel
+    @Environment(\.scheme) private var c
+    @State private var tab = 0
+    private static let tabs = ["requests", "actions", "memory"]
+    private let words = NodeActivityWords.shared
+
+    var body: some View {
+        ScrollView {
+            InkStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    SectionLabel("activity on \(model.node)")
+                    Spacer()
+                    IconAction(symbol: "arrow.clockwise", label: "Refresh") { Task { await model.loadActivity() } }
+                }
+                HStack(spacing: 8) {
+                    ForEach(Self.tabs.indices, id: \.self) { i in
+                        Tag(Self.tabs[i], accent: c.primary, filled: tab == i) { tab = i }
+                            .accessibilityAddTraits(tab == i ? .isSelected : [])
+                    }
+                }
+                if let problem = model.activityProblem {
+                    Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+                }
+                if let activity = model.activity {
+                    switch tab {
+                    case 0: requests(activity)
+                    case 1: actions(activity)
+                    default: memory(activity)
+                    }
+                } else if model.activityProblem == nil {
+                    InkLoader(.inline)
+                }
+            }
+            .padding(Tokens.Spacing.gutter)
+        }
+        .background(c.background)
+        .presentationDetents([.large])
+    }
+
+    private func time(_ seconds: Int64) -> String {
+        Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(date: .abbreviated, time: .shortened)
+    }
+
+    @ViewBuilder private func requests(_ activity: NodeActivity) -> some View {
+        Text(words.summary(a: activity)).textStyle(.bodyMedium).foregroundStyle(c.onSurface)
+        if activity.requests.isEmpty {
+            Text("The node has not answered anything yet.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+        }
+        ForEach(Array(activity.requests.enumerated()), id: \.offset) { _, r in
+            let clean = r.receipt.verified && r.receipt.egress.isEmpty
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(words.who(r: r)) · \(words.where(r: r))").textStyle(.bodyLarge).foregroundStyle(c.onSurface)
+                Text([time(r.at), r.receipt.verified ? "signed ✓" : "not verified", words.left(r: r)].joined(separator: " · "))
+                    .textStyle(.code)
+                    .foregroundStyle(clean ? c.onSurfaceVariant : c.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    @ViewBuilder private func actions(_ activity: NodeActivity) -> some View {
+        if let problem = activity.agentProblem {
+            Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+        } else {
+            if activity.actions.isEmpty {
+                Text("The agent has not asked to do anything yet.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+            }
+            ForEach(Array(activity.actions.enumerated()), id: \.offset) { _, a in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(a.action).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(3)
+                    Text("\(time(a.at)) · \(words.decided(a: a)) · \(a.session)")
+                        .textStyle(.bodySmall)
+                        .foregroundStyle(a.ran ? c.onSurfaceVariant : c.error)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    @ViewBuilder private func memory(_ activity: NodeActivity) -> some View {
+        if let problem = activity.agentProblem {
+            Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+        } else {
+            SectionLabel("remembered")
+            if activity.facts.isEmpty {
+                Text("Nothing yet. The agent keeps short facts when they will help later.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+            }
+            ForEach(activity.facts, id: \.id) { fact in
+                HStack(alignment: .center) {
+                    Text(fact.text).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    IconAction(symbol: "trash", label: "Forget: \(fact.text)") { Task { await model.forget(fact.id) } }
+                }
+            }
+            SectionLabel("skills")
+            if activity.skills.isEmpty {
+                Text("None yet: put Markdown how-to notes in ~/.autobot/skills on the machine.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+            }
+            ForEach(activity.skills, id: \.name) { skill in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(skill.name).textStyle(.code).foregroundStyle(c.onSurface)
+                    Text(skill.description_).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+                }
+            }
         }
     }
 }

@@ -345,6 +345,7 @@ final class SharedAgentRuntime: AgentRuntime {
     private struct Answered: Sendable { let ok: Bool }
     private struct Problem: Sendable { let message: String? }
     private struct Schedules: @unchecked Sendable { var list: [AgentSchedule]? = nil, error: String? = nil }
+    private struct Activity: @unchecked Sendable { var value: NodeActivity? = nil, error: String? = nil }
 
     /// This device's conversation with the node's agent, the agent's settings and the conversation so far.
     func nodeAgentOpen(_ providerId: String) async -> (opened: NodeAgentOpened?, error: String?) {
@@ -391,6 +392,20 @@ final class SharedAgentRuntime: AgentRuntime {
     func nodeAgentRemoveSchedule(_ providerId: String, id: String) async -> String? {
         await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
             bridge.nodeAgentRemoveSchedule(providerId: providerId, id: id) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
+    /// What the node and its agent did and know: requests (receipts checked against the pinned key), actions, memory, skills.
+    func nodeActivity(_ providerId: String) async -> (activity: NodeActivity?, error: String?) {
+        let r = await call(stopped: Activity(error: Self.stoppedMessage), late: Activity(error: "The node did not answer")) { done in
+            bridge.nodeActivity(providerId: providerId) { @Sendable activity, error in done(Activity(value: activity, error: error)) }
+        }
+        return (r.value, r.error)
+    }
+
+    func nodeAgentForget(_ providerId: String, id: Int64) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeAgentForget(providerId: providerId, id: id) { @Sendable error in done(Problem(message: error)) }
         }.message
     }
 

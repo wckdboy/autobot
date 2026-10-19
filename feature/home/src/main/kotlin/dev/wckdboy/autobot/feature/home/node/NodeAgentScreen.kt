@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Refresh
@@ -56,6 +57,7 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
     val viewModel = hiltViewModel<NodeAgentViewModel, NodeAgentViewModel.Factory>(key = providerId) { it.create(providerId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showSchedules by rememberSaveable { mutableStateOf(false) }
+    var showActivity by rememberSaveable { mutableStateOf(false) }
     NodeAgentScreen(
         state,
         onBack,
@@ -67,7 +69,14 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
             showSchedules = true
             viewModel.loadSchedules()
         },
+        onOpenActivity = {
+            showActivity = true
+            viewModel.loadActivity()
+        },
     )
+    if (showActivity) {
+        NodeActivitySheet(state, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget)
+    }
     if (showSchedules) {
         NodeSchedulesSheet(state, onDismiss = { showSchedules = false }, onAdd = viewModel::addSchedule, onRemove = viewModel::removeSchedule)
     }
@@ -82,6 +91,7 @@ fun NodeAgentScreen(
     onNewConversation: () -> Unit,
     onRetry: () -> Unit,
     onOpenSchedules: () -> Unit = {},
+    onOpenActivity: () -> Unit = {},
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val list = rememberLazyListState()
@@ -93,6 +103,9 @@ fun NodeAgentScreen(
                 showMark = false,
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
+                    IconButton(onClick = onOpenActivity) {
+                        Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Activity: what the node and the agent did")
+                    }
                     IconButton(onClick = onOpenSchedules, enabled = state.info != null) {
                         Icon(Icons.Filled.DateRange, contentDescription = "Scheduled tasks")
                     }

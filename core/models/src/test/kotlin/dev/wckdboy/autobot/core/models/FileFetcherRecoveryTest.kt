@@ -212,7 +212,9 @@ class FileFetcherRecoveryTest {
         server.enqueue(MockResponse.Builder().code(200).body(Buffer().write(content)).onResponseBody(SocketEffect.Stall).build())
         val started = CompletableDeferred<Unit>()
         val job = launch(Dispatchers.IO) {
-            fetcher.fetch(file(), target, null) { written, _ -> if (written > 0) started.complete(Unit) }
+            // Cancelling closes the socket under the blocked read: it may end as that socket's
+            // own error rather than a cancellation. What matters here is how fast it ends.
+            runCatching { fetcher.fetch(file(), target, null) { written, _ -> if (written > 0) started.complete(Unit) } }
         }
         started.await()
         val began = System.nanoTime()

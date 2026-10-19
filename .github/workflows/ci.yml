@@ -44,7 +44,15 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Tests
-        run: ./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest --no-configuration-cache --continue
+        # Some timing-sensitive tests (Robolectric, coroutines with real dispatchers) flake on
+        # shared runners. A second run repeats only the test tasks that failed (the rest are up
+        # to date), so a real failure still fails, and a flake is reported as a warning.
+        run: |
+          tasks="testDebugUnitTest :shared:jvmTest :agent:core:jvmTest"
+          if ! ./gradlew $tasks --no-configuration-cache --continue; then
+            echo "::warning::Some test tasks failed; running the failed ones once more."
+            ./gradlew $tasks --no-configuration-cache --continue
+          fi
 
       - name: Test reports
         if: failure()

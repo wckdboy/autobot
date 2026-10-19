@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.AgentEvent
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
+import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.nodeCrypto
 import dev.wckdboy.autobot.shared.invincible.nodeConnector
 import dev.wckdboy.autobot.shared.invincible.fingerprint
@@ -616,14 +617,18 @@ class AgentBridge(
      */
 
     /** The agent on [providerId]'s node, with this device's conversation id there; null when it is not a usable pairing. */
-    private suspend fun nodeAgent(providerId: String): Pair<NodeAgent, String>? {
+    private suspend fun nodeAgent(providerId: String): Pair<NodeAgent, String>? = nodeAgentAndPairing(providerId)?.let { (agent, paired) ->
+        agent to NodeAgent.sessionFor(paired.deviceName)
+    }
+
+    private suspend fun nodeAgentAndPairing(providerId: String): Pair<NodeAgent, PairedNode>? {
         val spec = withContext(IoDispatcher) { providers.provider(providerId) } ?: return null
         val connector = nodeConnector ?: return null
         val crypto = nodeCrypto ?: return null
         if (spec.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = spec.apiKey?.let(PairedNode::fromSecret) ?: return null
         val transport = paired.transport(crypto) { addresses -> connector(addresses, spec.route) }
-        return NodeAgent(transport, "${spec.displayName} · agent") to NodeAgent.sessionFor(paired.deviceName)
+        return NodeAgent(transport, "${spec.displayName} · agent") to paired
     }
 
     private suspend fun requireNodeAgent(providerId: String): Pair<NodeAgent, String> =
@@ -688,6 +693,26 @@ class AgentBridge(
     ) {
         requireNodeAgent(providerId).first.removeSchedule(id)
         null
+    }
+
+    /**
+     * What the node and its agent did and know (Invincible's spec/audit.md): its requests, each
+     * receipt checked against the key pinned at pairing; the agent's actions, memory and skills.
+     */
+    fun nodeActivity(providerId: String, callback: (NodeActivity?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<NodeActivity?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) {
+        val (agent, paired) = nodeAgentAndPairing(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
+        agent.activity(nodeCrypto!!, paired.name, paired.receiptKey) to null
+    }
+
+    /** Makes the node's agent forget a fact; null, or why not. */
+    fun nodeAgentForget(providerId: String, id: Long, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { it },
+    ) {
+        if (requireNodeAgent(providerId).first.forget(id)) null else "The agent no longer remembers that."
     }
 
     /** The chat client for a stored provider: the on-device engine, a paired node, or the host's HTTP transport. */
