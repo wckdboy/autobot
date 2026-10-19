@@ -242,7 +242,7 @@ struct AutobotMark: View {
     }
 }
 
-/// `■ autobot` (or `■ invincible` in its verdigris): the mark and the lowercase mono name.
+/// `■ autobot` (or `■ invincible` in its orange): the mark and the lowercase mono name.
 struct Wordmark: View {
     var name = "autobot"
     var color: Color? = nil

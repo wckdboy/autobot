@@ -116,7 +116,7 @@ fun RemoteScreen(
                     RunRow(
                         "Agent on ${n.displayName}",
                         "tasks run on that machine · you approve",
-                        // The node's own mark: Invincible's verdigris square.
+                        // The node's own mark: Invincible's orange square.
                         leading = { AutobotMark(color = AutobotTheme.node) },
                         onClick = { onOpenNodeAgent(n.id) },
                     ) {

@@ -23,6 +23,8 @@ enum Tokens {
         static let lilacDeep: UInt32 = 0x5444BA
         static let lilacDim: UInt32 = 0x221D3D
         static let line: UInt32 = 0x2F2F2E
+        static let orange: UInt32 = 0xC2651A
+        static let orangeLight: UInt32 = 0xF0882E
         static let paper: UInt32 = 0xEFEAE2
         static let paperInk: UInt32 = 0x141414
         static let paperLine: UInt32 = 0xCFC8BC
@@ -30,8 +32,6 @@ enum Tokens {
         static let red: UInt32 = 0xE8401C
         static let redDeep: UInt32 = 0xB8300F
         static let redDim: UInt32 = 0x3A140A
-        static let verdigris: UInt32 = 0x3F8A7E
-        static let verdigrisLight: UInt32 = 0x4FA394
     }
 
     struct Scheme: Sendable {

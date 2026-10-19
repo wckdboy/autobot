@@ -3,7 +3,7 @@
 `tokens.json` is the single source of truth for the design system on both platforms (the rules
 are in [BRAND.md](../../BRAND.md)): warm ink (dark) and paper (light), one signal, lilac, used
 sparingly, the system sans for headings and reading, JetBrains Mono for every label. `products`
-holds each product's signal: Autobot's lilac, and Invincible's verdigris for anything about
+holds each product's signal: Autobot's lilac, and Invincible's orange for anything about
 the node. Antonio stays in the font set for the few places that print a single large word.
 
 - **Android**: the values are written out in

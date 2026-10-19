@@ -65,8 +65,8 @@ object AutobotColors {
     val LilacDim = Color(0xFF221D3D)
 
     /** Invincible's signal (the node), on paper and on ink: screens about the node mark it in this. */
-    val Verdigris = Color(0xFF3F8A7E)
-    val VerdigrisLight = Color(0xFF4FA394)
+    val Orange = Color(0xFFC2651A)
+    val OrangeLight = Color(0xFFF0882E)
 
     val Amber = Color(0xFFE3A33B)
     val Cyan = Color(0xFF9DB4B0)
@@ -335,10 +335,10 @@ val LightInks = AutobotInks(amber = Color(0xFF7E5512), cyan = Color(0xFF4B615D),
 object AutobotTheme {
     val styles: AutobotExtraStyles get() = DefaultExtraStyles
 
-    /** Invincible's verdigris for the current ground: the mark on anything about the node. */
+    /** Invincible's orange for the current ground: the mark on anything about the node. */
     val node: Color
         @Composable @ReadOnlyComposable
-        get() = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) AutobotColors.VerdigrisLight else AutobotColors.Verdigris
+        get() = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) AutobotColors.OrangeLight else AutobotColors.Orange
 
     /** Accent inks for the current ground (follows nested Paper and Darkroom themes). */
     val inks: AutobotInks

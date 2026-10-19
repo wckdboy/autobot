@@ -61,8 +61,8 @@ enum AutobotColors {
     static let lilacDim = Color(rgb: Tokens.Palette.lilacDim)
 
     /// Invincible's signal (the node), on paper and on ink: screens about the node mark it in this.
-    static let verdigris = Color(rgb: Tokens.Palette.verdigris)
-    static let verdigrisLight = Color(rgb: Tokens.Palette.verdigrisLight)
+    static let orange = Color(rgb: Tokens.Palette.orange)
+    static let orangeLight = Color(rgb: Tokens.Palette.orangeLight)
 
     static let amber = Color(rgb: Tokens.Palette.amber)
     static let cyan = Color(rgb: Tokens.Palette.cyan)
@@ -98,8 +98,8 @@ struct AutobotScheme: Sendable, Equatable {
     let isDark: Bool
     /// Accent inks legible on this scheme's grounds.
     var inks: AutobotInks { isDark ? .dark : .light }
-    /// Invincible's verdigris for this ground: the mark on anything about the node.
-    var node: Color { isDark ? AutobotColors.verdigrisLight : AutobotColors.verdigris }
+    /// Invincible's orange for this ground: the mark on anything about the node.
+    var node: Color { isDark ? AutobotColors.orangeLight : AutobotColors.orange }
     var primary, onPrimary, primaryContainer, onPrimaryContainer: Color
     var secondary, onSecondary, secondaryContainer, onSecondaryContainer: Color
     var tertiary, onTertiary: Color

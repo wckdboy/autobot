@@ -181,7 +181,7 @@ fun AutobotMark(modifier: Modifier = Modifier, size: Dp = 10.dp, color: Color = 
     Box(modifier.size(size).background(color))
 }
 
-/** `■ autobot` (or `■ invincible` in its verdigris): the mark and the lowercase mono name. */
+/** `■ autobot` (or `■ invincible` in its orange): the mark and the lowercase mono name. */
 @Composable
 fun Wordmark(name: String = "autobot", modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

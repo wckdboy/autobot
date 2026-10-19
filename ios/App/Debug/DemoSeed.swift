@@ -16,7 +16,7 @@ enum DemoSeed {
 
         _ = try? app.providers.save(Provider(id: "demo-deepseek", kind: .deepseek, displayName: "DeepSeek", baseUrl: ProviderPresets.deepSeekBaseUrl, defaultModel: "deepseek-flash", presetId: "deepseek"))
         _ = try? app.providers.save(Provider(id: "demo-ollama", kind: .ollama, displayName: "Ollama", baseUrl: ProviderPresets.ollamaBaseUrl, defaultModel: "qwen3:8b", routing: .direct, presetId: "ollama"))
-        // A paired Invincible node, so Remote shows the node's agent row (its verdigris mark).
+        // A paired Invincible node, so Remote shows the node's agent row (its orange mark).
         _ = try? app.providers.save(Provider(id: "demo-node", kind: .invincibleNode, displayName: "studio-mac", baseUrl: "http://192.168.1.20:8787/v1", defaultModel: "qwen3:8b", routing: .direct))
 
         let plan = ModelPlan(
