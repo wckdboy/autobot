@@ -19,11 +19,8 @@ struct WelcomeScreen: View {
             .frame(maxWidth: .infinity)
             .ignoresSafeArea(edges: .top)
 
-            HStack(spacing: 0) {
-                AutobotMark()
-                Text("  AUTOBOT").textStyle(.titleLarge).foregroundStyle(c.onBackground)
-            }
-            .padding(16)
+            Wordmark()
+                .padding(16)
 
             // At large text sizes the column scrolls rather than pushing the routes and the set-up
             // button off the screen; at the standard sizes it sits at the bottom, as designed.

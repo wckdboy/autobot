@@ -35,31 +35,30 @@ enum Route: String, CaseIterable, Sendable {
     }
 }
 
-/// `● LOCAL · CPU` (filled red) / `◐ PC · LAN` / `○ CLOUD · API` (outlined).
+/**
+ `● local · cpu` / `◐ pc · lan` / `○ cloud · api`: a quiet hairline tag; the glyph says where
+ (filled: on this phone). Not in the signal colour: where a run goes is information, not an alarm.
+ */
 struct RouteTag: View {
     let route: Route
     @Environment(\.scheme) private var c
 
     var body: some View {
-        Text("\(route.glyph) \(route.label)".uppercased())
+        Text("\(route.glyph) \(route.label)")
             .textStyle(.micro)
             .textLines(1)
-            .foregroundStyle(route.local ? c.onPrimary : c.onSurface)
+            .foregroundStyle(c.onSurfaceVariant)
             .padding(.horizontal, Tokens.Spacing.tagPaddingHorizontal)
             .padding(.vertical, Tokens.Spacing.tagPaddingVertical)
             .background {
-                let shape = RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
-                if route.local {
-                    shape.fill(c.primary)
-                } else {
-                    shape.strokeBorder(c.outline, lineWidth: Tokens.Stroke.border)
-                }
+                RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
+                    .strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border)
             }
             .fixedSize()
     }
 }
 
-/// Red `// SECTION · DETAIL` line.
+/// A quiet `SECTION · DETAIL` caption in mono.
 struct SectionLabel: View {
     let text: String
     var color: Color? = nil
@@ -71,9 +70,9 @@ struct SectionLabel: View {
     }
 
     var body: some View {
-        Text("// \(text.uppercased())")
+        Text(text.uppercased())
             .textStyle(.micro)
-            .foregroundStyle(color ?? c.primary)
+            .foregroundStyle(color ?? c.onSurfaceVariant)
             .textLines(2, accessibility: 4)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,7 +184,7 @@ struct PaperButton: View {
     }
 }
 
-/// Small mono text button (`ALL →`, `TUNE`, `OK`): Material's TextButton in the riso type.
+/// Small mono text button (`ALL`, `TUNE`, `OK`): Material's TextButton in the riso type.
 struct TextAction: View {
     let text: String
     var color: Color? = nil
@@ -229,8 +228,46 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-/// The brand mark (halftone "a" on red).
+/// The lab's mark: a small solid square in the product's signal (Autobot: the scheme's primary).
 struct AutobotMark: View {
+    var size: CGFloat = 10
+    var color: Color? = nil
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        Rectangle()
+            .fill(color ?? c.primary)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
+/// `■ autobot` (or `■ invincible` in its verdigris): the mark and the lowercase mono name.
+struct Wordmark: View {
+    var name = "autobot"
+    var color: Color? = nil
+    @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    /// JetBrains Mono semibold, 17 pt at the default text size.
+    static let style = Tokens.TypeStyle(font: .mono, size: 17, lineHeight: 22, weight: 600, letterSpacing: 0, trim: true, tabular: false)
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AutobotMark(color: color)
+            Text(name)
+                .font(Font(AutobotFonts.uiFont(Self.style, dynamicType: dynamicType)))
+                .foregroundStyle(c.onBackground)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(name.prefix(1).uppercased() + name.dropFirst())
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The app icon (halftone "a" on red), for the places that show the icon itself.
+struct AppIconImage: View {
     var size: CGFloat = Tokens.Spacing.markSize
 
     var body: some View {
@@ -309,9 +346,12 @@ extension View {
     func compactActionFrame() -> some View { modifier(CompactActionFrame()) }
 }
 
-/// Top bar: mark + condensed wordmark (or a title) and trailing actions.
+/// The default top bar title: the bar shows the wordmark instead.
+let wordmarkTitle = "autobot"
+
+/// Top bar: the `■ autobot` wordmark on Home, a sentence-case title elsewhere, and trailing actions.
 struct AutobotTopBar<Actions: View>: View {
-    var title: String = "AUTOBOT"
+    var title: String = wordmarkTitle
     var showMark = true
     var onBack: (() -> Void)? = nil
     @ViewBuilder var actions: () -> Actions
@@ -321,16 +361,18 @@ struct AutobotTopBar<Actions: View>: View {
         HStack(spacing: Tokens.Spacing.topBarGap) {
             if let onBack {
                 IconAction(symbol: "arrow.left", label: "Back", action: onBack)
-            } else if showMark {
-                AutobotMark()
             }
-            Text(title.uppercased())
-                .textStyle(.titleLarge)
-                .foregroundStyle(c.onBackground)
-                .textLines(1)
-                .truncationMode(.tail)
-                .titleGhost(c.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if title == wordmarkTitle {
+                Wordmark().frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(title)
+                    .textStyle(.titleLarge)
+                    .foregroundStyle(c.onBackground)
+                    .textLines(1)
+                    .truncationMode(.tail)
+                    .accessibilityAddTraits(.isHeader)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             actions()
         }
         .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
@@ -344,7 +386,7 @@ struct AutobotTopBar<Actions: View>: View {
 }
 
 extension AutobotTopBar where Actions == EmptyView {
-    init(title: String = "AUTOBOT", showMark: Bool = true, onBack: (() -> Void)? = nil) {
+    init(title: String = wordmarkTitle, showMark: Bool = true, onBack: (() -> Void)? = nil) {
         self.init(title: title, showMark: showMark, onBack: onBack, actions: { EmptyView() })
     }
 }
@@ -381,7 +423,11 @@ extension View {
     }
 }
 
-/// A mode tile on the Run screen: `03` / big title / model / route tag.
+/**
+ A mode tile on the Run screen: where it runs, the title and the model. Flat: no index, no dot
+ field, no art behind the words. [art] (a recent image) sits above the text, never behind it.
+ [index], [living] and [seed] are kept for callers and no longer drawn.
+ */
 struct ModeCard<Background: View>: View {
     let index: String
     let title: String
@@ -390,62 +436,45 @@ struct ModeCard<Background: View>: View {
     let action: () -> Void
     @ViewBuilder var art: () -> Background
     var hasArt = true
-    /// A living card background (motion spec v3 §2) when there is no art; [seed] keeps
-    /// neighbouring cards out of lockstep.
     var living = false
     var seed = 0.0
     @Environment(\.scheme) private var c
 
     var body: some View {
-        let card = c.surfaceContainerHigh
         Button(action: action) {
-            ZStack(alignment: .topLeading) {
-                card
+            VStack(alignment: .leading, spacing: 0) {
+                // Where it runs, at the top: the titles below line up across cards with or without one.
+                if let route {
+                    RouteTag(route: route)
+                    Spacer().frame(height: 10)
+                }
                 if hasArt {
-                    art()
-                    // Fade the art into the card colour so the title stays legible over dense dots.
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: Tokens.Halftone.modeCardFadeStart),
-                            .init(color: card.opacity(Tokens.Halftone.modeCardFadeMidAlpha), location: Tokens.Halftone.modeCardFadeMid),
-                            .init(color: card, location: 1),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom,
-                    )
-                } else if living {
-                    // Dots thin out under the title (bottom-left).
-                    InkCardField(seed: seed, fade: UnitPoint(x: 0.2, y: 0.95))
-                }
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .center) {
-                        // No dots behind text or numbers: each label clears the field under it.
-                        Text(index)
-                            .textStyle(.micro)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .inkClearance(card)
-                        Spacer(minLength: 0)
-                        if let route { RouteTag(route: route).inkClearance(card) }
-                    }
+                    Color.clear
+                        .overlay { art() }
+                        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.bottom, 12)
+                        .accessibilityHidden(true)
+                } else {
                     Spacer(minLength: 0)
-                    Text(title)
-                        .textStyle(.headlineMedium)
-                        .foregroundStyle(c.onSurface)
-                        .lineLimit(1)
-                        .inkClearance(card)
-                    if subtitle.lowercased() != title.lowercased() {
-                        Text(subtitle)
-                            .textStyle(.micro)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                            .truncationMode(.tail)
-                            .inkClearance(card)
-                    }
                 }
-                .padding(Tokens.Spacing.cardPadding)
+                Text(title)
+                    .textStyle(.titleLarge)
+                    .foregroundStyle(c.onSurface)
+                    .lineLimit(1)
+                if subtitle.lowercased() != title.lowercased() {
+                    Spacer().frame(height: 2)
+                    Text(subtitle)
+                        .textStyle(.micro)
+                        .foregroundStyle(c.onSurfaceVariant)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .truncationMode(.tail)
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(c.surfaceContainer))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())

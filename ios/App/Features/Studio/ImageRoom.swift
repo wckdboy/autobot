@@ -751,7 +751,7 @@ private struct LoraPicker: View {
                         Button { onPick(name) } label: {
                             HStack {
                                 Text(name).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                                if selected.contains(name) { MicroLabel("added", color: c.primary) }
+                                if selected.contains(name) { MicroLabel("added") }
                             }
                             .padding(.vertical, 10)
                             .contentShape(Rectangle())

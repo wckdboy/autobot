@@ -86,8 +86,8 @@ struct MotionPerfTests {
         }
     }
 
-    /// The app under an open Studio is hidden, not removed: its living cards (four on Run, 5 fps
-    /// each) must stop drawing while the Studio is shown.
+    /// The app under an open Studio is hidden, not removed: nothing under it may draw ink while
+    /// the Studio is shown. Run's mode cards are flat (no living field), so Run itself is still.
     @Test(.timeLimit(.minutes(2))) func appUnderTheStudioStopsItsInk() async throws {
         let app = AppContainer()
         let nav = Navigator()
@@ -112,9 +112,10 @@ struct MotionPerfTests {
         nav.studio = .image
         let studio = try await draws()
         nav.studio = nil
-        // Whatever else draws (the test host's own hidden window) draws in both; Run's four
-        // cards (~40 draws in 2 s) must not, the Studio's empty canvas adds one field (~10).
-        #expect(studio < run - 15, "Run: \(run) draws, Studio over Run: \(studio)")
+        // Whatever else draws (the test host's own hidden window) draws in both; Run's flat cards
+        // draw nothing, the Studio's empty canvas adds one field (~10 in 2 s), nothing more.
+        #expect(run <= 5, "Run at rest: \(run) draws")
+        #expect(studio <= run + 15, "Run: \(run) draws, Studio over Run: \(studio)")
     }
 
     /// The image studio while sampling: four proof plates (one flowing, three waiting), the step

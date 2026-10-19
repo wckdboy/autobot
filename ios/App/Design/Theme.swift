@@ -55,6 +55,10 @@ enum AutobotColors {
     static let redDeep = Color(rgb: Tokens.Palette.redDeep)
     static let redDim = Color(rgb: Tokens.Palette.redDim)
 
+    /// Invincible's signal (the node), on paper and on ink: screens about the node mark it in this.
+    static let verdigris = Color(rgb: Tokens.Palette.verdigris)
+    static let verdigrisLight = Color(rgb: Tokens.Palette.verdigrisLight)
+
     static let amber = Color(rgb: Tokens.Palette.amber)
     static let cyan = Color(rgb: Tokens.Palette.cyan)
     static let error = Color(rgb: Tokens.Palette.error)
@@ -89,6 +93,8 @@ struct AutobotScheme: Sendable, Equatable {
     let isDark: Bool
     /// Accent inks legible on this scheme's grounds.
     var inks: AutobotInks { isDark ? .dark : .light }
+    /// Invincible's verdigris for this ground: the mark on anything about the node.
+    var node: Color { isDark ? AutobotColors.verdigrisLight : AutobotColors.verdigris }
     var primary, onPrimary, primaryContainer, onPrimaryContainer: Color
     var secondary, onSecondary, secondaryContainer, onSecondaryContainer: Color
     var tertiary, onTertiary: Color
@@ -306,11 +312,11 @@ enum AutobotType: CaseIterable {
     case code
     /// Code blocks, tool output.
     case codeBlock
-    /// Uppercase micro labels: `// SECTION`, field captions.
+    /// Uppercase micro labels: `SECTION`, field captions.
     case micro
     /// Small numeric telemetry (tok/s, sizes): tabular mono.
     case readout
-    /// Big numbers (STEPS 4, SEED 4182): condensed display.
+    /// Big numbers (STEPS 4, SEED 4182): tabular mono.
     case number
 
     var token: Tokens.TypeStyle {

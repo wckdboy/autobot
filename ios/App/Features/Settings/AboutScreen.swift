@@ -54,7 +54,7 @@ struct AboutScreen: View {
 
     private var identity: some View {
         HStack(alignment: .center, spacing: 16) {
-            AutobotMark(size: 64)
+            AppIconImage(size: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 4) {
                 Text(info.name).textStyle(.headlineMedium).foregroundStyle(c.onSurface)

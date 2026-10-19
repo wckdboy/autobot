@@ -107,8 +107,8 @@ struct RunState {
 /// The Run screen's card grid: two columns that line up across both rows, equal gutters.
 enum RunGrid {
     static let gutter: CGFloat = 8
-    static let topHeight: CGFloat = 268
-    static let bottomHeight: CGFloat = 100
+    static let topHeight: CGFloat = 236
+    static let bottomHeight: CGFloat = 108
 
     /// Column widths for [width]: left (Image, Code) : right (Chat/Agent, Studio) = 1.1 : 1,
     /// rounded to whole points so both rows share the same edges.
@@ -136,9 +136,7 @@ struct RunScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     SectionLabel(state.status)
-                    Spacer().frame(height: 10)
-                    Text("Run\nanything.").textStyle(.displayMedium).foregroundStyle(c.onBackground)
-                    Spacer().frame(height: 18)
+                    Spacer().frame(height: 14)
                     cards(state)
                     Spacer().frame(height: 22)
                     if !state.hasAnything {
@@ -147,7 +145,7 @@ struct RunScreen: View {
                     }
                     HStack(alignment: .center) {
                         MicroLabel("recent").frame(maxWidth: .infinity, alignment: .leading)
-                        TextAction("All →", color: c.primary) { nav.push(.chatList) }
+                        TextAction("All", color: c.onSurfaceVariant) { nav.push(.chatList) }
                             .accessibilityLabel("All sessions")
                     }
                     ForEach(state.recent) { run in
@@ -187,14 +185,16 @@ struct RunScreen: View {
             let columns = RunGrid.columns(width: geo.size.width)
             VStack(spacing: RunGrid.gutter) {
                 HStack(spacing: RunGrid.gutter) {
-                    ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute, action: { nav.push(.imagine()) }) {
-                        if let lastImage {
-                            HalftoneImage(image: lastImage, cell: 7)
-                        } else {
-                            HalftoneField(cell: 8)
+                    // The last image, as it is, above the words; nothing when there is none.
+                    if let lastImage {
+                        ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute, action: { nav.push(.imagine()) }) {
+                            Image(uiImage: lastImage).resizable().scaledToFill()
                         }
+                        .frame(width: columns.left)
+                    } else {
+                        ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute) { nav.push(.imagine()) }
+                            .frame(width: columns.left)
                     }
-                    .frame(width: columns.left)
                     VStack(spacing: RunGrid.gutter) {
                         ModeCard(index: "02", title: "Chat", subtitle: state.chat?.label ?? "add a model", route: state.chat?.route, living: true) { start(.chat, state) }
                         ModeCard(index: "03", title: "Agent", subtitle: state.agent?.label ?? "add a model", route: state.agent?.route, living: true, seed: 2.1) { start(.agent, state) }

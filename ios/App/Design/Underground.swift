@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Uppercase, tracked mono caption: `// SAMPLER`, `CTX`, `SEED`.
+/// Uppercase, tracked mono caption: `SAMPLER`, `CTX`, `SEED`.
 struct MicroLabel: View {
     let text: String
     var color: Color? = nil
@@ -280,7 +280,7 @@ struct ValueSlider: View {
         VStack(spacing: 0) {
             HStack {
                 MicroLabel(label).frame(maxWidth: .infinity, alignment: .leading)
-                Text(format(value)).textStyle(.readout).foregroundStyle(c.primary)
+                Text(format(value)).textStyle(.readout).foregroundStyle(c.onSurface)
             }
             RisoSlider(value: $value, range: range, step: step, enabled: enabled)
         }
@@ -302,8 +302,8 @@ struct AdaptiveRow<Content: View>: View {
     }
 }
 
-/// Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The selection block slides
-/// with ease-out and leaves a one-frame registration ghost.
+/// Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The selection is a neutral
+/// block (ink on bone, bone on ink): a choice is not a signal. It slides with ease-out.
 struct Segmented<T: Hashable>: View {
     let options: [T]
     let selected: T
@@ -313,7 +313,6 @@ struct Segmented<T: Hashable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicType
     @Namespace private var marker
-    @State private var ghost = InkSelectionGhost()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -327,14 +326,11 @@ struct Segmented<T: Hashable>: View {
                         .lineLimit(dynamicType.isAccessibilitySize ? 3 : 1)
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.7)
-                        .foregroundStyle(isSelected ? c.onPrimary : c.onSurfaceVariant)
+                        .foregroundStyle(isSelected ? c.surface : c.onSurfaceVariant)
                         .padding(.vertical, dynamicType.isAccessibilitySize ? 6 : 0)
                         .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.segmentedHeight)
                         .background {
-                            if ghost.key == AnyHashable(option) {
-                                Rectangle().fill(c.primary.opacity(0.35)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
-                            }
-                            if isSelected { Rectangle().fill(c.primary).matchedGeometryEffect(id: "selection", in: marker) }
+                            if isSelected { Rectangle().fill(c.onSurface).matchedGeometryEffect(id: "selection", in: marker) }
                         }
                         .contentShape(Rectangle())
                 }
@@ -344,7 +340,6 @@ struct Segmented<T: Hashable>: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .animation(reduceMotion ? .inkReduced : .inkSlide, value: selected)
-        .onChange(of: selected) { old, _ in ghost.moved(from: AnyHashable(old), reduceMotion: reduceMotion) }
         .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.small))
         .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
     }

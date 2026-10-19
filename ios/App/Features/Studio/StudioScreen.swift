@@ -118,7 +118,7 @@ private struct StudioTopBar: View {
         let studio = app.studio
         HStack(spacing: 6) {
             IconAction(symbol: "xmark", label: "Leave the Studio") { nav.leaveStudio() }
-            Text("STUDIO").textStyle(.titleLarge).foregroundStyle(c.onBackground).lineLimit(1).fixedSize().titleGhost(c.primary)
+            Text("Studio").textStyle(.titleLarge).foregroundStyle(c.onBackground).lineLimit(1).fixedSize().accessibilityAddTraits(.isHeader)
             Text("· \(room.label.uppercased())").textStyle(.titleLarge).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
             Spacer(minLength: 4)
             Menu {

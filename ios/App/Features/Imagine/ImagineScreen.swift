@@ -118,7 +118,7 @@ struct ImagineScreen: View {
                                 if app.gallery.keptIncognito[result.galleryId] != nil {
                                     MicroLabel(PanicCopy.shared.SAVED).frame(maxWidth: .infinity, alignment: .leading)
                                 } else {
-                                    MicroLabel(PanicCopy.shared.NOT_SAVED, color: c.primary).frame(maxWidth: .infinity, alignment: .leading)
+                                    MicroLabel(PanicCopy.shared.NOT_SAVED).frame(maxWidth: .infinity, alignment: .leading)
                                     Tag(PanicCopy.shared.SAVE, accent: c.primary) { m.saveResult(result.galleryId) }
                                 }
                             }
@@ -218,7 +218,7 @@ private struct PromptField: View {
                 .lineLimit(1 ... 12)
                 .frame(minHeight: 96, alignment: .topLeading)
             if let wildcards {
-                MicroLabel(wildcards, color: c.primary).accessibilityLabel(wildcards.replacingOccurrences(of: "·", with: ","))
+                MicroLabel(wildcards).accessibilityLabel(wildcards.replacingOccurrences(of: "·", with: ","))
             } else if tokens > 60 {
                 // Only worth saying near the limit.
                 MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? c.error : c.onSurfaceVariant)
@@ -596,7 +596,7 @@ private struct LoraSheet: View {
                             HStack(spacing: 10) {
                                 AutobotIconView(icon: .layers, size: 16, color: c.onSurfaceVariant)
                                 Text(name).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                                if selected.contains(name) { MicroLabel("added", color: c.primary) }
+                                if selected.contains(name) { MicroLabel("added") }
                             }
                             .padding(.vertical, 10)
                             .contentShape(Rectangle())

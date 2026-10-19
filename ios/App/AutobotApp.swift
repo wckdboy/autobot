@@ -229,7 +229,7 @@ struct PrivacyCover: View {
         ZStack {
             c.background
             HalftoneField(cell: 10).opacity(0.5)
-            AutobotMark(size: 56)
+            AppIconImage(size: 56)
         }
         .ignoresSafeArea()
         .accessibilityHidden(true)

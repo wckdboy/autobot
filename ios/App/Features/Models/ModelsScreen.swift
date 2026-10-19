@@ -306,7 +306,7 @@ struct ModelsScreen: View {
         let installedIds = Set(app.library.models.map(\.id))
         VStack(spacing: 0) {
             AutobotTopBar(title: "Models") {
-                TextAction("Compute", color: c.onSurface) { nav.push(.compute) }
+                TextAction("Compute", color: c.onSurfaceVariant) { nav.push(.compute) }
                 .accessibilityHint("Benchmarks for this phone")
             }
             ScrollView {
@@ -574,7 +574,7 @@ private struct CatalogRow: View {
             if installed {
                 Tag("added", accent: c.onSurfaceVariant)
             } else {
-                Tag("get", accent: c.primary, filled: true, action: onGet)
+                Tag("get", accent: c.onSurface, action: onGet)
             }
         }
     }
@@ -613,7 +613,7 @@ private struct RepoSheet: View {
                         let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
                         RunRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.lowercased().contains("original") ? "gpu" : "neural engine")") {
                             if let fit, fit != .good { Tag(fit.label, accent: fitColor(fit, c)) }
-                            Tag("get", accent: c.primary, filled: true) { model.installCoreML(repo, folder: folder) }
+                            Tag("get", accent: c.onSurface) { model.installCoreML(repo, folder: folder) }
                         }
                     }
                 }
@@ -627,7 +627,7 @@ private struct RepoSheet: View {
                         if format == .safetensors || format == .ckpt {
                             PcOnlyGetTag { model.installFile(repo, f.path) }
                         } else {
-                            Tag("get", accent: c.primary, filled: true) { model.installFile(repo, f.path) }
+                            Tag("get", accent: c.onSurface) { model.installFile(repo, f.path) }
                         }
                     }
                 }
@@ -656,7 +656,7 @@ private struct PcOnlyGetTag: View {
             }
         } else {
             Tag("pc", accent: c.onSurfaceVariant)
-            Tag("get", accent: c.primary, filled: true) { confirm = true }
+            Tag("get", accent: c.onSurface) { confirm = true }
         }
     }
 }

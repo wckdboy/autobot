@@ -30,7 +30,7 @@ struct PromptBox: View {
             HStack(spacing: 6) {
                 if let expansion {
                     let n = expansion.total
-                    MicroLabel(n > 64 ? "wildcards · \(n) prompts · first 64" : "wildcards · \(n) prompt\(n == 1 ? "" : "s")", color: c.primary)
+                    MicroLabel(n > 64 ? "wildcards · \(n) prompts · first 64" : "wildcards · \(n) prompt\(n == 1 ? "" : "s")")
                         .accessibilityLabel("Wildcards expand to \(n) prompts")
                 } else {
                     MicroLabel("~\(PromptSyntax.estimateTokens(prompt)) tokens")

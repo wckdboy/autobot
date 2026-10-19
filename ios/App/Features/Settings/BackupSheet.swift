@@ -51,7 +51,7 @@ struct BackupSheet: View {
             case .working(let s):
                 VStack(alignment: .leading, spacing: 6) {
                     InkProgressBar(.indeterminate, height: 2)
-                    MicroLabel(s.hasSuffix("…") ? String(s.dropLast()) : s, color: c.primary, lines: 2)
+                    MicroLabel(s.hasSuffix("…") ? String(s.dropLast()) : s, lines: 2)
                 }
             case .done(let s): Text(s).textStyle(.bodySmall).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
             case .failed(let s): Text(s).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)

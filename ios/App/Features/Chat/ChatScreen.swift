@@ -864,7 +864,7 @@ private struct NoticeRow: View {
         case .error: c.error
         }
         if kind == .error {
-            Text("// \(text)")
+            Text(text)
                 .textStyle(.bodySmall)
                 .foregroundStyle(color)
                 .lineLimit(expanded ? nil : 3)
@@ -873,7 +873,7 @@ private struct NoticeRow: View {
                 .contentShape(Rectangle())
                 .onTapGesture { expanded.toggle() }
         } else {
-            Text("// \(text.uppercased())").textStyle(.micro).foregroundStyle(color).lineLimit(3)
+            Text(text.uppercased()).textStyle(.micro).foregroundStyle(color).lineLimit(3)
         }
     }
 }

@@ -134,7 +134,7 @@ private struct BackendEditor: View {
         let cleartextRemote = trimmed.lowercased().hasPrefix("http://") && !Loopback.isLoopbackURL(trimmed)
         ScrollView {
             InkStack(alignment: .leading, spacing: 12) {
-                MicroLabel(isNew ? "// new backend" : "// edit backend", color: c.primary)
+                MicroLabel(isNew ? "new backend" : "edit backend")
                 Segmented(options: [BackendKind.sdApi, .localSse], selected: kind, label: { $0 == .sdApi ? "A1111 API" : "Local SSE" }) { kind = $0 }
                 ConsoleTextField(text: $name, label: "Name")
                 ConsoleTextField(text: $url, label: "Base URL", kind: .url)
