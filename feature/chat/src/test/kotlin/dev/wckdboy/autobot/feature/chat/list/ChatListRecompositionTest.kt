@@ -59,8 +59,15 @@ class ChatListRecompositionTest {
             }
             AutobotTheme { ChatListScreen(state, actions, onOpenChat = {}, onOpenProviders = {}, onOpenPrivacyCenter = {}) }
         }
-        idle()
+        // Let the first composition settle (a slow machine may still be laying out or animating
+        // rows) before counting: idle until rows stop recomposing on their own.
         chatListProbe = { if (it == "row") rows++ }
+        for (pass in 0 until 50) {
+            val before = rows
+            idle()
+            if (rows == before && pass >= 2) break
+        }
+        rows = 0
         val typed = "refactoring"
         for (i in 1..typed.length) {
             setSearchText(activity, typed.take(i))
