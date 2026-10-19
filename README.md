@@ -237,6 +237,12 @@ the Recipes folder, with a notification as for a phone run, and the chat's recei
 own signed receipts, checked against the key pinned at pairing. `NodeRecipeSync` (`:shared`) does
 it for both apps; `InvincibleLiveTest` hands a recipe to a real node, runs it there and collects it.
 
+**A team on your machine.** When the node's agent has team members (`[agents.*]` in its config),
+the agent screen shows each member's answer under its name, and a member's approval card says
+who is asking ("coder: Run a command?"). Web fetches and MCP tools on the node get their own
+cards too ("Fetch a web page?", "Use github/get_issue?"), and a recipe on the node can use the
+web group: the node fetches through its gateway, under its network rules.
+
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and

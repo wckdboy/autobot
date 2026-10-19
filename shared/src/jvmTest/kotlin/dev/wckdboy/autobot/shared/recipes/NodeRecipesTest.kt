@@ -47,7 +47,9 @@ class NodeRecipesTest {
     fun theNodeGetsTheRecipesToolGroupsAndHearsWhatItLacks() {
         val r = recipe(tools = RecipeTools.READ_FILES.tools + RecipeTools.WEB.tools)
         assertEquals(listOf("files-read", "web"), NodeRecipes.groups(r))
-        assertEquals(listOf("Web is not available on the node"), NodeRecipes.limits(r))
+        // The node has web_fetch (through its gateway); not the phone's vault.
+        assertTrue(NodeRecipes.limits(r).isEmpty())
+        assertEquals(listOf("Vault is not available on the node"), NodeRecipes.limits(recipe(tools = RecipeTools.VAULT.tools)))
         val body = Json.parseToJsonElement(NodeRecipes.body(r, oslo, summer)).jsonObject
         assertEquals("r-abc-123", body["id"]!!.jsonPrimitive.content)
         assertEquals(listOf("files-read", "web"), body["tools"]!!.jsonArray.map { it.jsonPrimitive.content })
