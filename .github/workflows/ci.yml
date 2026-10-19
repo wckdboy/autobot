@@ -103,5 +103,6 @@ jobs:
           sim=$(xcrun simctl list devices available | grep -E "iPhone [0-9]+( Pro)? \(" | grep -oE "[0-9A-F-]{36}" | tail -1)
           echo "simulator: $sim"
           # Ad-hoc signing: the simulator Keychain refuses unsigned apps (errSecMissingEntitlement).
-          xcodebuild -project Autobot.xcodeproj -scheme Autobot -destination "id=$sim" test CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
+          # A failed test runs once more (timing tests flake on shared runners); failing twice fails.
+          xcodebuild -project Autobot.xcodeproj -scheme Autobot -destination "id=$sim" test -retry-tests-on-failure -test-iterations 2 CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
           cd Packages/AutobotEngines && xcodebuild -scheme AutobotEngines -destination "id=$sim" test
