@@ -281,7 +281,8 @@ class ModelDownloaderTest {
         // The first file's learned hash was kept: a retry does not fetch it again.
         assertEquals(sha(gguf), failed.manifest.files[0].sha256)
 
-        p.downloader.resume("vlm")
+        // Wait for the resume to queue it: a job started before that finds nothing to do.
+        p.downloader.resume("vlm").join()
         p.runJob()
         val ready = p.library.awaitStatus("vlm", ModelStatus.READY)
         assertEquals(1, requestsFor("/vlm/m.gguf").size)
@@ -388,7 +389,7 @@ class ModelDownloaderTest {
         assertTrue("not usable meanwhile", failed.paths.isEmpty())
 
         // Retry fetches only what is missing.
-        next.downloader.resume("gone")
+        next.downloader.resume("gone").join()
         next.runJob()
         val back = next.library.awaitStatus("gone", ModelStatus.READY)
         assertTrue(File(back.paths.getValue(FileRole.MMPROJ)).readBytes().contentEquals(mmproj))
@@ -526,7 +527,7 @@ class ModelDownloaderTest {
         next.downloader.recoverAfterRestart()
         assertEquals(ModelStatus.PAUSED, next.library.get("pause")!!.status)
 
-        next.downloader.resume("pause")
+        next.downloader.resume("pause").join()
         next.runJob()
         val ready = next.library.awaitStatus("pause", ModelStatus.READY)
         assertNotNull(requestsFor("/pause/m.gguf").last().second)
