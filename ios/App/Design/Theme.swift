@@ -50,10 +50,15 @@ enum AutobotColors {
     static let paperMuted = Color(rgb: Tokens.Palette.paperMuted)
     static let paperInk = Color(rgb: Tokens.Palette.paperInk)
 
-    /// The signal colour.
+    /// Red: errors, deletion, older art. Not the signal any more (that is lilac).
     static let red = Color(rgb: Tokens.Palette.red)
     static let redDeep = Color(rgb: Tokens.Palette.redDeep)
     static let redDim = Color(rgb: Tokens.Palette.redDim)
+
+    /// Autobot's signal: lilac on ink, a deeper lilac on paper (6:1), and a dim fill.
+    static let lilac = Color(rgb: Tokens.Palette.lilac)
+    static let lilacDeep = Color(rgb: Tokens.Palette.lilacDeep)
+    static let lilacDim = Color(rgb: Tokens.Palette.lilacDim)
 
     /// Invincible's signal (the node), on paper and on ink: screens about the node mark it in this.
     static let verdigris = Color(rgb: Tokens.Palette.verdigris)
@@ -64,8 +69,8 @@ enum AutobotColors {
     static let error = Color(rgb: Tokens.Palette.error)
 
     // Semantic aliases used across features.
-    static let acid = red
-    static let green = red
+    static let acid = lilac
+    static let green = lilac
     static let signal = error
     static let uv = ash200
     static let violet = ash200
@@ -75,7 +80,7 @@ enum AutobotColors {
  The accent colours as text and glyphs. The palette accents (`AutobotColors.amber`, cyan, uv,
  signal) are for fills and halftone dots; on paper they are under 2:1, so a word or an icon in an
  accent takes the ink for the ground it sits on (4.5:1 on that theme's background and panels).
- Red text is the scheme's `primary`.
+ Signal text is the scheme's `primary`.
  */
 struct AutobotInks: Sendable, Equatable {
     let amber, cyan, uv, signal: Color

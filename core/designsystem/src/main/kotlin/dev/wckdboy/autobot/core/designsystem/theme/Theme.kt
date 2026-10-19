@@ -32,8 +32,8 @@ import dev.wckdboy.autobot.core.designsystem.motion.rememberInkTickers
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkMotion
 
 /**
- * Riso palette: one signal red printed on ink (dark) or paper (light), with warm greys. Red is
- * the brand and "live / on this phone" colour, not an error colour by itself.
+ * The palette: warm greys on ink (dark) or paper (light), and one signal, Autobot's lilac
+ * ([AutobotColors.Lilac]), used sparingly. Red stays in the palette for errors and older art.
  */
 object AutobotColors {
     val Black = Color(0xFF000000)
@@ -59,6 +59,11 @@ object AutobotColors {
     val RedDeep = Color(0xFFB8300F)
     val RedDim = Color(0xFF3A140A)
 
+    /** Autobot's signal: lilac on ink, a deeper lilac on paper (6:1), and a dim fill. */
+    val Lilac = Color(0xFFA99BF5)
+    val LilacDeep = Color(0xFF5444BA)
+    val LilacDim = Color(0xFF221D3D)
+
     /** Invincible's signal (the node), on paper and on ink: screens about the node mark it in this. */
     val Verdigris = Color(0xFF3F8A7E)
     val VerdigrisLight = Color(0xFF4FA394)
@@ -68,20 +73,19 @@ object AutobotColors {
     val Error = Color(0xFFFF6A47)
 
     // Semantic aliases used across features.
-    val Acid = Red
-    val Green = Red
+    val Acid = Lilac
+    val Green = Lilac
     val Signal = Error
     val Uv = Ash200
     val Violet = Ash200
 }
 
 val GraphiteDarkColorScheme: ColorScheme = darkColorScheme(
-    // A shade lighter than the signal red so red text reads on the ink panels (4.5:1); ink on red
-    // blocks, since bone on this red is under 3.5:1. Fills that carry no text keep [AutobotColors.Red].
-    primary = Color(0xFFEB5535),
+    // Lilac reads on every ink panel (6.7:1 and up); ink on lilac blocks (8:1).
+    primary = AutobotColors.Lilac,
     onPrimary = AutobotColors.Ink950,
-    primaryContainer = AutobotColors.RedDim,
-    onPrimaryContainer = Color(0xFFFFD9CC),
+    primaryContainer = AutobotColors.LilacDim,
+    onPrimaryContainer = Color(0xFFE4DEFF),
     secondary = AutobotColors.Ash200,
     onSecondary = AutobotColors.Ink950,
     secondaryContainer = AutobotColors.Ink700,
@@ -109,16 +113,16 @@ val GraphiteDarkColorScheme: ColorScheme = darkColorScheme(
     outlineVariant = AutobotColors.Line,
     inverseSurface = AutobotColors.Bone100,
     inverseOnSurface = AutobotColors.Ink900,
-    inversePrimary = AutobotColors.RedDeep,
+    inversePrimary = AutobotColors.LilacDeep,
     scrim = AutobotColors.Black,
 )
 
 val GraphiteLightColorScheme: ColorScheme = lightColorScheme(
-    // Red ink on paper: the signal red is 3.4:1 on paper, this is 4.5:1 on every paper panel.
-    primary = Color(0xFFAE2D12),
+    // Deep lilac on paper: 6:1 on paper, 4.5:1 and up on every panel.
+    primary = AutobotColors.LilacDeep,
     onPrimary = AutobotColors.Bone50,
-    primaryContainer = Color(0xFFFFDCD0),
-    onPrimaryContainer = Color(0xFF3A0B00),
+    primaryContainer = Color(0xFFE4DEFF),
+    onPrimaryContainer = Color(0xFF1B1240),
     secondary = Color(0xFF3A3632),
     onSecondary = AutobotColors.Bone50,
     secondaryContainer = Color(0xFFDDD6CB),

@@ -24,7 +24,9 @@ struct TokensTests {
         #expect(Tokens.Palette.bone100 == hex("palette", "bone100"))
         #expect(Tokens.Palette.verdigris == hex("palette", "verdigris"))
         #expect(Tokens.Palette.verdigrisLight == hex("palette", "verdigrisLight"))
-        #expect((Self.json["palette"] as! [String: Any]).count == 24)
+        #expect(Tokens.Palette.lilac == hex("palette", "lilac"))
+        #expect(Tokens.Palette.lilacDeep == hex("palette", "lilacDeep"))
+        #expect((Self.json["palette"] as! [String: Any]).count == 27)
     }
 
     @Test func schemesMatch() {

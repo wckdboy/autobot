@@ -19,6 +19,9 @@ enum Tokens {
         static let ink850: UInt32 = 0x1A1A1A
         static let ink900: UInt32 = 0x141414
         static let ink950: UInt32 = 0x0E0E0E
+        static let lilac: UInt32 = 0xA99BF5
+        static let lilacDeep: UInt32 = 0x5444BA
+        static let lilacDim: UInt32 = 0x221D3D
         static let line: UInt32 = 0x2F2F2E
         static let paper: UInt32 = 0xEFEAE2
         static let paperInk: UInt32 = 0x141414
@@ -72,13 +75,13 @@ enum Tokens {
         error: 0xFF6A47,
         errorContainer: 0x3D130B,
         inverseOnSurface: 0x141414,
-        inversePrimary: 0xB8300F,
+        inversePrimary: 0x5444BA,
         inverseSurface: 0xF1ECE4,
         onBackground: 0xF1ECE4,
         onError: 0x0E0E0E,
         onErrorContainer: 0xFFD9CF,
         onPrimary: 0x0E0E0E,
-        onPrimaryContainer: 0xFFD9CC,
+        onPrimaryContainer: 0xE4DEFF,
         onSecondary: 0x0E0E0E,
         onSecondaryContainer: 0xF1ECE4,
         onSurface: 0xF1ECE4,
@@ -86,8 +89,8 @@ enum Tokens {
         onTertiary: 0x0E0E0E,
         outline: 0x4B4945,
         outlineVariant: 0x2F2F2E,
-        primary: 0xEB5535,
-        primaryContainer: 0x3A140A,
+        primary: 0xA99BF5,
+        primaryContainer: 0x221D3D,
         scrim: 0x000000,
         secondary: 0xC9C3BA,
         secondaryContainer: 0x292929,
@@ -114,7 +117,7 @@ enum Tokens {
         onError: 0xFFFFFF,
         onErrorContainer: 0x410E0B,
         onPrimary: 0xF6F2EC,
-        onPrimaryContainer: 0x3A0B00,
+        onPrimaryContainer: 0x1B1240,
         onSecondary: 0xF6F2EC,
         onSecondaryContainer: 0x141414,
         onSurface: 0x141414,
@@ -122,8 +125,8 @@ enum Tokens {
         onTertiary: 0xFFFFFF,
         outline: 0xA8A096,
         outlineVariant: 0xCFC8BC,
-        primary: 0xAE2D12,
-        primaryContainer: 0xFFDCD0,
+        primary: 0x5444BA,
+        primaryContainer: 0xE4DEFF,
         scrim: 0x000000,
         secondary: 0x3A3632,
         secondaryContainer: 0xDDD6CB,
