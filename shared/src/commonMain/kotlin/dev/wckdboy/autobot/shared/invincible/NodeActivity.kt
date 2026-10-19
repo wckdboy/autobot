@@ -42,6 +42,25 @@ data class AgentActionEntry(
 
 data class AgentFact(val id: Long, val at: Long, val text: String)
 
+/**
+ * A task on the node's team board (Invincible's spec/agent.md): part of [plan], for member
+ * [agent]; [status] is `todo`, `running`, `blocked` (waiting for the owner's answer to
+ * [question]), `done` or `failed`.
+ */
+data class BoardTask(
+    val id: String,
+    val plan: String,
+    val agent: String,
+    val goal: String,
+    val status: String,
+    val dependsOn: List<String>,
+    val result: String?,
+    val question: String?,
+    val updated: Long,
+) {
+    val waiting: Boolean get() = status == "blocked"
+}
+
 data class AgentSkill(val name: String, val description: String)
 
 /**
@@ -54,7 +73,12 @@ data class NodeActivity(
     val facts: List<AgentFact>,
     val skills: List<AgentSkill>,
     val agentProblem: String? = null,
+    /// The team board, newest plans first.
+    val board: List<BoardTask> = emptyList(),
 ) {
+    /** Board tasks waiting for the owner. */
+    val waiting: List<BoardTask> get() = board.filter { it.waiting }
+
     /** Requests in [requests] that sent anything off the node. */
     val leftTheNode: Int get() = requests.count { it.receipt.egress.isNotEmpty() }
 
@@ -85,6 +109,19 @@ object NodeActivityWords {
         a.by == "policy" -> "refused by the rules"
         a.by == "unattended" -> "refused: no one to ask"
         else -> "denied on ${a.by}"
+    }
+
+    /** "✓ b1 researcher: Find the status" (and the result's first line when done). */
+    fun task(t: BoardTask): String {
+        val mark = when (t.status) {
+            "done" -> "✓"
+            "failed" -> "✗"
+            "running" -> "▸"
+            "blocked" -> "?"
+            else -> "·"
+        }
+        val after = if (t.dependsOn.isEmpty()) "" else " (after ${t.dependsOn.joinToString()})"
+        return "$mark ${t.id} ${t.agent}: ${t.goal}$after"
     }
 
     fun summary(a: NodeActivity): String = buildString {
@@ -144,6 +181,23 @@ internal object NodeActivityParser {
             val o = e as? JsonObject ?: return@mapNotNull null
             AgentFact(o.long("id") ?: return@mapNotNull null, o.long("at") ?: 0, o.text("text").orEmpty())
         }.reversed()
+
+    /** `GET /v1/agent/board`, newest plans first. */
+    fun board(text: String): List<BoardTask> =
+        (json.parseToJsonElement(text) as? JsonObject)?.get("tasks").let { it as? JsonArray }.orEmpty().mapNotNull { e ->
+            val o = e as? JsonObject ?: return@mapNotNull null
+            BoardTask(
+                id = o.text("id") ?: return@mapNotNull null,
+                plan = o.text("plan").orEmpty(),
+                agent = o.text("agent").orEmpty(),
+                goal = o.text("goal").orEmpty(),
+                status = o.text("status") ?: "todo",
+                dependsOn = (o["depends_on"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
+                result = o.text("result"),
+                question = o.text("question"),
+                updated = o.long("updated") ?: 0,
+            )
+        }.sortedWith(compareByDescending<BoardTask> { it.plan.removePrefix("p").toIntOrNull() ?: 0 }.thenBy { it.id.removePrefix("b").toIntOrNull() ?: 0 })
 
     fun skills(text: String): List<AgentSkill> =
         (json.parseToJsonElement(text) as? JsonObject)?.get("skills").let { it as? JsonArray }.orEmpty().mapNotNull { e ->

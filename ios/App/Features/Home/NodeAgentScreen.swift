@@ -167,6 +167,15 @@ final class NodeAgentModel {
         if let value { activity = value; activityProblem = nil } else { activityProblem = error }
     }
 
+    /// Answers a question a team member asked on the board.
+    func answerBoard(_ id: String, _ text: String) async -> Bool {
+        guard let runtime else { return false }
+        let error = await runtime.nodeBoardAnswer(providerId, id: id, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+        if let error { activityProblem = error }
+        await loadActivity()
+        return error == nil
+    }
+
     func forget(_ id: Int64) async {
         guard let runtime else { return }
         if let error = await runtime.nodeAgentForget(providerId, id: id) { activityProblem = error }
@@ -353,7 +362,8 @@ struct NodeActivitySheet: View {
     let model: NodeAgentModel
     @Environment(\.scheme) private var c
     @State private var tab = 0
-    private static let tabs = ["requests", "actions", "memory"]
+    private static let tabs = ["requests", "actions", "board", "memory"]
+    @State private var answers: [String: String] = [:]
     private let words = NodeActivityWords.shared
 
     var body: some View {
@@ -366,7 +376,8 @@ struct NodeActivitySheet: View {
                 }
                 HStack(spacing: 8) {
                     ForEach(Self.tabs.indices, id: \.self) { i in
-                        Tag(Self.tabs[i], accent: c.primary, filled: tab == i) { tab = i }
+                        let waiting = model.activity?.waiting.count ?? 0
+                        Tag(Self.tabs[i] == "board" && waiting > 0 ? "board · \(waiting)" : Self.tabs[i], accent: c.primary, filled: tab == i) { tab = i }
                             .accessibilityAddTraits(tab == i ? .isSelected : [])
                     }
                 }
@@ -377,6 +388,7 @@ struct NodeActivitySheet: View {
                     switch tab {
                     case 0: requests(activity)
                     case 1: actions(activity)
+                    case 2: board(activity)
                     default: memory(activity)
                     }
                 } else if model.activityProblem == nil {
@@ -426,6 +438,34 @@ struct NodeActivitySheet: View {
                         .foregroundStyle(a.ran ? c.onSurfaceVariant : c.error)
                 }
                 .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    @ViewBuilder private func board(_ activity: NodeActivity) -> some View {
+        if let problem = activity.agentProblem {
+            Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+        } else {
+            if activity.board.isEmpty {
+                Text("Nothing on the board. When the agent plans work for its team (board_plan), its tasks show here.")
+                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(Array(activity.board.enumerated()), id: \.element.id) { i, task in
+                if i == 0 || activity.board[i - 1].plan != task.plan { SectionLabel("plan \(task.plan)") }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(words.task(t: task)).textStyle(.bodyMedium).foregroundStyle(c.onSurface)
+                    if (task.status == "done" || task.status == "failed"), let result = task.result {
+                        Text(result.split(separator: "\n").first.map(String.init) ?? "").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).lineLimit(3)
+                    }
+                    if task.waiting {
+                        Text("\(task.agent) asks: \(task.question ?? "")").textStyle(.bodyMedium).foregroundStyle(c.primary).fixedSize(horizontal: false, vertical: true)
+                        ConsoleTextField(text: Binding(get: { answers[task.id] ?? "" }, set: { answers[task.id] = $0 }), placeholder: "Your answer", minLines: 1, maxLines: 4)
+                        PrimaryButton("Answer", enabled: !(answers[task.id] ?? "").trimmingCharacters(in: .whitespaces).isEmpty) {
+                            let text = answers[task.id] ?? ""
+                            Task { if await model.answerBoard(task.id, text) { answers[task.id] = nil } }
+                        }
+                    }
+                }
             }
         }
     }

@@ -403,6 +403,12 @@ final class SharedAgentRuntime: AgentRuntime {
         return (r.value, r.error)
     }
 
+    func nodeBoardAnswer(_ providerId: String, id: String, text: String) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeBoardAnswer(providerId: providerId, id: id, text: text) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
     func nodeAgentForget(_ providerId: String, id: Int64) async -> String? {
         await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
             bridge.nodeAgentForget(providerId: providerId, id: id) { @Sendable error in done(Problem(message: error)) }

@@ -237,6 +237,17 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         if (e.status == 404) false else throw e
     }
 
+    /** The node's team board (empty on a node without a team). */
+    suspend fun board(): List<BoardTask> = NodeActivityParser.board(request("GET", "/board"))
+
+    /** Answers a board task's question; false when it was not waiting any more. */
+    suspend fun answerBoard(id: String, text: String): Boolean = try {
+        request("POST", "/board/$id/answer", buildJsonObject { put("text", text) }.toString())
+        true
+    } catch (e: NodeAgentException) {
+        if (e.status == 404) false else throw e
+    }
+
     /** The owner's skills on the node. */
     suspend fun skills(): List<AgentSkill> = NodeActivityParser.skills(request("GET", "/skills"))
 
@@ -244,7 +255,13 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     suspend fun activity(crypto: NodeCrypto, node: String, receiptKey: String?): NodeActivity {
         val requests = requests(crypto, node, receiptKey)
         return try {
-            NodeActivity(requests, actions(), memory(), skills())
+            // An older node has no board: that part is empty, not an error.
+            val board = try {
+                board()
+            } catch (e: NodeAgentException) {
+                if (e.status == 404) emptyList() else throw e
+            }
+            NodeActivity(requests, actions(), memory(), skills(), board = board)
         } catch (e: NodeAgentException) {
             if (e.status == 0) throw e
             NodeActivity(requests, emptyList(), emptyList(), emptyList(), agentProblem = e.message)
