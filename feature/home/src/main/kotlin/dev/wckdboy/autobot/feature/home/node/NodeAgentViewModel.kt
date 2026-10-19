@@ -206,6 +206,21 @@ class NodeAgentViewModel @AssistedInject constructor(
         }
     }
 
+    /** Answers a question a team member asked on the board; [onDone] when it was taken. */
+    fun answerBoard(id: String, text: String, onDone: () -> Unit) {
+        val agent = agent ?: return
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { agent.answerBoard(id, trimmed) }
+                .onSuccess { taken ->
+                    if (taken) onDone() else _state.update { it.copy(activityProblem = "That question was already answered.") }
+                    loadActivity()
+                }
+                .onFailure { e -> _state.update { it.copy(activityProblem = e.message ?: "The node did not answer.") } }
+        }
+    }
+
     /** Makes the agent forget a remembered fact. */
     fun forget(id: Long) {
         val agent = agent ?: return

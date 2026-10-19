@@ -243,6 +243,11 @@ who is asking ("coder: Run a command?"). Web fetches and MCP tools on the node g
 cards too ("Fetch a web page?", "Use github/get_issue?"), and a recipe on the node can use the
 web group: the node fetches through its gateway, under its network rules.
 
+**The team board.** When the node's agent plans background work for its team, the Activity sheet's
+*board* tab shows each plan's tasks (who, status, result). A member that needs you shows its
+question there, with a field to answer, and the tab counts what is waiting. The answer sends the
+task on, as `/board answer` does in Telegram.
+
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and

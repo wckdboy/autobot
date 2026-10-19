@@ -104,6 +104,25 @@ class NodeActivityTest {
     }
 
     @Test
+    fun theBoardShowsPlansAndTakesAnswers() = runBlocking {
+        val board = """{"tasks":[
+            {"id":"b1","plan":"p1","agent":"researcher","goal":"Find it","status":"done","depends_on":[],"result":"Found","updated":1},
+            {"id":"b2","plan":"p1","agent":"writer","goal":"Write it","status":"blocked","depends_on":["b1"],"question":"Markdown?","updated":2},
+            {"id":"b3","plan":"p2","agent":"writer","goal":"Later","status":"todo","depends_on":[],"updated":3}]}"""
+        val node = Node(mapOf("/v1/audit" to """{"entries":[]}""", "/v1/agent/actions" to """{"actions":[]}""",
+            "/v1/agent/memory" to """{"facts":[]}""", "/v1/agent/skills" to """{"skills":[]}""",
+            "/v1/agent/board" to board, "/v1/agent/board/b2/answer" to """{"ok":true}"""))
+        val activity = NodeAgent(node).activity(JvmNodeCrypto, "studio", null)
+        // Newest plan first, tasks in order within a plan.
+        assertEquals(listOf("b3", "b1", "b2"), activity.board.map { it.id })
+        assertEquals(listOf("b2"), activity.waiting.map { it.id })
+        assertEquals("? b2 writer: Write it (after b1)", NodeActivityWords.task(activity.board[2]))
+        assertTrue(NodeAgent(node).answerBoard("b2", "Yes, Markdown"))
+        assertTrue(node.asked.contains("POST http://invincible/v1/agent/board/b2/answer"))
+        assertFalse(NodeAgent(node).answerBoard("b9", "x"))
+    }
+
+    @Test
     fun forgettingAFactThatIsGoneIsFalse() = runBlocking {
         val node = Node(mapOf("/v1/agent/memory/1" to """{"ok":true}"""))
         assertTrue(NodeAgent(node).forget(1))

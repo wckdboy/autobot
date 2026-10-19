@@ -75,7 +75,7 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
         },
     )
     if (showActivity) {
-        NodeActivitySheet(state, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget)
+        NodeActivitySheet(state, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget, onAnswer = viewModel::answerBoard)
     }
     if (showSchedules) {
         NodeSchedulesSheet(state, onDismiss = { showSchedules = false }, onAdd = viewModel::addSchedule, onRemove = viewModel::removeSchedule)

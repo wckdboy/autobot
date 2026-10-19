@@ -791,6 +791,14 @@ class AgentBridge(
         RecipeCodec.encodeRecord(NodeRecipes.record(run, chatId, receipts))
     }
 
+    /** Answers a question a team member on the node asked (board task [id]); null, or why not. */
+    fun nodeBoardAnswer(providerId: String, id: String, text: String, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { it },
+    ) {
+        if (requireNodeAgent(providerId).first.answerBoard(id, text)) null else "That question was already answered."
+    }
+
     /** Makes the node's agent forget a fact; null, or why not. */
     fun nodeAgentForget(providerId: String, id: Long, callback: (String?) -> Unit) = launchAnswering(
         callback = callback,
