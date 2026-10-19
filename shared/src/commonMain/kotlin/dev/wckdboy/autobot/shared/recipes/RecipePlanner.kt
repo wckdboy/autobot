@@ -20,7 +20,8 @@ object RecipePlanner {
     const val EARLY_SLACK_MS = 60_000L
 
     fun isDue(recipe: Recipe, nowMillis: Long): Boolean {
-        if (!recipe.enabled) return false
+        // A node runs it; the phone only collects the results.
+        if (!recipe.enabled || recipe.runsOn != null) return false
         if (recipe.state.waitingForUnlock) return true
         val next = recipe.state.nextRunAt ?: return false
         return nowMillis + EARLY_SLACK_MS >= next
@@ -32,7 +33,7 @@ object RecipePlanner {
 
     /** When the app should next be woken for [recipes] (null: nothing scheduled). */
     fun nextWake(recipes: List<Recipe>): Long? =
-        recipes.filter { it.enabled && !it.state.waitingForUnlock }.mapNotNull { it.state.nextRunAt }.minOrNull()
+        recipes.filter { it.enabled && it.runsOn == null && !it.state.waitingForUnlock }.mapNotNull { it.state.nextRunAt }.minOrNull()
 
     /**
      * [recipe] as saved from the editor (or toggled), with its next run worked out: disabled
@@ -79,7 +80,7 @@ object RecipePlanner {
             record.trigger == RecipeTrigger.SCHEDULE || wasDue || state.nextRunAt == null -> nextAfterRun(recipe, state.nextRunAt, record.startedAt, zone)
             else -> state.nextRunAt
         }
-        return recipe.copy(state = RecipeState(nextRunAt = next, waitingForUnlock = false, lastRun = record))
+        return recipe.copy(state = RecipeState(nextRunAt = next, waitingForUnlock = false, lastRun = record, pushed = state.pushed))
     }
 
     /**

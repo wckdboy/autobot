@@ -63,6 +63,35 @@ final class AppRecipeHost: RecipeHost {
         )
     }
 
+    func newNodeChat(title: String, providerId: String) -> String {
+        let chat = app.conversations.create(incognito: false, providerId: providerId, model: "auto", title: title)
+        if let folder = folder() { app.conversations.move([chat.id], to: folder.id) }
+        return chat.id
+    }
+
+    private var runtime: SharedAgentRuntime? { app.agent as? SharedAgentRuntime }
+
+    func nodePush(_ recipe: String) async -> (json: String?, error: String?) {
+        guard let runtime else { return (nil, "My node is not available here") }
+        return await runtime.nodeRecipePush(recipe)
+    }
+
+    func nodeRemove(_ recipe: String) async { _ = await runtime?.nodeRecipeRemove(recipe) }
+
+    func nodeRunNow(_ recipe: String) async -> String? {
+        guard let runtime else { return "My node is not available here" }
+        return await runtime.nodeRecipeRunNow(recipe)
+    }
+
+    func nodeRuns(_ recipe: String) async -> (runs: [String]?, error: String?) {
+        guard let runtime else { return (nil, "My node is not available here") }
+        return await runtime.nodeRecipeRuns(recipe)
+    }
+
+    func nodeDeliver(_ recipe: String, run: String, chatId: String) async -> String? {
+        await runtime?.nodeRecipeDeliver(recipe, run: run, chatId: chatId)
+    }
+
     func schedule(_ plan: RecipeBackground.Plan?) { RecipeBackground.submit(plan) }
 
     func cancelRun(sessionId: String) { app.agent.cancel(sessionId) }

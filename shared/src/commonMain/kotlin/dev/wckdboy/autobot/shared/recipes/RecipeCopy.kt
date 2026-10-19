@@ -25,6 +25,12 @@ object RecipeCopy {
     const val CHARGING = "Only while charging"
     const val BATTERY = "Not when the battery is low"
     const val MODEL_HEADER = "On-device model"
+    const val RUNS_ON_HEADER = "Runs on"
+    const val THIS_PHONE = "This phone"
+    const val NODE_DETAIL = "Your node runs it on its schedule: always on, no time limit, on its own models. Results come back here with the node's signed receipts."
+
+    /** "Daily at 07:00 · on studio" for a recipe on a node. */
+    fun where(scheduleLabel: String, node: String?): String = if (node == null) scheduleLabel else "$scheduleLabel · on $node"
     const val MODEL_DEFAULT = "This phone's default"
     const val NETWORK_NOTE = "Uses the network: it waits for Wi-Fi (an unmetered network), goes through the kill switch and is listed in the audit log and the run's receipt."
     const val OPEN_RESULT = "Open result"

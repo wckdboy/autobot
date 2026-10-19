@@ -65,6 +65,7 @@ import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import dev.wckdboy.autobot.core.designsystem.component.rememberBufferedText
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.shared.recipes.NodeRecipes
 import dev.wckdboy.autobot.shared.recipes.Recipe
 import dev.wckdboy.autobot.shared.recipes.RecipeCopy
 import dev.wckdboy.autobot.shared.recipes.RecipeRunStatus
@@ -135,6 +136,7 @@ fun RecipesScreen(
                 item { Note(RecipeCopy.NO_MODEL, MaterialTheme.colorScheme.error) }
             }
             if (state.loaded && state.recipes.isEmpty()) item { Note(RecipeCopy.EMPTY) }
+            state.notice?.let { item { Note(it, MaterialTheme.colorScheme.error) } }
             items(state.recipes, key = { it.id }, contentType = { "recipe" }) { row ->
                 RecipeListRow(row, onEdit, onEnabled, onRunNow, onOpenChat)
                 HorizontalDivider()
@@ -152,6 +154,7 @@ fun RecipesScreen(
             isNew = state.editorIsNew,
             problems = state.problems,
             models = state.models,
+            nodes = state.nodes,
             onDraftChange = onDraftChange,
             onSave = onSave,
             onDelete = { onDelete(draft.id) },
@@ -205,6 +208,7 @@ private fun RecipeEditorSheet(
     isNew: Boolean,
     problems: List<String>,
     models: List<RecipeModelChoice>,
+    nodes: List<RecipeModelChoice>,
     onDraftChange: ((Recipe) -> Recipe) -> Unit,
     onSave: () -> Unit,
     onDelete: () -> Unit,
@@ -272,14 +276,29 @@ private fun RecipeEditorSheet(
                     }
                 } ?: Text(schedule.label(), style = MaterialTheme.typography.bodyLarge)
 
-                SectionLabel(RecipeCopy.MODEL_HEADER)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = draft.model.isBlank(), onClick = { onDraftChange { it.copy(model = "") } }, label = { Text(RecipeCopy.MODEL_DEFAULT) })
-                    models.forEach { m ->
-                        FilterChip(selected = draft.model == m.id, onClick = { onDraftChange { it.copy(model = m.id) } }, label = { Text(m.title) })
+                if (nodes.isNotEmpty() || draft.runsOn != null) {
+                    SectionLabel(RecipeCopy.RUNS_ON_HEADER)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = draft.runsOn == null, onClick = { onDraftChange { it.copy(runsOn = null) } }, label = { Text(RecipeCopy.THIS_PHONE) })
+                        nodes.forEach { n ->
+                            FilterChip(selected = draft.runsOn == n.id, onClick = { onDraftChange { it.copy(runsOn = n.id) } }, label = { Text(n.title) })
+                        }
+                    }
+                    if (draft.runsOn != null) {
+                        Text(RecipeCopy.NODE_DETAIL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        NodeRecipes.limits(draft).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotColors.Amber) }
                     }
                 }
-                if (models.isEmpty()) Text(RecipeCopy.NO_MODEL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                if (draft.runsOn == null) {
+                    SectionLabel(RecipeCopy.MODEL_HEADER)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = draft.model.isBlank(), onClick = { onDraftChange { it.copy(model = "") } }, label = { Text(RecipeCopy.MODEL_DEFAULT) })
+                        models.forEach { m ->
+                            FilterChip(selected = draft.model == m.id, onClick = { onDraftChange { it.copy(model = m.id) } }, label = { Text(m.title) })
+                        }
+                    }
+                    if (models.isEmpty()) Text(RecipeCopy.NO_MODEL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
 
                 SectionLabel(RecipeCopy.TOOLS_HEADER)
                 Text(RecipeCopy.TOOLS_DETAIL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

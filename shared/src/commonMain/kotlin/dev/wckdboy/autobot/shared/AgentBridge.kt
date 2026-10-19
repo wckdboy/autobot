@@ -1,6 +1,10 @@
 package dev.wckdboy.autobot.shared
 
 import dev.wckdboy.autobot.shared.invincible.NodeCrypto
+import dev.wckdboy.autobot.agent.core.session.SessionLog
+import dev.wckdboy.autobot.shared.recipes.Recipe
+import dev.wckdboy.autobot.shared.recipes.NodeRecipes
+import dev.wckdboy.autobot.shared.recipes.NodeRecipeTarget
 import dev.wckdboy.autobot.shared.invincible.NodeLink
 import dev.wckdboy.autobot.shared.invincible.NodeAgentOpened
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
@@ -705,6 +709,86 @@ class AgentBridge(
     ) {
         val (agent, paired) = nodeAgentAndPairing(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
         agent.activity(nodeCrypto!!, paired.name, paired.receiptKey) to null
+    }
+
+    /*
+     * Recipes on a paired node (Invincible's spec/agent.md, "Recipes from Autobot"), for hosts
+     * that keep recipes themselves: JSON in, JSON out ([RecipeCodec]). The host stores what comes
+     * back and creates the result chats; receipts are checked and chats written here.
+     */
+
+    /** [providerId]'s node as recipes use it; null when it is not a usable pairing. */
+    private suspend fun nodeRecipeTarget(providerId: String): NodeRecipeTarget? {
+        val spec = withContext(IoDispatcher) { providers.provider(providerId) } ?: return null
+        val connector = nodeConnector ?: return null
+        val crypto = nodeCrypto ?: return null
+        if (spec.kind != ProviderKind.INVINCIBLE_NODE) return null
+        val paired = spec.apiKey?.let(PairedNode::fromSecret) ?: return null
+        val transport = paired.transport(crypto) { addresses -> connector(addresses, spec.route) }
+        return NodeRecipeTarget(NodeAgent(transport, "${spec.displayName} · recipes"), paired.name) { id ->
+            NodeReceiptLog.fetch(crypto, transport, paired.name, paired.receiptKey, id)
+        }
+    }
+
+    private suspend fun requireNodeRecipeTarget(recipe: Recipe): NodeRecipeTarget =
+        recipe.runsOn?.let { nodeRecipeTarget(it) } ?: error("The node this recipe runs on is no longer paired.")
+
+    /** Sends [recipeJson] to its node; the recipe JSON to store (it records what was sent), or why not. */
+    fun nodeRecipePush(recipeJson: String, callback: (String?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<String?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) {
+        val recipe = RecipeCodec.decode(recipeJson) ?: error("This recipe cannot be read")
+        val zone = kotlinx.datetime.TimeZone.currentSystemDefault()
+        NodeRecipes.push(requireNodeRecipeTarget(recipe).agent, recipe, zone, nowMillis())
+        RecipeCodec.encode(recipe.copy(state = recipe.state.copy(pushed = NodeRecipes.pushed(recipe, zone, nowMillis())))) to null
+    }
+
+    /** Takes [recipeJson] off the node it ran on; null, or why not. */
+    fun nodeRecipeRemove(recipeJson: String, callback: (String?) -> Unit) = launchAnswering(callback = callback, failed = { it }) {
+        val recipe = RecipeCodec.decode(recipeJson) ?: error("This recipe cannot be read")
+        NodeRecipes.remove(requireNodeRecipeTarget(recipe).agent, recipe)
+        null
+    }
+
+    /** "Run now" on the node; null, or why not. */
+    fun nodeRecipeRunNow(recipeJson: String, callback: (String?) -> Unit) = launchAnswering(callback = callback, failed = { it }) {
+        val recipe = RecipeCodec.decode(recipeJson) ?: error("This recipe cannot be read")
+        if (NodeRecipes.runNow(requireNodeRecipeTarget(recipe).agent, recipe)) null else "It is running on the node already."
+    }
+
+    /** The node's runs of [recipeJson] the phone has not collected, oldest first, as JSON ([NodeRun]); or why not. */
+    fun nodeRecipeRuns(recipeJson: String, callback: (List<String>?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<List<String>?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) {
+        val recipe = RecipeCodec.decode(recipeJson) ?: error("This recipe cannot be read")
+        NodeRecipes.newRuns(requireNodeRecipeTarget(recipe).agent, recipe).map { NodeRecipes.encodeRun(it) } to null
+    }
+
+    /**
+     * Writes run [runJson] of [recipeJson] into chat [chatId] (made by the host in the Recipes
+     * folder) with the node's receipts checked, and answers the run's record JSON.
+     */
+    fun nodeRecipeDeliver(recipeJson: String, runJson: String, chatId: String, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { null },
+    ) {
+        val recipe = RecipeCodec.decode(recipeJson) ?: error("This recipe cannot be read")
+        val run = NodeRecipes.decodeRun(runJson) ?: error("not a run")
+        val target = requireNodeRecipeTarget(recipe)
+        val receipts = run.receipts.map { id ->
+            try {
+                target.receipt(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                dev.wckdboy.autobot.agent.core.session.ReceiptNode(target.node, id, verified = false, missing = e.message ?: "could not fetch it")
+            }
+        }
+        val log = SessionLog.open(chatId, sessions)
+        log.appendAll(NodeRecipes.transcript(recipe, run, receipts.firstNotNullOfOrNull { it.model }, receipts))
+        RecipeCodec.encodeRecord(NodeRecipes.record(run, chatId, receipts))
     }
 
     /** Makes the node's agent forget a fact; null, or why not. */

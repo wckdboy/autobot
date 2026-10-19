@@ -47,6 +47,29 @@ struct RecipeTests {
             return await withCheckedContinuation { held = $0 }
         }
         func schedule(_ plan: RecipeBackground.Plan?) { plans.append(plan) }
+
+        // A paired node: what it was sent, and runs it has finished.
+        var pushed: [String] = []
+        var nodeRunsWaiting: [String] = []
+        var delivered: [(run: String, chat: String)] = []
+        func nodePush(_ recipe: String) async -> (json: String?, error: String?) {
+            pushed.append(recipe)
+            var r = RecipeDoc(json: recipe)!
+            r.state.pushed = "sent"
+            return (r.json, nil)
+        }
+        func nodeRuns(_ recipe: String) async -> (runs: [String]?, error: String?) {
+            defer { nodeRunsWaiting = [] }
+            return (nodeRunsWaiting, nil)
+        }
+        func newNodeChat(title: String, providerId: String) -> String {
+            chats.append((title, providerId))
+            return "chat-\(chats.count)"
+        }
+        func nodeDeliver(_ recipe: String, run: String, chatId: String) async -> String? {
+            delivered.append((run, chatId))
+            return RecipeRunDoc(startedAt: 1_000_000, finishedAt: 1_060_000, status: "DONE", sessionId: chatId, summary: "Disk is 41% full.").json
+        }
         func cancelRun(sessionId: String) {
             cancelled.append(sessionId)
             held?.resume(returning: heldRecord)
@@ -163,6 +186,34 @@ struct RecipeTests {
         c.runDue(now: due + 60_000)
         await c.idle()
         #expect(host.runs.count == 1)
+    }
+
+    @Test func aRecipeOnANodeIsSentThereNeverRunHereAndItsRunsAreCollected() async throws {
+        let host = Host(), notes = Notes()
+        let c = center(host, notes)
+        c.load(now: 0)
+        var r = brief
+        r.enabled = true
+        r.runsOn = "node-1"
+        #expect(c.save(r, now: 0).isEmpty)
+        for _ in 0..<100 where c.recipe("r1")?.state.pushed == nil { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(host.pushed.count == 1)
+        #expect(c.recipe("r1")?.state.pushed == "sent")
+        // Due by the clock, but the node runs it: the phone does not.
+        let due = try #require(c.recipe("r1")?.state.nextRunAt)
+        c.runDue(now: due)
+        await c.idle()
+        #expect(host.runs.isEmpty)
+        #expect(RecipeRules.nextWake(c.recipes) == nil)
+        // The node finished a run: it becomes a chat on the node, a record and a notification.
+        host.nodeRunsWaiting = [#"{"at":1000,"finished":1060,"ok":true,"result":"Disk is 41% full.","receipts":["a"],"trigger":"schedule"}"#]
+        await c.syncNodesNow()
+        #expect(host.delivered.map(\.chat) == ["chat-1"])
+        #expect(host.chats.map(\.model) == ["node-1"])
+        #expect(notes.finished.map(\.name) == ["Brief"])
+        #expect(c.recipe("r1")?.state.lastRun?.sessionId == "chat-1")
+        #expect(c.recipe("r1")?.state.lastRun?.summary == "Disk is 41% full.")
+        #expect(c.nodeNotice == nil)
     }
 
     @Test func noOnDeviceModelFailsTheRunWithoutAChat() async throws {

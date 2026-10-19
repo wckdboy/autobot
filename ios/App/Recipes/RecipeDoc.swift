@@ -20,6 +20,8 @@ struct RecipeDoc: Codable, Identifiable, Equatable, Sendable {
     var template: String?
     var createdAt: Int64 = 0
     var state = RecipeStateDoc()
+    /// The paired node (its provider id) that runs this recipe; nil: this phone.
+    var runsOn: String?
 
     init(id: String, name: String, prompt: String, schedule: RecipeScheduleDoc) {
         (self.id, self.name, self.prompt, self.schedule) = (id, name, prompt, schedule)
@@ -40,6 +42,7 @@ struct RecipeDoc: Codable, Identifiable, Equatable, Sendable {
         template = try c.decodeIfPresent(String.self, forKey: .template)
         createdAt = try c.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
         state = try c.decodeIfPresent(RecipeStateDoc.self, forKey: .state) ?? RecipeStateDoc()
+        runsOn = try c.decodeIfPresent(String.self, forKey: .runsOn)
     }
 
     /// The shared JSON.
@@ -150,6 +153,8 @@ struct RecipeStateDoc: Codable, Equatable, Sendable {
     var nextRunAt: Int64?
     var waitingForUnlock = false
     var lastRun: RecipeRunDoc?
+    /// For a recipe on a node: what was last sent there.
+    var pushed: String?
 
     init(nextRunAt: Int64? = nil, waitingForUnlock: Bool = false, lastRun: RecipeRunDoc? = nil) {
         (self.nextRunAt, self.waitingForUnlock, self.lastRun) = (nextRunAt, waitingForUnlock, lastRun)
@@ -160,6 +165,7 @@ struct RecipeStateDoc: Codable, Equatable, Sendable {
         nextRunAt = try c.decodeIfPresent(Int64.self, forKey: .nextRunAt)
         waitingForUnlock = try c.decodeIfPresent(Bool.self, forKey: .waitingForUnlock) ?? false
         lastRun = try c.decodeIfPresent(RecipeRunDoc.self, forKey: .lastRun)
+        pushed = try c.decodeIfPresent(String.self, forKey: .pushed)
     }
 }
 

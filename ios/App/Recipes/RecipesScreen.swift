@@ -25,6 +25,9 @@ struct RecipesScreen: View {
                         MicroLabel(copy.NO_MODEL, color: c.error, lines: 3).padding(.vertical, 8)
                     }
                     SectionLabel("scheduled · \(center.recipes.filter(\.enabled).count) on").padding(.vertical, 8)
+                    if let notice = center.nodeNotice {
+                        MicroLabel(notice, color: c.error, lines: 3).padding(.bottom, 8)
+                    }
                     if center.recipes.isEmpty {
                         Text(copy.EMPTY).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(.vertical, 12)
                     }
@@ -62,7 +65,7 @@ struct RecipesScreen: View {
             HStack(alignment: .top, spacing: 12) {
                 Button { editing = r } label: {
                     VStack(alignment: .leading, spacing: 3) {
-                        MicroLabel(RecipeRules.scheduleLabel(r))
+                        MicroLabel(RecipeRules.where_(r, node: r.runsOn.map { app.providers.get($0)?.displayName ?? "my node" }))
                         Text(r.name).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(2)
                         Text(running ? "Running…" : RecipeRules.status(r))
                             .textStyle(.micro)
@@ -84,7 +87,7 @@ struct RecipesScreen: View {
             }
             HStack(spacing: 16) {
                 TextAction(RecipeRules.copy.RUN_NOW, color: c.primary) { center.runNow(r.id) }
-                    .disabled(running || !hasLocalModel)
+                    .disabled(running || (r.runsOn == nil && !hasLocalModel))
                 if let session = r.state.lastRun?.sessionId, app.conversations.get(session) != nil {
                     TextAction(RecipeRules.copy.OPEN_RESULT, color: c.onSurface) { nav.push(.chat(conversationId: session)) }
                 }
@@ -128,10 +131,23 @@ struct RecipeEditorSheet: View {
                 }
                 scheduleDetail
 
-                MicroLabel(copy.MODEL_HEADER.lowercased())
-                ChipRow(items: [""] + app.recipeModels.map(\.id), selected: draft.model, label: { id in
-                    id.isEmpty ? copy.MODEL_DEFAULT : (app.recipeModels.first { $0.id == id }?.title ?? id)
-                }) { draft.model = $0 }
+                let nodes = app.providers.providers.filter { $0.kind == .invincibleNode }
+                if !nodes.isEmpty || draft.runsOn != nil {
+                    MicroLabel(copy.RUNS_ON_HEADER.lowercased())
+                    ChipRow(items: [""] + nodes.map(\.id), selected: draft.runsOn ?? "", label: { id in
+                        id.isEmpty ? copy.THIS_PHONE : (nodes.first { $0.id == id }?.displayName ?? "my node")
+                    }) { draft.runsOn = $0.isEmpty ? nil : $0 }
+                    if draft.runsOn != nil {
+                        Text(copy.NODE_DETAIL).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                        ForEach(RecipeRules.nodeLimits(draft), id: \.self) { MicroLabel($0, color: c.error, lines: 2) }
+                    }
+                }
+                if draft.runsOn == nil {
+                    MicroLabel(copy.MODEL_HEADER.lowercased())
+                    ChipRow(items: [""] + app.recipeModels.map(\.id), selected: draft.model, label: { id in
+                        id.isEmpty ? copy.MODEL_DEFAULT : (app.recipeModels.first { $0.id == id }?.title ?? id)
+                    }) { draft.model = $0 }
+                }
 
                 MicroLabel(copy.TOOLS_HEADER.lowercased())
                 ForEach(RecipeRules.toolGroups) { group in

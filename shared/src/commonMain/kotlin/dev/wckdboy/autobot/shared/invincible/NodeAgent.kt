@@ -71,6 +71,9 @@ data class NodeAgentOpened(val session: String, val info: AgentInfo, val history
 /** A line of a conversation's history: who and what (tool calls summarized). */
 data class AgentLine(val role: String, val text: String)
 
+/** One finished run of a schedule on the node (Unix seconds); [receipts] are the gateway's request ids. */
+data class NodeRun(val at: Long, val finished: Long, val ok: Boolean, val result: String, val receipts: List<String>, val trigger: String)
+
 /** The node answered with an error (spec/agent.md's error shape). */
 class NodeAgentException(val status: Int, val type: String?, message: String) : Exception(message)
 
@@ -180,6 +183,32 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     suspend fun removeSchedule(id: String) {
         request("DELETE", "/schedules/$id")
     }
+
+    /** Creates or replaces a schedule from its JSON body (spec/agent.md); its id. */
+    suspend fun putSchedule(body: String): String =
+        json.parseToJsonElement(request("POST", "/schedules", body)).jsonObject.text("id") ?: error("no id")
+
+    /** Starts schedule [id] now; false when it is already running. */
+    suspend fun runSchedule(id: String): Boolean = try {
+        request("POST", "/schedules/$id/run", "")
+        true
+    } catch (e: NodeAgentException) {
+        if (e.status == 409) false else throw e
+    }
+
+    /** Schedule [id]'s finished runs that started after [after] (Unix seconds), oldest first. */
+    suspend fun runs(id: String, after: Long): List<NodeRun> =
+        json.parseToJsonElement(request("GET", "/schedules/$id/runs?after=$after")).jsonObject["runs"]?.jsonArray.orEmpty().mapNotNull {
+            val o = it as? JsonObject ?: return@mapNotNull null
+            NodeRun(
+                at = o["at"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null,
+                finished = o["finished"]?.jsonPrimitive?.longOrNull ?: 0,
+                ok = o["ok"]?.jsonPrimitive?.booleanOrNull ?: false,
+                result = o.text("result").orEmpty(),
+                receipts = (o["receipts"] as? JsonArray).orEmpty().mapNotNull { r -> (r as? JsonPrimitive)?.contentOrNull },
+                trigger = o.text("trigger") ?: "schedule",
+            )
+        }
 
     /**
      * The node's audit log (Invincible's spec/audit.md), newest first: the requests it answered,

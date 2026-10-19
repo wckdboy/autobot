@@ -241,6 +241,8 @@ final class AppContainer {
         syncLocalProvider()
         // Recipes iOS did not get to (or that waited for an unlock) run now.
         recipes.runDue()
+        // Recipes on a node: collect what it ran meanwhile.
+        recipes.syncNodes()
     }
 
     /// Opt-in agent features follow settings: memory and the vault while on, web search while a provider is set.
@@ -381,7 +383,10 @@ final class AppContainer {
         dataLoaded = true
         modelsChanged()
         recipes.load()
-        if UIApplication.shared.applicationState == .active { recipes.runDue() }
+        if UIApplication.shared.applicationState == .active {
+            recipes.runDue()
+            recipes.syncNodes()
+        }
         LaunchTrace.mark("data.loaded")
         await studio.load()
         LaunchTrace.mark("studio.loaded")

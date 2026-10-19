@@ -18,6 +18,9 @@ import kotlinx.serialization.json.Json
  * @property includeRecentChats the run gets a digest of chats changed since the last run as context.
  * @property requiresCharging run only while charging (Android constraint, iOS external power).
  * @property requiresBatteryNotLow run only when the battery is not low (Android).
+ * @property runsOn the paired Invincible node (its provider id) that runs this recipe instead of
+ *   the phone: always on, no time limit; the phone collects the results ([NodeRecipes]). Null:
+ *   this phone.
  */
 @OptIn(ExperimentalObjCName::class)
 @ObjCName("AgentRecipe") // The Studio's `Recipe` keeps its Swift name.
@@ -35,6 +38,7 @@ data class Recipe(
     val enabled: Boolean = false,
     /** The template this recipe started from, if any (see [RecipeTemplates]). */
     val template: String? = null,
+    val runsOn: String? = null,
     val createdAt: Long = 0,
     val state: RecipeState = RecipeState(),
 ) {
@@ -57,6 +61,8 @@ data class RecipeState(
     /** A due run could not read the encrypted data (the device was locked): it runs at the next unlock. */
     val waitingForUnlock: Boolean = false,
     val lastRun: RecipeRunRecord? = null,
+    /** For a recipe on a node: the node and the UTC schedule last sent there ([NodeRecipes.pushed]). */
+    val pushed: String? = null,
 )
 
 /** How one run ended. */

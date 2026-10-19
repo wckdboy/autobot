@@ -61,6 +61,17 @@ enum RecipeRules {
 
     static func notificationBody(record: String, showSummary: Bool) -> String { bridge.notificationBody(recordJson: record, showSummary: showSummary) }
 
+    static func nodeNeedsPush(_ recipe: RecipeDoc, previous: RecipeDoc?, now: Int64 = nowMillis()) -> Bool {
+        bridge.nodeNeedsPush(json: recipe.json, previousJson: previous?.json, nowMillis: now)
+    }
+
+    static func nodeLimits(_ recipe: RecipeDoc) -> [String] { bridge.nodeLimits(json: recipe.json) }
+
+    /// "Daily at 07:00 · on studio".
+    static func where_(_ recipe: RecipeDoc, node: String?) -> String { bridge.where(json: recipe.json, node: node) }
+
+    static func runChatTitle(_ recipe: RecipeDoc, run: String) -> String { bridge.runChatTitle(json: recipe.json, runJson: run) }
+
     struct ToolGroup: Identifiable, Sendable {
         let id: String
         let label: String

@@ -64,6 +64,25 @@ object RecipeBridge {
     fun notificationBody(recordJson: String, showSummary: Boolean): String =
         RecipeCodec.decodeRecord(recordJson)?.let { RecipeCopy.body(it, showSummary) } ?: RecipeCopy.OPEN_TO_READ
 
+    /** Whether [json] (on a node) must be sent there again: it changed from [previousJson], or the UTC offset moved. */
+    fun nodeNeedsPush(json: String, previousJson: String?, nowMillis: Long): Boolean {
+        val recipe = RecipeCodec.decode(json) ?: return false
+        return NodeRecipes.needsPush(recipe, previousJson?.let(RecipeCodec::decode) ?: recipe, zone, nowMillis)
+    }
+
+    /** What a node cannot give [json], in words. */
+    fun nodeLimits(json: String): List<String> = RecipeCodec.decode(json)?.let(NodeRecipes::limits).orEmpty()
+
+    /** "Daily at 07:00 · on studio". */
+    fun where(json: String, node: String?): String = RecipeCodec.decode(json)?.let { RecipeCopy.where(it.schedule.label(), node) }.orEmpty()
+
+    /** The title of the chat a collected run goes into. */
+    fun runChatTitle(json: String, runJson: String): String {
+        val recipe = RecipeCodec.decode(json) ?: return ""
+        val run = NodeRecipes.decodeRun(runJson) ?: return recipe.name
+        return RecipeCopy.chatTitle(recipe.name, run.at * 1000, zone)
+    }
+
     /** Tool groups the editor offers. */
     val toolGroups: List<RecipeTools.Group> get() = RecipeTools.groups
 
