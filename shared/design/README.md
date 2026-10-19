@@ -1,8 +1,10 @@
 # Design tokens
 
-`tokens.json` is the single source of truth for the riso design system on both platforms: one
-signal red printed on ink (dark) or paper (light), Antonio for display type, JetBrains Mono for
-every label, the system sans for reading.
+`tokens.json` is the single source of truth for the design system on both platforms (the rules
+are in [BRAND.md](../../BRAND.md)): warm ink (dark) and paper (light), one signal red used
+sparingly, the system sans for headings and reading, JetBrains Mono for every label. `products`
+holds each product's signal: Autobot's vermilion, and Invincible's verdigris for anything about
+the node. Antonio stays in the font set for the few places that print a single large word.
 
 - **Android**: the values are written out in
   `core/designsystem/src/main/kotlin/dev/wckdboy/autobot/core/designsystem/theme/Theme.kt` and the
