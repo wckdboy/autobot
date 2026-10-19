@@ -227,6 +227,16 @@ only allowlisted commands and writes in the working directory.
 `InvincibleLiveTest` runs a real turn against `invincible` + `autobot` with a model, approving
 from the phone side (set `AUTOBOT_BIN` and `INVINCIBLE_MODEL` too).
 
+**Recipes on your node.** A recipe's editor has *Runs on*: this phone, or a paired node. On a
+node it runs there on its schedule, always on and with no 8-minute limit, on the node's models,
+offering only the recipe's tool groups (files, memory; the node has no web or vault tools, and the
+editor says so). It is sent in UTC with the phone's current offset, so "07:00" stays the phone's
+07:00 wherever the node is, and sent again when the offset changes. The phone collects every run
+(every 15 minutes on Android, when the app opens on iOS, and right after *Run now*) into a chat in
+the Recipes folder, with a notification as for a phone run, and the chat's receipt holds the node's
+own signed receipts, checked against the key pinned at pairing. `NodeRecipeSync` (`:shared`) does
+it for both apps; `InvincibleLiveTest` hands a recipe to a real node, runs it there and collects it.
+
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and

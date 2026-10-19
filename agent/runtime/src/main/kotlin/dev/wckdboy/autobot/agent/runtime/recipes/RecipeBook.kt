@@ -8,6 +8,8 @@ import dev.wckdboy.autobot.core.data.db.DatabaseUnavailableException
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.providers.remote.LocalProviderSync
+import dev.wckdboy.autobot.shared.recipes.NodeRecipeSync
+import dev.wckdboy.autobot.shared.recipes.NodeRecipes
 import dev.wckdboy.autobot.shared.recipes.Recipe
 import dev.wckdboy.autobot.shared.recipes.RecipeContext
 import dev.wckdboy.autobot.shared.recipes.RecipeCopy
@@ -35,7 +37,15 @@ class RecipeBook @Inject constructor(
     private val runner: RecipeRunner,
     private val library: ModelLibrary,
     private val notifications: RecipeNotifications,
+    private val nodes: NodeRecipeSync,
+    private val nodeWork: NodeRecipeWork,
+    providers: ProviderRepository,
 ) {
+    /** Paired nodes a recipe can run on (provider id and name). */
+    val nodeChoices: Flow<List<RecipeModelChoice>> = providers.observeProviders().map { list ->
+        list.filter { it.kind == ProviderKind.INVINCIBLE_NODE }.map { RecipeModelChoice(it.id, it.displayName) }
+    }
+
     val recipes: Flow<List<Recipe>> get() = repository.observe()
     val running get() = runner.running
 
@@ -52,13 +62,25 @@ class RecipeBook @Inject constructor(
 
     private fun zone() = TimeZone.currentSystemDefault()
 
-    /** Saves [recipe] from the editor (or a toggle) and schedules its next run. */
-    suspend fun save(recipe: Recipe) {
+    /**
+     * Saves [recipe] from the editor (or a toggle) and schedules its next run, or hands it to its
+     * node. Null, or why the node could not be told (it is retried at the next check).
+     */
+    suspend fun save(recipe: Recipe): String? {
         val previous = repository.get(recipe.id)
         val saved = RecipePlanner.saved(recipe, previous, System.currentTimeMillis(), zone())
         repository.save(saved)
         scheduler.sync(saved)
+        val problem = nodes.saved(saved, previous)
+        nodeWork.keep(repository.all())
+        return problem
     }
+
+    /** What [recipe] asks for that its node cannot give it (the editor says so). */
+    fun nodeLimits(recipe: Recipe): List<String> = NodeRecipes.limits(recipe)
+
+    /** Why recipes' nodes could not be reached on the last check, by provider id. */
+    val nodeProblems: Map<String, String> get() = nodes.problems
 
     suspend fun setEnabled(id: String, enabled: Boolean) {
         val recipe = repository.get(id) ?: return
@@ -66,14 +88,19 @@ class RecipeBook @Inject constructor(
     }
 
     suspend fun delete(id: String) {
-        repository.get(id)?.let { scheduler.sync(it.copy(enabled = false)) }
+        repository.get(id)?.let {
+            scheduler.sync(it.copy(enabled = false))
+            nodes.deleted(it)
+        }
         repository.delete(id)
+        nodeWork.keep(repository.all())
         notifications.cancelUnlock(id)
     }
 
     /** Runs [id] now, through WorkManager (it goes on if the screen closes). */
     suspend fun runNow(id: String) {
-        repository.get(id)?.let(scheduler::runNow)
+        val recipe = repository.get(id) ?: return
+        if (recipe.runsOn != null) nodeWork.runNow(recipe) else scheduler.runNow(recipe)
     }
 
     /**
@@ -84,11 +111,14 @@ class RecipeBook @Inject constructor(
         val now = System.currentTimeMillis()
         val all = repository.all().map { r -> RecipePlanner.reconcile(r, now, zone()).also { if (it != r) repository.save(it) } }
         scheduler.syncAll(all, now)
+        nodeWork.keep(all)
+        if (all.any { it.runsOn != null }) nodeWork.syncSoon()
     }
 
     /** Panic wipe: no recipe runs or notifies again. */
     fun stopAll() {
         scheduler.cancelAll()
+        nodeWork.cancelAll()
         notifications.cancelAll()
     }
 }

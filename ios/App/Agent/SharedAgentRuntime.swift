@@ -409,6 +409,44 @@ final class SharedAgentRuntime: AgentRuntime {
         }.message
     }
 
+    // MARK: Recipes on a paired node
+
+    private struct Pushed: Sendable { var json: String? = nil, error: String? = nil }
+    private struct Runs: Sendable { var runs: [String]? = nil, error: String? = nil }
+    private struct Delivered: Sendable { var record: String? = nil }
+
+    func nodeRecipePush(_ recipe: String) async -> (json: String?, error: String?) {
+        let r = await call(stopped: Pushed(error: Self.stoppedMessage), late: Pushed(error: "The node did not answer")) { done in
+            bridge.nodeRecipePush(recipeJson: recipe) { @Sendable json, error in done(Pushed(json: json, error: error)) }
+        }
+        return (r.json, r.error)
+    }
+
+    func nodeRecipeRemove(_ recipe: String) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeRecipeRemove(recipeJson: recipe) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
+    func nodeRecipeRunNow(_ recipe: String) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeRecipeRunNow(recipeJson: recipe) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
+    func nodeRecipeRuns(_ recipe: String) async -> (runs: [String]?, error: String?) {
+        let r = await call(stopped: Runs(error: Self.stoppedMessage), late: Runs(error: "The node did not answer")) { done in
+            bridge.nodeRecipeRuns(recipeJson: recipe) { @Sendable runs, error in done(Runs(runs: runs, error: error)) }
+        }
+        return (r.runs, r.error)
+    }
+
+    func nodeRecipeDeliver(_ recipe: String, run: String, chatId: String) async -> String? {
+        await call(stopped: Delivered(), late: Delivered()) { done in
+            bridge.nodeRecipeDeliver(recipeJson: recipe, runJson: run, chatId: chatId) { @Sendable record in done(Delivered(record: record)) }
+        }.record
+    }
+
     private static let stoppedMessage = "The agent runtime was stopped"
 
     /**

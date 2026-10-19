@@ -97,6 +97,8 @@ class RecipeScheduler @Inject constructor(@ApplicationContext private val contex
 
         /** The request for [recipe]'s next scheduled run, or null when it has none. */
         fun request(recipe: Recipe, now: Long): OneTimeWorkRequest? {
+            // A recipe on a node runs there ([NodeRecipeWork] collects it).
+            if (recipe.runsOn != null) return null
             val next = recipe.state.nextRunAt?.takeIf { recipe.enabled && !recipe.state.waitingForUnlock } ?: return null
             return OneTimeWorkRequestBuilder<RecipeWorker>()
                 .setInitialDelay((next - now).coerceAtLeast(0), TimeUnit.MILLISECONDS)

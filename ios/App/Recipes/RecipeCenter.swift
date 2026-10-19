@@ -24,10 +24,28 @@ protocol RecipeHost: AnyObject {
     func schedule(_ plan: RecipeBackground.Plan?)
     /// Stops the headless turn running in [sessionId] (its run then ends as stopped).
     func cancelRun(sessionId: String)
+
+    // A recipe on a paired node (Invincible): the node runs it; the phone sends it and collects the runs.
+    /// Sends [recipe] (JSON) to its node: the recipe JSON to store, or why not.
+    func nodePush(_ recipe: String) async -> (json: String?, error: String?)
+    func nodeRemove(_ recipe: String) async
+    func nodeRunNow(_ recipe: String) async -> String?
+    /// The node's runs the phone has not collected (JSON each), or why not.
+    func nodeRuns(_ recipe: String) async -> (runs: [String]?, error: String?)
+    /// A result chat in the Recipes folder, on the node's provider.
+    func newNodeChat(title: String, providerId: String) -> String
+    /// Writes [run] into [chatId] with the node's receipts checked: the run's record JSON.
+    func nodeDeliver(_ recipe: String, run: String, chatId: String) async -> String?
 }
 
 extension RecipeHost {
     func cancelRun(sessionId: String) {}
+    func nodePush(_ recipe: String) async -> (json: String?, error: String?) { (nil, "No node here") }
+    func nodeRemove(_ recipe: String) async {}
+    func nodeRunNow(_ recipe: String) async -> String? { "No node here" }
+    func nodeRuns(_ recipe: String) async -> (runs: [String]?, error: String?) { (nil, "No node here") }
+    func newNodeChat(title: String, providerId: String) -> String { "" }
+    func nodeDeliver(_ recipe: String, run: String, chatId: String) async -> String? { nil }
 }
 
 /**
@@ -55,6 +73,9 @@ final class RecipeCenter {
     @ObservationIgnored private var asked = false
     /// The result chat of the run in progress (stop() cancels its turn).
     @ObservationIgnored private var runningSession: String?
+    /// Why a recipe's node could not be reached (it is tried again at the next check).
+    private(set) var nodeNotice: String?
+    @ObservationIgnored private var nodeSync: Task<Void, Never>?
 
     init(repository: RecipeRepository, notifier: any RecipeNotifying, indexURL: URL = RecipeIndex.url) {
         self.repository = repository
@@ -86,11 +107,66 @@ final class RecipeCenter {
     func save(_ recipe: RecipeDoc, now: Int64 = nowMillis()) -> [String] {
         let problems = RecipeRules.problems(recipe)
         guard problems.isEmpty else { return problems }
-        let saved = RecipeRules.saved(recipe, previous: self.recipe(recipe.id), now: now)
+        let previous = self.recipe(recipe.id)
+        let saved = RecipeRules.saved(recipe, previous: previous, now: now)
         store(saved)
         reschedule(now: now)
         if saved.enabled { askOnce() }
+        if saved.runsOn != nil || previous?.runsOn != nil {
+            Task { await self.sendToNode(saved, previous: previous) }
+        }
         return []
+    }
+
+    // MARK: Recipes on a node
+
+    /// Sends [recipe] to its node, or takes it off the node it left.
+    private func sendToNode(_ recipe: RecipeDoc, previous: RecipeDoc?) async {
+        guard let host else { return }
+        if let old = previous, old.runsOn != nil, old.runsOn != recipe.runsOn { await host.nodeRemove(old.json) }
+        guard recipe.runsOn != nil else { return }
+        let (json, error) = await host.nodePush(recipe.json)
+        nodeNotice = error.map { "\(recipe.name): \($0)" }
+        // Keep what was sent, on whatever is stored now.
+        if let json, let sent = RecipeDoc(json: json), var current = self.recipe(recipe.id) {
+            current.state.pushed = sent.state.pushed
+            store(current)
+        }
+    }
+
+    /// One pass over the recipes on nodes (app opened, Run now): re-sends what changed, collects finished runs.
+    func syncNodes() {
+        guard loaded, nodeSync == nil, recipes.contains(where: { $0.runsOn != nil }) else { return }
+        nodeSync = Task { [weak self] in
+            await self?.collectNodes()
+            self?.nodeSync = nil
+        }
+    }
+
+    private func collectNodes() async {
+        var notice: String?
+        for recipe in recipes where recipe.runsOn != nil {
+            if RecipeRules.nodeNeedsPush(recipe, previous: recipe) { await sendToNode(recipe, previous: recipe) }
+            if let error = await collect(recipe.id).error { notice = "\(recipe.name): \(error)" }
+        }
+        nodeNotice = notice
+    }
+
+    /// Collects [id]'s new runs from its node into chats: how many, or why the node could not be asked.
+    @discardableResult
+    private func collect(_ id: String) async -> (count: Int, error: String?) {
+        guard let host, let recipe = recipe(id), let node = recipe.runsOn else { return (0, nil) }
+        let (runs, error) = await host.nodeRuns(recipe.json)
+        guard let runs else { return (0, error) }
+        for run in runs {
+            guard let current = self.recipe(id) else { return (0, nil) }
+            let chat = host.newNodeChat(title: RecipeRules.runChatTitle(current, run: run), providerId: node)
+            guard let record = await host.nodeDeliver(current.json, run: run, chatId: chat) else { continue }
+            let done = RecipeRules.finished(self.recipe(id) ?? current, record: record)
+            store(done)
+            notifier.finished(done, record: record)
+        }
+        return (runs.count, nil)
     }
 
     func setEnabled(_ id: String, _ on: Bool, now: Int64 = nowMillis()) {
@@ -100,6 +176,7 @@ final class RecipeCenter {
     }
 
     func delete(_ id: String) {
+        if let gone = recipe(id), gone.runsOn != nil, let host { Task { await host.nodeRemove(gone.json) } }
         repository.delete(id)
         recipes.removeAll { $0.id == id }
         queue.removeAll { $0.id == id }
@@ -123,10 +200,33 @@ final class RecipeCenter {
 
     /// "Run now": runs [id] after whatever is running.
     func runNow(_ id: String) {
+        if let recipe = recipe(id), recipe.runsOn != nil {
+            askOnce()
+            Task { await self.runOnNode(recipe) }
+            return
+        }
         guard recipe(id) != nil, running != id, !queued.contains(id) else { return }
         askOnce()
         queue.append((id, true))
         pump()
+    }
+
+    /// "Run now" on the node: sends the recipe as it is, starts it there, and watches for the
+    /// result while the app is open (later results come with the next [syncNodes]).
+    private func runOnNode(_ recipe: RecipeDoc) async {
+        guard let host else { return }
+        running = recipe.id
+        defer { running = nil }
+        await sendToNode(recipe, previous: recipe)
+        if let error = await host.nodeRunNow(recipe.json) {
+            nodeNotice = "\(recipe.name): \(error)"
+            return
+        }
+        for _ in 0..<60 {
+            try? await Task.sleep(for: .seconds(10))
+            let got = await collect(recipe.id)
+            if got.error != nil || got.count > 0 || Task.isCancelled { return }
+        }
     }
 
     /// Runs every due recipe (app opened, background task), one after another.

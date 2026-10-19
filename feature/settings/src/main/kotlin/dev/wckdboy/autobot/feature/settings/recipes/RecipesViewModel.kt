@@ -45,6 +45,10 @@ data class RecipesUiState(
     val loaded: Boolean = false,
     val recipes: List<RecipeRowUi> = emptyList(),
     val models: List<RecipeModelChoice> = emptyList(),
+    /** Paired nodes a recipe can run on. */
+    val nodes: List<RecipeModelChoice> = emptyList(),
+    /** Why the last save could not reach the recipe's node (it is tried again later). */
+    val notice: String? = null,
     val summaryInNotifications: Boolean = false,
     /** The recipe being edited (a draft), with whether it is new. */
     val editor: Recipe? = null,
@@ -58,6 +62,8 @@ class RecipesViewModel @Inject constructor(private val book: RecipeBook) : ViewM
     private val editor = MutableStateFlow<Pair<Recipe, Boolean>?>(null)
     private val summary = MutableStateFlow(book.summaryInNotifications)
     private val stored = MutableStateFlow<List<Recipe>>(emptyList())
+    private val notice = MutableStateFlow<String?>(null)
+    private val extras = combine(book.nodeChoices, notice) { n, x -> n to x }
 
     /** Re-renders the "Next: …" lines as time passes. */
     private val minute = flow {
@@ -67,13 +73,17 @@ class RecipesViewModel @Inject constructor(private val book: RecipeBook) : ViewM
         }
     }
 
-    val uiState: StateFlow<RecipesUiState> = combine(book.recipes, book.models, book.running, editor, combine(summary, minute) { s, m -> s to m }) { recipes, models, running, edit, (summaryOn, now) ->
+    val uiState: StateFlow<RecipesUiState> = combine(book.recipes, combine(book.models, extras) { m, e -> m to e }, book.running, editor, combine(summary, minute) { s, m -> s to m }) { recipes, (models, extra), running, edit, (summaryOn, now) ->
+        val (nodes, noticeText) = extra
+        val names = nodes.associate { it.id to it.title }
         stored.value = recipes
         val zone = TimeZone.currentSystemDefault()
         RecipesUiState(
             loaded = true,
-            recipes = recipes.map { r -> r.toRow(now, zone, r.id in running) },
+            recipes = recipes.map { r -> r.toRow(now, zone, r.id in running, r.runsOn?.let { names[it] ?: "my node" }) },
             models = models,
+            nodes = nodes,
+            notice = noticeText,
             summaryInNotifications = summaryOn,
             editor = edit?.first,
             editorIsNew = edit?.second == true,
@@ -101,7 +111,7 @@ class RecipesViewModel @Inject constructor(private val book: RecipeBook) : ViewM
         val draft = editor.value?.first ?: return
         if (draft.problems().isNotEmpty()) return
         editor.value = null
-        launch { book.save(draft) }
+        launch { notice.value = book.save(draft)?.let { "${draft.name}: $it" } }
     }
 
     fun delete(id: String) {
@@ -123,10 +133,10 @@ class RecipesViewModel @Inject constructor(private val book: RecipeBook) : ViewM
     }
 }
 
-internal fun Recipe.toRow(now: Long, zone: TimeZone, running: Boolean) = RecipeRowUi(
+internal fun Recipe.toRow(now: Long, zone: TimeZone, running: Boolean, node: String? = null) = RecipeRowUi(
     id = id,
     name = name,
-    schedule = schedule.label(),
+    schedule = RecipeCopy.where(schedule.label(), node),
     status = if (running) "Running…" else RecipeCopy.status(this, now, zone, approximate = false),
     enabled = enabled,
     running = running,

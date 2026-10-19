@@ -222,9 +222,8 @@ class InvincibleLiveTest {
      * The phone's side of the Autobot Agent: a turn on the node's agent, through the encrypted
      * session and the gateway, with a command the phone approves.
      */
-    @Test
-    fun theAgentOnTheNodeRunsATurnThePhoneApproves() = runBlocking {
-        assumeTrue("set AUTOBOT_BIN and INVINCIBLE_MODEL for the agent test", autobotBin != null && File(autobotBin).canExecute() && model != null)
+    /** Starts `autobot serve` next to the node and pairs a phone; the agent's home, the pairing, and its transport. */
+    private suspend fun startAgent(): Triple<File, PairedNode, dev.wckdboy.autobot.shared.HttpTransport> {
         val agentHome = File(home, "agent").apply { mkdirs() }
         File(agentHome, "config.toml").writeText(
             """
@@ -244,16 +243,25 @@ class InvincibleLiveTest {
             redirectOutput(File(home, "agent.log"))
         }.start()
         val code = PairingCode.parse(admin("POST", "/v1/admin/pairing")["code"]!!.jsonPrimitive.content)!!
-        val transport = PairedNode.pair(crypto, code, "phone") { connect() }.transport(crypto) { connect() }
+        val paired = PairedNode.pair(crypto, code, "phone") { connect() }
+        val transport = paired.transport(crypto) { connect() }
         val nodeAgent = NodeAgent(transport)
         // The agent and the engine start in the background.
-        repeat(240) {
+        for (i in 0 until 240) {
             val healthy = admin("GET", "/v1/models")["data"]?.jsonArray?.any {
                 it.jsonObject["invincible"]!!.jsonObject["healthy"]!!.jsonPrimitive.content == "true"
             } == true
-            if (healthy && runCatching { nodeAgent.info() }.isSuccess) return@repeat
+            if (healthy && runCatching { nodeAgent.info() }.isSuccess) break
             Thread.sleep(500)
         }
+        return Triple(agentHome, paired, transport)
+    }
+
+    @Test
+    fun theAgentOnTheNodeRunsATurnThePhoneApproves() = runBlocking {
+        assumeTrue("set AUTOBOT_BIN and INVINCIBLE_MODEL for the agent test", autobotBin != null && File(autobotBin).canExecute() && model != null)
+        val (agentHome, _, transport) = startAgent()
+        val nodeAgent = NodeAgent(transport)
         assertEquals("ask", nodeAgent.info().approvals)
         val asked = mutableListOf<AgentAction>()
         val events = kotlinx.coroutines.withTimeout(240_000) {
@@ -270,5 +278,59 @@ class InvincibleLiveTest {
         assertEquals("agent-ok", File(agentHome, "work/done.txt").readText().trim())
         assertTrue(nodeAgent.history("phone-1").any { it.role == "user" })
         assertEquals(listOf("phone-1"), nodeAgent.sessions().map { it.id })
+    }
+
+    /**
+     * A recipe handed to the node (Invincible's "Recipes from Autobot"): it is sent with its tool
+     * groups, run there on "Run now" with nobody to ask, and collected back into a chat with the
+     * node's signed receipts checked against the key pinned at pairing.
+     */
+    @Test
+    fun aRecipeHandedToTheNodeRunsThereAndComesBack() = runBlocking {
+        assumeTrue("set AUTOBOT_BIN and INVINCIBLE_MODEL for the recipe test", autobotBin != null && File(autobotBin).canExecute() && model != null)
+        val (agentHome, paired, transport) = startAgent()
+        val recipe = dev.wckdboy.autobot.shared.recipes.Recipe(
+            id = "live-1", name = "Live recipe", enabled = true, runsOn = "node",
+            prompt = "Use the write_file tool to write exactly recipe-ok to the file recipe.txt, then answer DONE.",
+            schedule = dev.wckdboy.autobot.shared.recipes.RecipeSchedule.Daily(3 * 60),
+            tools = dev.wckdboy.autobot.shared.recipes.RecipeTools.WRITE_FILES.tools,
+        )
+        val chats = mutableMapOf<String, List<dev.wckdboy.autobot.agent.core.session.SessionEvent>>()
+        val records = mutableListOf<dev.wckdboy.autobot.shared.recipes.RecipeRunRecord>()
+        var stored = recipe
+        val host = object : dev.wckdboy.autobot.shared.recipes.NodeRecipeHost {
+            override fun now() = System.currentTimeMillis()
+            override suspend fun recipes() = listOf(stored)
+            override suspend fun load(id: String) = stored
+            override suspend fun save(recipe: dev.wckdboy.autobot.shared.recipes.Recipe) {
+                stored = recipe
+            }
+            override suspend fun target(providerId: String) = dev.wckdboy.autobot.shared.recipes.NodeRecipeTarget(NodeAgent(transport), paired.name) { id ->
+                NodeReceiptLog.fetch(crypto, transport, paired.name, paired.receiptKey, id)
+            }
+            override suspend fun newChat(recipe: dev.wckdboy.autobot.shared.recipes.Recipe, providerId: String, atMillis: Long) = "chat-${chats.size}"
+            override suspend fun append(chatId: String, events: List<dev.wckdboy.autobot.agent.core.session.SessionEvent>) {
+                chats[chatId] = chats[chatId].orEmpty() + events
+            }
+            override fun notifyFinished(recipe: dev.wckdboy.autobot.shared.recipes.Recipe, record: dev.wckdboy.autobot.shared.recipes.RecipeRunRecord) {
+                records += record
+            }
+        }
+        val sync = dev.wckdboy.autobot.shared.recipes.NodeRecipeSync(host)
+        assertEquals(null, sync.saved(stored, null))
+        val listed = NodeAgent(transport).schedules().single()
+        assertEquals("r-live-1", listed.id)
+        assertTrue(listed.schedule, listed.schedule.startsWith("CRON_TZ=UTC "))
+        assertEquals(null, sync.runNow(stored))
+        assertTrue("no run came back; agent log: ${File(home, "agent.log").readText().takeLast(2000)}", sync.awaitRun("live-1", 240_000, pollMillis = 2_000))
+        println("recipe chat: $chats")
+        val record = records.single()
+        assertEquals(dev.wckdboy.autobot.shared.recipes.RecipeRunStatus.DONE, record.status)
+        assertEquals("recipe-ok", File(agentHome, "work/recipe.txt").readText().trim())
+        val receipt = chats.values.single().filterIsInstance<dev.wckdboy.autobot.agent.core.session.SessionEvent.TurnReceipt>().single()
+        assertTrue("receipts: ${receipt.nodes}", receipt.nodes!!.isNotEmpty() && receipt.nodes!!.all { it.verified && it.egress.isEmpty() })
+        assertEquals(0, record.hosts)
+        // Collected once: the next pass finds nothing new.
+        assertEquals(0, sync.sync())
     }
 }
