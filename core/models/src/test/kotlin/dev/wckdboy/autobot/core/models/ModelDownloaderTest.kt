@@ -584,9 +584,11 @@ class ModelDownloaderTest {
         network(connected = true, metered = true)
         val p = process()
         p.downloader.setWifiOnly(true)
+        // The setting applies in the background: install once it has.
+        withTimeout(20.seconds) { p.downloader.downloads.first { it.wifiOnly } }
         p.downloader.install(plan("wifi", "m.gguf" to bytes(5_000, 19)))
 
-        val state = withTimeout(10.seconds) { p.downloader.downloads.first { it.block != null } }
+        val state = withTimeout(20.seconds) { p.downloader.downloads.first { it.block != null } }
         assertEquals(DownloadBlock.WAITING_FOR_WIFI, state.block)
         assertTrue(state.wifiOnly && state.metered)
         until { jobs.getPendingJob(ModelDownloadJob.JOB_ID) != null }
