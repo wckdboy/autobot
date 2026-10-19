@@ -30,6 +30,9 @@ sealed interface AgentAction {
     data class Write(val path: String, val bytes: Long, val inside: Boolean) : AgentAction
     data class Read(val path: String) : AgentAction
     data class Cloud(val reason: String) : AgentAction
+    data class Fetch(val url: String) : AgentAction
+    /** An MCP server's tool on the node: `server/tool`, and its arguments (JSON). */
+    data class Mcp(val tool: String, val arguments: String) : AgentAction
     /** A kind this app does not know yet; [AgentEvent.Approval.text] still describes it. */
     data class Other(val kind: String) : AgentAction
 }
@@ -39,7 +42,10 @@ sealed interface AgentEvent {
     data class Tool(val text: String) : AgentEvent
     data class Refused(val text: String) : AgentEvent
     data class Receipt(val id: String, val model: String?, val tier: String?) : AgentEvent
-    data class Approval(val id: String, val text: String, val action: AgentAction) : AgentEvent
+    /** [agent]: the team member asking, when it is not the main agent. */
+    data class Approval(val id: String, val text: String, val action: AgentAction, val agent: String? = null) : AgentEvent
+    /** A team member on the node finished the task it was handed: its answer to the lead. */
+    data class Member(val agent: String, val text: String) : AgentEvent
     data class Answer(val text: String, val receipts: List<String>) : AgentEvent
     data class Failed(val text: String) : AgentEvent
 }
@@ -311,7 +317,8 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
                 "tool" -> AgentEvent.Tool(o.text("text").orEmpty())
                 "refused" -> AgentEvent.Refused(o.text("text").orEmpty())
                 "receipt" -> AgentEvent.Receipt(o.text("id") ?: return null, o.text("model"), o.text("tier"))
-                "approval" -> AgentEvent.Approval(o.text("id") ?: return null, o.text("text").orEmpty(), action(o["action"]))
+                "approval" -> AgentEvent.Approval(o.text("id") ?: return null, o.text("text").orEmpty(), action(o["action"]), o.text("agent"))
+                "member" -> AgentEvent.Member(o.text("agent") ?: return null, o.text("text").orEmpty())
                 "answer" -> AgentEvent.Answer(o.text("text").orEmpty(), (o["receipts"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull })
                 "error" -> AgentEvent.Failed(o.text("text").orEmpty())
                 else -> null
@@ -325,6 +332,8 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
                 "write" -> AgentAction.Write(o.text("path").orEmpty(), o["bytes"]?.jsonPrimitive?.longOrNull ?: 0, o["inside"]?.jsonPrimitive?.booleanOrNull ?: false)
                 "read" -> AgentAction.Read(o.text("path").orEmpty())
                 "cloud" -> AgentAction.Cloud(o.text("reason").orEmpty())
+                "fetch" -> AgentAction.Fetch(o.text("url").orEmpty())
+                "mcp" -> AgentAction.Mcp(o.text("tool").orEmpty(), o.text("arguments").orEmpty())
                 else -> AgentAction.Other(kind ?: "?")
             }
         }

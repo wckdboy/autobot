@@ -90,7 +90,10 @@ final class NodeAgentModel {
             rows.append(.note(id: next(), text: e.text, tone: .refused))
         case let e as AgentEventApproval:
             let (title, detail) = Self.describe(e.action, fallback: e.text)
-            rows.append(.question(id: next(), approval: e.id, title: title, detail: detail, answer: nil))
+            rows.append(.question(id: next(), approval: e.id, title: e.agent.map { "\($0): \(title)" } ?? title, detail: detail, answer: nil))
+        case let e as AgentEventMember:
+            // A team member's answer to the lead, under its name.
+            rows.append(.reply(id: next(), text: e.text, route: e.agent))
         case let e as AgentEventAnswer:
             rows.append(.reply(id: next(), text: e.text, route: route))
             running = false
@@ -108,6 +111,8 @@ final class NodeAgentModel {
         case let a as AgentActionWrite: (a.inside ? "Write a file?" : "Write outside the working directory?", "\(a.path) · \(a.bytes) bytes")
         case let a as AgentActionRead: ("Read outside the working directory?", a.path)
         case let a as AgentActionCloud: ("Use a cloud model for this?", a.reason)
+        case let a as AgentActionFetch: ("Fetch a web page?", a.url)
+        case let a as AgentActionMcp: ("Use \(a.tool)?", a.arguments)
         default: ("Approve?", fallback)
         }
     }

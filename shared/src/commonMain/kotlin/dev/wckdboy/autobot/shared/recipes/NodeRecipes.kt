@@ -25,8 +25,8 @@ object NodeRecipes {
     fun scheduleId(recipe: Recipe): String =
         "r-" + recipe.id.filter { it.isLetterOrDigit() && it.code < 128 || it == '-' || it == '_' }.take(60).ifEmpty { "recipe" }
 
-    /** Tool groups the node has nothing for (shown in the editor). */
-    private val NOT_ON_NODES = setOf(RecipeTools.WEB.id, RecipeTools.VAULT.id)
+    /** Tool groups the node has nothing for (shown in the editor). It has web_fetch, through its gateway. */
+    private val NOT_ON_NODES = setOf(RecipeTools.VAULT.id)
 
     /** [recipe]'s tool groups, as the node names them. */
     fun groups(recipe: Recipe): List<String> = RecipeTools.groups.filter { RecipeTools.isOn(recipe.tools, it) }.map { it.id }

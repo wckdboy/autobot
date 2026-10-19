@@ -188,8 +188,10 @@ private fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAnsw
         is AgentAction.Write -> (if (a.inside) "Write a file?" else "Write outside the working directory?") to "${a.path} · ${a.bytes} bytes"
         is AgentAction.Read -> "Read outside the working directory?" to a.path
         is AgentAction.Cloud -> "Use a cloud model for this?" to a.reason
+        is AgentAction.Fetch -> "Fetch a web page?" to a.url
+        is AgentAction.Mcp -> "Use ${a.tool}?" to a.arguments
         is AgentAction.Other -> "Approve?" to row.text
-    }
+    }.let { (title, detail) -> (row.agent?.let { "$it: $title" } ?: title) to detail }
     Column(Modifier.fillMaxWidth().inkCard().padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(detail, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 8.dp))

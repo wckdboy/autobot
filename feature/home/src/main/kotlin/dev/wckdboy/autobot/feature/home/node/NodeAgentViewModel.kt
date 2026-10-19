@@ -32,7 +32,8 @@ sealed interface AgentRow {
     data class Reply(override val key: String, val text: String, val route: String?) : AgentRow
     /** A tool run, a refusal, or a failure: one short line. */
     data class Note(override val key: String, val text: String, val tone: Tone) : AgentRow
-    data class Question(override val key: String, val id: String, val text: String, val action: AgentAction, val answer: ApprovalAnswer? = null) : AgentRow
+    /** [agent]: the team member asking, when it is not the main agent. */
+    data class Question(override val key: String, val id: String, val text: String, val action: AgentAction, val answer: ApprovalAnswer? = null, val agent: String? = null) : AgentRow
 
     enum class Tone { TOOL, REFUSED, ERROR }
 }
@@ -59,7 +60,9 @@ object AgentTranscript {
     fun apply(rows: List<AgentRow>, event: AgentEvent, route: String?, key: String): List<AgentRow> = when (event) {
         is AgentEvent.Tool -> rows + AgentRow.Note(key, event.text, AgentRow.Tone.TOOL)
         is AgentEvent.Refused -> rows + AgentRow.Note(key, event.text, AgentRow.Tone.REFUSED)
-        is AgentEvent.Approval -> rows + AgentRow.Question(key, event.id, event.text, event.action)
+        is AgentEvent.Approval -> rows + AgentRow.Question(key, event.id, event.text, event.action, agent = event.agent)
+        // A team member's answer to the lead: a reply of its own, under its name.
+        is AgentEvent.Member -> rows + AgentRow.Reply(key, event.text, event.agent)
         is AgentEvent.Answer -> rows + AgentRow.Reply(key, event.text, route)
         is AgentEvent.Failed -> rows + AgentRow.Note(key, event.text, AgentRow.Tone.ERROR)
         is AgentEvent.Receipt -> rows
