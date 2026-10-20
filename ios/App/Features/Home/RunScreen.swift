@@ -166,13 +166,12 @@ struct RunScreen: View {
                         PrimaryButton("Get a model") { nav.switchTo(.models) }
                         Spacer().frame(height: 24)
                     }
-                    // Nothing run yet: no empty section (the cards above are the way in), as on Android.
-                    if !state.recent.isEmpty {
-                        HStack(alignment: .center) {
-                            SectionLabel("Recent runs").frame(maxWidth: .infinity, alignment: .leading)
-                            TextAction("All", color: c.onSurfaceVariant) { nav.push(.chatList) }
-                                .accessibilityLabel("All chats")
-                        }
+                    // Always there: "All" is the way to every chat, archived ones too, even with nothing
+                    // recent. No empty paragraph under it (as on Android).
+                    HStack(alignment: .center) {
+                        SectionLabel("Recent runs").frame(maxWidth: .infinity, alignment: .leading)
+                        TextAction("All", color: c.onSurfaceVariant) { nav.push(.chatList) }
+                            .accessibilityLabel("All chats")
                     }
                     ForEach(state.recent) { run in
                         RunRow(title: run.title, subtitle: run.subtitle, action: {
