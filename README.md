@@ -207,8 +207,9 @@ The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
 - **Same rules as the node.** `scripts/sync-invincible-spec.sh` copies Invincible's conformance
   vectors into `shared/src/jvmTest/resources/invincible`. `InvincibleSpecTest` checks Noise
   byte for byte against the node's snow transcripts, receipts against OpenSSL-made signatures,
-  pairing codes, and runs `RedactionVault` on the node's redaction vectors: the phone and the node
-  hide the same things. `InvincibleLiveTest` pairs with a real `invincible serve` when
+  pairing codes, runs `RedactionVault` on the node's redaction vectors (the phone and the node
+  hide the same things), and the kill switch and network modes on the egress vectors (the same
+  request is blocked, sent direct or proxied on both). `InvincibleLiveTest` pairs with a real `invincible serve` when
   `INVINCIBLE_BIN` is set. On iOS, `InvincibleNodeTests` runs the same Noise and receipt vectors
   on CryptoKit (passing on the iOS 26.1 simulator).
 
