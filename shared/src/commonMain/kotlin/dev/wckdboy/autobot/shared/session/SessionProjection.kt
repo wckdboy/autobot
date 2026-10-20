@@ -11,6 +11,7 @@ import dev.wckdboy.autobot.agent.core.session.TokenUsage
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
 import dev.wckdboy.autobot.providers.remote.QuotaErrors
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import kotlinx.serialization.SerialName
@@ -79,6 +80,8 @@ sealed interface SessionItem {
         val undone: Boolean = false,
         /** The revert that undid it, for "Redo". */
         val revertId: String? = null,
+        /** The A2UI messages a successful `show_ui` call showed (replayed by [dev.wckdboy.autobot.shared.a2ui.A2uiTranscript]). */
+        val a2ui: String? = null,
     ) : SessionItem
 
     @Serializable
@@ -208,7 +211,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
         val key = "e${entry.seq}"
         when (val e = entry.event) {
             is SessionEvent.UserMessage -> when (e.kind) {
-                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.text, e.images)
+                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.display ?: e.text, e.images)
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
                 UserMessageKind.CONTEXT -> if (e.contextId == CASCADE_ESCALATION) {
                     items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty(), localCascade?.target), NoticeKind.INFO)
@@ -262,6 +265,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
                         listOf(name, summary).filter { it.isNotBlank() }.joinToString(" · ", prefix = "$mark ")
                     },
                     change = if (e.isError) null else FileChange.from(e.meta),
+                    a2ui = if (e.isError || e.name != A2uiChat.TOOL) null else A2uiChat.stream(e.meta),
                 )
             }
             is SessionEvent.WorkspaceRevert -> {
