@@ -1,26 +1,20 @@
 package dev.wckdboy.autobot.feature.models
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.background
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.models.Catalog
 import dev.wckdboy.autobot.core.models.DownloadsState
 import dev.wckdboy.autobot.core.models.EngineKind
@@ -57,66 +51,61 @@ internal fun firstModelCard(state: ModelsUiState): FirstModelCardState? {
 @Composable
 internal fun FirstModelCard(card: FirstModelCardState, ramBytes: Long, offline: Boolean, actions: ModelsActions, onInstall: (ModelPlan) -> Unit) {
     val plan = card.plan
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.extraSmall)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        SectionLabel(FirstModel.TITLE)
-        if (plan == null) {
-            Text(FirstModel.NONE_FITS, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            return@Column
-        }
-        Text(plan.title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-        MicroLabel(FirstModel.sizeLine(plan.totalBytes, ramBytes))
-        val needsNetwork = offline && card.step in setOf(FirstModelStep.OFFER, FirstModelStep.FAILED, FirstModelStep.QUEUED, FirstModelStep.PAUSED)
-        Text(
-            if (card.step == FirstModelStep.READY) FirstModel.readyLine(plan.title) else if (needsNetwork) FirstModel.OFFLINE_FIRST else FirstModel.OFFLINE,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        when (card.step) {
-            FirstModelStep.QUEUED, FirstModelStep.DOWNLOADING, FirstModelStep.PAUSED -> {
-                InkProgressBar(if (card.total > 0) (card.downloaded.toFloat() / card.total).coerceIn(0f, 1f) else null, Modifier.fillMaxWidth().height(3.dp))
-                MicroLabel(FirstModel.progressLine(card.step, card.downloaded, card.total))
+    ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(FirstModel.TITLE, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            if (plan == null) {
+                Text(FirstModel.NONE_FITS, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                return@Column
             }
-            FirstModelStep.FAILED -> card.model?.error?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            else -> Unit
-        }
-        val model = card.model
-        when (card.step) {
-            FirstModelStep.OFFER -> PrimaryButton(if (offline) FirstModel.ALLOW_AND_DOWNLOAD else FirstModel.DOWNLOAD, {
-                if (offline) actions.allowNetwork()
-                onInstall(plan)
-            }, Modifier.fillMaxWidth())
-            FirstModelStep.QUEUED, FirstModelStep.DOWNLOADING -> if (offline) {
-                PrimaryButton(FirstModel.ALLOW_AND_DOWNLOAD, actions::allowNetwork, Modifier.fillMaxWidth())
-            } else {
-                TextButton(onClick = { actions.pause(plan.id) }, modifier = Modifier.align(Alignment.Start)) { ActionText(FirstModel.PAUSE) }
-            }
-            FirstModelStep.PAUSED, FirstModelStep.FAILED -> PrimaryButton(
-                if (offline) FirstModel.ALLOW_AND_DOWNLOAD else if (card.step == FirstModelStep.PAUSED) FirstModel.RESUME else FirstModel.RETRY,
-                {
-                    if (offline) actions.allowNetwork()
-                    actions.resume(plan.id)
-                },
-                Modifier.fillMaxWidth(),
+            Text(plan.title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(FirstModel.sizeLine(plan.totalBytes, ramBytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val needsNetwork = offline && card.step in setOf(FirstModelStep.OFFER, FirstModelStep.FAILED, FirstModelStep.QUEUED, FirstModelStep.PAUSED)
+            Text(
+                if (card.step == FirstModelStep.READY) FirstModel.readyLine(plan.title) else if (needsNetwork) FirstModel.OFFLINE_FIRST else FirstModel.OFFLINE,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FirstModelStep.READY -> {
-                if (model != null) PrimaryButton(FirstModel.START_CHAT, { actions.use(model) }, Modifier.fillMaxWidth())
-                if (!offline) {
-                    TextButton(onClick = actions::offlineAgain, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        ActionText(FirstModel.BACK_OFFLINE, MaterialTheme.colorScheme.onSurfaceVariant)
+            when (card.step) {
+                FirstModelStep.QUEUED, FirstModelStep.DOWNLOADING, FirstModelStep.PAUSED -> {
+                    if (card.total > 0) {
+                        LinearProgressIndicator(progress = { (card.downloaded.toFloat() / card.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                    Text(FirstModel.progressLine(card.step, card.downloaded, card.total), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                FirstModelStep.FAILED -> card.model?.error?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                else -> Unit
+            }
+            val model = card.model
+            when (card.step) {
+                FirstModelStep.OFFER -> Button(onClick = {
+                    if (offline) actions.allowNetwork()
+                    onInstall(plan)
+                }, modifier = Modifier.fillMaxWidth()) { Text(if (offline) FirstModel.ALLOW_AND_DOWNLOAD else FirstModel.DOWNLOAD) }
+                FirstModelStep.QUEUED, FirstModelStep.DOWNLOADING -> if (offline) {
+                    Button(onClick = actions::allowNetwork, modifier = Modifier.fillMaxWidth()) { Text(FirstModel.ALLOW_AND_DOWNLOAD) }
+                } else {
+                    OutlinedButton(onClick = { actions.pause(plan.id) }) { Text(FirstModel.PAUSE) }
+                }
+                FirstModelStep.PAUSED, FirstModelStep.FAILED -> Button(
+                    onClick = {
+                        if (offline) actions.allowNetwork()
+                        actions.resume(plan.id)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (offline) FirstModel.ALLOW_AND_DOWNLOAD else if (card.step == FirstModelStep.PAUSED) FirstModel.RESUME else FirstModel.RETRY) }
+                FirstModelStep.READY -> {
+                    if (model != null) Button(onClick = { actions.use(model) }, modifier = Modifier.fillMaxWidth()) { Text(FirstModel.START_CHAT) }
+                    if (!offline) {
+                        TextButton(onClick = actions::offlineAgain, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(FirstModel.BACK_OFFLINE) }
                     }
                 }
+                FirstModelStep.NONE_FITS, FirstModelStep.HIDDEN -> Unit
             }
-            FirstModelStep.NONE_FITS, FirstModelStep.HIDDEN -> Unit
         }
     }
-    Spacer(Modifier.height(14.dp))
 }
