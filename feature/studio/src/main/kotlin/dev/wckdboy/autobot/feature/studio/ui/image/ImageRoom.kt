@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.studio.ui.image
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import dev.wckdboy.autobot.core.diffusion.Aspect
 import dev.wckdboy.autobot.core.diffusion.SizeSupport
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -52,9 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.QuietField
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
@@ -220,20 +220,14 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
         Modifier
             .fillMaxWidth()
             .aspectRatio(if (current != null && current.height > 0 && running == null) (current.width.toFloat() / current.height).coerceIn(0.5f, 2f) else ratio)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+            .background(MaterialTheme.colorScheme.surfaceContainer),
     ) {
         when {
             running != null -> {
                 val preview = rememberDecoded(running.preview?.bytes)
-                DevelopingHalftone(
-                    preview = preview,
-                    modifier = Modifier.fillMaxSize(),
-                    progress = running.progress,
-                    loading = running.steps == 0,
-                    seed = (running.createdAt % 997).toFloat(),
-                )
+                DevelopingPreview(preview, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 if (running.steps > 0) {
-                    Tag("step ${running.step}/${running.steps}", Modifier.align(Alignment.BottomStart).padding(8.dp), accent = MaterialTheme.colorScheme.primary, filled = true)
+                    Tag("step ${running.step}/${running.steps}", Modifier.align(Alignment.BottomStart).padding(8.dp), filled = true)
                 } else {
                     InkLoader(Modifier.align(Alignment.BottomStart).padding(10.dp), contentDescription = running.status ?: "Loading the model")
                 }
@@ -252,7 +246,7 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
                 Image(state.inputImage, contentDescription = "Input image", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 if (state.inpaint) MaskOverlay(state.mask, Modifier.fillMaxSize())
             }
-            else -> QuietField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant)
+            else -> EmptyCanvas(Modifier.fillMaxSize(), hint = "Describe an image, then Generate.")
         }
     }
 }

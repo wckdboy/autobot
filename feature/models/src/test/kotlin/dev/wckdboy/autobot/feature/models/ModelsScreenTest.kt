@@ -69,7 +69,7 @@ class ModelsScreenTest {
     fun offlineHuggingFaceSaysWhyAndOpensTheNetworkSetting() {
         show(ModelsUiState(tab = ModelsTab.HUGGING_FACE, offline = true))
         text("Offline mode is on, so the kill switch blocks Hugging Face").assertIsDisplayed()
-        compose.onNodeWithText("NETWORK").performClick()
+        compose.onNodeWithText("Network").performClick()
         assertEquals(1, openedNetwork)
     }
 
@@ -91,7 +91,7 @@ class ModelsScreenTest {
     fun aBlockedSearchWhileOnlinePointsAtTheNetworkSetting() {
         show(ModelsUiState(tab = ModelsTab.CIVITAI, civitai = CivitaiState(searched = true, failure = SearchFailure("Network route changed", blocked = true))))
         text("The kill switch blocked Civitai: Network route changed").assertIsDisplayed()
-        compose.onNodeWithText("NETWORK").performClick()
+        compose.onNodeWithText("Network").performClick()
         assertEquals(1, openedNetwork)
     }
 
@@ -105,7 +105,7 @@ class ModelsScreenTest {
     fun anUnsearchedTabOffersToSearch() {
         show(ModelsUiState(tab = ModelsTab.CIVITAI))
         text("Search Civitai above").assertIsDisplayed()
-        compose.onNodeWithText("SEARCH").performClick()
+        compose.onNodeWithText("Search").performClick()
         assertTrue(calls.toString(), "searchCivitai(true)" in calls)
     }
 
@@ -127,7 +127,7 @@ class ModelsScreenTest {
         // Running: progress, speed and time left, with pause.
         text("250 MB / 500 MB · 5 MB/s · ").assertIsDisplayed()
         // PAUSE on the running download (panel and its row) and on the queued one: each pauses its own download.
-        val pauses = compose.onAllNodesWithText("PAUSE")
+        val pauses = compose.onAllNodesWithText("Pause")
         repeat(pauses.fetchSemanticsNodes().size) { pauses[it].performClick() }
         assertEquals(setOf("pause(r)", "pause(q)"), calls.filter { it.startsWith("pause") }.toSet())
         // Queued, kill-switch paused, failed (with its reason): each says so and offers its action.
@@ -135,13 +135,13 @@ class ModelsScreenTest {
         // The panel says what blocks the queue, and the paused row why it waits.
         compose.onAllNodesWithText(DownloadBlock.KILL_SWITCH.label, substring = true, ignoreCase = true).assertCountEquals(2)
         compose.onAllNodesWithText("sha-256 mismatch", substring = true, ignoreCase = true).assertCountEquals(2)
-        compose.onAllNodesWithText("RESUME")[0].performClick()
-        compose.onAllNodesWithText("RETRY")[0].performClick()
+        compose.onAllNodesWithText("Resume")[0].performClick()
+        compose.onAllNodesWithText("Retry")[0].performClick()
         assertTrue(calls.toString(), "resume(p)" in calls && "resume(f)" in calls)
         // Installed rows: their size only, never the progress again (the panel shows it once).
         compose.onAllNodesWithText("250 MB / 500 MB", substring = true).assertCountEquals(1)
         compose.onAllNodesWithText("chat · gguf · 500 MB", substring = true, ignoreCase = true).assertCountEquals(5)
-        compose.onNodeWithText("READY").assertIsDisplayed()
+        compose.onNodeWithText("ready").assertIsDisplayed()
         compose.onAllNodesWithText("50%").assertCountEquals(0)
     }
 

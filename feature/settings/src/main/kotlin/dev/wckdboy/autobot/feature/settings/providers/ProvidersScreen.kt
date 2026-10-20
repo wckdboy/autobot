@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.settings.providers
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -154,14 +157,8 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
         },
     ) { padding ->
         if (state.providers.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    "No providers yet. Tap + to pick one of ${ProviderPresets.all.size - 2} providers or local servers, or any OpenAI-compatible endpoint.\n" +
-                        "API keys are encrypted with a hardware-backed key.",
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                EmptyState("No providers yet. Tap + to add a cloud API, a server on your network or your node.")
             }
         } else {
             LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
@@ -208,9 +205,9 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
                 TextButton(onClick = {
                     dissolve.dissolve(row.id) { actions.delete(row.id) }
                     deleting = null
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { ActionText("Cancel") } },
         )
     }
 }
@@ -307,7 +304,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 ConsoleTextField(draft.displayName, { v -> actions.change { it.copy(displayName = v) } }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
                 if (draft.isNode) {
                     // Its address and keys come from pairing; delete the provider to unpair.
-                    MicroLabel("paired end to end · keys encrypted with android keystore · delete to unpair")
+                    MicroLabel("paired end to end · keys encrypted with Android Keystore · delete to unpair")
                 } else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ConsoleTextField(
                         draft.baseUrl, { v -> actions.change { it.copy(baseUrl = v) } }, Modifier.fillMaxWidth(),
@@ -334,10 +331,10 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                     )
                     if (draft.missingKey) MicroLabel("This provider needs an API key", color = MaterialTheme.colorScheme.error)
                     draft.keyProblem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                    MicroLabel("encrypted with android keystore · sent only to ${preset.host.ifBlank { "this host" }}")
+                    MicroLabel("encrypted with Android Keystore · sent only to ${preset.host.ifBlank { "this host" }}")
                     if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
                         TextButton(onClick = { actions.change { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
-                            Text(if (draft.clearStoredKey) "KEEP SAVED KEY" else "REMOVE SAVED KEY")
+                            ActionText(if (draft.clearStoredKey) "Keep saved key" else "Remove saved key")
                         }
                     }
                 }
@@ -349,9 +346,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     ProviderRouting.entries.forEach { routing ->
                         val active = draft.routing == routing
-                        Tag(routing.label, accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = active, onClick = {
-                            actions.change { it.copy(routing = routing) }
-                        })
+                        ChoiceChip(routing.label, selected = active, onClick = { actions.change { it.copy(routing = routing) } })
                     }
                 }
                 Text(
@@ -385,12 +380,12 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                             TextButton(onClick = {
                                 confirmNoKey = false
                                 actions.save()
-                            }) { Text("Save anyway") }
+                            }) { ActionText("Save anyway") }
                         },
-                        dismissButton = { TextButton(onClick = { confirmNoKey = false }) { Text("Cancel") } },
+                        dismissButton = { TextButton(onClick = { confirmNoKey = false }) { ActionText("Cancel") } },
                     )
                 }
-                TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("CANCEL") }
+                TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { ActionText("Cancel") }
             }
         }
     }
@@ -447,7 +442,7 @@ private fun PairingSheet(draft: PairingDraft, actions: ProvidersActions) {
                 draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (!draft.running) draft.problem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 PrimaryButton("Pair", actions::pair, Modifier.fillMaxWidth(), enabled = draft.problem == null && !draft.running, busy = draft.running)
-                TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("CANCEL") }
+                TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { ActionText("Cancel") }
             }
         }
     }
@@ -473,7 +468,7 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
             }
             MicroLabel(status, Modifier.weight(1f), if (models.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if (canFetch) {
-                TextButton(onClick = actions::refreshModels, enabled = draft.baseUrlValid && !models.loading) { InkBusyLabel(models.loading) { Text("REFRESH") } }
+                TextButton(onClick = actions::refreshModels, enabled = draft.baseUrlValid && !models.loading) { InkBusyLabel(models.loading) { ActionText("Refresh") } }
             }
         }
         val query = if (models.models.any { it.id == draft.defaultModel }) "" else draft.defaultModel
@@ -527,7 +522,8 @@ private fun ModelRow(m: RemoteModel, presetId: String, active: Boolean, onClick:
         Text(
             (if (active) "● " else "") + m.id,
             style = AutobotTheme.styles.code,
-            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.SemiBold else null,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -548,9 +544,9 @@ private fun TrainsDialog(model: String, onConfirm: () -> Unit, onDismiss: () -> 
             TextButton(onClick = {
                 onDismiss()
                 onConfirm()
-            }) { Text("Use anyway") }
+            }) { ActionText("Use anyway") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }
 
@@ -562,7 +558,7 @@ private fun TestResult(test: TestState) {
         TestState.Idle -> Unit
         // The test button carries the ink loader while it runs.
         TestState.Running -> Unit
-        is TestState.Success -> Text(test.message, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+        is TestState.Success -> Text("✓ " + test.message, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         is TestState.Failure -> Text(test.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 }

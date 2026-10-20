@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.settings.usage
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -108,12 +109,12 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
             onDismissRequest = { confirmClear = false },
             title = { Text("Clear usage history?") },
             text = { Text("The counted tokens are removed from this phone. Prices and windows stay.") },
-            confirmButton = { TextButton(onClick = { actions.clearHistory(); confirmClear = false }) { Text("CLEAR", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("CANCEL") } },
+            confirmButton = { TextButton(onClick = { actions.clearHistory(); confirmClear = false }) { ActionText("Clear", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { ActionText("Cancel") } },
         )
     }
     state.message?.let { m ->
-        AlertDialog(onDismissRequest = actions::dismissMessage, text = { Text(m) }, confirmButton = { TextButton(onClick = actions::dismissMessage) { Text("OK") } })
+        AlertDialog(onDismissRequest = actions::dismissMessage, text = { Text(m) }, confirmButton = { TextButton(onClick = actions::dismissMessage) { ActionText("OK") } })
     }
 
     Scaffold(
@@ -199,7 +200,7 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!report.empty) TextButton(onClick = { confirmClear = true }) { Text("Clear history", color = MaterialTheme.colorScheme.error) }
+                if (!report.empty) TextButton(onClick = { confirmClear = true }) { ActionText("Clear history", color = MaterialTheme.colorScheme.error) }
             }
         }
     }
@@ -325,8 +326,8 @@ private fun PriceDialog(row: PriceRow, onDismiss: () -> Unit, onSave: (String, S
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(input, output, cacheRead, cacheWrite) }, enabled = valid) { Text("SAVE") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } },
+        confirmButton = { TextButton(onClick = { onSave(input, output, cacheRead, cacheWrite) }, enabled = valid) { ActionText("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }
 
@@ -394,13 +395,13 @@ private fun WindowDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!isNew) TextButton(onClick = onDelete) { Text("Delete window", color = MaterialTheme.colorScheme.error) }
+                if (!isNew) TextButton(onClick = onDelete) { ActionText("Delete window", color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(draft.copy(limit = parseLimit(limit, draft.unit))) }, enabled = limit.isBlank() || parseLimit(limit, draft.unit) != null) { Text("SAVE") }
+            TextButton(onClick = { onSave(draft.copy(limit = parseLimit(limit, draft.unit))) }, enabled = limit.isBlank() || parseLimit(limit, draft.unit) != null) { ActionText("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }
 

@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.imagine.backends
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -125,7 +126,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
         topBar = {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-                title = { Text("IMAGE BACKENDS", style = MaterialTheme.typography.titleMedium) },
+                title = { Text("Image backends") },
             )
         },
     ) { padding ->
@@ -139,7 +140,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
                     title = backend.kind.label,
                     accent = if (backend.kind == BackendKind.LOCAL_SSE) AutobotTheme.inks.uv else AutobotTheme.inks.cyan,
                     trailing = {
-                        Tag(if (backend.isLoopback) "loopback" else "network", accent = if (backend.isLoopback) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber)
+                        Tag(if (backend.isLoopback) "loopback" else "network", accent = if (backend.isLoopback) MaterialTheme.colorScheme.onSurfaceVariant else AutobotTheme.inks.amber)
                     },
                 ) {
                     Row(Modifier.fillMaxWidth().clickable { editing = backend }, verticalAlignment = Alignment.CenterVertically) {
@@ -151,16 +152,16 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { viewModel.test(backend) }, enabled = state.testing == null, shape = MaterialTheme.shapes.small) {
-                            InkBusyLabel(state.testing == backend.id) { Text("TEST") }
+                            InkBusyLabel(state.testing == backend.id) { ActionText("Test") }
                         }
                         result?.let {
-                            MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                            MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
                         }
                     }
                 }
             }
 
-            Panel(title = "Add backend", accent = AutobotColors.Acid) {
+            Panel(title = "Add backend") {
                 Text(
                     "Loopback works offline; other servers need HTTPS.",
                     style = MaterialTheme.typography.bodySmall,
@@ -168,7 +169,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
                 )
                 DiffusionBackendRepository.PRESETS.forEach { (kind, url) ->
                     OutlinedButton(onClick = { editing = viewModel.newBackend(kind, url) }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-                        Text("${kind.label}  ·  $url", style = MaterialTheme.typography.labelMedium)
+                        Text("${kind.label}  ·  $url", style = AutobotTheme.styles.micro)
                     }
                 }
             }
@@ -220,13 +221,13 @@ private fun BackendEditor(initial: DiffusionBackend, isNew: Boolean, onSave: (Di
         if (cleartextRemote) MicroLabel("cleartext http is only allowed to loopback — use https", color = MaterialTheme.colorScheme.error)
         SelectField("Route", routing.name.lowercase(), RouteOverride.entries, { routing = it }, optionLabel = { it.name.lowercase() })
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!isNew) TextButton(onClick = onDelete) { Text("DELETE", color = MaterialTheme.colorScheme.error) }
+            if (!isNew) TextButton(onClick = onDelete) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = { onSave(initial.copy(name = name.trim().ifBlank { kind.label }, baseUrl = url.trim(), kind = kind, routing = routing.name)) },
                 enabled = url.isNotBlank() && !cleartextRemote,
                 shape = MaterialTheme.shapes.small,
-            ) { Text("SAVE") }
+            ) { ActionText("Save") }
         }
         Spacer(Modifier.size(4.dp))
     }

@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.imagine.viewer
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.content.ClipData
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
@@ -230,15 +231,7 @@ internal fun ImageViewerContent(
                     ViewerAction.entries.filter { it in actions && it != ViewerAction.FAVORITE && it != ViewerAction.SHARE }.forEach { action ->
                         Tag(
                             action.label,
-                            accent = when (action) {
-                                ViewerAction.IMG2IMG -> AutobotTheme.inks.uv
-                                ViewerAction.KEEP -> AutobotTheme.inks.amber
-                                ViewerAction.DELETE -> MaterialTheme.colorScheme.error
-                                ViewerAction.SAVE -> AutobotTheme.inks.amber
-                                ViewerAction.COPY_PARAMS -> MaterialTheme.colorScheme.onSurfaceVariant
-                                else -> MaterialTheme.colorScheme.primary
-                            },
-                            filled = action == ViewerAction.IMG2IMG,
+                            accent = if (action == ViewerAction.DELETE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                             onClick = { act(action) },
                         )
                     }
@@ -257,15 +250,15 @@ internal fun ImageViewerContent(
             onDismissRequest = { confirm = null },
             title = { Text("Save an unencrypted copy?") },
             text = { Text("A plain image is written to Pictures/Autobot, where other apps and backups can read it.") },
-            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.SAVE, current) }) { Text("SAVE") } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("CANCEL") } },
+            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.SAVE, current) }) { ActionText("Save") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { ActionText("Cancel") } },
         )
         ViewerAction.DELETE -> AlertDialog(
             onDismissRequest = { confirm = null },
             title = { Text("Delete image?") },
             text = { Text("The encrypted file and its parameters are removed. This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.DELETE, current) }) { Text("DELETE", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("CANCEL") } },
+            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.DELETE, current) }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { ActionText("Cancel") } },
         )
         else -> Unit
     }
@@ -281,7 +274,7 @@ internal fun InfoSheet(item: GalleryItem, pixels: Pair<Int, Int>?, params: Diffu
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("image info", Modifier.weight(1f))
-            Tag("copy params", accent = MaterialTheme.colorScheme.primary, onClick = onCopy)
+            Tag("Copy params", accent = MaterialTheme.colorScheme.onSurface, onClick = onCopy)
         }
         MicroLabel("prompt")
         Text(item.prompt.ifBlank { "—" }, style = AutobotTheme.styles.code)
@@ -293,7 +286,7 @@ internal fun InfoSheet(item: GalleryItem, pixels: Pair<Int, Int>?, params: Diffu
         FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             val (w, h) = pixels ?: (item.width to item.height)
             Readout("Pixels", "${w}×$h")
-            Readout("Seed", item.seed.toString(), valueColor = MaterialTheme.colorScheme.primary)
+            Readout("Seed", item.seed.toString())
             Readout("Steps", item.steps.toString())
             Readout("CFG", String.format(Locale.ROOT, "%.1f", item.cfgScale))
             Readout("Sampler", item.sampler.ifBlank { "default" })

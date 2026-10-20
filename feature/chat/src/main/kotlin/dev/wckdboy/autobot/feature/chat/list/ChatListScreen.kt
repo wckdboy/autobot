@@ -1,5 +1,11 @@
 package dev.wckdboy.autobot.feature.chat.list
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.ScreenTitle
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.Notice
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -188,7 +194,7 @@ fun ChatListScreen(
     val pending = state.pendingDeletion
     LaunchedEffect(pending?.batch) {
         if (pending == null) return@LaunchedEffect
-        val result = snackbar.showSnackbar(pending.label, actionLabel = "UNDO", withDismissAction = true, duration = SnackbarDuration.Short)
+        val result = snackbar.showSnackbar(pending.label, actionLabel = "Undo", withDismissAction = true, duration = SnackbarDuration.Short)
         if (result == SnackbarResult.ActionPerformed) actions.undoDelete(pending.batch)
     }
     LaunchedEffect(state.message) {
@@ -220,9 +226,7 @@ fun ChatListScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!state.loading && !state.hasProviders) {
-                Panel(Modifier.fillMaxWidth().padding(12.dp), title = "No model yet", accent = AutobotColors.Amber) {
-                    TextButton(onClick = onOpenProviders) { Text("ADD PROVIDER") }
-                }
+                Notice("No model yet.", Modifier.padding(12.dp), tone = NoticeTone.WARNING, action = "Add provider", onAction = onOpenProviders)
             }
             if (!state.loading && state.sections.isEmpty()) {
                 EmptyList(state)
@@ -282,7 +286,7 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
         }
         Column(Modifier.weight(1f)) {
-            Text("SESSIONS", style = MaterialTheme.typography.titleLarge)
+            ScreenTitle("Sessions", style = MaterialTheme.typography.headlineMedium)
             // Only what there is: the empty state already says "no sessions".
             if (state.total > 0) MicroLabel(counted(state.total, "session") + if (state.live > 0) " · ${state.live} live" else "")
         }
@@ -297,7 +301,7 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
         ) {
             Icon(AutobotIcons.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
-            Text("NEW")
+            Text("New", style = AutobotTheme.styles.action)
         }
     }
     // A large font leaves no room for the New button beside the incognito switch: it goes under it.
@@ -309,7 +313,7 @@ private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (()
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.outline)
-            MicroLabel("incognito", color = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.onSurfaceVariant)
+            MicroLabel("Incognito", color = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.onSurfaceVariant)
             InfoButton("Incognito", "New chats are kept in memory only, never written to disk.")
             Spacer(Modifier.weight(1f))
             // Named for TalkBack: the "incognito" label beside it is a separate node.
@@ -334,11 +338,11 @@ private fun SelectionBar(state: ChatListUiState, actions: ChatListActions, open:
     ) {
         IconButton(onClick = actions.clearSelection) { Icon(Icons.Filled.Close, contentDescription = "Cancel selection") }
         Column(Modifier.weight(1f)) {
-            Text("${ids.size} SELECTED", style = MaterialTheme.typography.titleLarge)
+            Text("${ids.size} selected", style = MaterialTheme.typography.titleLarge)
             MicroLabel("tap to add or remove")
         }
         IconButton(onClick = { actions.setPinned(ids, !allPinned) }) {
-            Icon(AutobotIcons.Pin, contentDescription = if (allPinned) "Unpin" else "Pin", tint = if (allPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+            Icon(AutobotIcons.Pin, contentDescription = if (allPinned) "Unpin" else "Pin", tint = MaterialTheme.colorScheme.onSurface)
         }
         IconButton(onClick = { actions.delete(ids) }) { Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
         Box {
@@ -414,43 +418,38 @@ private fun FilterChips(state: ChatListUiState, actions: ChatListActions, open: 
         }
         items(state.folders, key = { "folder:${it.id}" }) { folder ->
             val selected = state.filter == ChatFilter.Folder(folder.id)
-            Tag(
+            ChoiceChip(
                 "${folder.name} ${folder.count}",
-                modifier = Modifier.combinedClickable(
-                    onClick = { actions.setFilter(ChatFilter.Folder(folder.id)) },
-                    onLongClick = { open(ListDialog.FolderMenu(folder.id, folder.name)) },
-                ),
-                accent = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                filled = selected,
+                selected = selected,
+                onClick = { actions.setFilter(ChatFilter.Folder(folder.id)) },
+                onLongClick = { open(ListDialog.FolderMenu(folder.id, folder.name)) },
+                asWritten = true,
             )
         }
         if (state.archivedCount > 0 || state.filter == ChatFilter.Archived) {
             item(key = "archived") { Chip("Archive ${state.archivedCount}", state.filter == ChatFilter.Archived) { actions.setFilter(ChatFilter.Archived) } }
         }
-        item(key = "new-folder") { Tag("+ Folder", accent = MaterialTheme.colorScheme.outline, onClick = { open(ListDialog.NewFolder(emptyList())) }) }
+        item(key = "new-folder") { ChoiceChip("+ Folder", selected = false, onClick = { open(ListDialog.NewFolder(emptyList())) }) }
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
-private fun Chip(text: String, selected: Boolean, accent: Color = MaterialTheme.colorScheme.primary, onClick: () -> Unit) {
-    Tag(text, accent = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant, filled = selected, onClick = onClick)
+private fun Chip(text: String, selected: Boolean, accent: Color = Color.Unspecified, onClick: () -> Unit) {
+    ChoiceChip(text, selected = selected, onClick = onClick)
 }
 
 @Composable
 private fun EmptyList(state: ChatListUiState) {
-    val (title, detail) = when {
-        state.searching -> "no matches" to "titles and messages on this device were searched"
-        state.filter == ChatFilter.Archived -> "archive is empty" to "archived chats are kept here, out of the list"
-        state.filter == ChatFilter.Pinned -> "nothing pinned" to "pin a chat to keep it on top"
-        state.filter is ChatFilter.Folder -> "empty folder" to "long-press a chat, then move it here"
-        else -> "no sessions" to "everything stays encrypted on this device"
+    val text = when {
+        state.searching -> "No chats on this phone match that search."
+        state.filter == ChatFilter.Archived -> "No archived chats."
+        state.filter == ChatFilter.Pinned -> "Nothing pinned. Pin a chat to keep it on top."
+        state.filter is ChatFilter.Folder -> "This folder is empty. Long-press a chat to move it here."
+        else -> "No sessions yet. They stay encrypted on this phone."
     }
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(AutobotIcons.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(28.dp))
-            MicroLabel(title)
-            MicroLabel(detail, color = MaterialTheme.colorScheme.outline)
-        }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        EmptyState(text)
     }
 }
 
@@ -534,17 +533,19 @@ private fun ConversationRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.width(if (selecting) 18.dp else 8.dp), contentAlignment = Alignment.Center) {
-            when {
-                selecting -> SelectBox(selected)
-                item.running -> StatusDot(MaterialTheme.colorScheme.primary, live = true)
-                item.incognito -> StatusDot(AutobotTheme.inks.uv)
-                else -> Box(Modifier.size(4.dp).background(MaterialTheme.colorScheme.outline))
+        // A plain row starts at the margin; the slot only appears to say something.
+        if (selecting || item.running || item.incognito) {
+            Box(Modifier.width(if (selecting) 18.dp else 8.dp), contentAlignment = Alignment.Center) {
+                when {
+                    selecting -> SelectBox(selected)
+                    item.running -> StatusDot(MaterialTheme.colorScheme.primary, live = true)
+                    else -> StatusDot(AutobotTheme.inks.uv)
+                }
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (item.pinned) Icon(AutobotIcons.Pin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
+                if (item.pinned) Icon(AutobotIcons.Pin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
                 // A large font wraps the title and its line of detail rather than cutting their ends.
                 Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
             }
@@ -625,7 +626,7 @@ private fun Dialogs(dialog: ListDialog?, state: ChatListUiState, actions: ChatLi
         is ListDialog.Rename -> NameDialog(
             title = "Rename chat",
             initial = dialog.title,
-            confirm = "RENAME",
+            confirm = "Rename",
             onDismiss = { set(null) },
             onConfirm = {
                 actions.rename(dialog.id, it)
@@ -646,7 +647,7 @@ private fun Dialogs(dialog: ListDialog?, state: ChatListUiState, actions: ChatLi
         is ListDialog.NewFolder -> NameDialog(
             title = "New folder",
             initial = "",
-            confirm = "CREATE",
+            confirm = "Create",
             onDismiss = { set(null) },
             onConfirm = {
                 actions.createFolder(it, dialog.moving)
@@ -658,15 +659,15 @@ private fun Dialogs(dialog: ListDialog?, state: ChatListUiState, actions: ChatLi
             onDismissRequest = { set(null) },
             title = { Text(dialog.name) },
             text = { Text("Deleting a folder keeps its chats; they move out of it.") },
-            confirmButton = { TextButton(onClick = { set(ListDialog.RenameFolder(dialog.id, dialog.name)) }) { Text("RENAME") } },
+            confirmButton = { TextButton(onClick = { set(ListDialog.RenameFolder(dialog.id, dialog.name)) }) { ActionText("Rename") } },
             dismissButton = {
-                TextButton(onClick = { set(ListDialog.DeleteFolder(dialog.id, dialog.name)) }) { Text("DELETE", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { set(ListDialog.DeleteFolder(dialog.id, dialog.name)) }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
             },
         )
         is ListDialog.RenameFolder -> NameDialog(
             title = "Rename folder",
             initial = dialog.name,
-            confirm = "RENAME",
+            confirm = "Rename",
             onDismiss = { set(null) },
             onConfirm = {
                 actions.renameFolder(dialog.id, it)
@@ -682,9 +683,9 @@ private fun Dialogs(dialog: ListDialog?, state: ChatListUiState, actions: ChatLi
                 TextButton(onClick = {
                     actions.deleteFolder(dialog.id)
                     set(null)
-                }) { Text("DELETE", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { set(null) }) { Text("CANCEL") } },
+            dismissButton = { TextButton(onClick = { set(null) }) { ActionText("Cancel") } },
         )
     }
 }

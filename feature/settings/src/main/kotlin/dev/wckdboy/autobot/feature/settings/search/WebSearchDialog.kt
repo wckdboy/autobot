@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.settings.search
 
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -136,7 +138,7 @@ fun WebSearchDialog(onDismiss: () -> Unit, viewModel: WebSearchViewModel = hiltV
                         SearchProvider.NONE -> Unit
                     }
                     if (d.provider != SearchProvider.NONE) {
-                        Text("Route", style = MaterialTheme.typography.labelLarge)
+                        SectionLabel("Route")
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             RouteOverride.entries.forEach { r ->
                                 FilterChip(
@@ -158,8 +160,8 @@ fun WebSearchDialog(onDismiss: () -> Unit, viewModel: WebSearchViewModel = hiltV
                     error = failure
                     if (failure == null) onDismiss()
                 }
-            }) { Text("Save") }
+            }) { ActionText("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }

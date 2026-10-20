@@ -41,11 +41,11 @@ internal fun ReceiptLine(receipt: Receipt?, onOpen: (Receipt) -> Unit) {
     Box(Modifier.stamp(receipt?.line, enabled = receipt != null)) {
         if (receipt != null) {
             val accent = when {
-                receipt.onDevice -> MaterialTheme.colorScheme.primary
+                receipt.onDevice -> MaterialTheme.colorScheme.onSurface
                 receipt.models.any { it.policy == TRAINS } -> AutobotTheme.inks.amber
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
-            Tag("▤ ${receipt.line}", accent = accent, filled = receipt.onDevice, onClick = { onOpen(receipt) })
+            Tag("▤ ${receipt.line}", accent = accent, onClick = { onOpen(receipt) })
         }
     }
 }

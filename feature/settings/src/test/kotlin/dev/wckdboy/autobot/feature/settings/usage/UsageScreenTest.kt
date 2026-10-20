@@ -91,12 +91,12 @@ class UsageScreenTest {
         compose.setContent { Themed { UsageScreen(state(UsagePlan()), actions, onBack = {}) } }
         compose.onNodeWithText("1.2M").assertIsDisplayed()
         compose.onNodeWithText("$6.00 + unknown").assertIsDisplayed()
-        compose.onNodeWithText("ON THIS PHONE · 22K TOKENS · $0").assertIsDisplayed()
-        compose.onNodeWithText("44K TOKENS WITHOUT A PRICE").assertIsDisplayed()
-        scrollTo("PRICES · USD PER 1M TOKENS")
-        compose.onNodeWithText("PRICES · USD PER 1M TOKENS").assertIsDisplayed()
-        scrollTo("+ OPENCODE GO 5 H / WEEK / MONTH")
-        compose.onNodeWithText("+ OPENCODE GO 5 H / WEEK / MONTH").performClick()
+        compose.onNodeWithText("On this phone · 22k tokens · $0").assertIsDisplayed()
+        compose.onNodeWithText("44k tokens without a price").assertIsDisplayed()
+        scrollTo("Prices · USD per 1m tokens")
+        compose.onNodeWithText("Prices · USD per 1m tokens").assertIsDisplayed()
+        scrollTo("+ OpenCode Go 5 h / week / month")
+        compose.onNodeWithText("+ OpenCode Go 5 h / week / month").performClick()
         assertEquals(listOf("go go"), actions.calls)
     }
 
@@ -113,13 +113,13 @@ class UsageScreenTest {
     fun aMistypedLimitCannotBeSavedAsNoLimit() {
         val actions = FakeActions()
         compose.setContent { Themed { UsageScreen(state(UsagePlan()), actions, onBack = {}) } }
-        scrollTo("+ WINDOW")
-        compose.onNodeWithText("+ WINDOW").performClick()
+        scrollTo("+ Window")
+        compose.onNodeWithText("+ Window").performClick()
         val field = compose.onNode(hasSetTextAction())
         field.performTextInput("12x")
-        compose.onNodeWithText("SAVE").assertIsNotEnabled()
+        compose.onNodeWithText("Save").assertIsNotEnabled()
         field.performTextReplacement("1,000,000")
-        compose.onNodeWithText("SAVE").assertIsEnabled().performClick()
+        compose.onNodeWithText("Save").assertIsEnabled().performClick()
         assertEquals(1, actions.calls.count { it.startsWith("window ") })
     }
 

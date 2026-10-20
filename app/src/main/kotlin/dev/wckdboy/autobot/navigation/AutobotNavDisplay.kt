@@ -34,7 +34,6 @@ import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.inkScreenTransition
 import dev.wckdboy.autobot.core.designsystem.motion.misregisterEnter
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
-import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
 import dev.wckdboy.autobot.entry.EntryActions
 import dev.wckdboy.autobot.feature.chat.conversation.ChatRoute
 import dev.wckdboy.autobot.feature.chat.list.ChatListRoute
@@ -66,10 +65,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class Tab(val label: String, val root: TopLevel) {
-    RUN("run", Run),
-    MODELS("models", Models),
-    REMOTE("remote", Remote),
-    SETTINGS("settings", Settings),
+    RUN("Run", Run),
+    MODELS("Models", Models),
+    REMOTE("Remote", Remote),
+    SETTINGS("Settings", Settings),
 }
 
 private fun NavKey.tab(): Tab? = Tab.entries.firstOrNull { it.root == this }
@@ -77,7 +76,6 @@ private fun NavKey.tab(): Tab? = Tab.entries.firstOrNull { it.root == this }
 private val TABS = Tab.entries.map { NavItem(it, it.label) }
 
 /** Entry metadata: the screen is printed on paper (light), whatever the app theme. */
-private const val PAPER = "ink.paper"
 
 /**
  * Wraps each entry so one that enters while a push is in flight ([pushing], judged once when it
@@ -218,22 +216,22 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenUsage = { navigate(Usage) },
                         )
                     }
-                    entry<Imagine>(metadata = mapOf(PAPER to true)) { key ->
-                        PaperTheme {
-                            ImagineRoute(
-                                onBack = ::back,
-                                onOpenGallery = { navigate(Gallery()) },
-                                onOpenBackends = { navigate(ImageBackends) },
-                                onOpenModels = { switchTo(Models) },
-                                onOpenStudio = { navigate(Studio()) },
-                                handoff = key.handoffId?.let { id ->
-                                    val action = key.action?.let { name -> ViewerAction.entries.firstOrNull { it.name == name } }
-                                    if (action != null) GalleryHandoff(id, action = action) else GalleryHandoff(id, key.asInit)
-                                },
-                                modelId = key.modelId,
-                                prompt = key.prompt,
-                            )
-                        }
+                    entry<Imagine> { key ->
+                        ImagineRoute(
+                            onBack = ::back,
+                            onOpenGallery = { navigate(Gallery()) },
+                            onOpenBackends = { navigate(ImageBackends) },
+                            onOpenModels = { switchTo(Models) },
+                            onOpenStudio = { navigate(Studio()) },
+                            handoff = key.handoffId?.let { id ->
+                                val action = key.action?.let { name -> ViewerAction.entries.firstOrNull { it.name == name } }
+                                if (action != null) GalleryHandoff(id, action = action) else GalleryHandoff(id, key.asInit)
+                            },
+                            modelId = key.modelId,
+                            prompt = key.prompt,
+                        )
+                    
+
                     }
                     // Studio mode: its own bar replaces the app's (no tab root, so the app bar hides).
                     entry<Studio> { key ->

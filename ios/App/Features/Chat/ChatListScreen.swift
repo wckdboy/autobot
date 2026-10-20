@@ -170,7 +170,7 @@ struct ChatListScreen: View {
                     IconAction(symbol: "arrow.left", label: "Back") { nav.back() }
                 }
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("SESSIONS").textStyle(.titleLarge).foregroundStyle(c.onBackground)
+                    ScreenTitle("Sessions", mark: nav.path.isEmpty)
                     LiveCountLabel(total: m.total, active: m.activeIds)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -219,7 +219,7 @@ struct ChatListScreen: View {
             Button(action: newChat) {
                 HStack(spacing: 8) {
                     AutobotIconView(icon: .terminal, size: 16, color: incognito ? AutobotColors.paperInk : c.onPrimary)
-                    Text("NEW").textStyle(.labelLarge).fixedSize()
+                    Text("New").textStyle(.labelLarge).fixedSize()
                 }
                 .foregroundStyle(incognito ? AutobotColors.paperInk : c.onPrimary)
                 .padding(.horizontal, 14)
@@ -363,20 +363,21 @@ struct ChatListScreen: View {
             select: { toggle(item.id) },
         ))
         .equatable()
+        // On the row as the List sees it: inside the equatable view it was ignored (rows showed
+        // the system's white or black instead of the theme's ground).
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(selection.contains(item.id) ? c.surfaceContainer : c.background)
     }
 
     private func empty(_ m: ChatListModel.Model) -> some View {
         let (title, detail) = ChatListModel.emptyState(query: query, filter: m.filter)
-        return VStack(spacing: 6) {
+        return VStack(spacing: 0) {
             Spacer()
-            AutobotIconView(icon: .terminal, size: 28, color: c.outline)
-            MicroLabel(title).inkClearance(c.background)
-            MicroLabel(detail, color: c.outline).inkClearance(c.background)
+            EmptyState("\(title.sentenceCased). \(detail.sentenceCased).")
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .padding(32)
-        .inkGround(fade: .center)
     }
 
     @ViewBuilder private var undoToast: some View {
@@ -607,20 +608,23 @@ private struct ConversationRow: View, Equatable {
         let minute = MinuteTicker.shared.now
         Button(action: onClick) {
             HStack(spacing: 12) {
-                ZStack {
-                    if selecting {
-                        Image(systemName: selected ? "checkmark.square.fill" : "square")
-                            .symbolSize(16)
-                            .foregroundStyle(selected ? c.primary : c.outline)
-                    } else if app.agent.running.contains(item.id) {
-                        StatusDot(color: c.primary, live: true)
-                    } else if item.incognito {
-                        StatusDot(color: c.inks.uv)
-                    } else {
-                        Rectangle().fill(c.outline).frame(width: 4, height: 4)
+                // A marker only when it says something (selecting, running, incognito), so plain
+                // rows line up with the screen's gutter.
+                let running = app.agent.running.contains(item.id)
+                if selecting || running || item.incognito {
+                    ZStack {
+                        if selecting {
+                            Image(systemName: selected ? "checkmark.square.fill" : "square")
+                                .symbolSize(16)
+                                .foregroundStyle(selected ? c.primary : c.outline)
+                        } else if running {
+                            StatusDot(color: c.primary, live: true)
+                        } else {
+                            StatusDot(color: c.inks.uv)
+                        }
                     }
+                    .frame(width: selecting ? 18 : 8)
                 }
-                .frame(width: selecting ? 18 : 8)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         if item.pinned {

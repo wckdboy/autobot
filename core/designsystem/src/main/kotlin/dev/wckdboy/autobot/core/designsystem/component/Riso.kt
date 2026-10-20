@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -22,7 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +55,12 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -114,11 +125,11 @@ fun RouteTag(route: Route, modifier: Modifier = Modifier) {
     )
 }
 
-/** A quiet `SECTION · DETAIL` caption in mono. */
+/** A quiet `Section · detail` caption in mono, in sentence case ([labelCase]). */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(
-        text.uppercase(Locale.ROOT),
+        labelCase(text),
         modifier = modifier,
         style = AutobotTheme.styles.micro,
         color = color,
@@ -127,7 +138,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = Mat
     )
 }
 
-/** Full-width red block button with a mono caps label; an inline ink loader replaces it while [busy]. */
+/** The screen's primary action: a filled purple block with a sentence-case mono label; a loader replaces it while [busy]. */
 @Composable
 fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, busy: Boolean = false) {
     Button(
@@ -140,10 +151,10 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ),
         contentPadding = PaddingValues(horizontal = 20.dp),
-    ) { InkBusyLabel(busy) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) } }
+    ) { InkBusyLabel(busy) { Text(text, style = AutobotTheme.styles.action, maxLines = linesFor(1, 3), textAlign = TextAlign.Center) } }
 }
 
-/** Outlined block button; [accent] tints border and label (e.g. red for DENY); ink loader while [busy]. */
+/** Outlined block button: a hairline and an [accent] label (e.g. the error colour for Deny); loader while [busy]. */
 @Composable
 fun GhostButton(
     text: String,
@@ -158,41 +169,133 @@ fun GhostButton(
         enabled = enabled,
         modifier = modifier.heightIn(min = 48.dp),
         shape = MaterialTheme.shapes.extraSmall,
-        border = BorderStroke(1.dp, if (enabled) accent else MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, if (enabled && accent != MaterialTheme.colorScheme.onSurface) accent else MaterialTheme.colorScheme.outlineVariant),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
         contentPadding = PaddingValues(horizontal = 16.dp),
-    ) { InkBusyLabel(busy) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) } }
+    ) { InkBusyLabel(busy) { Text(text, style = AutobotTheme.styles.action, maxLines = linesFor(1, 3), textAlign = TextAlign.Center) } }
 }
 
-/** Cream block button (APPROVE on red cards). */
+/** A compact filled action beside a ghost one (Approve next to Deny): the primary action, 48 dp tall. */
 @Composable
 fun PaperButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Button(
         onClick = onClick,
         modifier = modifier.heightIn(min = 48.dp),
         shape = MaterialTheme.shapes.extraSmall,
-        colors = ButtonDefaults.buttonColors(containerColor = AutobotColors.Bone100, contentColor = AutobotColors.PaperInk),
-    ) { Text(text.uppercase(Locale.ROOT), style = MaterialTheme.typography.labelLarge) }
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+    ) { Text(text, style = AutobotTheme.styles.action, maxLines = linesFor(1, 3), textAlign = TextAlign.Center) }
+}
+
+/** A sentence-case action label for a [androidx.compose.material3.TextButton]: mono, untracked. */
+@Composable
+fun ActionText(text: String, color: Color = Color.Unspecified, modifier: Modifier = Modifier) {
+    Text(text, modifier, style = AutobotTheme.styles.action, color = color, maxLines = linesFor(1, 3))
 }
 
 /**
- * Where a halftone field used to be: an empty, quiet area (BRAND.md: no textures, the pixel
- * symbols are the only ornament). Takes [HalftoneField]'s arguments so screens swap names only.
+ * Where nothing has been made yet (an image canvas, a preview): a flat panel in
+ * surfaceContainer with the pixel a, small and quiet, and an optional one-line [hint].
  */
 @Composable
-@Suppress("UNUSED_PARAMETER")
-fun QuietField(
-    modifier: Modifier = Modifier,
-    dot: Color = Color.Unspecified,
-    cell: Dp = 9.dp,
-    phase: Float = 0f,
-    flowing: Boolean = false,
-    fill: Float = 1f,
-    speed: Float = 1f,
-    ambient: InkAmbient? = null,
-) {
-    Spacer(modifier)
+fun EmptyCanvas(modifier: Modifier = Modifier, hint: String? = null) {
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            AutobotMark(Modifier.graphicsLayer { alpha = 0.45f }, size = 18.dp)
+            if (hint != null) {
+                Text(
+                    hint,
+                    Modifier.padding(horizontal = 16.dp),
+                    style = AutobotTheme.styles.micro,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = linesFor(2, 4),
+                )
+            }
+        }
+    }
 }
+
+/**
+ * An empty state: the pixel a in purple, one plain sentence, and at most one action.
+ */
+@Composable
+fun EmptyState(
+    text: String,
+    modifier: Modifier = Modifier,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Column(
+        modifier.padding(horizontal = 24.dp, vertical = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        AutobotMark(size = 24.dp)
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        if (action != null && onAction != null) {
+            GhostButton(action, onAction)
+        }
+    }
+}
+
+/**
+ * [text] followed by the title mark: a small solid purple square, about 0.3 em, sitting on the
+ * baseline 0.15 em after the last letter (as the sites' h1, "autobot▪"). Inline content, so it
+ * wraps, ellipsizes and auto-sizes with the text.
+ */
+@Composable
+fun ScreenTitle(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.headlineMedium,
+    color: Color = MaterialTheme.colorScheme.onBackground,
+    mark: Boolean = true,
+    maxLines: Int = linesFor(1, 3),
+    autoSize: TextAutoSize? = null,
+) {
+    val content = if (mark) TitleMarkContent else emptyMap()
+    val annotated = remember(text, mark) {
+        buildAnnotatedString {
+            append(text)
+            // A zero-width alternate: screen readers and copies get the title alone.
+            if (mark) appendInlineContent(TITLE_MARK, "\u200B")
+        }
+    }
+    Text(
+        annotated,
+        // Read as the title alone, and as a heading.
+        modifier = modifier.clearAndSetSemantics {
+            this.text = AnnotatedString(text)
+            heading()
+        },
+        style = style,
+        color = color,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        inlineContent = content,
+        autoSize = autoSize,
+    )
+}
+
+private const val TITLE_MARK = "autobot.titleMark"
+
+/** The title mark's placeholder: 0.15 em of gap and a 0.3 em square, its bottom on the baseline. */
+private val TitleMarkContent = mapOf(
+    TITLE_MARK to InlineTextContent(Placeholder(0.45.em, 0.3.em, PlaceholderVerticalAlign.AboveBaseline)) {
+        Canvas(Modifier.fillMaxSize()) {
+            val side = size.height
+            drawRect(AutobotColors.Purple, Offset(size.width - side, 0f), Size(side, side))
+        }
+    },
+)
 
 /** The products' symbols, as pixels: Autobot's a and Invincible's i (BRAND.md). */
 val GlyphA = listOf(".####.", "....##", ".#####", "##..##", "##..##", ".#####")
@@ -244,6 +347,8 @@ fun AutobotTopBar(
     modifier: Modifier = Modifier,
     title: String = WORDMARK,
     showMark: Boolean = true,
+    /** End the title with the purple title mark (tab roots and main screens). */
+    mark: Boolean = false,
     navigation: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
@@ -264,13 +369,12 @@ fun AutobotTopBar(
                 }
                 // Steps down (to [TOP_BAR_TITLE_MIN]) before it truncates: at 360 dp a bar with a few
                 // actions (chat: voice, route, more) left room for "AG…" of "AGENT RUN".
-                val titleStyle = MaterialTheme.typography.titleLarge
-                Text(
+                val titleStyle = if (mark) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge
+                ScreenTitle(
                     title,
                     style = titleStyle,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    mark = mark,
                     maxLines = linesFor(1, 2),
-                    overflow = TextOverflow.Ellipsis,
                     autoSize = TextAutoSize.StepBased(minFontSize = TOP_BAR_TITLE_MIN, maxFontSize = titleStyle.fontSize, stepSize = 1.sp),
                     modifier = Modifier.weight(1f),
                 )
@@ -354,15 +458,6 @@ fun ModeCard(
     }
 }
 
-/**
- * A small paper plate in [ground] behind a label over a dot field, 4dp past its bounds with soft
- * corners, so no dot sits behind text. Drawn behind the label; layout is unchanged.
- */
-internal fun Modifier.inkClearance(ground: Color): Modifier = drawBehind {
-    val pad = 4.dp.toPx()
-    drawRoundRect(ground, Offset(-pad, -pad), Size(size.width + 2 * pad, size.height + 2 * pad), CornerRadius(pad))
-}
-
 /** Hairline-separated list row: title, mono subtitle, trailing slot. */
 @Composable
 fun RunRow(
@@ -401,9 +496,6 @@ fun RunRow(
     }
 }
 
-/** [HalftoneField] dots at full value fill this fraction of their pitch (as a radius). */
-private const val HALFTONE_DOT = 0.6f
-
 /** `STEPS` over a big condensed number. */
 @Composable
 fun BigReadout(label: String, value: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
@@ -416,93 +508,13 @@ fun BigReadout(label: String, value: String, modifier: Modifier = Modifier, onCl
     }
 }
 
-/**
- * Renders an image as halftone dots (riso print look): the image is sampled on a grid and each
- * cell becomes a dot whose radius follows the cell's darkness. The luma grid is computed once
- * per bitmap off the main thread; the dots are one path fill.
- */
-@Composable
-fun HalftoneImage(
-    image: ImageBitmap,
-    modifier: Modifier = Modifier,
-    dot: Color = MaterialTheme.colorScheme.primary,
-    paper: Color = Color.Transparent,
-    cell: Dp = 6.dp,
-    contentScale: ContentScale = ContentScale.Crop,
-) {
-    val samples by rememberLumaGrid(image)
-    val batch = remember { DotBatch() }
-    Canvas(modifier.background(paper).clipToBounds()) {
-        val grid = samples ?: return@Canvas
-        // Whole-pixel pitch, centred, no dot cut by the edges ([proofGrid]).
-        val dots = proofGrid(cell.toPx())
-        val c = dots.x.pitch
-        // Cropped (or fitted) like an image, not stretched to the box.
-        val art = contentRect(image.width.toFloat(), image.height.toFloat(), size.width, size.height, contentScale)
-        batch.reset()
-        for (r in 0 until dots.y.count) for (col in 0 until dots.x.count) {
-            val cx = dots.x.at(col)
-            val cy = dots.y.at(r)
-            if (!art.contains(Offset(cx, cy))) continue
-            val l = grid.sample((cx - art.left) / art.width, (cy - art.top) / art.height)
-            batch.dot(cx, cy, (1f - l) * c * PROOF_DOT)
-        }
-        batch.draw(this, dot)
-    }
-}
-
-/**
- * Procedural halftone field (hero art): dots swell along a soft diagonal wave. While [flowing]
- * the wave's phase advances (ink moving over a drum) at [speed] × `flowCyclesPerSecond`, on the
- * throttled, lifecycle-aware ink clock; [fill] scales the dots and eases to new values. Static
- * (as before) when not flowing or with reduced motion. With an [ambient] clock the hero drifts
- * at the ambient tier's pace instead (one cycle per `ambientCycleSeconds`, ≤5 fps).
- */
-@Composable
-fun HalftoneField(
-    modifier: Modifier = Modifier,
-    dot: Color = MaterialTheme.colorScheme.primary,
-    cell: Dp = 9.dp,
-    phase: Float = 0f,
-    flowing: Boolean = false,
-    fill: Float = 1f,
-    speed: Float = 1f,
-    ambient: InkAmbient? = null,
-) {
-    val reduced = LocalInkMotion.current.reduced
-    val clock = rememberInkClock(flowing)
-    val flow = remember { FlowPhase() }
-    val fillTween = remember { InkTween(fill, Motion.developMillis / 1000f) }
-    SideEffect {
-        if (flowing && !reduced) fillTween.retarget(fill, Snapshot.withoutReadObservation { clock.time }) else fillTween.snap(fill)
-    }
-    val batch = remember { DotBatch() }
-    Canvas(modifier.clipToBounds()) {
-        val t = clock.time
-        val p = phase + flow.at(t, speed) + (ambient?.let { InkMath.ambientPhase(it.time) } ?: 0f)
-        val f = if (flowing) fillTween.value(t) else fill
-        // A centred grid with whole dots half a pitch from every edge: no half-clipped column or row
-        // along an edge (a hard seam where the art meets the card).
-        val grid = DotGeometry.ground(size.width, size.height, InkMath.cappedCell(size.width, size.height, cell.toPx()), HALFTONE_DOT)
-        val c = grid.x.pitch
-        val cols = grid.x.count
-        val rows = grid.y.count
-        batch.reset()
-        for (r in 0 until rows) for (col in 0 until cols) {
-            val v = InkMath.field(col / cols.toFloat(), r / rows.toFloat(), p)
-            batch.dot(grid.x.at(col), grid.y.at(r), v * c * HALFTONE_DOT * f)
-        }
-        batch.draw(this, dot)
-    }
-}
-
 @Preview(name = "Riso kit", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
 @Composable
 private fun RisoPreview() {
     AutobotTheme {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             AutobotTopBar(actions = { CountBadge("16+") })
-            SectionLabel("this phone · cpu idle · 9.1 gb free")
+            SectionLabel("This phone · cpu idle · 9.1 GB free")
             Text("Run anything.", style = MaterialTheme.typography.displayMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Route.entries.forEach { RouteTag(it) }
@@ -511,7 +523,7 @@ private fun RisoPreview() {
                 ModeCard("02", "Chat", "Qwen3 4B · Q4", Route.LOCAL_CPU, {}, Modifier.weight(1f).height(120.dp))
                 ModeCard("03", "Agent", "Claude Sonnet", Route.CLOUD_API, {}, Modifier.weight(1f).height(120.dp))
             }
-            RunRow("Isometric greenhouse, riso print", "IMAGE · 12 S") { RouteTag(Route.LOCAL_CPU) }
+            RunRow("Isometric greenhouse, riso print", "image · 12 s") { RouteTag(Route.LOCAL_CPU) }
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 BigReadout("Steps", "4")
                 BigReadout("Seed", "4182")
@@ -522,7 +534,7 @@ private fun RisoPreview() {
                 GhostButton("Deny", {}, Modifier.weight(1f), accent = MaterialTheme.colorScheme.primary)
                 PaperButton("Approve", {}, Modifier.weight(1f))
             }
-            HalftoneField(Modifier.fillMaxWidth().height(120.dp))
+            EmptyCanvas(Modifier.fillMaxWidth().height(120.dp), hint = "Describe an image to start")
             Spacer(Modifier.width(1.dp))
         }
     }

@@ -5,7 +5,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -54,7 +60,7 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.Locale
 
-/** Uppercase, tracked mono caption: `SAMPLER`, `CTX`, `SEED`. */
+/** Untracked mono caption in sentence case ([labelCase]): `Sampler`, `Seed`, `CFG`. */
 @Composable
 fun MicroLabel(
     text: String,
@@ -64,7 +70,7 @@ fun MicroLabel(
     maxLines: Int = 1,
 ) {
     Text(
-        text = text.uppercase(Locale.ROOT),
+        text = labelCase(text),
         modifier = modifier,
         style = AutobotTheme.styles.micro,
         color = color,
@@ -144,7 +150,13 @@ fun Readout(
     }
 }
 
-/** Square-cornered tag, e.g. `[TOOLS]`, `LORA 0.80`. */
+/**
+ * Square-cornered mono tag: a state, as written (`ready`, `no build`, `lora 0.80`), or a short
+ * action in sentence case ([labelCase]: `Get`, `Open`). Tags are never in the signal: an [accent] of the scheme's primary reads
+ * as onSurface on a hairline (the purple is for marks). A [filled] tag that can be tapped is a
+ * toggle and shows as selected (onSurface over the 2 dp purple bar, like [ChoiceChip]); one that
+ * cannot is a badge over a picture, on a translucent plate of the surface.
+ */
 @Composable
 fun Tag(
     text: String,
@@ -152,16 +164,37 @@ fun Tag(
     accent: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     filled: Boolean = false,
     onClick: (() -> Unit)? = null,
+    /** Show [text] exactly as given (a user's own name for something), never re-cased. */
+    asWritten: Boolean = false,
 ) {
     val shape = MaterialTheme.shapes.extraSmall
+    val scheme = MaterialTheme.colorScheme
+    val ink = if (accent == scheme.primary) scheme.onSurface else accent
+    val selected = filled && onClick != null
+    val badge = filled && onClick == null
     val base = modifier
-        .then(if (filled) Modifier.background(accent, shape) else Modifier.border(1.dp, accent.copy(alpha = 0.55f), shape))
+        .then(
+            when {
+                badge -> Modifier.background(scheme.surface.copy(alpha = 0.85f), shape)
+                else -> Modifier.border(1.dp, if (ink == scheme.onSurfaceVariant || selected) scheme.outlineVariant else ink.copy(alpha = 0.55f), shape)
+            },
+        )
+        .clip(shape)
+        .selectionBar(selected)
         .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
         .padding(horizontal = 6.dp, vertical = 3.dp)
-    // Filled tags are solid blocks; ink or bone text, whichever reads better on the fill (ink on
-    // the signal red and amber, where bone is under 3.5:1).
-    val textColor = if (!filled) accent else if (accent.luminance() > 0.18f) AutobotColors.PaperInk else AutobotColors.Bone100
-    Text(text.uppercase(Locale.ROOT), modifier = base, style = AutobotTheme.styles.micro, color = textColor, maxLines = 1)
+    val textColor = when {
+        badge || selected -> scheme.onSurface
+        else -> ink
+    }
+    Text(
+        // A tag that can be tapped is a button: sentence case. A state stays as written.
+        if (onClick != null && !asWritten) labelCase(text) else text,
+        modifier = base,
+        style = if (selected) AutobotTheme.styles.micro.copy(fontWeight = FontWeight.Medium) else AutobotTheme.styles.micro,
+        color = textColor,
+        maxLines = 1,
+    )
 }
 
 /**
@@ -219,9 +252,9 @@ fun ValueSlider(
 }
 
 /**
- * Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The selection is a neutral
- * block (ink on bone, bone on ink): a choice is not a signal. It slides to the new option
- * (ease-out, `transitionMillis`).
+ * Single-select segmented row: `[ txt2img | img2img | inpaint ]` in a hairline frame. The
+ * selected option reads in onSurface (medium) over a 2 dp purple bar (as [selectionBar]); the
+ * others in onSurfaceVariant. The bar slides to a new option (ease-out, `transitionMillis`).
  */
 @Composable
 fun <T> Segmented(
@@ -231,29 +264,31 @@ fun <T> Segmented(
     label: (T) -> String,
     modifier: Modifier = Modifier,
 ) {
-    val shape = MaterialTheme.shapes.small
+    val shape = MaterialTheme.shapes.medium
     val slide = rememberInkSlide(options.indexOf(selected).coerceAtLeast(0))
-    val block = MaterialTheme.colorScheme.onSurface
+    val bar = AutobotColors.Purple
     val n = options.size.coerceAtLeast(1)
     Row(
         modifier = modifier
             // As tall as the tallest label: at a large font size a label wraps to a second line
-            // instead of being cut off by a fixed 34 dp height.
+            // instead of being cut off by a fixed height.
             .height(IntrinsicSize.Min)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .clip(shape)
             .drawBehind {
                 val divider = 1.dp.toPx()
                 val slot = (size.width - divider * (n - 1)) / n
-                drawRect(block, Offset(slide.position * (slot + divider), 0f), Size(slot, size.height))
+                val h = SelectionBarHeight.toPx()
+                val inset = SelectionBarInset.toPx().coerceAtMost(slot / 4f)
+                drawRect(bar, Offset(slide.position * (slot + divider) + inset, size.height - h), Size(slot - 2 * inset, h))
             }
             .selectableGroup(),
     ) {
         options.forEachIndexed { index, option ->
             val isSelected = option == selected
-            if (index > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
+            if (index > 0) Box(Modifier.width(1.dp).fillMaxHeight().padding(vertical = 12.dp).background(MaterialTheme.colorScheme.outlineVariant))
             val text by animateColorAsState(
-                if (isSelected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
+                if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 tween(if (LocalInkMotion.current.reduced) 0 else Motion.transitionMillis),
                 label = "segment",
             )
@@ -264,12 +299,12 @@ fun <T> Segmented(
                     // 48 dp: the smallest touch target Android's accessibility guidance allows.
                     .heightIn(min = 48.dp)
                     .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(option) })
-                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                    .padding(horizontal = 2.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    label(option).uppercase(Locale.ROOT),
-                    style = AutobotTheme.styles.micro,
+                    labelCase(label(option)),
+                    style = AutobotTheme.styles.micro.copy(fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal),
                     color = text,
                     textAlign = TextAlign.Center,
                     maxLines = linesFor(2, 4),
@@ -280,13 +315,75 @@ fun <T> Segmented(
     }
 }
 
+/** The selection bar under a selected segment, chip or tab: 2 dp of the mark's purple. */
+val SelectionBarHeight = 2.dp
+
+/** The bar's inset from its segment's sides. */
+private val SelectionBarInset = 12.dp
+
+/** Draws the 2 dp purple selection bar along the bottom edge while [selected] (layout unchanged). */
+fun Modifier.selectionBar(selected: Boolean, inset: Dp = 0.dp): Modifier = if (!selected) this else drawBehind {
+    val h = SelectionBarHeight.toPx()
+    val i = inset.toPx()
+    drawRect(AutobotColors.Purple, Offset(i, size.height - h), Size(size.width - 2 * i, h))
+}
+
+/**
+ * A choice in a row of chips (filters, styles, sub-tabs): a hairline-framed mono label. Selected
+ * reads in onSurface (medium) over the 2 dp purple bar; unselected in onSurfaceVariant. The
+ * touch target is 48 dp tall around a 32 dp chip.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ChoiceChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    /** A second action on long press (e.g. a folder's menu). */
+    onLongClick: (() -> Unit)? = null,
+    /** Show [text] exactly as given (a user's own name for something), never re-cased. */
+    asWritten: Boolean = false,
+) {
+    val shape = MaterialTheme.shapes.medium
+    Box(
+        modifier
+            .heightIn(min = 48.dp)
+            .semantics { this.selected = selected; role = Role.Tab }
+            .combinedClickable(enabled = enabled, onLongClick = onLongClick, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+                .clip(shape)
+                .selectionBar(selected)
+                .heightIn(min = 32.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (asWritten) text else labelCase(text),
+                style = AutobotTheme.styles.micro.copy(fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal),
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.outline
+                    selected -> MaterialTheme.colorScheme.onSurface
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = linesFor(1, 3),
+            )
+        }
+    }
+}
+
 enum class BlockStatus { PENDING, RUNNING, OK, ERROR, DENIED }
 
 @Composable
 private fun BlockStatus.color(): Color = when (this) {
     BlockStatus.PENDING -> AutobotTheme.inks.amber
-    BlockStatus.RUNNING -> AutobotTheme.inks.uv
-    BlockStatus.OK -> MaterialTheme.colorScheme.primary
+    BlockStatus.RUNNING -> AutobotColors.Purple
+    BlockStatus.OK -> MaterialTheme.colorScheme.onSurfaceVariant
     BlockStatus.ERROR -> AutobotTheme.inks.signal
     BlockStatus.DENIED -> MaterialTheme.colorScheme.onSurfaceVariant
 }
@@ -341,7 +438,7 @@ fun TerminalBlock(
                 } else {
                     Box(Modifier.weight(1f))
                 }
-                MicroLabel(status.name, color = status.color())
+                MicroLabel(status.name.lowercase(Locale.ROOT), color = if (status == BlockStatus.ERROR) status.color() else MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (expanded && !body.isNullOrEmpty()) {
                 Hairline()
@@ -365,7 +462,7 @@ fun TerminalBlock(
 private fun UndergroundPreview() {
     AutobotTheme {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Panel(title = "Sampler", accent = AutobotColors.Acid, trailing = { Tag("DPM++ 2M", accent = MaterialTheme.colorScheme.primary) }) {
+            Panel(title = "Sampler", trailing = { Tag("dpm++ 2m") }) {
                 ValueSlider("Steps", 24f, {}, 1f..60f, steps = 58, format = { it.toInt().toString() })
                 ValueSlider("CFG", 7f, {}, 1f..20f)
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {

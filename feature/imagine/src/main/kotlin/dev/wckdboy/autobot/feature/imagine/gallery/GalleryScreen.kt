@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.imagine.gallery
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyState
 import android.content.ClipData
 import android.text.format.DateUtils
 import androidx.compose.foundation.Image
@@ -78,7 +79,6 @@ import dev.wckdboy.autobot.core.designsystem.component.Readout
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.component.InkLoaderBlock
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -126,7 +126,7 @@ fun GalleryScreen(
                     } else {
                         Spacer(Modifier.size(12.dp))
                     }
-                    Text("GALLERY", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text("Gallery", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     if (!large) MicroLabel(count, Modifier.padding(end = 8.dp))
                     IconButton(onClick = { actions.setFavoritesOnly(!state.favoritesOnly) }) {
                         Icon(
@@ -143,7 +143,7 @@ fun GalleryScreen(
                     query.text,
                     query::edit,
                     Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
-                    placeholder = "search prompts / backends",
+                    placeholder = "Search prompts and backends",
                     singleLine = true,
                     mono = true,
                 )
@@ -151,8 +151,8 @@ fun GalleryScreen(
         },
     ) { padding ->
         if (state.loaded && state.items.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize().inkGround(), contentAlignment = Alignment.Center) {
-                MicroLabel(if (state.total == 0) "nothing generated yet" else "no matches")
+            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                EmptyState(if (state.total == 0) "Nothing made yet. Images you make appear here." else "No images match that search.")
             }
         } else {
             LazyVerticalGrid(

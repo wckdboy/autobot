@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.ui
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,9 +67,9 @@ fun DatabaseErrorScreen(reason: String, resetting: Boolean, onReset: () -> Unit,
                 TextButton(onClick = {
                     confirm = false
                     onReset()
-                }) { Text("Reset") }
+                }) { ActionText("Reset") }
             },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { ActionText("Cancel") } },
         )
     }
 }

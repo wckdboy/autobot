@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.home
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import androidx.compose.ui.Alignment
+import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,9 +39,6 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.ProvideInkAmbient
-import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
-import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 
 @Composable
 fun RunRoute(
@@ -68,17 +68,14 @@ fun RunScreen(
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
 ) {
-    // The image card's empty hero drifts as ambient paper; still while the phone's CPU works.
-    val ambient = rememberInkAmbient(heavyWork = state.busy)
-    Scaffold(topBar = { AutobotTopBar(actions = { if (state.live > 0) CountBadge("${state.live} LIVE") }) }) { padding ->
-        // One ambient clock for the hero and the living mode cards.
-        ProvideInkAmbient(ambient) {
+    Scaffold(topBar = { AutobotTopBar(actions = { if (state.live > 0) CountBadge("${state.live} live") }) }) { padding ->
+        run {
             LazyColumn(
-                Modifier.padding(padding).fillMaxSize().ambientTouch(ambient),
+                Modifier.padding(padding).fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 item {
-                    SectionLabel(state.status)
+                    SectionLabel(state.status.replaceFirstChar { it.titlecase(Locale.ROOT) })
                     Spacer(Modifier.height(14.dp))
                 }
                 // One 2-column grid: every row splits at the same x with the same gutter.
@@ -129,9 +126,9 @@ fun RunScreen(
                 // Nothing run yet: no empty section (the cards above are the way in).
                 if (state.recent.isNotEmpty()) {
                     item {
-                        Row {
-                            MicroLabel("recent runs", Modifier.weight(1f).padding(top = 14.dp))
-                            TextButton(onClick = onOpenAllRuns) { Text("All", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SectionLabel("Recent runs", Modifier.weight(1f))
+                            TextButton(onClick = onOpenAllRuns) { ActionText("All", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }

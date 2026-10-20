@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.models
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -140,7 +141,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
             state.message?.let {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     MicroLabel(it, Modifier.weight(1f))
-                    TextButton(onClick = viewModel::consume) { Text("OK") }
+                    TextButton(onClick = viewModel::consume) { ActionText("OK") }
                 }
             }
 
@@ -181,7 +182,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
                         civitaiKey,
                         { civitaiKey = it },
                         Modifier.fillMaxWidth(),
-                        placeholder = "api key",
+                        placeholder = "API key",
                         singleLine = true,
                         mono = true,
                         keyboardOptions = SecretKeyboardOptions,
@@ -213,8 +214,8 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
             onDismissRequest = { confirmMature = false },
             title = { Text("Are you 18 or older?") },
             text = { Text("Mature models and their (blurred) previews will appear in Civitai results. Content flagged as depicting minors or real people is never shown.") },
-            confirmButton = { TextButton(onClick = { confirmMature = false; viewModel.setMature(true) }) { Text("I AM 18+") } },
-            dismissButton = { TextButton(onClick = { confirmMature = false }) { Text("CANCEL") } },
+            confirmButton = { TextButton(onClick = { confirmMature = false; viewModel.setMature(true) }) { ActionText("I am 18+") } },
+            dismissButton = { TextButton(onClick = { confirmMature = false }) { ActionText("Cancel") } },
         )
     }
 }

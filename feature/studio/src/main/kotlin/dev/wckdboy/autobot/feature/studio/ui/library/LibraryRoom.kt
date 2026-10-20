@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.studio.ui.library
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -220,8 +221,8 @@ private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: Li
             onDismissRequest = { confirmExport = false },
             title = { Text("Export unencrypted copy?") },
             text = { Text("A decrypted copy goes to ${dev.wckdboy.autobot.feature.studio.media.StudioExport.destination(asset)} in shared storage, where other apps can read it. The Studio keeps its encrypted original.") },
-            confirmButton = { TextButton(onClick = { confirmExport = false; actions.export(asset) }) { Text("EXPORT") } },
-            dismissButton = { TextButton(onClick = { confirmExport = false }) { Text("CANCEL") } },
+            confirmButton = { TextButton(onClick = { confirmExport = false; actions.export(asset) }) { ActionText("Export") } },
+            dismissButton = { TextButton(onClick = { confirmExport = false }) { ActionText("Cancel") } },
         )
     }
     if (confirmDelete) {
@@ -229,8 +230,8 @@ private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: Li
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete this asset?") },
             text = { Text("It is removed from the library and its encrypted file is deleted.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; actions.delete(asset); onDismiss() }) { Text("DELETE") } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("CANCEL") } },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; actions.delete(asset); onDismiss() }) { ActionText("Delete") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { ActionText("Cancel") } },
         )
     }
 }
@@ -382,7 +383,7 @@ private fun NewProjectDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) 
         onDismissRequest = onDismiss,
         title = { Text("New project") },
         text = { ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true) },
-        confirmButton = { TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { Text("CREATE") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } },
+        confirmButton = { TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { ActionText("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }

@@ -101,6 +101,7 @@ targets:
           - jetbrains_mono.ttf
         UILaunchScreen:
           UIColorName: LaunchBackground
+          UIImageName: LaunchMark
         UIApplicationSupportsIndirectInputEvents: true
         # Recipes (ROADMAP Phase 2.5 item 7): a processing task iOS runs when it chooses.
         BGTaskSchedulerPermittedIdentifiers:

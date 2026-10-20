@@ -110,7 +110,7 @@ fun Stepper(
                 value.toString(),
                 modifier = Modifier.widthIn(min = 32.dp).padding(horizontal = 4.dp),
                 style = AutobotTheme.styles.readout,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
             )
             StepperButton("+", enabled = value < range.last) { onValueChange(value + 1) }
@@ -167,7 +167,7 @@ fun ConsoleTextField(
             enabled = enabled,
             textStyle = if (mono) AutobotTheme.styles.code else MaterialTheme.typography.bodyMedium,
             placeholder = placeholder?.let { { Text(it, style = if (mono) AutobotTheme.styles.code else MaterialTheme.typography.bodyMedium) } },
-            label = label?.let { { Text(it.uppercase(java.util.Locale.ROOT), style = AutobotTheme.styles.micro) } },
+            label = label?.let { { Text(it, style = AutobotTheme.styles.micro) } },
             minLines = if (singleLine) 1 else minLines,
             maxLines = if (singleLine) 1 else maxLines,
             singleLine = singleLine,

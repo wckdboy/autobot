@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.core.designsystem.motion
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
@@ -32,9 +34,6 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneStrip
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
@@ -43,7 +42,6 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
-import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
@@ -128,7 +126,7 @@ private fun Chat(text: MutableState<String>) {
                 Column {
                     ThinkingDisclosure("Planning the answer\nchecking the calendar", isThinking = true)
                     ChatBubble(BubbleRole.ASSISTANT, text.value.takeLast(1200), isStreaming = true)
-                    Row { HalftoneStrip(cell = 3.dp); MicroLabel("composing") }
+                    Row { InkLoader(); MicroLabel("composing") }
                 }
             }
             items(30, key = { it }) { i ->
@@ -176,7 +174,7 @@ private fun Models(progress: MutableFloatState) {
 private fun Imagine(progress: MutableFloatState) {
     PaperTheme {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            DevelopingHalftone(preview = null, modifier = Modifier.fillMaxWidth().aspectRatio(1f), progress = progress.floatValue)
+            DevelopingPreview(null, Modifier.fillMaxWidth().aspectRatio(1f))
             InkProgressBar(progress.floatValue, Modifier.fillMaxWidth().height(2.dp), state = InkBarState.Running)
             PrimaryButton("Generate", {}, Modifier.fillMaxWidth(), busy = true)
         }
@@ -185,9 +183,8 @@ private fun Imagine(progress: MutableFloatState) {
 
 @Composable
 private fun Home() {
-    val ambient = rememberInkAmbient()
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        HalftoneField(Modifier.fillMaxWidth().height(260.dp), cell = 8.dp, ambient = ambient)
+        EmptyCanvas(Modifier.fillMaxWidth().height(260.dp))
         for (i in 0 until 4) RunRow("Recent run $i", "IMAGE · 12 S")
     }
 }

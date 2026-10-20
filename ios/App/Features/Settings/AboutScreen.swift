@@ -80,7 +80,7 @@ struct AboutScreen: View {
                         Text(text).textStyle(.titleSmall).foregroundStyle(c.onSurface).padding(.top, 6)
                     case .bullet(let text):
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("•").textStyle(.bodyMedium).foregroundStyle(c.primary).accessibilityHidden(true)
+                            Text("•").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).accessibilityHidden(true)
                             Text(text).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant)
                                 .fixedSize(horizontal: false, vertical: true)
                         }

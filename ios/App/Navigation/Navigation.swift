@@ -199,7 +199,7 @@ struct AutobotNavHost: View {
         switch destination {
         case .chatList: ChatListScreen()
         case .chat(let id): ChatScreen(conversationId: id).id(id)
-        case .imagine(let handoff, let intent, let modelId, let prompt): ImagineScreen(handoffId: handoff, intent: intent, modelId: modelId, prompt: prompt).paperTheme()
+        case .imagine(let handoff, let intent, let modelId, let prompt): ImagineScreen(handoffId: handoff, intent: intent, modelId: modelId, prompt: prompt)
         case .gallery(let openId): GalleryScreen(openId: openId)
         case .providers: ProvidersScreen()
         case .mcpServers: McpServersScreen()

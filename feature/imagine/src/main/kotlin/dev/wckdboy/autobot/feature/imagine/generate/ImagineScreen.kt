@@ -1,5 +1,12 @@
 package dev.wckdboy.autobot.feature.imagine.generate
 
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.Notice
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
+import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,11 +77,8 @@ import dev.wckdboy.autobot.core.designsystem.component.linesFor
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.QuietField
-import dev.wckdboy.autobot.core.designsystem.component.InkAmbient
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
@@ -92,8 +96,6 @@ import dev.wckdboy.autobot.core.designsystem.component.SelectField
 import dev.wckdboy.autobot.core.designsystem.component.Stepper
 import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
-import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
-import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -178,8 +180,6 @@ fun ImagineScreen(
     val context = LocalContext.current
     var selected by rememberSaveable { mutableIntStateOf(-1) }
     val request = state.request
-    // The empty proofs are living paper; they hold still while an image is being made.
-    val ambient = rememberInkAmbient(heavyWork = state.running != null)
     // The engine the selected model actually runs on (the shown chip, also before one is tapped).
     val route = imageRoute(state.backend, state.selectedChip?.takeIf { it.onDevice }?.accelerator)
 
@@ -191,7 +191,7 @@ fun ImagineScreen(
                 actions = {
                     route?.let { RouteTag(it) }
                     // The full image room (queue, grids, workflows) is in Studio mode.
-                    Tag("studio", accent = MaterialTheme.colorScheme.primary, onClick = onOpenStudio)
+                    Tag("Studio", accent = MaterialTheme.colorScheme.onSurface, onClick = onOpenStudio)
                     IconButton(onClick = onOpenGallery) { Icon(AutobotIcons.Image, contentDescription = "Gallery") }
                 },
             )
@@ -204,10 +204,6 @@ fun ImagineScreen(
                 // The bottom bar rides above the keyboard (below), so the scaffold padding already clears it.
                 .padding(padding)
                 .fillMaxSize()
-                // No paper ground here (as on iOS): the prompt and readouts fill the screen, dots must
-                // not sit behind text, and a ground around the proofs' own finer grid read as two
-                // misaligned dot screens.
-                .ambientTouch(ambient)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -217,7 +213,7 @@ fun ImagineScreen(
                 SectionLabel("no image engine yet")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PrimaryButton("Get a model", onOpenModels, Modifier.weight(1f))
-                    GhostButton("Add a pc", onOpenBackends, Modifier.weight(1f))
+                    GhostButton("Add a PC", onOpenBackends, Modifier.weight(1f))
                 }
             }
 
@@ -229,32 +225,16 @@ fun ImagineScreen(
 
             // Model chips: on-device models and each PC backend's checkpoints.
             if (state.chips.isNotEmpty()) {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     val current = state.selectedChip
                     state.chips.forEach { chip ->
-                        val active = chip == current
-                        Text(
-                            chip.label.uppercase(Locale.ROOT),
-                            modifier = Modifier
-                                .background(if (active) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.background, MaterialTheme.shapes.extraSmall)
-                                .border(1.dp, MaterialTheme.colorScheme.onBackground, MaterialTheme.shapes.extraSmall)
-                                .clickable { actions.selectChip(chip) }
-                                .padding(horizontal = 8.dp, vertical = 5.dp),
-                            style = AutobotTheme.styles.micro,
-                            color = if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1,
-                        )
+                        ChoiceChip(chip.label, selected = chip == current, onClick = { actions.selectChip(chip) })
                     }
-                    Text(
-                        "+ MODEL",
-                        modifier = Modifier.clickable(onClick = onOpenModels).padding(horizontal = 6.dp, vertical = 5.dp),
-                        style = AutobotTheme.styles.micro,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    TextButton(onClick = onOpenModels) { ActionText("+ Model", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
 
-            Hairline(color = MaterialTheme.colorScheme.onBackground)
+            Hairline()
             // Wraps at a large font size: four display-face numbers ("1024×576", a six-digit seed)
             // overran the row and the last readouts were squeezed to nothing.
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -263,14 +243,14 @@ fun ImagineScreen(
                 BigReadout("Size", state.outputSize.let { (w, h) -> sizeLabel(w, h) }, onClick = { showTune = true })
                 BigReadout("Batch", request.batchCount.toString(), onClick = { showTune = true })
             }
-            Hairline(color = MaterialTheme.colorScheme.onBackground)
+            Hairline()
 
             if (request.mode != DiffusionMode.TXT2IMG) {
                 InitStrip(state, actions, onEditMask = { showMask = true })
             }
 
             // A tap opens the result full size (zoom, swipe through the batch, img2img and more).
-            ProofGrid(state, selected, ambient, onSelect = { i ->
+            ProofGrid(state, selected, onSelect = { i ->
                 selected = i
                 state.results.getOrNull(i)?.let { actions.openViewer(it.galleryId) }
             })
@@ -278,9 +258,9 @@ fun ImagineScreen(
             state.results.getOrNull(selected.coerceAtLeast(0))?.takeIf { state.running == null }?.let { result ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     MicroLabel("seed ${result.seed} · ${result.width}×${result.height} · ${String.format(Locale.ROOT, "%.1f", result.durationMs / 1000f)} s", Modifier.weight(1f))
-                    Tag("view", onClick = { actions.openViewer(result.galleryId) })
-                    Tag("↺ seed", accent = MaterialTheme.colorScheme.primary, onClick = { actions.setSeed(result.seed) })
-                    Tag("→ img2img", accent = AutobotTheme.inks.uv, onClick = { actions.handoff(result.galleryId, ViewerAction.IMG2IMG) })
+                    Tag("View", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.openViewer(result.galleryId) })
+                    Tag("↺ Seed", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.setSeed(result.seed) })
+                    Tag("→ img2img", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.handoff(result.galleryId, ViewerAction.IMG2IMG) })
                 }
                 if (IncognitoImages.isUnsaved(result.galleryId)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -288,7 +268,7 @@ fun ImagineScreen(
                             MicroLabel(PanicCopy.SAVED, Modifier.weight(1f))
                         } else {
                             MicroLabel(PanicCopy.NOT_SAVED, Modifier.weight(1f))
-                            Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.primary, onClick = { actions.saveResult(result.galleryId) })
+                            Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.saveResult(result.galleryId) })
                         }
                     }
                 }
@@ -385,9 +365,9 @@ private fun StyleRow(onApply: (PromptSnippet) -> Unit, enabled: Boolean) {
 
 private const val DISABLED_ALPHA = 0.38f
 
-/** 2×2 proofs: halftone while sampling, the image when done. */
+/** 2×2 proofs: a flat panel (the engine's preview when it sends one) while sampling, the image when done. */
 @Composable
-private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient, onSelect: (Int) -> Unit) {
+private fun ProofGrid(state: ImagineUiState, selected: Int, onSelect: (Int) -> Unit) {
     val running = state.running
     val count = if (running != null) running.batch.coerceAtLeast(1) else state.results.size
     val slots = count.coerceAtLeast(1).coerceAtMost(4)
@@ -409,8 +389,8 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient,
                         Modifier
                             .weight(1f)
                             .aspectRatio(ratio)
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .then(if (i == selected && result != null) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .then(if (i == selected && result != null) Modifier.border(2.dp, AutobotColors.Purple) else Modifier)
                             .clickable(enabled = result != null, onClickLabel = "View full size") { onSelect(i) },
                     ) {
                         // Results that arrive while we watch get printed; ones already there just show.
@@ -425,21 +405,15 @@ private fun ProofGrid(state: ImagineUiState, selected: Int, ambient: InkAmbient,
                                 contentDescription = "Result ${i + 1}",
                                 key = result.galleryId,
                             )
-                            running != null -> DevelopingHalftone(
-                                preview = if (live) running.preview else null,
-                                modifier = Modifier.fillMaxSize(),
-                                progress = if (live && running.totalSteps > 0) running.step.toFloat() / running.totalSteps else 0f,
-                                loading = !live || running.totalSteps <= 0 || running.phase != null,
-                                seed = i.toFloat(),
-                            )
-                            else -> QuietField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant, ambient = ambient)
+                            running != null -> DevelopingPreview(if (live) running.preview else null, Modifier.fillMaxSize())
+                            else -> EmptyCanvas(Modifier.fillMaxSize(), hint = "Describe an image, then Generate.".takeIf { i == 0 })
                         }
                         if (running != null && i == running.image) {
                             if (running.totalSteps > 0 && running.phase == null) {
                                 Tag(
                                     "step ${running.step}/${running.totalSteps}",
                                     Modifier.align(Alignment.BottomStart).padding(6.dp),
-                                    accent = MaterialTheme.colorScheme.primary,
+                                    accent = MaterialTheme.colorScheme.surface,
                                     filled = true,
                                 )
                             } else {
@@ -477,7 +451,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
                     running != null && running.byAgent -> "Agent is generating · ${(now - running.startedAt) / 1000} s"
                     running != null -> "Running ${if (state.backend?.kind == BackendKind.ON_DEVICE) "on device" else "on ${state.backend?.name}"} · ${(now - running.startedAt) / 1000} s"
                     state.results.isNotEmpty() -> "Done · ${state.results.size} image${if (state.results.size == 1) "" else "s"}"
-                    else -> "${if (state.incognito) "${PanicCopy.INCOGNITO_IMAGES_TITLE} · " else ""}${state.request.mode.label} · ${state.request.sampler.ifBlank { "default sampler" }} · cfg ${state.request.cfgScale}"
+                    else -> "${if (state.incognito) "${PanicCopy.INCOGNITO_IMAGES_TITLE} · " else ""}${state.request.mode.label} · ${state.request.sampler.ifBlank { "default sampler" }} · CFG ${state.request.cfgScale}"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
@@ -487,7 +461,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
             if (running != null) {
                 Text("${state.results.size}/${running.batch}", style = AutobotTheme.styles.readout)
             } else {
-                TextButton(onClick = onShowTune) { Text("TUNE", style = MaterialTheme.typography.labelLarge) }
+                TextButton(onClick = onShowTune) { ActionText("Tune") }
             }
         }
         InkProgressBar(
@@ -498,7 +472,7 @@ private fun StudioBar(state: ImagineUiState, actions: ImagineViewModel, onShowTu
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when {
-                running != null -> GhostButton("Cancel", actions::cancel, Modifier.fillMaxWidth(), accent = MaterialTheme.colorScheme.primary, enabled = !running.byAgent)
+                running != null -> GhostButton("Cancel", actions::cancel, Modifier.fillMaxWidth(), enabled = !running.byAgent)
                 state.results.isNotEmpty() -> {
                     GhostButton("Variations", actions::variations, Modifier.weight(1f), enabled = state.canGenerate)
                     PrimaryButton("Run again", actions::runAgain, Modifier.weight(1f), enabled = state.canGenerate)
@@ -539,13 +513,7 @@ private fun InitStrip(state: ImagineUiState, actions: ImagineViewModel, onEditMa
 
 @Composable
 private fun ErrorLine(message: String, onDismiss: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primary).padding(start = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.weight(1f))
-        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp)) }
-    }
+    Notice(message, tone = NoticeTone.ERROR, action = "Dismiss", onAction = onDismiss)
 }
 
 /** Every parameter, out of the way: mode, negative, sampler, cfg, size, seed, batch, LoRA. */
@@ -562,7 +530,7 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
         ) {
             Row(Modifier.inkStagger(0), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("tune", Modifier.weight(1f))
-                Tag("backends", onClick = { onDismiss(); onOpenBackends() })
+                Tag("Backends", accent = MaterialTheme.colorScheme.onSurface, onClick = { onDismiss(); onOpenBackends() })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -609,7 +577,7 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (request.seed < 0) "random" else request.seed.toString(), style = AutobotTheme.styles.readout, modifier = Modifier.weight(1f))
                         IconButton(onClick = actions::randomizeSeed) { Icon(AutobotIcons.Dice, "Fixed random seed") }
-                        if (request.seed >= 0) TextButton(onClick = actions::setRandomSeed) { Text("RANDOM") }
+                        if (request.seed >= 0) TextButton(onClick = actions::setRandomSeed) { ActionText("Random") }
                     }
                 }
                 Stepper("Batch", request.batchCount, actions::setBatch, 1..ImagineViewModel.MAX_BATCH)
@@ -625,7 +593,7 @@ private fun TuneSheet(state: ImagineUiState, actions: ImagineViewModel, onDismis
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MicroLabel("lora", Modifier.weight(1f))
-                if (traits.runtimeLora) Tag("+ add", accent = MaterialTheme.colorScheme.primary, onClick = { showLoras = true })
+                if (traits.runtimeLora) Tag("+ Add", accent = MaterialTheme.colorScheme.onSurface, onClick = { showLoras = true })
             }
             if (!traits.runtimeLora) {
                 MicroLabel(
@@ -668,16 +636,15 @@ private fun SizeControls(state: ImagineUiState, actions: ImagineViewModel) {
         Aspect.ALL.forEach { aspect ->
             val active = aspect == current
             val (w, h) = sizes.size(sizes.baseOf(request.width, request.height), aspect)
-            Tag(
+            ChoiceChip(
                 "${aspect.label} · ${w}×$h",
-                Modifier.semantics { contentDescription = "${aspect.label}, $w by $h pixels" },
-                accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                filled = active,
+                selected = active,
                 onClick = { actions.setAspect(aspect) },
+                modifier = Modifier.semantics { contentDescription = "${aspect.label}, $w by $h pixels" },
             )
         }
     }
-    traits.sizeNote?.let { MicroLabel(it, color = MaterialTheme.colorScheme.primary, maxLines = 3) }
+    traits.sizeNote?.let { MicroLabel(it, maxLines = 3) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -687,9 +654,9 @@ private fun LoraSheet(available: List<String>, selected: Set<String>, onPick: (S
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionLabel("lora library · ${available.size}", Modifier.inkStagger(0))
-            ConsoleTextField(query, { query = it }, Modifier.fillMaxWidth().inkStagger(1), placeholder = "filter", singleLine = true, mono = true)
+            ConsoleTextField(query, { query = it }, Modifier.fillMaxWidth().inkStagger(1), placeholder = "Filter", singleLine = true, mono = true)
             val filtered = available.filter { query.isBlank() || it.contains(query, ignoreCase = true) }
-            if (filtered.isEmpty()) MicroLabel(if (available.isEmpty()) "no loras — download some from civitai in the models tab" else "no match")
+            if (filtered.isEmpty()) MicroLabel(if (available.isEmpty()) "No LoRAs yet. Get some from Civitai in the Models tab." else "No match")
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 filtered.forEach { name ->
                     Row(

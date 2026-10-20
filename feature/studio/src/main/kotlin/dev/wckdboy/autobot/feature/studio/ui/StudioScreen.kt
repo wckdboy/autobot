@@ -55,7 +55,7 @@ import dev.wckdboy.autobot.shared.studio.AssetType
 import dev.wckdboy.autobot.shared.studio.StudioAsset
 
 /** The Studio's rooms, in bar order. */
-enum class StudioRoom(val label: String) { IMAGE("image"), AUDIO("audio"), VIDEO("video"), WORKFLOWS("workflows"), LIBRARY("library") }
+enum class StudioRoom(val label: String) { IMAGE("Image"), AUDIO("Audio"), VIDEO("Video"), WORKFLOWS("Workflows"), LIBRARY("Library") }
 
 private val ROOMS = StudioRoom.entries.map { NavItem(it, it.label) }
 
@@ -144,7 +144,7 @@ fun StudioScreen(
                 AutobotTopBar(
                     title = "Studio",
                     navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Leave the Studio") } },
-                    actions = { shell.project?.let { Tag(it.name, onClick = { room = StudioRoom.LIBRARY }) } },
+                    actions = { shell.project?.let { Tag(it.name, accent = MaterialTheme.colorScheme.onSurface, onClick = { room = StudioRoom.LIBRARY }, asWritten = true) } },
                 )
                 Box(Modifier.weight(1f).consumeWindowInsets(WindowInsets.navigationBars).imePadding()) {
                     when (room) {

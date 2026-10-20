@@ -148,7 +148,7 @@ private struct ModelCompute: View {
         let isText = model.engine == .llama
         let order: [Backend] = [.auto, .cpu, .gpu, .npu]
         Panel(title: model.title) {
-            Tag("benchmark", accent: c.primary, filled: !running || benchmarking, busy: benchmarking, action: running ? nil : onBenchmark)
+            Tag("benchmark", accent: c.primary, busy: benchmarking, action: running ? nil : onBenchmark)
         } content: {
             Segmented(options: order, selected: model.backend, label: { b in
                 if b == .auto, let fastest { "auto · \(fastest.label)" } else { b.label }

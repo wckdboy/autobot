@@ -75,7 +75,7 @@ class RemoteViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RemoteUiState())
 }
 
-/** REMOTE tab: everything that leaves the phone — APIs, PCs on the LAN, hub accounts, the route. */
+/** The Remote tab: everything that leaves the phone — APIs, PCs on the LAN, hub accounts, the route. */
 @Composable
 fun RemoteRoute(
     onOpenProviders: () -> Unit,
@@ -103,6 +103,7 @@ fun RemoteScreen(
         topBar = {
             AutobotTopBar(
                 title = "Remote",
+                mark = true,
                 // The network route, and the way into Privacy Center. 8 dp here + the bar's 8 dp = a 16 dp edge margin.
                 actions = { PrivacyStatusPill(state.network, Modifier.padding(end = 8.dp), onClick = onOpenPrivacy) },
             )
@@ -115,7 +116,7 @@ fun RemoteScreen(
                 items(nodes, key = { "a-${it.id}" }) { n ->
                     RunRow(
                         "Agent on ${n.displayName}",
-                        "tasks run on that machine · you approve",
+                        "runs there · you approve",
                         // The node's own mark: Invincible's pixel i.
                         leading = { NodeMark() },
                         onClick = { onOpenNodeAgent(n.id) },
@@ -132,7 +133,7 @@ fun RemoteScreen(
                 }
             }
             item {
-                RunRow(if (state.providers.isEmpty()) "Add a provider" else "Edit providers", "", onClick = onOpenProviders) { Tag(if (state.providers.isEmpty()) "add" else "open") }
+                RunRow(if (state.providers.isEmpty()) "Add a provider" else "Edit providers", "", onClick = onOpenProviders) { Tag(if (state.providers.isEmpty()) "Add" else "Open") }
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("image backends · pc & lan")
             }
@@ -142,11 +143,11 @@ fun RemoteScreen(
                 }
             }
             item {
-                RunRow(if (state.backends.isEmpty()) "Add a PC" else "Edit backends", "", onClick = onOpenBackends) { Tag(if (state.backends.isEmpty()) "add" else "open") }
+                RunRow(if (state.backends.isEmpty()) "Add a PC" else "Edit backends", "", onClick = onOpenBackends) { Tag(if (state.backends.isEmpty()) "Add" else "Open") }
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("accounts · model hubs")
-                RunRow("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts) { Tag("open") }
-                RunRow("Civitai", (state.accounts.civitaiUser?.let { "key · $it" } ?: "no api key") + " · ${state.accounts.civitaiHost.host}", onClick = onOpenAccounts) { Tag("open") }
+                RunRow("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts) { Tag("Open") }
+                RunRow("Civitai", (state.accounts.civitaiUser?.let { "key · $it" } ?: "no API key") + " · ${state.accounts.civitaiHost.host}", onClick = onOpenAccounts) { Tag("Open") }
             }
         }
     }

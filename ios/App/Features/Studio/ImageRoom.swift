@@ -530,18 +530,8 @@ struct ImageRoom: View {
     }
 
     private func chip(_ label: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label.uppercased())
-                .textStyle(.micro)
-                .lineLimit(1)
-                .foregroundStyle(active ? c.background : c.onBackground)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(active ? c.onBackground : Color.clear))
-                .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.onBackground, lineWidth: 1))
-        }
-        .buttonStyle(PressStyle())
-        .accessibilityAddTraits(active ? .isSelected : [])
+        Tag(label, accent: active ? c.primary : c.onSurfaceVariant, filled: active, action: action)
+            .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     @ViewBuilder private var backendControls: some View {

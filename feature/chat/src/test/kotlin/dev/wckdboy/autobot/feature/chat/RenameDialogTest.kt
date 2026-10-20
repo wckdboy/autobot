@@ -29,11 +29,11 @@ class RenameDialogTest {
     fun startsFromTheTitleConfirmsAndCancels() {
         val renamed = mutableListOf<String>()
         var dismissed = 0
-        compose.setContent { AutobotTheme { NameDialog("Rename chat", "Trip plans", "RENAME", onDismiss = { dismissed++ }, onConfirm = { renamed += it }) } }
+        compose.setContent { AutobotTheme { NameDialog("Rename chat", "Trip plans", "Rename", onDismiss = { dismissed++ }, onConfirm = { renamed += it }) } }
         compose.onNodeWithText("Rename chat").assertIsDisplayed()
         compose.onNode(hasSetTextAction() and hasText("Trip plans")).assertIsDisplayed()
-        compose.onNodeWithText("RENAME").performClick()
-        compose.onNodeWithText("CANCEL").performClick()
+        compose.onNodeWithText("Rename").performClick()
+        compose.onNodeWithText("Cancel").performClick()
         assertEquals(listOf("Trip plans"), renamed)
         assertEquals(1, dismissed)
     }

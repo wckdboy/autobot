@@ -9,7 +9,7 @@ enum ModelsTab: String, CaseIterable, Hashable {
     var label: String {
         switch self {
         case .recommended: "for this phone"
-        case .huggingFace: "hugging face"
+        case .huggingFace: "Hugging Face"
         case .civitai: "civitai"
         }
     }
@@ -467,12 +467,11 @@ struct SearchNoticeView: View {
     }
 }
 
-/// No search results yet: a patch of living paper.
+/// No search results yet: a flat gap (v4: no dot field).
 private struct EmptyResults: View {
     var body: some View {
         Color.clear
-            .frame(height: 180)
-            .inkGround(fade: .bottom)
+            .frame(height: 48)
             .accessibilityHidden(true)
     }
 }
@@ -529,7 +528,7 @@ private struct InstalledRow: View {
         RunRow(title: model.title, subtitle: subtitle, action: opens ? onUse : nil) {
             ZStack {
                 switch model.status {
-                case .ready: Tag("ready", accent: c.primary, filled: true)
+                case .ready: Tag("✓ ready")
                 case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary) { app.downloader.pause(model.id) }
                 case .queued: Tag("queued") { app.downloader.pause(model.id) }
                 case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }

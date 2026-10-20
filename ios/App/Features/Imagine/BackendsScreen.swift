@@ -18,7 +18,7 @@ struct BackendsScreen: View {
                     ForEach(repo.backends) { backend in
                         let result = results[backend.id]
                         Panel(title: backend.kind.label, accent: backend.kind == .localSse ? AutobotColors.uv : AutobotColors.cyan) {
-                            Tag(backend.isLoopback ? "loopback" : "network", accent: backend.isLoopback ? c.primary : c.inks.amber)
+                            Tag(backend.isLoopback ? "loopback" : "network", accent: backend.isLoopback ? c.onSurfaceVariant : c.inks.amber)
                         } content: {
                             HStack(spacing: 10) {
                                 Button { repo.setDefault(backend.id) } label: {
@@ -64,10 +64,10 @@ struct BackendsScreen: View {
                             } label: {
                                 Text("\(kind.label)  ·  \(url)")
                                     .textStyle(.labelMedium)
-                                    .foregroundStyle(c.primary)
+                                    .foregroundStyle(c.onSurface)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.8)
-                                    .frame(maxWidth: .infinity, minHeight: 40)
+                                    .frame(maxWidth: .infinity, minHeight: 44)
                                     .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outline, lineWidth: 1))
                                     .contentShape(Rectangle())
                             }

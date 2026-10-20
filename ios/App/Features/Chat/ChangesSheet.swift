@@ -15,7 +15,7 @@ struct ChangeCounts: View {
     var body: some View {
         HStack(spacing: 4) {
             if change.added > 0 { Text("+\(change.added)").textStyle(.micro).foregroundStyle(c.inks.cyan) }
-            if change.removed > 0 { Text("−\(change.removed)").textStyle(.micro).foregroundStyle(c.primary) }
+            if change.removed > 0 { Text("−\(change.removed)").textStyle(.micro).foregroundStyle(c.onSurfaceVariant) }
             if change.added == 0 && change.removed == 0 { Text(change.op.rawValue).textStyle(.micro).foregroundStyle(c.onSurfaceVariant) }
         }
     }

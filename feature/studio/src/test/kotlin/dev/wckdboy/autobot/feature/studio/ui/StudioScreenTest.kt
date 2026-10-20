@@ -111,7 +111,7 @@ class StudioScreenTest {
     }
 
     private fun goTo(room: StudioRoom) =
-        compose.onNode(hasText(room.label.uppercase()) and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
+        compose.onNode(hasText(room.label) and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)).performClick()
 
     @Test
     fun switchingRoomsSwitchesContentAndBarIcons() {
@@ -156,21 +156,21 @@ class StudioScreenTest {
             ),
             initial = StudioRoom.AUDIO,
         )
-        compose.onNodeWithText("QUEUE · 2 WORKING").assertIsDisplayed()
+        compose.onNodeWithText("Queue · 2 working").assertIsDisplayed()
         compose.onNodeWithContentDescription("Done: seed 1").assertExists()
         compose.onNodeWithContentDescription("Running 45 percent: seed 2").assertExists()
         compose.onNodeWithContentDescription("Queued: seed 3").assertExists()
         compose.onNodeWithContentDescription("Failed: Can't reach Studio PC: connection refused").assertExists()
         compose.onNodeWithContentDescription("Failed: Storage is full — free some space on this phone, then retry").assertExists()
         compose.onNodeWithContentDescription("Cancelled").assertExists()
-        compose.onNodeWithText("CLEAR").performClick()
+        compose.onNodeWithText("Clear").performClick()
         assertTrue(calls.toString(), "clearFinished()" in calls)
     }
 
     @Test
     fun anIdleQueueSaysDone() {
         show(listOf(job("j-1", JobState.DONE, "seed 1")), initial = StudioRoom.AUDIO)
-        compose.onNodeWithText("QUEUE · DONE").assertIsDisplayed()
+        compose.onNodeWithText("Queue · done").assertIsDisplayed()
     }
 
     @Test

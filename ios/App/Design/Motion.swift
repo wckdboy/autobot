@@ -328,6 +328,13 @@ struct HalftoneStrip: View {
     @State private var flow = FlowState(fill: 1)
 
     var body: some View {
+        // App UI v4: no halftone; the plain loader stands in.
+        InkLoader(.inline, color: color ?? scheme.primary)
+            .accessibilityLabel("Working")
+    }
+
+    /// The v3 strip of rippling dots (not drawn in the app).
+    var halftone: some View {
         InkTimeline(active: true) { date in
             Canvas { context, _ in
                 InkProbe.hit("ink.draw")

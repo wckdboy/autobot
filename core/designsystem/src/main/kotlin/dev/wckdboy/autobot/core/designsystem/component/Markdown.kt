@@ -105,8 +105,9 @@ internal fun rememberMdStyle(): MdStyle {
             text = scheme.onSurface,
             muted = scheme.onSurfaceVariant,
             codeBackground = scheme.surfaceContainerHighest,
-            code = scheme.tertiary,
-            link = scheme.primary,
+            code = scheme.onSurface,
+            // Links read as text, marked by their underline (colour is for marks, not words).
+            link = scheme.onSurface,
             rule = scheme.outlineVariant,
             accent = scheme.primary,
         )

@@ -58,6 +58,15 @@ struct InkPlate: View {
     @State private var revision = 0
 
     var body: some View {
+        // App UI v4: no halftone plate. A flat surface while waiting, a thin progress bar while
+        // sampling, the latent preview as a flat pixel mosaic, then the image.
+        FlatPlate(ink: ink, dot: dot, reduceMotion: reduceMotion || still)
+            .clipped()
+            .accessibilityHidden(true)
+    }
+
+    /// The v3 halftone proof (kept for the motion tests and benchmarks; not drawn in the app).
+    var halftone: some View {
         Group {
             if reduceMotion || still {
                 StillPlate(ink: ink, dot: dot, idleDot: idleDot, cell: cell, phase: phase)
@@ -97,6 +106,60 @@ struct InkPlate: View {
             guard !Task.isCancelled else { return }
             engine.settle(at: Date())
             revision &+= 1
+        }
+    }
+}
+
+/// The v4 plate: flat, no dots. `.hold` keeps what was shown last.
+private struct FlatPlate: View {
+    let ink: PlateInk
+    let dot: Color
+    let reduceMotion: Bool
+    @State private var shown = PlateInk.idle
+
+    var body: some View {
+        content(ink == .hold ? shown : ink)
+            .animation(reduceMotion ? nil : .inkReduced, value: (ink == .hold ? shown : ink).still)
+            .onChange(of: ink, initial: true) { _, new in if new != .hold { shown = new } }
+    }
+
+    @ViewBuilder private func content(_ ink: PlateInk) -> some View {
+        switch ink {
+        case .idle, .hold:
+            Color.clear
+        case .flow(let progress, let loading):
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                InkProgressBar(loading ? .indeterminate : .progress(progress, running: true), height: 2, ink: dot)
+            }
+        case .preview(let p):
+            LumaMosaic(grid: p.grid).transition(.opacity)
+        case .final(let f):
+            if let image = f.image {
+                Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
+            } else {
+                LumaMosaic(grid: f.grid).transition(.opacity)
+            }
+        }
+    }
+}
+
+/// A luma grid as flat grey pixels (a latent preview), filling its frame like `scaledToFill`.
+struct LumaMosaic: View {
+    let grid: LumaGrid
+
+    var body: some View {
+        Canvas { context, size in
+            let gw = max(grid.width, 1), gh = max(grid.height, 1)
+            let cell = max(size.width / CGFloat(gw), size.height / CGFloat(gh))
+            let ox = (size.width - cell * CGFloat(gw)) / 2, oy = (size.height - cell * CGFloat(gh)) / 2
+            for y in 0 ..< gh {
+                for x in 0 ..< gw {
+                    let v = Double(grid.values[y * gw + x])
+                    let rect = CGRect(x: ox + CGFloat(x) * cell, y: oy + CGFloat(y) * cell, width: cell + 0.5, height: cell + 0.5)
+                    context.fill(Path(rect), with: .color(Color(white: min(max(v, 0), 1))))
+                }
+            }
         }
     }
 }

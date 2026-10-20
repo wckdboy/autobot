@@ -58,7 +58,7 @@ struct RouteTag: View {
     }
 }
 
-/// A quiet `SECTION · DETAIL` caption in mono.
+/// A quiet `Section · detail` caption: sentence-case mono, untracked, onSurfaceVariant.
 struct SectionLabel: View {
     let text: String
     var color: Color? = nil
@@ -70,16 +70,17 @@ struct SectionLabel: View {
     }
 
     var body: some View {
-        Text(text.uppercased())
+        Text(text.sentenceCased)
             .textStyle(.micro)
             .foregroundStyle(color ?? c.onSurfaceVariant)
             .textLines(2, accessibility: 4)
+            .accessibilityAddTraits(.isHeader)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// Full-width red block button with a mono caps label.
+/// Full-width block in the scheme's primary (a screen's primary action), sentence-case mono label.
 struct PrimaryButton: View {
     let text: String
     var enabled = true
@@ -100,7 +101,7 @@ struct PrimaryButton: View {
         let lit = enabled || busy
         Button(action: action) {
             InkBusyLabel(busy: busy, color: c.onPrimary) {
-                Text(text.uppercased())
+                Text(text.sentenceCased)
                     .textStyle(.labelLarge)
                     .textLines(1)
             }
@@ -142,7 +143,7 @@ struct GhostButton: View {
         let lit = enabled || busy
         Button(action: action) {
             InkBusyLabel(busy: busy, color: accent ?? c.primary) {
-                Text(text.uppercased())
+                Text(text.sentenceCased)
                     .textStyle(.labelLarge)
                     .textLines(1)
             }
@@ -160,10 +161,11 @@ struct GhostButton: View {
     }
 }
 
-/// Cream block button (APPROVE on red cards).
+/// The approve button on an approval card: the card's primary action, so a primary block.
 struct PaperButton: View {
     let text: String
     let action: () -> Void
+    @Environment(\.scheme) private var c
 
     init(_ text: String, action: @escaping () -> Void) {
         self.text = text
@@ -172,19 +174,23 @@ struct PaperButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(text.uppercased())
+            Text(text.sentenceCased)
                 .textStyle(.labelLarge)
                 .textLines(1)
                 .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.ghostButtonMinHeight)
-                .foregroundStyle(AutobotColors.paperInk)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(AutobotColors.bone100))
+                .foregroundStyle(c.onPrimary)
+                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.primary))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
     }
 }
 
-/// Small mono text button (`ALL`, `TUNE`, `OK`): Material's TextButton in the riso type.
+/**
+ Small mono text button (`All`, `Tune`, `OK`), sentence case. Plain ones read as links: onSurface
+ with a purple underline (the signal stays small); a [color] other than the primary (an error red
+ for Delete) tints the label instead.
+ */
 struct TextAction: View {
     let text: String
     var color: Color? = nil
@@ -205,13 +211,15 @@ struct TextAction: View {
     }
 
     var body: some View {
+        let link = color == nil || color == c.primary
         Button(action: action) {
             InkBusyLabel(busy: busy, size: .inline, color: color ?? c.primary) {
-                Text(text.uppercased())
+                Text(text.sentenceCased)
                     .textStyle(style)
+                    .underline(link && enabled, color: c.primary)
                     .textLines(1)
             }
-            .foregroundStyle(enabled ? (color ?? c.primary) : c.onSurface.opacity(0.38))
+            .foregroundStyle(enabled ? (link ? c.onSurface : color ?? c.onSurface) : c.onSurface.opacity(0.38))
             .padding(.horizontal, 12)
             .frame(minHeight: 40)
             .contentShape(Rectangle())
@@ -377,13 +385,65 @@ extension View {
     func compactActionFrame() -> some View { modifier(CompactActionFrame()) }
 }
 
+/**
+ The small solid purple square that ends a top-level title ("Models▪"), as on the sites' h1:
+ 0.3 em, on the baseline, 0.15 em after the last letter. [fontSize] is the title's point size.
+ */
+struct TitleMark: View {
+    var fontSize: CGFloat = 18
+
+    var body: some View {
+        Rectangle()
+            .fill(AutobotColors.purple)
+            .frame(width: (fontSize * 0.3).rounded(), height: (fontSize * 0.3).rounded())
+            .accessibilityHidden(true)
+    }
+}
+
+/// A screen title in sentence case, ending in the [TitleMark] when [mark] is set.
+struct ScreenTitle: View {
+    let text: String
+    var style: AutobotType = .titleLarge
+    var mark = true
+    @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    init(_ text: String, style: AutobotType = .titleLarge, mark: Bool = true) {
+        self.text = text
+        self.style = style
+        self.mark = mark
+    }
+
+    var body: some View {
+        let size = AutobotFonts.uiFont(style.token, dynamicType: dynamicType).pointSize
+        HStack(alignment: .lastTextBaseline, spacing: (size * 0.15).rounded()) {
+            Text(text)
+                .textStyle(style)
+                .foregroundStyle(c.onBackground)
+                .textLines(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            if mark {
+                // Its bottom on the text baseline.
+                TitleMark(fontSize: size).alignmentGuide(.lastTextBaseline) { d in d[.bottom] }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
 /// The default top bar title: the bar shows the wordmark instead.
 let wordmarkTitle = "autobot"
 
-/// Top bar: the `■ autobot` wordmark on Home, a sentence-case title elsewhere, and trailing actions.
+/**
+ Top bar: the `■ autobot` wordmark on Home, a sentence-case title elsewhere, and trailing actions.
+ A top-level screen (no back button) ends its title in the purple [TitleMark]; [titleMark] overrides.
+ */
 struct AutobotTopBar<Actions: View>: View {
     var title: String = wordmarkTitle
     var showMark = true
+    var titleMark: Bool? = nil
     var onBack: (() -> Void)? = nil
     @ViewBuilder var actions: () -> Actions
     @Environment(\.scheme) private var c
@@ -396,12 +456,7 @@ struct AutobotTopBar<Actions: View>: View {
             if title == wordmarkTitle {
                 Wordmark().frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text(title)
-                    .textStyle(.titleLarge)
-                    .foregroundStyle(c.onBackground)
-                    .textLines(1)
-                    .truncationMode(.tail)
-                    .accessibilityAddTraits(.isHeader)
+                ScreenTitle(title, mark: titleMark ?? (onBack == nil))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             actions()
@@ -417,8 +472,8 @@ struct AutobotTopBar<Actions: View>: View {
 }
 
 extension AutobotTopBar where Actions == EmptyView {
-    init(title: String = wordmarkTitle, showMark: Bool = true, onBack: (() -> Void)? = nil) {
-        self.init(title: title, showMark: showMark, onBack: onBack, actions: { EmptyView() })
+    init(title: String = wordmarkTitle, showMark: Bool = true, titleMark: Bool? = nil, onBack: (() -> Void)? = nil) {
+        self.init(title: title, showMark: showMark, titleMark: titleMark, onBack: onBack, actions: { EmptyView() })
     }
 }
 
@@ -619,5 +674,65 @@ struct BigReadout: View {
         } else {
             content
         }
+    }
+}
+
+/**
+ An empty state (App UI v4): the purple pixel a, one plain sentence, at most one action.
+ */
+struct EmptyState: View {
+    let text: String
+    var actionLabel: String? = nil
+    var action: (() -> Void)? = nil
+    var markSize: CGFloat = 24
+    @Environment(\.scheme) private var c
+
+    init(_ text: String, actionLabel: String? = nil, markSize: CGFloat = 24, action: (() -> Void)? = nil) {
+        self.text = text
+        self.actionLabel = actionLabel
+        self.markSize = markSize
+        self.action = action
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            AutobotMark(size: markSize)
+            Text(text)
+                .textStyle(.bodyMedium)
+                .foregroundStyle(c.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let actionLabel, let action {
+                TextAction(actionLabel, action: action)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .padding(.horizontal, Tokens.Spacing.gutter)
+    }
+}
+
+/**
+ An empty canvas (App UI v4): flat, the pixel a small and centred at low emphasis, and a one-line
+ hint. Sits on the canvas' own surfaceContainer.
+ */
+struct EmptyCanvas: View {
+    var hint: String? = nil
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        VStack(spacing: 10) {
+            AutobotMark(size: 18, color: AutobotColors.purple.opacity(0.55))
+            if let hint {
+                Text(hint)
+                    .textStyle(.micro)
+                    .foregroundStyle(c.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+                    .textLines(2)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }

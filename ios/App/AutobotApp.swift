@@ -49,11 +49,9 @@ struct RootView: View {
                 PrivacyCover()
             }
         }
-        .autobotTheme(settings.themeMode, amoled: settings.amoled, paperOnTop: {
-            if let room = nav.studio { return room.surface == .paper }
-            if case .imagine = nav.path.last { return true }
-            return false
-        }(), darkOnTop: nav.studio?.surface == .darkroom)
+        // Image follows the app's theme (App UI v4); the Studio's paper and darkroom rooms keep theirs.
+        .autobotTheme(DebugFlags.theme ?? settings.themeMode, amoled: settings.amoled,
+                      paperOnTop: nav.studio?.surface == .paper, darkOnTop: nav.studio?.surface == .darkroom)
         // Living paper holds still while heavy work runs.
         .environment(\.inkHeavyWork, busy)
         .onChange(of: phase) { old, new in

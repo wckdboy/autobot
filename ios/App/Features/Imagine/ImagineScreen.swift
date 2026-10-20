@@ -6,7 +6,7 @@ private let defaultSamplers = ["DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "LCM
 
 private func sizeLabel(_ w: Int, _ h: Int) -> String { w == h ? "\(w)²" : "\(w)×\(h)" }
 
-/// The image studio (mockup 04): paper surface, big prompt, model chips, readouts, 2×2 proofs.
+/// The image studio: big prompt, model chips, readouts, 2×2 proofs.
 struct ImagineScreen: View {
     var handoffId: String? = nil
     var intent: ImageHandoff = .reuse
@@ -31,8 +31,6 @@ struct ImagineScreen: View {
             }
         }
         .background(c.background.ignoresSafeArea())
-        // Dark status bar icons on paper while the studio is shown (Android's PaperTheme).
-        .preferredColorScheme(.light)
         .task {
             if model == nil {
                 let m = ImagineModel(app: app)
@@ -139,9 +137,9 @@ struct ImagineScreen: View {
                 showTune = false
                 nav.push(.imageBackends)
             }
-            .paperTheme()
+            .environment(\.scheme, c)
             .presentationDetents([.large])
-            .presentationBackground(AutobotScheme.light.surfaceContainerLow)
+            .presentationBackground(c.surfaceContainerLow)
         }
         .imageViewer($viewer) { id, intent in
             Task {
@@ -175,22 +173,11 @@ struct ImagineScreen: View {
                 let current = m.selectedChip
                 ForEach(m.chips, id: \.self) { chip in
                     let active = chip == current
-                    Button { m.selectChip(chip) } label: {
-                        Text(chip.label.uppercased())
-                            .textStyle(.micro)
-                            .lineLimit(1)
-                            .foregroundStyle(active ? c.background : c.onBackground)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(active ? c.onBackground : c.background))
-                            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.onBackground, lineWidth: 1))
-                    }
-                    .buttonStyle(PressStyle())
+                    Tag(chip.label, accent: active ? c.primary : c.onSurfaceVariant, filled: active) { m.selectChip(chip) }
+                        .accessibilityAddTraits(active ? .isSelected : [])
                 }
-                Button { nav.switchTo(.models) } label: {
-                    Text("+ MODEL").textStyle(.micro).foregroundStyle(c.primary).padding(.horizontal, 6).padding(.vertical, 5)
-                }
-                .buttonStyle(PressStyle())
+                Tag("+ model", accent: c.primary) { nav.switchTo(.models) }
+                    .accessibilityLabel("Get a model")
             }
         }
     }
@@ -332,6 +319,9 @@ private struct ProofGrid: View {
                 // One plate whatever it shows: a job starting keeps the waiting plate (its engine and
                 // state) instead of swapping in a second one over it.
                 InkPlate(ink: plateInk ?? .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
+                if plateInk == nil, running == nil, model.results.isEmpty, i == 0 {
+                    EmptyCanvas(hint: "Describe an image, then generate.")
+                }
             }
             if let running, i == running.image {
                 let loading = model.phase != nil || running.total == 0
@@ -570,7 +560,7 @@ private struct TuneSheet: View {
                 model.addLora($0)
                 showLoras = false
             }
-            .paperTheme()
+            .environment(\.scheme, c)
             .presentationDetents([.medium, .large])
         }
     }

@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.home.node
 
+import dev.wckdboy.autobot.core.designsystem.component.NodeMark
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,7 +56,10 @@ fun NodeSchedulesSheet(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SectionLabel("scheduled on ${state.node}")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NodeMark()
+                SectionLabel("scheduled on ${state.node}")
+            }
             Text(
                 "Runs on the machine with nobody to ask: only allowlisted commands and writes in its working directory.",
                 style = MaterialTheme.typography.bodySmall,
@@ -68,7 +73,7 @@ fun NodeSchedulesSheet(
                     list.forEach { ScheduleRow(it, onRemove) }
                 }
             }
-            SectionLabel("add")
+            SectionLabel("Add a schedule")
             ConsoleTextField(schedule, { schedule = it }, Modifier.fillMaxWidth(), placeholder = "0 8 * * 1-5 · @daily · every 30m", singleLine = true, mono = true)
             ConsoleTextField(task, { task = it }, Modifier.fillMaxWidth(), placeholder = "What to do, e.g. check disk space and warn me", minLines = 2, maxLines = 5)
             SwitchRow("Send answers to Telegram", telegram, { telegram = it })
@@ -95,7 +100,7 @@ private fun ScheduleRow(item: AgentSchedule, onRemove: (String) -> Unit) {
             Text(item.task, style = MaterialTheme.typography.bodyLarge)
             Text(
                 listOfNotNull(item.schedule, item.next?.let { "next ${format.format(Date(it * 1000))}" }, "→ Telegram".takeIf { item.telegram }).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
+                style = AutobotTheme.styles.micro,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

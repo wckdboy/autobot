@@ -66,7 +66,7 @@ class LargeTextTest {
 
     // The welcome does not scroll by itself: rendered at a real phone's height.
     private fun auditWelcome(width: Int, scale: Float) = LargeTextAudit.render(compose, "welcome", width, scale, heightDp = 780) {
-        Themed { WelcomeScreen({}, {}, {}) }
+        Themed { WelcomeScreen({}) }
     }
 
     @Test fun remoteDefaultTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditRemote(411, 1f))

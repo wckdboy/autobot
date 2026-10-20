@@ -119,7 +119,7 @@ private struct StudioTopBar: View {
         HStack(spacing: 6) {
             IconAction(symbol: "xmark", label: "Leave the Studio") { nav.leaveStudio() }
             Text("Studio").textStyle(.titleLarge).foregroundStyle(c.onBackground).lineLimit(1).fixedSize().accessibilityAddTraits(.isHeader)
-            Text("· \(room.label.uppercased())").textStyle(.titleLarge).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
+            Text("· \(room.label.sentenceCased)").textStyle(.titleLarge).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
             Spacer(minLength: 4)
             Menu {
                 ForEach(studio.library.projects, id: \.id) { p in
@@ -134,7 +134,7 @@ private struct StudioTopBar: View {
                 HStack(spacing: 4) {
                     // A long name truncates at 130 pt; a short one keeps the chip snug against the
                     // trailing edge (a max-width frame outside the border left a gap after it).
-                    Text((studio.project?.name ?? "project").uppercased()).textStyle(.micro).lineLimit(1).foregroundStyle(c.onSurface)
+                    Text(studio.project?.name ?? "Project").textStyle(.micro).lineLimit(1).foregroundStyle(c.onSurface)
                         .frame(maxWidth: 130)
                     Image(systemName: "chevron.down").symbolSize(9, weight: .semibold).foregroundStyle(c.onSurfaceVariant)
                 }

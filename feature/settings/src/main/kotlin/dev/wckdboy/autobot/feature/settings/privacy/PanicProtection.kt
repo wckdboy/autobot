@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.settings.privacy
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -142,7 +143,7 @@ private fun PinDialog(hasPin: Boolean, actions: PanicActions, onDismiss: () -> U
             TextButton(onClick = {
                 removing = true
                 error = null
-            }) { Text(PanicCopy.REMOVE_PIN.uppercase(Locale.ROOT), color = MaterialTheme.colorScheme.error) }
+            }) { ActionText(PanicCopy.REMOVE_PIN, color = MaterialTheme.colorScheme.error) }
         }
     }
 }
@@ -246,8 +247,8 @@ private fun PanicAlert(
         },
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = enabled) {
-                Text(
-                    confirm.uppercase(Locale.ROOT),
+                ActionText(
+                    confirm,
                     color = when {
                         !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
                         destructive -> MaterialTheme.colorScheme.error
@@ -256,7 +257,7 @@ private fun PanicAlert(
                 )
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(PanicCopy.CANCEL.uppercase(Locale.ROOT)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText(PanicCopy.CANCEL) } },
     )
 }
 

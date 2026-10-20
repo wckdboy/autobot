@@ -320,7 +320,7 @@ enum AutobotType: CaseIterable {
     case code
     /// Code blocks, tool output.
     case codeBlock
-    /// Uppercase micro labels: `SECTION`, field captions.
+    /// Section labels, field captions and meta: sentence-case mono, untracked.
     case micro
     /// Small numeric telemetry (tok/s, sizes): tabular mono.
     case readout
@@ -341,12 +341,12 @@ enum AutobotType: CaseIterable {
         case .bodyLarge: Tokens.Typography.bodyLarge
         case .bodyMedium: Tokens.Typography.bodyMedium
         case .bodySmall: Tokens.Typography.bodySmall
-        case .labelLarge: Tokens.Typography.labelLarge
-        case .labelMedium: Tokens.Typography.labelMedium
-        case .labelSmall: Tokens.Typography.labelSmall
+        case .labelLarge: AppUI.labelLarge
+        case .labelMedium: AppUI.labelMedium
+        case .labelSmall: AppUI.labelSmall
         case .code: Tokens.Typography.code
         case .codeBlock: Tokens.Typography.codeBlock
-        case .micro: Tokens.Typography.micro
+        case .micro: AppUI.micro
         case .readout: Tokens.Typography.readout
         case .number: Tokens.Typography.number
         }
@@ -357,6 +357,54 @@ enum AutobotType: CaseIterable {
 
     /// The font at the reader's text size.
     func font(_ dynamicType: DynamicTypeSize) -> Font { Font(AutobotFonts.uiFont(token, dynamicType: dynamicType)) }
+}
+
+/**
+ App UI v4 label type: JetBrains Mono in sentence case, so the tokens' wide tracking (set for
+ the old all-caps labels) goes, and captions grow to a readable 12 pt. The token file still
+ carries the v3 values (`shared/design/tokens.json` is shared with Android; see the v4 spec).
+ */
+enum AppUI {
+    /// Section labels and meta: mono 12, no tracking.
+    static let micro = Tokens.TypeStyle(font: .mono, size: 12, lineHeight: 16, weight: 450, letterSpacing: 0, trim: false, tabular: false)
+    /// Button labels.
+    static let labelLarge = Tokens.TypeStyle(font: .mono, size: 13, lineHeight: 16, weight: 600, letterSpacing: 0, trim: true, tabular: false)
+    /// Text actions, chips.
+    static let labelMedium = Tokens.TypeStyle(font: .mono, size: 12, lineHeight: 15, weight: 500, letterSpacing: 0, trim: true, tabular: false)
+    /// Tab bar labels and small chips.
+    static let labelSmall = Tokens.TypeStyle(font: .mono, size: 11, lineHeight: 14, weight: 500, letterSpacing: 0, trim: true, tabular: false)
+}
+
+extension String {
+    /**
+     Sentence case for UI labels written in lowercase mono ("installed · 2" → "Installed · 2"):
+     the first letter is capitalised and a leading acronym is spelled as such ("cfg" → "CFG").
+     The rest is left as written (model names, paths and units keep their case).
+     */
+    var sentenceCased: String {
+        guard let first = firstIndex(where: \.isLetter) else { return self }
+        // URLs, hosts, file names and ids lead as written ("civitai.com", "https://…", "plan.md").
+        let lead = self[first...].prefix { !$0.isWhitespace }
+        if lead.contains("://") || lead.dropLast().contains(where: { "._@#:".contains($0) }) { return self }
+        // A leading acronym or product name, matched as a whole word.
+        let rest = self[first...]
+        let end = rest.firstIndex(where: { !($0.isLetter || $0.isNumber || $0 == "/") }) ?? endIndex
+        let word = String(self[first ..< end])
+        if let fixed = Self.acronyms[word.lowercased()], word == word.lowercased() {
+            return String(self[..<first]) + fixed + String(self[end...])
+        }
+        // "5 sessions", "30 s", "~12 tokens": a count or unit leads, the words after it stay lowercase.
+        guard self[first].isLowercase, !self[..<first].contains(where: \.isNumber) else { return self }
+        let cased = String(self[..<first]) + self[first].uppercased() + String(self[index(after: first)...])
+        return cased.hasPrefix("Core ml") ? "Core ML" + cased.dropFirst(7) : cased
+    }
+
+    private static let acronyms: [String: String] = [
+        "cfg": "CFG", "npu": "NPU", "gpu": "GPU", "cpu": "CPU", "api": "API", "usd": "USD", "mcp": "MCP",
+        "url": "URL", "lora": "LoRA", "loras": "LoRAs", "comfyui": "ComfyUI", "ios": "iOS", "pc": "PC", "pcs": "PCs",
+        "json": "JSON", "x/y": "X/Y", "ram": "RAM", "ai": "AI", "hf": "HF",
+        "img2img": "Img2img", "txt2img": "Txt2img",
+    ]
 }
 
 private extension CGFloat {

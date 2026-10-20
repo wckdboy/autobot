@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.settings.memory
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -158,11 +161,11 @@ fun MemoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("MEMORY", style = MaterialTheme.typography.titleMedium) },
+                title = { Text("Memory") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     if (state.total > 0) {
-                        TextButton(onClick = { confirmDeleteAll = true }) { Text("Delete all") }
+                        TextButton(onClick = { confirmDeleteAll = true }) { ActionText("Delete all") }
                     }
                 },
             )
@@ -199,17 +202,12 @@ fun MemoryScreen(
             Text(
                 "${state.total} / ${counted(MemoryRules.MAX_NOTES, "note")}",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
+                style = AutobotTheme.styles.micro,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (state.notes.isEmpty()) {
-                Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (state.total == 0) "No notes yet. Tap + to write one, or let the agent save facts you ask it to remember." else "No notes match.",
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(if (state.total == 0) "No notes yet. Tap + to write one, or ask the agent to remember something." else "No notes match.")
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
@@ -255,9 +253,9 @@ fun MemoryScreen(
                 TextButton(enabled = text.isNotBlank(), onClick = {
                     onSave(d.id, text, tags)
                     draft = null
-                }) { Text("Save") }
+                }) { ActionText("Save") }
             },
-            dismissButton = { TextButton(onClick = { draft = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { draft = null }) { ActionText("Cancel") } },
         )
     }
 
@@ -270,9 +268,9 @@ fun MemoryScreen(
                 TextButton(onClick = {
                     onDeleteAll()
                     confirmDeleteAll = false
-                }) { Text("Delete all", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText("Delete all", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { ActionText("Cancel") } },
         )
     }
 
@@ -280,7 +278,7 @@ fun MemoryScreen(
         AlertDialog(
             onDismissRequest = onDismissMessage,
             text = { Text(message) },
-            confirmButton = { TextButton(onClick = onDismissMessage) { Text("OK") } },
+            confirmButton = { TextButton(onClick = onDismissMessage) { ActionText("OK") } },
         )
     }
 }

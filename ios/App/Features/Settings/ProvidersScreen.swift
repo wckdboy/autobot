@@ -114,7 +114,7 @@ struct ProvidersScreen: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        SectionLabel("\(providers.count) providers").padding(.vertical, 8)
+                        SectionLabel(counted(providers.count, "provider")).padding(.vertical, 8)
                         ForEach(providers) { p in row(p).transition(.inkDissolve) }
                     }
                     .animation(.inkDissolve, value: providers.map(\.id))
@@ -473,7 +473,7 @@ private struct ProviderEditorSheet: View {
         case .idle: EmptyView()
         // The Test button carries the loader.
         case .running: EmptyView()
-        case .success(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.primary)
+        case .success(let m): Text("✓ \(m)").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
         case .failure(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.error)
         }
     }

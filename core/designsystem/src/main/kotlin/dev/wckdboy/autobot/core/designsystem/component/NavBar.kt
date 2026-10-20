@@ -29,14 +29,20 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkSlide
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
-import java.util.Locale
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.text.font.FontWeight
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+
+/** The active tab's bar width. */
+private val TabBarWidth = 20.dp
 
 /** One destination in [AutobotNavBar]. */
 data class NavItem<K>(val key: K, val label: String, val icon: ImageVector? = null)
 
 /**
- * Bottom navigation as in the print mockups: mono labels only, a red dot above the active one,
- * a hairline on top. The dot slides to a new tab (ease-out) and leaves a one-frame ghost.
+ * Bottom navigation: sentence-case mono labels, a hairline on top, and a 2 dp purple bar under
+ * the active label (onSurface; the rest onSurfaceVariant). The bar slides to a new tab (ease-out).
  */
 @Composable
 fun <K> AutobotNavBar(
@@ -47,8 +53,8 @@ fun <K> AutobotNavBar(
 ) {
     val index = items.indexOfFirst { it.key == selected }
     val slide = rememberInkSlide(index.coerceAtLeast(0))
-    val dot = MaterialTheme.colorScheme.primary
-    val dotY = remember { floatArrayOf(0f) }
+    val bar = AutobotColors.Purple
+    val barY = remember { floatArrayOf(0f) }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -59,12 +65,9 @@ fun <K> AutobotNavBar(
             .drawBehind {
                 if (index < 0 || items.isEmpty()) return@drawBehind
                 val slot = size.width / items.size
-                val r = 2.5.dp.toPx()
-                if (slide.ghost) {
-                    val g = Motion.registerOffset.dp.toPx()
-                    drawCircle(dot, r, Offset((slide.ghostSlot + 0.5f) * slot + g, dotY[0] + g), alpha = 0.4f)
-                }
-                drawCircle(dot, r, Offset((slide.position + 0.5f) * slot, dotY[0]))
+                val w = TabBarWidth.toPx()
+                val h = SelectionBarHeight.toPx()
+                drawRect(bar, Offset((slide.position + 0.5f) * slot - w / 2f, barY[0]), Size(w, h))
             }
             .selectableGroup(),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -79,14 +82,17 @@ fun <K> AutobotNavBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                // The dot's slot; the dot itself is drawn by the bar so it can slide.
-                Box(Modifier.size(5.dp).onPlaced { dotY[0] = it.positionInParent().y + it.size.height / 2f })
-                Spacer(Modifier.height(7.dp))
+                // Balances the bar below, so the label sits on the bar's centre line.
+                Spacer(Modifier.height(SelectionBarHeight + 6.dp))
                 Text(
-                    item.label.uppercase(Locale.ROOT),
-                    style = MaterialTheme.typography.labelMedium,
+                    item.label,
+                    style = AutobotTheme.styles.tab.copy(fontWeight = if (active) FontWeight.Medium else FontWeight.Normal),
                     color = if (active) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
+                Spacer(Modifier.height(6.dp))
+                // The bar's slot; the bar itself is drawn by the row so it can slide.
+                Box(Modifier.size(TabBarWidth, SelectionBarHeight).onPlaced { barY[0] = it.positionInParent().y })
             }
         }
     }

@@ -48,6 +48,6 @@ class ProvidersListTest {
         }
         compose.onNodeWithText("Couldn't list models: The provider rejected the API key (HTTP 401)").assertIsDisplayed()
         compose.onNodeWithText(" · no key").assertIsDisplayed()
-        compose.onNodeWithText("1 MODEL · JUST NOW").assertIsDisplayed()
+        compose.onNodeWithText("1 model · just now").assertIsDisplayed()
     }
 }

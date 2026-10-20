@@ -31,18 +31,18 @@ class ViewerImage(val bitmap: ImageBitmap, val pixelWidth: Int, val pixelHeight:
 /** What the viewer can do with an image. Some open the studio (handoffs), the rest act in place. */
 enum class ViewerAction(val label: String, val handoff: Boolean = false) {
     /** An unsaved incognito image into the gallery (the only way it is written anywhere). */
-    KEEP("save to gallery"),
+    KEEP("Save to gallery"),
     IMG2IMG("→ img2img", handoff = true),
-    INPAINT("inpaint", handoff = true),
-    VARY("vary", handoff = true),
-    REUSE("reuse settings", handoff = true),
-    SAME_SEED("same seed", handoff = true),
-    UPSCALE("upscale 4×"),
-    SHARE("share"),
-    SAVE("save to device"),
-    COPY_PARAMS("copy params"),
-    FAVORITE("favorite"),
-    DELETE("delete"),
+    INPAINT("Inpaint", handoff = true),
+    VARY("Vary", handoff = true),
+    REUSE("Reuse settings", handoff = true),
+    SAME_SEED("Same seed", handoff = true),
+    UPSCALE("Upscale 4×"),
+    SHARE("Share"),
+    SAVE("Save to device"),
+    COPY_PARAMS("Copy params"),
+    FAVORITE("Favorite"),
+    DELETE("Delete"),
     ;
 
     companion object {

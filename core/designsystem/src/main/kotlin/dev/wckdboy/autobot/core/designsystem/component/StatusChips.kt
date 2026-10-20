@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,13 +40,13 @@ enum class Accelerator(val label: String) { NPU("NPU"), GPU("GPU"), CPU("CPU"), 
 
 @Composable
 private fun PrivacyStatus.color(): Color = when (this) {
-    PrivacyStatus.OFFLINE -> MaterialTheme.colorScheme.primary
+    PrivacyStatus.OFFLINE -> AutobotColors.Purple
     PrivacyStatus.DIRECT -> AutobotTheme.inks.amber
     PrivacyStatus.TOR -> AutobotTheme.inks.uv
     PrivacyStatus.PROXY -> AutobotTheme.inks.cyan
 }
 
-/** Compact pill with a status dot, e.g. "● Offline". Clickable when [onClick] is set. */
+/** Compact hairline tag with a status dot, e.g. "● Offline": the dot carries the colour, the word stays onSurface. Clickable when [onClick] is set. */
 @Composable
 fun PrivacyStatusPill(
     status: PrivacyStatus,
@@ -60,38 +62,36 @@ fun PrivacyStatusPill(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Box(Modifier.size(8.dp).background(accent, CircleShape))
-            Text(status.label, style = MaterialTheme.typography.labelMedium, color = accent, fontWeight = FontWeight.SemiBold)
+            Text(status.label, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurface)
         }
     }
-    val shape = CircleShape
-    val container = accent.copy(alpha = 0.12f)
+    val shape = MaterialTheme.shapes.medium
+    val border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     if (onClick != null) {
-        Surface(onClick = onClick, modifier = semanticsModifier, shape = shape, color = container, content = content)
+        // 48 dp touch target around the tag.
+        Box(semanticsModifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+            Surface(onClick = onClick, shape = shape, color = Color.Transparent, border = border, content = content)
+        }
     } else {
-        Surface(modifier = semanticsModifier, shape = shape, color = container, content = content)
+        Surface(modifier = semanticsModifier, shape = shape, color = Color.Transparent, border = border, content = content)
     }
 }
 
 /** Small outlined chip naming the compute backend. */
 @Composable
 fun AcceleratorChip(accelerator: Accelerator, modifier: Modifier = Modifier) {
-    val accent = when (accelerator) {
-        Accelerator.NPU -> AutobotTheme.inks.uv
-        Accelerator.GPU -> AutobotTheme.inks.cyan
-        Accelerator.CPU -> MaterialTheme.colorScheme.onSurfaceVariant
-        Accelerator.REMOTE -> AutobotTheme.inks.amber
-    }
+    // A quiet hairline tag, like the route tags: where it runs is information, not a signal.
     Surface(
         modifier = modifier.semantics { contentDescription = "Runs on ${accelerator.label}" },
-        shape = MaterialTheme.shapes.small,
-        color = accent.copy(alpha = 0.10f),
-        contentColor = accent,
+        shape = MaterialTheme.shapes.extraSmall,
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Text(
-            text = accelerator.label.uppercase(Locale.ROOT),
+            text = accelerator.label.lowercase(Locale.ROOT),
             modifier = Modifier.padding(PaddingValues(horizontal = 8.dp, vertical = 3.dp)),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
+            style = AutobotTheme.styles.micro,
         )
     }
 }
@@ -107,7 +107,7 @@ fun TokenRateLabel(tokensPerSecond: Float?, totalTokens: Int?, modifier: Modifie
     Text(
         text = parts.joinToString(" · "),
         modifier = modifier,
-        style = MaterialTheme.typography.labelSmall,
+        style = AutobotTheme.styles.micro,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }

@@ -277,9 +277,8 @@ struct StabilityCredit: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Rectangle().fill(c.primary).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
-                Text("POWERED BY STABILITY AI").textStyle(.labelLarge).foregroundStyle(c.onSurface).lineLimit(1).minimumScaleFactor(0.8)
+                Text("Powered by Stability AI").textStyle(.labelLarge).foregroundStyle(c.onSurface).lineLimit(1).minimumScaleFactor(0.8)
                 MicroLabel("stable audio open small · stability ai community license", lines: 2)
             }
             Spacer(minLength: 0)

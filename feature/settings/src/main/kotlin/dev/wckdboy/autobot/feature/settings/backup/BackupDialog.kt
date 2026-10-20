@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.settings.backup
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -155,10 +156,10 @@ fun BackupDialog(onDismiss: () -> Unit, viewModel: BackupViewModel = hiltViewMod
             }
         },
         confirmButton = {
-            TextButton(onClick = { exporter.launch("autobot-${LocalDate.now()}.autobot") }, enabled = exportable && !working) { Text("Export") }
+            TextButton(onClick = { exporter.launch("autobot-${LocalDate.now()}.autobot") }, enabled = exportable && !working) { ActionText("Export") }
         },
         dismissButton = {
-            TextButton(onClick = { importer.launch(arrayOf("*/*")) }, enabled = passphrase.isNotEmpty() && !working) { Text("Import") }
+            TextButton(onClick = { importer.launch(arrayOf("*/*")) }, enabled = passphrase.isNotEmpty() && !working) { ActionText("Import") }
         },
     )
 }

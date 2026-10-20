@@ -64,7 +64,8 @@ below).
 `-AutobotScreenshots` skips the app lock and the app-switcher cover; `-AutobotDemo` seeds an
 empty install with sample sessions, providers, gallery images and audit entries;
 `-AutobotOpen <screen>` (run, sessions, chat, agent, imagine, gallery, viewer, models, compute, accounts,
-remote, settings, privacy, providers, backends, licenses, memory) starts on that screen.
+remote, settings, privacy, providers, backends, licenses, memory) starts on that screen;
+`-AutobotTheme light|dark|system` overrides the saved appearance for that launch.
 
 ```sh
 xcrun simctl launch booted ai.wckd.autobot -AutobotScreenshots -AutobotDemo

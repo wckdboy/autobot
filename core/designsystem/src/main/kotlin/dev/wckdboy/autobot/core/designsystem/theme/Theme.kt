@@ -215,9 +215,9 @@ val AutobotTypography = Typography(
     bodyLarge = Base.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.sp, letterSpacing = 0.1.sp),
     bodyMedium = Base.bodyMedium.copy(fontSize = 14.sp, lineHeight = 20.sp),
     bodySmall = Base.bodySmall.copy(fontSize = 12.5.sp, lineHeight = 17.sp),
-    labelLarge = label(12.5, 16, 1.2, FontWeight.SemiBold),
-    labelMedium = label(11.0, 14, 0.9),
-    labelSmall = label(10.0, 13, 1.0),
+    labelLarge = label(13.0, 16, 0.0, FontWeight.SemiBold),
+    labelMedium = label(12.0, 16, 0.0),
+    labelSmall = label(11.0, 14, 0.0),
 )
 
 /** Hard edges: small radii so cards read as printed blocks. */
@@ -233,8 +233,12 @@ val AutobotShapes = Shapes(
 data class AutobotExtraStyles(
     val code: TextStyle,
     val codeBlock: TextStyle,
-    /** Uppercase micro labels: `// SECTION`, field captions. */
+    /** Section labels, captions and meta: sentence-case mono, untracked (`Recent runs`, `Steps`). */
     val micro: TextStyle,
+    /** Button and action labels: sentence-case mono, untracked ("Generate", "New"). */
+    val action: TextStyle,
+    /** Bottom tab labels: small sentence-case mono, untracked. */
+    val tab: TextStyle,
     /** Small numeric telemetry (tok/s, sizes): tabular mono. */
     val readout: TextStyle,
     /** Big numbers (STEPS 4, SEED 4182): tabular mono. */
@@ -246,10 +250,26 @@ val DefaultExtraStyles = AutobotExtraStyles(
     codeBlock = TextStyle(fontFamily = CodeFontFamily, fontSize = 12.sp, lineHeight = 17.sp),
     micro = TextStyle(
         fontFamily = CodeFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.sp,
+    ),
+    action = TextStyle(
+        fontFamily = CodeFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 10.5.sp,
-        lineHeight = 13.sp,
-        letterSpacing = 0.7.sp,
+        fontSize = 13.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.sp,
+        lineHeightStyle = Tight,
+    ),
+    tab = TextStyle(
+        fontFamily = CodeFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.5.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.sp,
+        lineHeightStyle = Tight,
     ),
     readout = TextStyle(
         fontFamily = CodeFontFamily,

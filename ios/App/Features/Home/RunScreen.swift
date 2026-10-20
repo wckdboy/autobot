@@ -125,13 +125,14 @@ struct RunScreen: View {
     @Environment(\.scheme) private var c
     @State private var device: DeviceProfile?
     @State private var lastImage: UIImage?
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
         let _ = InkProbe.hit("body.run")
         let state = RunState(app: app, device: device)
         VStack(spacing: 0) {
             AutobotTopBar {
-                if state.live > 0 { CountBadge("\(state.live) LIVE") }
+                if state.live > 0 { CountBadge("\(state.live) live") }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -154,7 +155,7 @@ struct RunScreen: View {
                             if let id = run.galleryId { nav.push(.gallery(openId: id)) }
                         }) { RouteTag(route: run.route) }
                     }
-                    if state.recent.isEmpty { MicroLabel("nothing yet").padding(.vertical, 12) }
+                    if state.recent.isEmpty { MicroLabel("nothing yet · chats and images you run show here", lines: 3).padding(.vertical, 12) }
                     Spacer().frame(height: 16)
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)
@@ -178,8 +179,29 @@ struct RunScreen: View {
         }
     }
 
-    private func cards(_ state: RunState) -> some View {
-        GeometryReader { geo in
+    @ViewBuilder private func cards(_ state: RunState) -> some View {
+        if dynamicType.isAccessibilitySize {
+            // At the accessibility sizes the fixed grid would overlap its own text: one column of
+            // cards that grow with their words.
+            VStack(spacing: RunGrid.gutter) {
+                ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute) { nav.push(.imagine()) }
+                ModeCard(index: "02", title: "Chat", subtitle: state.chat?.label ?? "add a model", route: state.chat?.route) { start(.chat, state) }
+                ModeCard(index: "03", title: "Agent", subtitle: state.agent?.label ?? "add a model", route: state.agent?.route) { start(.agent, state) }
+                ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route) { start(.code, state) }
+                ModeCard(index: "05", title: "Studio", subtitle: state.studioLabel, route: nil) { nav.enterStudio(.image) }
+                    .accessibilityHint("Image, audio and video generation, workflows and the library")
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+            grid(state)
+        }
+    }
+
+    private func grid(_ state: RunState) -> some View {
+        // Taller cards as the text grows (up to xxxLarge), so titles and tags keep their room.
+        let k = min(max(AutobotFonts.scale(for: 15, dynamicType), 1), 1.35)
+        let top = (RunGrid.topHeight * k).rounded(), bottom = (RunGrid.bottomHeight * k).rounded()
+        return GeometryReader { geo in
             // Two columns shared by both rows (Image : Chat/Agent = 1.1 : 1, as on Android), one
             // gutter everywhere: Code sits under Image and Studio under Chat/Agent.
             let columns = RunGrid.columns(width: geo.size.width)
@@ -201,7 +223,7 @@ struct RunScreen: View {
                     }
                     .frame(width: columns.right)
                 }
-                .frame(height: RunGrid.topHeight)
+                .frame(height: top)
                 HStack(spacing: RunGrid.gutter) {
                     ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route, living: true, seed: 4.2) { start(.code, state) }
                         .frame(width: columns.left)
@@ -209,10 +231,10 @@ struct RunScreen: View {
                         .frame(width: columns.right)
                         .accessibilityHint("Image, audio and video generation, workflows and the library")
                 }
-                .frame(height: RunGrid.bottomHeight)
+                .frame(height: bottom)
             }
         }
-        .frame(height: RunGrid.topHeight + RunGrid.gutter + RunGrid.bottomHeight)
+        .frame(height: top + RunGrid.gutter + bottom)
     }
 
     /// Starts a session for [mode] on its target; tools on for agent and code.

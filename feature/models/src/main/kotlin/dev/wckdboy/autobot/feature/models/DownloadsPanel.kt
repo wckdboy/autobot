@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.models
 
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,18 +44,13 @@ internal fun DownloadsPanel(state: DownloadsState, actions: ModelsActions) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MicroLabel("downloads")
             InfoButton("Downloads", "Downloads keep going when you leave Autobot. Pause and cancel them from the notification.", Modifier.weight(1f))
-            Tag(
-                if (state.wifiOnly) "wi-fi only" else "any network",
-                accent = if (state.wifiOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                filled = state.wifiOnly,
-                onClick = { actions.setWifiOnly(!state.wifiOnly) },
-            )
+            ChoiceChip(if (state.wifiOnly) "Wi-Fi only" else "Any network", selected = state.wifiOnly, onClick = { actions.setWifiOnly(!state.wifiOnly) })
         }
         state.block?.let { MicroLabel(it.label, color = AutobotTheme.inks.amber) }
         state.active?.let { p ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(p.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                TextButton(onClick = { actions.pause(p.id) }) { Text("PAUSE") }
+                TextButton(onClick = { actions.pause(p.id) }) { ActionText("Pause") }
             }
             InkProgressBar(p.fraction.takeIf { p.total > 0 }, Modifier.fillMaxWidth().height(3.dp))
             MicroLabel(
@@ -86,11 +83,11 @@ private fun QueueRow(model: InstalledModel, status: String, actions: ModelsActio
             )
         }
         when (model.status) {
-            ModelStatus.QUEUED -> Tag("pause", onClick = { actions.pause(model.id) })
-            ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
-            ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
+            ModelStatus.QUEUED -> Tag("Pause", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.pause(model.id) })
+            ModelStatus.PAUSED -> Tag("Resume", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.resume(model.id) })
+            ModelStatus.FAILED -> Tag("Retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
             else -> Unit
         }
-        Tag("cancel", onClick = { actions.remove(model.id) })
+        Tag("Cancel", onClick = { actions.remove(model.id) })
     }
 }

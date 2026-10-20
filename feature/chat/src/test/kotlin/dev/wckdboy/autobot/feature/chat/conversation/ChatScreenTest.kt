@@ -65,7 +65,7 @@ class ChatScreenTest {
     fun withoutAProviderItSaysWhatToDo() {
         show(ChatUiState(loaded = true))
         compose.onNodeWithText("No model yet.").assertIsDisplayed()
-        compose.onNodeWithText("ADD").performClick()
+        compose.onNodeWithText("Add").performClick()
         assertEquals(1, openedProviders)
     }
 
@@ -73,7 +73,7 @@ class ChatScreenTest {
     fun aRemoteProviderInOfflineModeSaysTheKillSwitchBlocksIt() {
         show(ChatUiState(loaded = true, providers = listOf(provider), showOfflineBanner = true))
         compose.onNodeWithText("Offline mode: this provider is remote, so the kill switch blocks it.").assertIsDisplayed()
-        compose.onNodeWithText("PRIVACY").performClick()
+        compose.onNodeWithText("Privacy").performClick()
         assertEquals(1, openedPrivacy)
     }
 
@@ -97,11 +97,11 @@ class ChatScreenTest {
                 approvals = mapOf("call-1" to ApprovalUi("call-1", "write_file", "path=notes.md", "writes a file")),
             ),
         )
-        compose.onNodeWithText("01 · APPROVAL NEEDED").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("01 · Approval needed").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("write_file(path=notes.md)").assertIsDisplayed()
         compose.onNodeWithText("Approve", ignoreCase = true).performClick()
         compose.onNodeWithText("Deny", ignoreCase = true).performClick()
-        compose.onNodeWithText("ALWAYS ALLOW WRITE_FILE IN THIS RUN").performClick()
+        compose.onNodeWithText("Always allow write_file in this run").performClick()
         assertEquals(
             listOf("approve(call-1,ALLOWED_ONCE)", "approve(call-1,REJECTED)", "approve(call-1,ALLOWED_FOR_SESSION)"),
             calls.filter { it.startsWith("approve") },
@@ -130,10 +130,10 @@ class ChatScreenTest {
         )
         val answer = SessionItem.Assistant("a1", "Wrote to Hannah.", null, false, null, null, receipt = receipt)
         val update = show(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.ON, items = listOf(SessionItem.User("u1", "hi"), answer)))
-        compose.onNodeWithText("\u25AE REDACT").performClick()
+        compose.onNodeWithText("\u25AE Redact").performClick()
         assertTrue(calls.toString(), "setRedaction(false)" in calls)
         update(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.OFF, items = listOf(SessionItem.User("u1", "hi"), answer)))
-        compose.onNodeWithText("REDACT OFF").performClick()
+        compose.onNodeWithText("Redact off").performClick()
         assertTrue(calls.toString(), "setRedaction(true)" in calls)
 
         // The receipt line says how much was hidden; the sheet says what kind, never the values.
@@ -143,8 +143,8 @@ class ChatScreenTest {
 
         // On this phone there is nothing to hide: no switch.
         update(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.NONE))
-        compose.onNodeWithText("REDACT OFF").assertDoesNotExist()
-        compose.onNodeWithText("\u25AE REDACT").assertDoesNotExist()
+        compose.onNodeWithText("Redact off").assertDoesNotExist()
+        compose.onNodeWithText("\u25AE Redact").assertDoesNotExist()
     }
 
     @Test
@@ -168,11 +168,11 @@ class ChatScreenTest {
             ),
         )
         compose.onNodeWithText("The phone's answer looks weak: it declined.").assertIsDisplayed()
-        compose.onNodeWithText("ASK DEEPSEEK-CHAT").performClick()
+        compose.onNodeWithText("Ask deepseek-chat").performClick()
         assertTrue(calls.toString(), "escalate()" in calls)
 
         // The chip opens the choice; picking one sets it for this chat.
-        compose.onNodeWithText("\u25AE PHONE FIRST · ASK").performClick()
+        compose.onNodeWithText("\u25AE Phone first · ask").performClick()
         compose.onNodeWithText("auto", ignoreCase = true).performClick()
         assertTrue(calls.toString(), "setCascade(AUTO)" in calls)
         compose.onNodeWithText("Plain chats only", substring = true).assertExists()
@@ -194,6 +194,6 @@ class ChatScreenTest {
         show(ChatUiState(loaded = true, providers = listOf(provider), toolsEnabled = false, items = listOf(SessionItem.User("u1", "hi"), answer)))
         compose.onNodeWithText("judge weak", substring = true, ignoreCase = true).performClick()
         compose.onNodeWithText("Not sent on its own: the prompt involves health.", substring = true).assertExists()
-        compose.onNodeWithText("JUDGE · SELF-CHECK · 412 MS").assertExists()
+        compose.onNodeWithText("judge · self-check · 412 ms").assertExists()
     }
 }

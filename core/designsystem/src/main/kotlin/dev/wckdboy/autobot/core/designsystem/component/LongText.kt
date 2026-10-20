@@ -70,7 +70,8 @@ fun VerbatimText(text: String, style: TextStyle, modifier: Modifier = Modifier, 
                     .clickable(role = Role.Button) { shown += LongText.PAGE }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 style = style,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurface,
+                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
             )
         }
     }

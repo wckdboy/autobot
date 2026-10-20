@@ -32,7 +32,6 @@ import dev.wckdboy.autobot.core.data.db.DatabaseState
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
-import dev.wckdboy.autobot.core.designsystem.component.InkPrintAway
 import dev.wckdboy.autobot.core.designsystem.component.InkSpecimen
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.SystemBarsBase
@@ -44,8 +43,6 @@ import dev.wckdboy.autobot.feature.home.WelcomeScreen
 import dev.wckdboy.autobot.navigation.AutobotNavDisplay
 import dev.wckdboy.autobot.shared.panic.PanicCopy
 import dev.wckdboy.autobot.navigation.Models
-import dev.wckdboy.autobot.navigation.Providers
-import dev.wckdboy.autobot.navigation.Remote
 import dev.wckdboy.autobot.navigation.Run
 import dev.wckdboy.autobot.ui.DatabaseErrorScreen
 import dev.wckdboy.autobot.ui.LockScreen
@@ -123,6 +120,12 @@ class MainActivity : FragmentActivity() {
             }
             // Bars stay transparent (edge to edge); their icons follow the theme, or a screen's own surface.
             SystemBarsBase(lightSurface = !darkTheme)
+            // The next launch screen follows the app's theme: the purple a on ink or on paper.
+            if (loaded != null) {
+                LaunchedEffect(darkTheme) {
+                    runCatching { splashScreen.setSplashScreenTheme(if (darkTheme) R.style.Theme_Autobot else R.style.Theme_Autobot_Paper) }
+                }
+            }
 
             AutobotTheme(darkTheme = darkTheme, amoled = settings.amoled, dynamicColor = settings.dynamicColor) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -203,17 +206,6 @@ class MainActivity : FragmentActivity() {
                                 backStack.add(Models)
                                 onboarded()
                             },
-                            onPairPc = {
-                                backStack.clear()
-                                backStack.add(Remote)
-                                onboarded()
-                            },
-                            onAddApiKey = {
-                                backStack.clear()
-                                backStack.add(Remote)
-                                backStack.add(Providers)
-                                onboarded()
-                            },
                         )
                     } else if (loaded != null) {
                         // Only while unlocked, set up and resumed (the lock re-arms on start, before
@@ -231,8 +223,6 @@ class MainActivity : FragmentActivity() {
                         AutobotNavDisplay(backStack)
                         ReportDrawn()
                     }
-                    // On unlock, the lock screen's paper prints away over the app.
-                    if (lockReady) InkPrintAway(locked = lockState is LockState.Locked)
                 }
             }
         }

@@ -68,7 +68,7 @@ fun ThinkingDisclosure(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (isThinking) HalftoneStrip(color = accent, cell = 3.dp)
+                if (isThinking) InkLoader(contentDescription = null)
                 MicroLabel(if (isThinking) "∴ thinking" else "∴ thought", color = accent)
                 MicroLabel(thinkingMeta(reasoning, tokens, stop), color = MaterialTheme.colorScheme.outline)
                 Box(Modifier.weight(1f))

@@ -67,7 +67,7 @@ struct GalleryScreen: View {
             Group {
                 if let message {
                     HStack {
-                        MicroLabel(message, color: c.primary).frame(maxWidth: .infinity, alignment: .leading)
+                        MicroLabel(message, color: c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
                         TextAction("OK") { self.message = nil }
                     }
                     .padding(.horizontal, 16)
@@ -75,13 +75,8 @@ struct GalleryScreen: View {
             }
             .stamp(message) { $0 != nil }
             if items.isEmpty {
-                MicroLabel(all.isEmpty ? "nothing generated yet" : "no matches")
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Tokens.Spacing.gutter)
-                    .inkClearance(c.background)
+                EmptyState(all.isEmpty ? "Nothing generated yet. Images you make land here." : "No images match.")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .inkGround(fade: .center)
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 4)], spacing: 4) {

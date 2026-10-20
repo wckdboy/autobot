@@ -283,7 +283,7 @@ private struct ViewerTopBar: View {
                 .accessibilityLabel(position.replacingOccurrences(of: " / ", with: " of "))
             IconAction(symbol: "info.circle", label: "Image info", tint: AutobotColors.bone100, action: onInfo)
             if unsaved {
-                Text(PanicCopy.shared.NOT_SAVED.uppercased()).textStyle(.micro).foregroundStyle(AutobotColors.amber).padding(.horizontal, 8)
+                Text(PanicCopy.shared.NOT_SAVED.sentenceCased).textStyle(.micro).foregroundStyle(AutobotColors.amber).padding(.horizontal, 8)
             } else {
             IconAction(symbol: favorite ? "star.fill" : "star", label: favorite ? "Remove from favorites" : "Add to favorites",
                        tint: favorite ? AutobotColors.amber : AutobotColors.bone100, action: onFavorite)
@@ -308,7 +308,7 @@ private struct ViewerActionLabel: View {
                 Image(systemName: symbol).font(.system(size: 20, weight: .medium))
             }
             .frame(height: 24)
-            Text(label.uppercased()).textStyle(.micro).lineLimit(1)
+            Text(label.sentenceCased).textStyle(.micro).lineLimit(1)
         }
         .foregroundStyle(tint)
         .frame(minWidth: 64, minHeight: 52)

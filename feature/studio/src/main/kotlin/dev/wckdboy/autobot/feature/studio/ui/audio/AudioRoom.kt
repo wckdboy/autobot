@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.studio.ui.audio
 
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,7 +34,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
@@ -103,7 +103,7 @@ fun AudioRoom(state: AudioRoomState, shell: StudioShellState, actions: AudioActi
             }
             if (running != null) {
                 Column(Modifier.fillMaxWidth().height(140.dp)) {
-                    DevelopingHalftone(null, Modifier.fillMaxWidth().weight(1f), progress = running.progress, loading = running.steps == 0, seed = 3f)
+                    DevelopingPreview(null, Modifier.fillMaxWidth().weight(1f))
                     InkProgressBar(if (running.steps > 0) running.progress else null, Modifier.fillMaxWidth().height(3.dp))
                     MicroLabel(running.status ?: "making ${running.label ?: "audio"}", Modifier.padding(top = 4.dp))
                 }
@@ -161,13 +161,13 @@ fun AudioRoom(state: AudioRoomState, shell: StudioShellState, actions: AudioActi
 fun PoweredByStability(modifier: Modifier = Modifier) {
     Row(
         modifier
-            .border(1.dp, MaterialTheme.colorScheme.onBackground, MaterialTheme.shapes.extraSmall)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall)
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .semantics { contentDescription = StableAudioCatalog.ATTRIBUTION },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(StableAudioCatalog.ATTRIBUTION.uppercase(Locale.ROOT), Modifier.stamp("stability"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground)
+        Text(StableAudioCatalog.ATTRIBUTION, Modifier.stamp("stability"), style = AutobotTheme.styles.action, color = MaterialTheme.colorScheme.onBackground)
         Text("· community licence", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
