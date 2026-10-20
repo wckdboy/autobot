@@ -260,6 +260,8 @@ fun ChatScreen(
     }
     // Step numbers in transcript order (computed with the projection, off the main thread).
     val stepNumbers = state.stepNumbers
+    // "Retry" sits on the last answer (or failure) while nothing runs.
+    val retry = remember(state.items, state.running) { ChatRetry.of(state.items, state.running) }
     val firstPromptKey = state.items.firstOrNull { it is SessionItem.User }?.key
     val runLabel = listOfNotNull("run", state.modelLabel ?: state.selectedModel, state.contextUsed?.let { "${compact(it)} tok" }).joinToString(" · ")
     val onReceipt = remember { { receipt: Receipt -> openReceipt = receipt } }
@@ -320,6 +322,7 @@ fun ChatScreen(
                         fresh = fresh,
                         runLabel = if (item.key == firstPromptKey) runLabel else null,
                         stepNumber = stepNumbers[item.key] ?: 0,
+                        retry = retry?.takeIf { it.key == item.key }?.prompt,
                         approval = approval,
                         ghost = ghost,
                         speaking = state.speakingKey == item.key,
@@ -437,6 +440,7 @@ private fun TranscriptRow(
     fresh: Boolean,
     runLabel: String?,
     stepNumber: Int,
+    retry: String?,
     approval: ApprovalUi?,
     ghost: Boolean,
     speaking: Boolean,
@@ -448,14 +452,22 @@ private fun TranscriptRow(
     chatCompositionProbe?.invoke("rowBody")
     Box(Modifier.inkEnter(fresh)) {
         when (item) {
-            is SessionItem.User -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (runLabel != null) RunHeader(runLabel, item.text) else FollowUp(item.text)
-                if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
+            is SessionItem.User -> {
+                var menu by remember { mutableStateOf(false) }
+                Column(
+                    Modifier.combinedClickable(onLongClickLabel = "Message actions", onLongClick = { menu = true }, onClick = {}),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (runLabel != null) RunHeader(runLabel, item.text) else FollowUp(item.text)
+                    if (item.images.isNotEmpty()) AttachmentStrip(item.images, actions::attachmentThumbnail)
+                    MessageMenu(menu, { menu = false }, item.text)
+                }
             }
             is SessionItem.Assistant -> AssistantMessage(
                 item,
                 speaking = speaking,
                 onReceipt = onReceipt,
+                onRetry = retry?.let { prompt -> { actions.send(prompt) } },
                 undo = { UndoTurnLine(item.turnChanges, running, actions::undoTurn, actions::redo) },
             ) {
                 actions.speak(item.key, item.text)
@@ -465,7 +477,7 @@ private fun TranscriptRow(
             } else {
                 StepRow(stepNumber, item, actions, onOpenImage, running)
             }
-            is SessionItem.Notice -> NoticeRow(item)
+            is SessionItem.Notice -> NoticeRow(item, onRetry = retry?.let { prompt -> { actions.send(prompt) } })
         }
     }
 }
@@ -491,15 +503,19 @@ private fun AssistantMessage(
     item: SessionItem.Assistant,
     speaking: Boolean,
     onReceipt: (Receipt) -> Unit,
+    onRetry: (() -> Unit)? = null,
     undo: @Composable () -> Unit = {},
     onSpeak: () -> Unit,
 ) {
+    var menu by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item.reasoning?.takeIf { it.isNotEmpty() }?.let { ThinkingDisclosure(reasoning = it, tokens = item.reasoningTokens, stop = item.reasoningStop) }
         if (item.text.isNotEmpty()) {
+            MessageMenu(menu, { menu = false }, item.text, onRetry = onRetry, onSpeak = onSpeak)
             ChatBubble(
                 role = BubbleRole.ASSISTANT,
                 text = item.text,
+                onLongPress = { menu = true },
                 footer = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (item.interrupted) Tag("interrupted", accent = AutobotTheme.inks.amber)
@@ -507,6 +523,8 @@ private fun AssistantMessage(
                         Spacer(Modifier.weight(1f))
                         // Copies the message as written (markdown), not the rendered text.
                         CopyMessageButton(item.text)
+                        ShareButton(item.text)
+                        if (onRetry != null) RetryButton(onRetry)
                         IconButton(onClick = onSpeak, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 AutobotIcons.Speaker,
@@ -556,7 +574,7 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
     }
 }
 
-/** `01  Read file / read · notes.md   ✓ 0.4 s` */
+/** `▪ Read file / └ read · notes.md   ✓ 0.4 s`: the terminal's step grammar. */
 @Composable
 private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, onOpenImage: (String, List<String>) -> Unit, running: Boolean = false) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
@@ -577,7 +595,18 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(String.format(Locale.ROOT, "%02d", number), style = AutobotTheme.styles.readout, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // The step square: purple while it works or waits for you, red when it failed.
+            Text(
+                STEP_MARK,
+                modifier = Modifier.semantics { contentDescription = "Step $number" },
+                // On the title's line and at its size, as the terminal sets it beside the step.
+                style = MaterialTheme.typography.titleMedium,
+                color = when (item.state) {
+                    ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> AutobotColors.Purple
+                    ToolState.ERROR -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     stepTitle(item.name),
@@ -586,7 +615,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
+                        "└ " + listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
                         modifier = Modifier.weight(1f, fill = false),
                         style = AutobotTheme.styles.micro,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -622,7 +651,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
         }
         val output = item.output
         if (expanded && item.steps.isNotEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(start = 34.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.fillMaxWidth().padding(start = 24.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 item.steps.forEach { step ->
                     Text(step, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -708,7 +737,7 @@ private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: Approval
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(String.format(Locale.ROOT, "%02d · Approval needed", number), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text("$STEP_MARK Approval needed", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).semantics { contentDescription = "Step $number: approval needed" })
                 Text(if (privateData.isEmpty()) approval.reason.orEmpty() else "private data", style = AutobotTheme.styles.micro, color = if (privateData.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
             }
             Text(stepTitle(item.name), style = MaterialTheme.typography.headlineMedium)
@@ -739,7 +768,7 @@ private fun highlight(text: String, fragments: List<String>, style: SpanStyle): 
 
 /** `Stopped`, as written; errors keep their case (ids, hosts and keys must stay readable) and expand on tap. */
 @Composable
-private fun NoticeRow(item: SessionItem.Notice) {
+private fun NoticeRow(item: SessionItem.Notice, onRetry: (() -> Unit)? = null) {
     val color = when (item.kind) {
         NoticeKind.INFO -> MaterialTheme.colorScheme.outline
         NoticeKind.WARN -> AutobotTheme.inks.amber
@@ -747,14 +776,17 @@ private fun NoticeRow(item: SessionItem.Notice) {
     }
     if (item.kind == NoticeKind.ERROR) {
         var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
-        Text(
-            "${item.text}",
-            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { expanded = !expanded },
-            style = MaterialTheme.typography.bodySmall,
-            color = color,
-            maxLines = if (expanded) Int.MAX_VALUE else 3,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column {
+            Text(
+                "✗ ${item.text}",
+                modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { expanded = !expanded },
+                style = MaterialTheme.typography.bodySmall,
+                color = color,
+                maxLines = if (expanded) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (onRetry != null) TextButton(onClick = onRetry) { ActionText("Retry", color = MaterialTheme.colorScheme.onSurface) }
+        }
     } else {
         Text(
             labelCase(item.text),
@@ -794,21 +826,25 @@ private fun PolicyLine(
         state.permission == PermissionPreset.WORKSPACE -> "policy · workspace · asks: delete, network"
         else -> "policy · full access"
     }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (think) ThinkChip(state.thinking, onThink, onThinkMore)
-        if (redact) RedactChip(state.redaction == RedactionUi.ON, onRedact)
-        if (cascade != null) CascadeChip(cascade, onCascade)
-        // Two lines: with the Think and redact chips, a narrow phone cuts the policy to "POLICY · WORKS…".
-        MicroLabel(text, Modifier.weight(1f), maxLines = 2)
-        val used = state.contextUsed
-        val window = state.contextWindow
-        if (used != null && window != null && window > 0) MicroLabel("${compact(used)}/${compact(window)}")
+    // Chips and the context meter on one row, the policy on its own line under them (as on iOS):
+    // beside three chips a narrow phone cut it to "Policy · workspace · …".
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (think) ThinkChip(state.thinking, onThink, onThinkMore)
+            if (redact) RedactChip(state.redaction == RedactionUi.ON, onRedact)
+            if (cascade != null) CascadeChip(cascade, onCascade)
+            Spacer(Modifier.weight(1f))
+            val used = state.contextUsed
+            val window = state.contextWindow
+            if (used != null && window != null && window > 0) MicroLabel("${compact(used)}/${compact(window)}")
+        }
+        if (text.isNotEmpty()) MicroLabel(text, maxLines = 2)
     }
 }
+
+/** A step's mark, as the terminal prints it (`▪ Run cargo test`). */
+private const val STEP_MARK = "▪"
+
 
 private fun compact(n: Int): String = when {
     n >= 1_000_000 -> String.format(Locale.ROOT, "%.1fM", n / 1e6)

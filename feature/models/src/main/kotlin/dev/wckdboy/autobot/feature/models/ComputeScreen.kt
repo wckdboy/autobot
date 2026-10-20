@@ -333,7 +333,11 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
                     DeviceCard("gpu", state.devices?.gpu ?: "none", state.devices?.gpu != null, Modifier.weight(1f))
                     DeviceCard("npu", state.devices?.npu ?: "none", state.devices?.npu != null, Modifier.weight(1f))
                 }
-                state.devices?.npuError?.let { MicroLabel("npu: $it", Modifier.padding(top = 6.dp), color = MaterialTheme.colorScheme.error, maxLines = WRAP) }
+                // No Snapdragon NPU is not a failure (the "none" card says it); on one, a short
+                // "needs a look" line, the full error in the report.
+                if (state.device?.htpArch != null) {
+                    state.devices?.npuError?.let { MicroLabel("! npu did not start · ${it.substringBefore(" (").take(80)} · details in the report", Modifier.padding(top = 6.dp), color = AutobotTheme.inks.amber, maxLines = 2) }
+                }
                 if (state.devices?.npu != null && Backend.NPU !in state.devices!!.llmBackends) {
                     MicroLabel("chat on the npu: the hexagon backend did not start on this phone · images still run on the npu", Modifier.padding(top = 6.dp), maxLines = WRAP)
                 }

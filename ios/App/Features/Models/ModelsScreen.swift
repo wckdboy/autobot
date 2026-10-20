@@ -312,6 +312,7 @@ struct ModelsScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     profile
+                    firstModel
                     DownloadsPanel()
                     if !app.library.models.isEmpty {
                         SectionLabel("installed · \(app.library.models.count)")
@@ -347,17 +348,39 @@ struct ModelsScreen: View {
         if let d = model.device, let info = model.deviceInfo {
             // One line: what decides which models fit.
             let chip = info.chip ?? d.chip ?? info.name ?? d.machine
-            SectionLabel("\(chip) · \(formatBytes(d.totalRamBytes)) ram · \(formatBytes(d.freeStorageBytes)) free")
+            SectionLabel("\(chip) · \(formatBytes(d.totalRamBytes)) RAM · \(formatBytes(d.freeStorageBytes)) free")
         }
         Spacer().frame(height: 16)
     }
 
+    /// "Start here": the first-run model for this phone, until it chats on one.
+    @ViewBuilder private var firstModel: some View {
+        if let d = model.device {
+            let state = FirstModelState.compute(device: d.capabilities, models: app.library.models, progress: app.downloader.progress,
+                                                hasChats: !app.conversations.conversations.isEmpty)
+            FirstModelCard(
+                state: state, ramBytes: d.totalRamBytes,
+                offline: app.settings.settings.mode == .offline,
+                onNetwork: { online in app.settings.setNetworkMode(online ? .direct : .offline) },
+
+                onDownload: { if let plan = state.plan { model.install(plan) } },
+                onPause: { if let id = state.plan?.id { app.downloader.pause(id) } },
+                onResume: { if let id = state.plan?.id { app.downloader.resume(id) } },
+                onStart: {
+                    if let id = state.plan?.id, let m = app.library.models.first(where: { $0.id == id }) { model.use(m, nav: nav) }
+                },
+            )
+        }
+    }
+
     @ViewBuilder private func recommended(_ installed: Set<String>) -> some View {
+        // Chat first: it is what a new phone needs; images and the rest follow.
         let sections: [(String, [ModelPlan])] = [
-            ("image · neural engine", CoreMLCatalog.all),
-            ("upscale · neural engine", CoreMLCatalog.upscalers),
             ("chat", Catalog.chat),
             ("code", Catalog.code),
+            ("image · neural engine", CoreMLCatalog.all),
+            ("upscale · neural engine", CoreMLCatalog.upscalers),
+
             ("speech · dictation", Catalog.speech),
             ("voice · read aloud", CoreMLCatalog.voices),
             ("audio · studio", CoreMLCatalog.audio),

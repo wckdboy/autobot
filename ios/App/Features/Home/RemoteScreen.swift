@@ -26,7 +26,7 @@ struct RemoteScreen: View {
                         ForEach(nodes) { n in
                             RunRow(
                                 title: "Agent on \(n.displayName)",
-                                subtitle: "tasks run on that machine · you approve",
+                                subtitle: "runs there · you approve",
                                 action: { nav.push(.nodeAgent(providerId: n.id)) },
                                 // The node's own mark: Invincible's orange square.
                                 leading: { NodeMark() },
@@ -35,14 +35,27 @@ struct RemoteScreen: View {
                             }
                         }
                         Spacer().frame(height: 24)
+                    } else {
+                        // No node yet: pairing is one tap from here (as on Android).
+                        SectionLabel("agents · my node")
+                        RunRow(
+                            title: "Pair a PC",
+                            subtitle: "your Invincible node · end to end encrypted",
+                            action: {
+                                nav.push(.providers)
+                                nav.pendingPairing = ""
+                            },
+                            leading: { NodeMark() },
+                        ) { Chevron() }
+                        Spacer().frame(height: 24)
                     }
                     SectionLabel("providers")
                     ForEach(providers) { p in
-                        RunRow(title: p.displayName, subtitle: p.defaultModel, action: { nav.push(.providers) }) {
+                        RunRow(title: p.displayName, subtitle: ChatListModel.modelLabel(p.defaultModel), action: { nav.push(.providers) }) {
                             RouteTag(route: routeOf(p))
                         }
                     }
-                    RunRow(title: providers.isEmpty ? "Add a provider" : "Add or edit", subtitle: "", action: { nav.push(.providers) }) { Chevron() }
+                    RunRow(title: providers.isEmpty ? "Add an API key or server" : "Add or edit", subtitle: "", action: { nav.push(.providers) }) { Chevron() }
                     Spacer().frame(height: 24)
                     SectionLabel("image backends")
                     ForEach(backends) { b in
@@ -50,10 +63,11 @@ struct RemoteScreen: View {
                             RouteTag(route: Route.imageBackend(b, model: nil))
                         }
                     }
-                    RunRow(title: backends.isEmpty ? "Add a PC" : "Add or edit", subtitle: "", action: { nav.push(.imageBackends) }) { Chevron() }
+                    RunRow(title: backends.isEmpty ? "Add an image server" : "Add or edit", subtitle: "", action: { nav.push(.imageBackends) }) { Chevron() }
                     Spacer().frame(height: 24)
                     SectionLabel("accounts")
-                    RunRow(title: "Hugging Face", subtitle: accounts.huggingFaceUser ?? "signed out", action: { nav.push(.accounts) }) { Chevron() }
+                    RunRow(title: "Hugging Face", subtitle: accounts.huggingFaceUser ?? "not signed in"
+, action: { nav.push(.accounts) }) { Chevron() }
                     RunRow(title: "Civitai", subtitle: accounts.civitaiUser ?? "no key", action: { nav.push(.accounts) }) { Chevron() }
                     Spacer().frame(height: 16)
                 }

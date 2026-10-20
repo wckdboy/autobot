@@ -59,6 +59,7 @@ import dev.wckdboy.autobot.feature.settings.usage.UsageRoute
 import dev.wckdboy.autobot.feature.settings.vault.VaultRoute
 import dev.wckdboy.autobot.feature.settings.privacy.PrivacyCenterRoute
 import dev.wckdboy.autobot.feature.settings.providers.ProvidersRoute
+import dev.wckdboy.autobot.feature.settings.providers.ProvidersStart
 import dev.wckdboy.autobot.feature.studio.ui.StudioRoute
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -177,11 +178,12 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     }
                     entry<Remote> {
                         RemoteRoute(
-                            onOpenProviders = { navigate(Providers) },
+                            onOpenProviders = { navigate(Providers()) },
                             onOpenBackends = { navigate(ImageBackends) },
                             onOpenAccounts = { navigate(Accounts) },
                             onOpenPrivacy = { navigate(PrivacyCenter) },
                             onOpenNodeAgent = { navigate(NodeAgent(it)) },
+                            onPairNode = { navigate(Providers(Providers.PAIR)) },
                         )
                     }
                     entry<NodeAgent> { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open, session = key.session) }
@@ -202,7 +204,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                         ChatListRoute(
                             onBack = ::back,
                             onOpenChat = { navigate(Chat(it)) },
-                            onOpenProviders = { navigate(Providers) },
+                            onOpenProviders = { navigate(Providers()) },
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                         )
                     }
@@ -211,7 +213,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             conversationId = key.conversationId,
                             onBack = ::back,
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
-                            onOpenProviders = { navigate(Providers) },
+                            onOpenProviders = { navigate(Providers()) },
                             onOpenGallery = { navigate(Gallery()) },
                             onOpenImage = { id, batch -> navigate(Gallery(openId = id, scope = batch)) },
                             onOpenUsage = { navigate(Usage) },
@@ -251,7 +253,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onReuse = { id, action -> navigate(Imagine(id, asInit = action == ViewerAction.IMG2IMG, action = action.name)) },
                         )
                     }
-                    entry<Providers> { ProvidersRoute(onBack = ::back) }
+                    entry<Providers> { key -> ProvidersRoute(onBack = ::back, start = when (key.start) { Providers.PAIR -> ProvidersStart.PAIR; Providers.ADD -> ProvidersStart.ADD; else -> null }) }
                     entry<McpServers> { McpServersRoute(onBack = ::back) }
                     entry<PrivacyCenter> { PrivacyCenterRoute(onBack = ::back) }
                     entry<ImageBackends> { BackendsRoute(onBack = ::back) }

@@ -42,10 +42,11 @@ private enum ModeKind: CaseIterable {
 
     var description: String {
         switch self {
-        case .offline: "Nothing leaves the phone"
-        case .direct: "Straight to providers"
-        case .tor: "Through Orbot · 127.0.0.1:9050"
-        case .socks5: "Through your proxy"
+        // Android's words (PrivacyCenterScreen.kt).
+        case .offline: "Kill switch on. Nothing leaves the device."
+        case .direct: "Connect to providers directly."
+        case .tor: "Route through Orbot's SOCKS port (remote DNS)."
+        case .socks5: "Route through a custom SOCKS5 proxy."
         }
     }
 
@@ -76,7 +77,7 @@ struct PrivacyCenterScreen: View {
                     header("Network mode")
                     NetworkModeSelector(mode: settings.mode) { app.settings.setNetworkMode($0) }
                     SwitchRow(
-                        title: "Loopback offline",
+                        title: "Loopback when offline",
                         isOn: Binding(get: { settings.allowLoopbackWhenOffline }, set: { app.settings.setAllowLoopbackWhenOffline($0) }),
                         info: "Lets on-device servers (e.g. Ollama at 127.0.0.1) work in Offline mode.",
                     )
@@ -88,7 +89,8 @@ struct PrivacyCenterScreen: View {
                         if !audit.isEmpty { TextAction("Clear", color: c.primary) { app.auditLog.clear() }.padding(.top, 8).padding(.trailing, 8) }
                     }
                     if audit.isEmpty {
-                        Text("No requests").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
+                        Text("No requests yet.").textStyle(.bodyMedium)
+.foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
                     }
                     ForEach(audit) { AuditRowView(row: $0) }
                 }
@@ -128,10 +130,8 @@ private struct NetworkModeSelector: View {
                         RadioMark(selected: kind == current)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(kind.label).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                            // Only the chosen mode says what it does (state, not a manual).
-                            if kind == current {
-                                Text(kind.description).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).multilineTextAlignment(.leading)
-                            }
+                            // One line each, as on Android: what a mode does decides the choice.
+                            Text(kind.description).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).multilineTextAlignment(.leading)
                         }
                         Spacer(minLength: 0)
                     }

@@ -49,8 +49,15 @@ data class Studio(val room: String? = null) : NavKey
 @Serializable
 data class Gallery(val openId: String? = null, val scope: List<String> = emptyList()) : NavKey
 
+/** Providers; [start] opens a sheet on arrival: `pair` (pair with my node) or `add` (the preset picker). */
 @Serializable
-data object Providers : NavKey
+data class Providers(val start: String? = null) : NavKey {
+    companion object {
+        const val PAIR = "pair"
+        const val ADD = "add"
+    }
+}
+
 
 /**
  * The Autobot Agent on a paired Invincible node ([providerId]: its "My node" provider); [open] is a

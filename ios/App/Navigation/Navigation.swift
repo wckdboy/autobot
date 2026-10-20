@@ -68,6 +68,8 @@ final class Navigator {
     var pendingWorkflow: String?
     /// An `invincible://pair?…` code from a link, for the Providers screen's pairing sheet.
     var pendingPairing: String?
+    /// The welcome screen's "Add an API key": the Providers screen opens its preset picker.
+    var pendingAddProvider = false
 
     init() {
         #if DEBUG
@@ -82,7 +84,10 @@ final class Navigator {
             case "models": tab = .models
             case "compute": tab = .models; path = [.compute]
             case "accounts": tab = .models; path = [.accounts]
+            case "run": tab = .run
             case "remote": tab = .remote
+            case "node": tab = .remote; path = [.nodeAgent(providerId: "demo-node")]
+
             case "settings": tab = .settings
             case "sessions": path = [.chatList]
             case "privacy": tab = .settings; path = [.privacyCenter]

@@ -54,7 +54,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -125,6 +127,8 @@ data class ModelsUiState(
     val message: String? = null,
     /** Offline network mode: the kill switch blocks the hubs and downloads. */
     val offline: Boolean = false,
+    /** Any chat exists (the first-run card goes once the first chat on this phone's model is made). */
+    val hasChats: Boolean = false,
 ) {
     /** Built once per state, not once per row that asks. */
     private val ids: Set<String> by lazy(LazyThreadSafetyMode.PUBLICATION) { installed.mapTo(HashSet()) { it.id } }
@@ -167,6 +171,12 @@ interface ModelsActions {
     fun searchCivitai(reset: Boolean = true)
     fun installCivitai(model: CivitaiModel)
     suspend fun preview(url: String): ImageBitmap?
+
+    /** The first-run card's "Allow network": direct connections (Privacy Center's Direct). */
+    fun allowNetwork() {}
+
+    /** The first-run card's "Turn offline mode back on". */
+    fun offlineAgain() {}
 }
 
 @HiltViewModel
@@ -199,9 +209,20 @@ class ModelsViewModel @Inject constructor(
     private val events = Channel<ModelsEvent>(Channel.BUFFERED)
     val navigation: Flow<ModelsEvent> = events.receiveAsFlow()
 
-    val uiState: StateFlow<ModelsUiState> = combine(library.models, downloader.downloads, accounts.state, local, policy.mode) { installed, downloads, acc, l, mode ->
-        ModelsUiState(l.device, installed, downloads.active, downloads, l.tab, l.hf, l.civitai, acc, l.message, offline = mode == NetworkMode.Offline)
+    private val localAndChats = combine(local, conversations.observeConversations().map { it.isNotEmpty() }.distinctUntilChanged()) { l, chats -> l to chats }
+
+    val uiState: StateFlow<ModelsUiState> = combine(library.models, downloader.downloads, accounts.state, localAndChats, policy.mode) { installed, downloads, acc, (l, chats), mode ->
+        ModelsUiState(l.device, installed, downloads.active, downloads, l.tab, l.hf, l.civitai, acc, l.message, offline = mode == NetworkMode.Offline, hasChats = chats)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ModelsUiState())
+
+    override fun allowNetwork() {
+        viewModelScope.launch { runCatching { settings.setNetworkMode(NetworkMode.Direct) } }
+    }
+
+    override fun offlineAgain() {
+        viewModelScope.launch { runCatching { settings.setNetworkMode(NetworkMode.Offline) } }
+    }
+
 
     init {
         refreshDevice()

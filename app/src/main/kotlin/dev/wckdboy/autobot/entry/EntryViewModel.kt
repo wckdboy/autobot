@@ -69,7 +69,7 @@ object EntryRouting {
         is EntryPlan.Workflow -> listOf(Run, Studio(room = "workflows"))
         EntryPlan.Setup -> listOf(Models)
         is EntryPlan.Recipe -> listOfNotNull(Settings, Recipes, plan.chatId?.let(::Chat))
-        is EntryPlan.PairNode -> listOf(Settings, Providers)
+        is EntryPlan.PairNode -> listOf(Settings, Providers())
     }
 }
 

@@ -41,6 +41,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import dev.wckdboy.autobot.core.data.settings.SettingsRepository
+import dev.wckdboy.autobot.core.network.NetworkMode
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -181,6 +184,8 @@ data class ProvidersUiState(
     val error: String? = null,
     val now: Long = 0,
     val pairing: PairingDraft? = null,
+    /** Offline mode is on: pairing and a cloud provider can't reach the network (the sheets say so, with a way out). */
+    val offline: Boolean = false,
 )
 
 @HiltViewModel
@@ -191,6 +196,7 @@ class ProvidersViewModel @Inject constructor(
     @ApplicationScope private val appScope: CoroutineScope,
     private val nodes: NodeConnections,
     private val pairingLinks: NodePairingLinks,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
 
     private val pairing = MutableStateFlow<PairingDraft?>(null)
@@ -230,13 +236,13 @@ class ProvidersViewModel @Inject constructor(
     val uiState: StateFlow<ProvidersUiState> = combine(
         combine(rows, picker, editor) { r, p, e -> Triple(r, p, e) },
         combine(models, test) { m, t -> m to t },
-        saving,
+        combine(saving, settings.settings.map { it.networkMode == NetworkMode.Offline }) { s, off -> s to off },
         error,
         pairing,
-    ) { (r, p, e), (m, t), s, err, pair ->
+    ) { (r, p, e), (m, t), (s, off), err, pair ->
         ProvidersUiState(
             providers = r, pickerQuery = p, editor = e, models = m, test = t, saving = s, error = err,
-            now = System.currentTimeMillis(), pairing = pair,
+            now = System.currentTimeMillis(), pairing = pair, offline = off,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProvidersUiState())
 
@@ -249,7 +255,13 @@ class ProvidersViewModel @Inject constructor(
     }
 
     /** Opens the preset search ("add provider"). */
+    /** "Allow network" from a sheet's offline line: direct connections, as Privacy Center's Direct. */
+    fun allowNetwork() {
+        viewModelScope.launch { runCatching { settings.setNetworkMode(NetworkMode.Direct) } }
+    }
+
     fun startAdd() {
+
         resetTest()
         picker.value = ""
     }

@@ -157,7 +157,7 @@ fun RunScreen(
                         ModeCard("04", "Code", state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, Modifier.weight(1f).fillMaxSize(), living = true)
                         // Studio mode: image, audio, video, workflows and the library behind its own bar
                         // (images have their own card, so the line names what else is there and fits one line).
-                        ModeCard("05", "Studio", "audio · video", null, onOpenStudio, Modifier.weight(1f).fillMaxSize(), living = true)
+                        ModeCard("05", "Studio", "image · audio · video", null, onOpenStudio, Modifier.weight(1f).fillMaxSize(), living = true)
                     }
                     Spacer(Modifier.height(22.dp))
                 }

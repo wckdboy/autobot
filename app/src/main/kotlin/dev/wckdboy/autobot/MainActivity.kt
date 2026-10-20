@@ -29,6 +29,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import dagger.hilt.android.AndroidEntryPoint
 import dev.wckdboy.autobot.core.data.db.DatabaseHolder
 import dev.wckdboy.autobot.core.data.db.DatabaseState
+import dev.wckdboy.autobot.core.data.debug.DemoMode
+
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
@@ -78,6 +80,10 @@ class MainActivity : FragmentActivity() {
     @Inject
     lateinit var database: DatabaseHolder
 
+    /** Debug builds' sample data (`--ez demo true`); a no-op in release builds. */
+    @Inject
+    lateinit var demoSeed: DemoSeed
+
     private val entry: EntryViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -93,6 +99,11 @@ class MainActivity : FragmentActivity() {
             window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
             setRecentsScreenshotEnabled(false)
         }
+
+        // Debug builds only: demo data, a start screen, a theme, past the welcome (see [DebugLaunch]).
+        val debugLaunch = DebugLaunch.parse(BuildConfig.DEBUG, { intent.getBooleanExtra(it, false) }, { intent.getStringExtra(it) })
+        DemoMode.on = debugLaunch.demo
+        DemoMode.digestFailed = debugLaunch.digestFailed
 
         // Debug builds only: `--ez ink_specimen true` shows the ink components on one sheet for pixel inspection.
         if (BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_INK_SPECIMEN, false)) {
@@ -115,7 +126,14 @@ class MainActivity : FragmentActivity() {
             val databaseState by database.state.collectAsStateWithLifecycle()
             // Open (decrypt) the database up front: if it cannot be opened, say so instead of crashing.
             LaunchedEffect(Unit) { withContext(Dispatchers.IO) { database.check() } }
-            val darkTheme = when (settings.themeMode) {
+            var demoReady by remember { mutableStateOf(!debugLaunch.demo) }
+            if (debugLaunch.demo && databaseState == DatabaseState.Open) {
+                LaunchedEffect(Unit) {
+                    withContext(Dispatchers.IO) { runCatching { demoSeed.seedIfEmpty() } }
+                    demoReady = true
+                }
+            }
+            val darkTheme = when (debugLaunch.theme ?: settings.themeMode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.DARK -> true
                 ThemeMode.LIGHT -> false
@@ -132,7 +150,7 @@ class MainActivity : FragmentActivity() {
             AutobotTheme(darkTheme = darkTheme, amoled = settings.amoled, dynamicColor = settings.dynamicColor) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     // Hoisted above the lock gate so navigation state survives lock/unlock.
-                    val backStack = rememberNavBackStack(Run)
+                    val backStack = rememberNavBackStack(*(debugLaunch.destinations() ?: listOf(Run)).toTypedArray())
                     val scope = rememberCoroutineScope()
                     var lockMessage by rememberSaveable { mutableStateOf<String?>(null) }
                     var resetting by remember { mutableStateOf(false) }
@@ -198,9 +216,9 @@ class MainActivity : FragmentActivity() {
                                 }
                             },
                         )
-                    } else if (databaseState != DatabaseState.Open) {
+                    } else if (databaseState != DatabaseState.Open || !demoReady) {
                         // Opening the database (a moment): screens must not query it before it is known to work.
-                    } else if (loaded?.onboarded == false) {
+                    } else if (loaded?.onboarded == false && !debugLaunch.skipWelcome) {
                         ReportDrawn()
                         WelcomeScreen(
                             onSetUp = {
@@ -208,17 +226,20 @@ class MainActivity : FragmentActivity() {
                                 backStack.add(Models)
                                 onboarded()
                             },
+                            // Straight to the sheet that does it; back leads to Remote.
                             onPairPc = {
                                 backStack.clear()
                                 backStack.add(Remote)
+                                backStack.add(Providers(Providers.PAIR))
                                 onboarded()
                             },
                             onAddApiKey = {
                                 backStack.clear()
                                 backStack.add(Remote)
-                                backStack.add(Providers)
+                                backStack.add(Providers(Providers.ADD))
                                 onboarded()
                             },
+
                         )
                     } else if (loaded != null) {
                         // Only while unlocked, set up and resumed (the lock re-arms on start, before

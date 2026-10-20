@@ -1,6 +1,9 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,7 +36,10 @@ enum class BubbleRole { USER, ASSISTANT }
  * [LinkPrompt] confirms it; nothing in a message is ever fetched.
  *
  * @param footer optional content under the message (e.g. token rate, model).
+ * @param onLongPress long-press opens the caller's message menu (Copy, Share, …) instead of text
+ *   selection; the menu offers "Select text" for that. Null keeps the text selectable in place.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatBubble(
     role: BubbleRole,
@@ -41,6 +47,7 @@ fun ChatBubble(
     modifier: Modifier = Modifier,
     isStreaming: Boolean = false,
     footer: (@Composable () -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
 ) {
     // While a reply streams, only its last block is parsed again (and earlier ones keep their
     // identity); the finished reply and history reuse earlier parses (LiteMarkdown.cached).
@@ -54,13 +61,19 @@ fun ChatBubble(
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         Surface(
-            modifier = if (isUser) Modifier.widthIn(max = 340.dp) else Modifier.fillMaxWidth(),
+            modifier = (if (isUser) Modifier.widthIn(max = 340.dp) else Modifier.fillMaxWidth()).then(
+                if (onLongPress != null) {
+                    Modifier.combinedClickable(onClickLabel = null, onLongClickLabel = "Message actions", onLongClick = onLongPress, onClick = {})
+                } else {
+                    Modifier
+                },
+            ),
             shape = MaterialTheme.shapes.medium,
             color = if (isUser) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
             border = if (isUser) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
         ) {
-            SelectionContainer {
+            MaybeSelectable(onLongPress == null) {
                 Row(Modifier.padding(horizontal = if (isUser) 12.dp else 2.dp, vertical = if (isUser) 10.dp else 4.dp)) {
                     if (isUser) {
                         Text(
@@ -81,6 +94,11 @@ fun ChatBubble(
             }
         }
     }
+}
+
+@Composable
+private fun MaybeSelectable(selectable: Boolean, content: @Composable () -> Unit) {
+    if (selectable) SelectionContainer(content = content) else content()
 }
 
 @Preview(name = "ChatBubble", showBackground = true, backgroundColor = 0xFF09090B, widthDp = 380)

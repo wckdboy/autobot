@@ -110,6 +110,8 @@ private struct ChatRouting {
             guard isLocal else { return m }
             if m == AppleIntelligence.id { return AppleIntelligence.title }
             if let title = app.library.get(m)?.title { return title }
+            let catalog = ChatListModel.modelLabel(m)
+            if catalog != m { return catalog }
             let tail = m.components(separatedBy: "catalog:").last ?? m
             return (tail.components(separatedBy: "/").last ?? tail).components(separatedBy: ".gguf").first ?? tail
         }
@@ -192,10 +194,13 @@ struct ChatScreen: View {
                         if app.dataLoaded && transcript.items.isEmpty && !isLive {
                             EmptySession(toolsEnabled: settings.toolsEnabled)
                         }
+                        let retry = AnswerRetry.target(transcript.items, running: running || isLive)
                         ForEach(transcript.items) { item in
                             let approval: ApprovalState? = if case .tool(let t) = item { approvals.first { $0.callId == t.callId } } else { nil }
                             TranscriptRow(
                                 item: item,
+                                retryPrompt: retry?.key == item.key ? retry?.prompt : nil,
+                                onRetry: send,
                                 number: transcript.stepNumbers[item.key] ?? 0,
                                 header: item.key == transcript.firstPrompt ? header : nil,
                                 approval: approval,
@@ -382,6 +387,9 @@ struct ChatScreen: View {
  */
 private struct TranscriptRow: View, Equatable {
     let item: SessionItem
+    /// The prompt "Retry" sends again, on the last answer (or failed turn) only.
+    var retryPrompt: String? = nil
+    var onRetry: (String) -> Void = { _ in }
     let number: Int
     /// The run header's label when this is the first prompt.
     let header: String?
@@ -394,12 +402,14 @@ private struct TranscriptRow: View, Equatable {
     let model: ChatModel
     let ledger: InkLedger
     @Binding var openReceipt: Receipt?
+    /// "Select text" from the long-press menu: the message in a sheet where any part can be selected.
+    @State private var selecting: SelectableText?
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.item == b.item && a.number == b.number && a.header == b.header && a.approval == b.approval && a.ghost == b.ghost
+        a.item == b.item && a.retryPrompt == b.retryPrompt && a.number == b.number && a.header == b.header && a.approval == b.approval && a.ghost == b.ghost
             && a.running == b.running && a.speaking == b.speaking && a.conversationId == b.conversationId && a.model === b.model
     }
 
@@ -414,14 +424,19 @@ private struct TranscriptRow: View, Equatable {
                 }
                 if !images.isEmpty { AttachmentStrip(ids: images, model: model) }
             }
+            .contextMenu { MessageActions(text: text, onSelect: { selecting = SelectableText(text: text) }).menu() }
+            .sheet(item: $selecting) { SelectTextSheet(text: $0.text) }
         case .assistant(let key, let text, let reasoning, let interrupted, let outputTokens, _, let receipt, let turnChanges, let thinking):
             VStack(alignment: .leading, spacing: 6) {
                 AssistantMessage(
                     text: text, reasoning: reasoning, interrupted: interrupted, outputTokens: outputTokens, speaking: speaking,
                     receipt: receipt, onReceipt: { openReceipt = $0 }, thinking: thinking,
+                    onRetry: retryPrompt.map { prompt in { onRetry(prompt) } },
+                    onSelect: { selecting = SelectableText(text: text) },
                 ) {
                     model.speak(key: key, text: text)
                 }
+                .sheet(item: $selecting) { SelectTextSheet(text: $0.text) }
                 UndoTurnLine(
                     changes: turnChanges, running: running,
                     onUndo: { app.agent.undoTurn(conversationId, turn: $0) },
@@ -444,7 +459,7 @@ private struct TranscriptRow: View, Equatable {
                 ) { id, all in if app.studio.library.asset(id) != nil { nav.enterStudio(.library) } else { model.viewer = ImageViewerTarget(ids: all, start: id) } }
             }
         case .notice(_, let text, let kind):
-            NoticeRow(text: text, kind: kind)
+            NoticeRow(text: text, kind: kind, onRetry: retryPrompt.map { prompt in { onRetry(prompt) } })
         }
     }
 }
@@ -493,6 +508,9 @@ private struct AssistantMessage: View {
     var receipt: Receipt? = nil
     var onReceipt: (Receipt) -> Void = { _ in }
     var thinking: ThinkingInfo? = nil
+    /// Sends the last prompt again (the last answer only).
+    var onRetry: (() -> Void)? = nil
+    var onSelect: (() -> Void)? = nil
     let onSpeak: () -> Void
     @Environment(\.scheme) private var c
 
@@ -520,6 +538,8 @@ private struct AssistantMessage: View {
             }
             ReceiptLine(receipt: receipt, onOpen: onReceipt)
         }
+        .contextMenu { MessageActions(text: text, onRetry: onRetry, onSpeak: onSpeak, onSelect: onSelect).menu() }
+
     }
 
     @ViewBuilder private var footerStatus: some View {
@@ -530,8 +550,14 @@ private struct AssistantMessage: View {
     @ViewBuilder private var footerActions: some View {
         // Copies the message as written (markdown), not the rendered text.
         CopyMessageButton(markdown: text)
+        ShareMessageButton(markdown: text)
+        if let onRetry {
+            IconAction(symbol: "arrow.clockwise", label: "Retry", tint: c.onSurfaceVariant, size: 17, action: onRetry)
+                .compactActionFrame()
+        }
         IconAction(.speaker, label: speaking ? "Stop reading" : "Read aloud", tint: speaking ? c.primary : c.onSurfaceVariant, size: 18, action: onSpeak)
             .compactActionFrame()
+
     }
 }
 
@@ -566,7 +592,7 @@ private struct LiveMessage: View {
     }
 }
 
-/// `01  Read file / read · notes.md   ✓ 0.4 s`
+/// `▪ Read file / └ read · notes.md   ✓ 0.4 s` (the terminal's step grammar)
 private struct StepRow: View {
     let number: Int
     let tool: SessionItem.Tool
@@ -594,7 +620,17 @@ private struct StepRow: View {
         onOpenGallery(start, tool.galleryIds.map(resolve).filter { app.gallery.get($0) != nil })
     }
 
+    /// The `▪`: purple while the step works or waits for you, ash once done, red when it failed.
+    private var stepMarkColor: Color {
+        switch tool.state {
+        case .running, .streaming, .waitingApproval: AutobotColors.purple
+        case .error: c.error
+        case .ok, .denied: c.onSurfaceVariant
+        }
+    }
+
     /// A step mark stamps in when the step reaches one of these.
+
     private static func settled(_ state: ToolState) -> Bool { state == .ok || state == .error || state == .denied }
 
     /// The mark stamps again when the step is undone or redone.
@@ -614,11 +650,16 @@ private struct StepRow: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { if tool.output != nil { expanded.toggle() } } label: {
                 HStack(alignment: .top, spacing: 12) {
-                    Text(String(format: "%02d", number)).textStyle(.readout).foregroundStyle(c.onSurfaceVariant)
+                    // The terminal's `▪`, drawn (a text ▪ turns into an emoji on iOS).
+                    Rectangle().fill(stepMarkColor).frame(width: 6, height: 6)
+                        .padding(.top, 9)
+                        .accessibilityHidden(true)
+
                     VStack(alignment: .leading, spacing: 2) {
                         Text(stepTitle(tool.name)).textStyle(.titleMedium).strikethrough(tool.isUndone).foregroundStyle(c.onSurface)
                         HStack(spacing: 8) {
-                            Text([tool.name, tool.summary].filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.joined(separator: " · "))
+                            Text(StepGrammar.detail(name: tool.name, summary: tool.summary))
+
                                 .textStyle(.micro)
                                 .foregroundStyle(c.onSurfaceVariant)
                                 .lineLimit(1)
@@ -797,7 +838,7 @@ private struct AgentProof: View {
     }
 }
 
-/// The red approval block: `04 · APPROVAL NEEDED · NETWORK ACCESS`, title, args, DENY / APPROVE.
+/// The approval block: `▪ Approval needed · network access`, title, args, Deny / Approve.
 /// When the call would send private data (taint tracking), the header says so and every private
 /// fragment is printed in reverse, in the arguments and in the reason.
 private struct ApprovalCard: View {
@@ -813,7 +854,7 @@ private struct ApprovalCard: View {
                 HStack(spacing: 6) {
                     // What needs you now: the one purple mark on the card.
                     Rectangle().fill(AutobotColors.purple).frame(width: 6, height: 6)
-                    Text(String(format: "%02d · Approval needed", number)).textStyle(.micro).foregroundStyle(c.onSurface)
+                    Text(StepGrammar.approvalNeeded).textStyle(.micro).foregroundStyle(c.onSurface)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text((privateData.isEmpty ? approval.reason ?? "" : "private data")).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
@@ -860,6 +901,8 @@ private struct ApprovalCard: View {
 private struct NoticeRow: View {
     let text: String
     let kind: NoticeKind
+    /// The failed turn's prompt can be sent again.
+    var onRetry: (() -> Void)? = nil
     @State private var expanded = false
     @Environment(\.scheme) private var c
 
@@ -870,14 +913,18 @@ private struct NoticeRow: View {
         case .error: c.error
         }
         if kind == .error {
-            Text(text)
-                .textStyle(.bodySmall)
-                .foregroundStyle(color)
-                .lineLimit(expanded ? nil : 3)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { expanded.toggle() }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("✗ " + text)
+                    .textStyle(.bodySmall)
+                    .foregroundStyle(color)
+                    .lineLimit(expanded ? nil : 3)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { expanded.toggle() }
+                if let onRetry { TextAction("Retry", color: c.onSurface, action: onRetry) }
+            }
+
         } else {
             Text(text.sentenceCased).textStyle(.micro).foregroundStyle(color).lineLimit(3)
         }
@@ -1325,7 +1372,7 @@ private struct InputBar: View, Equatable {
                 .buttonStyle(PressStyle())
                 .disabled(model.dictation == .transcribing)
                 .accessibilityLabel(model.dictation == .recording ? "Stop dictation" : "Dictate")
-                ConsoleTextField(text: $text, placeholder: running ? "queue a follow-up…" : "message · / for commands", maxLines: 8)
+                ConsoleTextField(text: $text, placeholder: running ? "Queue a follow-up…" : "Message · / for commands", maxLines: 8)
                 if running && text.trimmingCharacters(in: .whitespaces).isEmpty && model.pendingImages.isEmpty {
                     Button(action: onStop) {
                         Rectangle().fill(c.primary).frame(width: 14, height: 14)
@@ -1340,8 +1387,11 @@ private struct InputBar: View, Equatable {
                         onSend(text)
                         text = ""
                     } label: {
+                        // Pointing right, as Android's Material "Send".
                         Image(systemName: "paperplane.fill")
                             .symbolSize(18, weight: .semibold)
+                            .rotationEffect(.degrees(45))
+
                             .foregroundStyle(enabled ? c.onPrimary : c.onSurface.opacity(0.38))
                             .frame(width: 52, height: 52)
                             .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(enabled ? c.primary : c.onSurface.opacity(0.12)))

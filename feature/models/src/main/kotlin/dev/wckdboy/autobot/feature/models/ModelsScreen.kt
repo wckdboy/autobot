@@ -157,13 +157,22 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                 Spacer(Modifier.height(14.dp))
             }
 
-            if (!state.downloads.isEmpty) {
-                item(key = "downloads") { DownloadsPanel(state.downloads, actions) }
+            val card = firstModelCard(state)
+            card?.let {
+                item(key = "first-model") { FirstModelCard(it, state.device?.totalRamBytes ?: 0, state.offline, actions, ::install) }
+            }
+            // The card already shows its model's download and its way in: no second and third copy below.
+            val carded = card?.plan?.id
+            val downloads = state.downloads
+            if (!downloads.isEmpty && !(carded != null && downloads.onlyFor(carded))) {
+                item(key = "downloads") { DownloadsPanel(downloads, actions) }
             }
 
-            if (state.installed.isNotEmpty()) {
-                item { SectionLabel("installed · ${state.installed.size}") }
-                items(state.installed, key = { "i-${it.id}" }) { model ->
+            val listed = state.installed.filter { it.id != carded }
+            if (listed.isNotEmpty()) {
+                item { SectionLabel("installed · ${listed.size}") }
+                items(listed, key = { "i-${it.id}" }) { model ->
+
                     // Removing a model fades and collapses its row before it goes.
                     Column(Modifier.inkDissolve(dissolve, model.id)) {
                         InstalledRow(model, actions, onRemove = { dissolve.dissolve(model.id) { actions.remove(model.id) } })
@@ -181,27 +190,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                 ModelsTab.RECOMMENDED -> {
                     val installed = state.installedIds()
                     val arch = state.device?.htpArch
-                    listOf("image · npu / gpu" to actions.npuImages, "upscale · npu" to actions.npuUpscalers).forEach { (label, offers) ->
-                        item(key = "h-$label") {
-                            SectionLabel(label + (arch?.let { " · hexagon $it" } ?: ""), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        items(offers, key = { "n-${it.id}" }) { offer ->
-                            NpuOfferRow(offer, arch, installed = installed.any { it.startsWith(offer.id + ":") }) {
-                                askNotifications()
-                                actions.installNpuOffer(offer)
-                            }
-                        }
-                        item(key = "s-$label") { Spacer(Modifier.height(14.dp)) }
-                    }
-                    listOf(
-                        "chat" to actions.recommended.filter { it.kind == ModelKind.CHAT },
-                        "code" to actions.recommended.filter { it.kind == ModelKind.CODE },
-                        "image · cpu" to actions.recommended.filter { it.kind == ModelKind.IMAGE },
-                        "speech · dictation" to actions.recommended.filter { it.kind == ModelKind.SPEECH },
-                        "voice · read aloud" to actions.recommended.filter { it.kind == ModelKind.VOICE },
-                        "audio · studio" to actions.recommended.filter { it.kind == ModelKind.AUDIO },
-                        "embedding · vault" to actions.recommended.filter { it.kind == ModelKind.EMBEDDING },
-                    ).forEach { (label, plans) ->
+                    fun catalog(sections: List<Pair<String, List<ModelPlan>>>) = sections.forEach { (label, plans) ->
                         item(key = "h-$label") {
                             SectionLabel(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -211,6 +200,36 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                         }
                         item(key = "s-$label") { Spacer(Modifier.height(14.dp)) }
                     }
+                    // What most people come for first: something to chat with (as on iOS).
+                    catalog(
+                        listOf(
+                            "chat" to actions.recommended.filter { it.kind == ModelKind.CHAT },
+                            "code" to actions.recommended.filter { it.kind == ModelKind.CODE },
+                        ),
+                    )
+                    // NPU packages only on a Snapdragon with a known Hexagon NPU: elsewhere every row would say "no build".
+                    if (arch != null) {
+                        listOf("image · npu / gpu" to actions.npuImages, "upscale · npu" to actions.npuUpscalers).forEach { (label, offers) ->
+                            item(key = "h-$label") {
+                                SectionLabel("$label · hexagon $arch", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            items(offers, key = { "n-${it.id}" }) { offer ->
+                                NpuOfferRow(offer, arch, installed = installed.any { it.startsWith(offer.id + ":") }) {
+                                    askNotifications()
+                                    actions.installNpuOffer(offer)
+                                }
+                            }
+                            item(key = "s-$label") { Spacer(Modifier.height(14.dp)) }
+                        }
+                    }
+                    catalog(listOf(
+                        "image · cpu" to actions.recommended.filter { it.kind == ModelKind.IMAGE },
+                        "speech · dictation" to actions.recommended.filter { it.kind == ModelKind.SPEECH },
+                        "voice · read aloud" to actions.recommended.filter { it.kind == ModelKind.VOICE },
+                        "audio · studio" to actions.recommended.filter { it.kind == ModelKind.AUDIO },
+                        "embedding · vault" to actions.recommended.filter { it.kind == ModelKind.EMBEDDING },
+                    ))
+
                     item { Spacer(Modifier.height(24.dp)) }
                 }
                 ModelsTab.HUGGING_FACE -> {

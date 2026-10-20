@@ -34,7 +34,9 @@ struct NodePairingSheet: View {
                     .textStyle(.bodySmall)
                     .foregroundStyle(c.onSurfaceVariant)
                     .fixedSize(horizontal: false, vertical: true)
+                OfflineNotice()
                 ConsoleTextField(text: $code, label: "Pairing code", kind: .mono)
+
                 if let fingerprint {
                     MicroLabel("node key")
                     Text(fingerprint).textStyle(.titleMedium).foregroundStyle(c.onSurface).monospaced()
