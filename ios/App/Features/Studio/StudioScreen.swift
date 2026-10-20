@@ -352,8 +352,22 @@ struct StudioEmpty: View {
     var onAction: (() -> Void)? = nil
     @Environment(\.scheme) private var c
 
+    init(title: String, text: String, action: String? = nil, onAction: (() -> Void)? = nil) {
+        self.title = title
+        self.text = text
+        self.action = action
+        self.onAction = onAction
+    }
+
+    /// The shared words of an empty room (`StudioRoomWords`, the same on Android).
+    init(_ words: StudioRoomWords.Empty, onAction: (() -> Void)? = nil) {
+        self.init(title: words.title, text: words.text, action: onAction == nil ? nil : words.action, onAction: onAction)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // The pixel a over the title, as Android's empty rooms.
+            AutobotMark(size: 20)
             SectionLabel(title)
             Text(text).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
             // Full width as on Android: a 260 pt cap cut longer labels ("Get the audio model in M…").

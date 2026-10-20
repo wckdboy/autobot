@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.studio.ui.audio
 
+import dev.wckdboy.autobot.shared.studio.StudioRoomWords
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -90,15 +91,11 @@ fun AudioRoom(state: AudioRoomState, shell: StudioShellState, actions: AudioActi
             if (state.tab == AudioTab.SOUND) {
                 PoweredByStability()
                 if (state.loaded && !state.hasAudioModel) {
-                    EmptyRoom(
-                        "get the audio model",
-                        "Text to audio runs Stable Audio Open Small (341M) on this phone: up to ${String.format(Locale.ROOT, "%.1f", StableAudio.MAX_SECONDS)} s of 44.1 kHz stereo, " +
-                            "nothing leaves the device. Download it in Models › audio.",
-                    ) { PrimaryButton("Get the audio model in Models", onOpenModels, Modifier.fillMaxWidth()) }
+                    EmptyRoom(StudioRoomWords.audioNoModel) { PrimaryButton(StudioRoomWords.audioNoModel.action!!, onOpenModels, Modifier.fillMaxWidth()) }
                 }
             } else if (state.loaded && !state.hasVoice) {
-                EmptyRoom("get a voice", "Voiceover reads text with Kokoro on this phone. Download it in Models › voice.") {
-                    PrimaryButton("Get the voice in Models", onOpenModels, Modifier.fillMaxWidth())
+                EmptyRoom(StudioRoomWords.voiceNoModel) {
+                    PrimaryButton(StudioRoomWords.voiceNoModel.action!!, onOpenModels, Modifier.fillMaxWidth())
                 }
             }
             if (running != null) {

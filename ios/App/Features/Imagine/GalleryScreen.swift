@@ -59,7 +59,7 @@ struct GalleryScreen: View {
                     IconAction(symbol: "star.fill", label: "Favorites only", tint: favoritesOnly ? c.inks.amber : c.onSurfaceVariant) { favoritesOnly.toggle() }
                         .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
                 }
-                ConsoleTextField(text: $query, placeholder: "Search", kind: .mono)
+                ConsoleTextField(text: $query, placeholder: "Search images", kind: .mono)
                     .padding(.horizontal, Tokens.Spacing.gutter)
                     .padding(.bottom, 8)
             }

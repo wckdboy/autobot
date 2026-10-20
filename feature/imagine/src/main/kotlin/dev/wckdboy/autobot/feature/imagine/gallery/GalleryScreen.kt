@@ -119,7 +119,8 @@ fun GalleryScreen(
             Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().hairlineEdge()) {
                 // A large font leaves the title no room beside the count: the count goes on a line under it.
                 val large = isLargeText()
-                val count = "${state.items.size}/${state.total} · encrypted"
+                // How many, as on iOS: the shown ones only while a search narrows them.
+                val count = if (state.items.size == state.total) "${state.total}" else "${state.items.size}/${state.total}"
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (onBack != null) {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -143,7 +144,7 @@ fun GalleryScreen(
                     query.text,
                     query::edit,
                     Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
-                    placeholder = "Search prompts and backends",
+                    placeholder = "Search images",
                     singleLine = true,
                     mono = true,
                 )

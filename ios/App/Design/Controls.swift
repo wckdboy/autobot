@@ -246,7 +246,7 @@ struct SwitchRow: View {
                     Text(title).textStyle(.bodyLarge).foregroundStyle(enabled ? c.onSurface : c.onSurfaceVariant)
                     if let info { InfoButton(title: title, text: info).padding(.vertical, -12).padding(.leading, -6) }
                 }
-                if let subtitle { Text(subtitle).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant) }
+                if let subtitle { Text(subtitle).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -259,8 +259,8 @@ struct SwitchRow: View {
         .frame(minHeight: Self.minHeight)
     }
 
-    /// Every settings row is at least this tall (≥ the 44 pt touch minimum).
-    static let minHeight: CGFloat = 52
+    /// Every settings row is at least this tall (≥ the 44 pt touch minimum), as Android's `RowMinHeight`.
+    static let minHeight: CGFloat = Tokens.Spacing.rowMinHeight
 }
 
 /// A settings row that does something destructive (red title, optional ⓘ, no chevron).
@@ -286,19 +286,23 @@ struct DestructiveRow: View {
     }
 }
 
-/// A settings row that opens another screen: title, optional trailing state value, chevron.
+/// A settings row that opens another screen: title, an optional ⓘ, optional trailing state value, chevron
+/// (as Android's `NavRow`).
 struct NavigationRow: View {
     let title: String
     /// A short state value (`On`, `Off`, `3`), trailing like iOS Settings; nil when there is none.
     var value: String? = nil
+    /// The explanation, behind an ⓘ button after the title.
+    var info: String? = nil
     /// The trailing glyph: a chevron (pushes a screen), `arrow.up.right` for a link that leaves the app.
     var trailingSymbol = "chevron.right"
     let action: () -> Void
     @Environment(\.scheme) private var c
 
-    init(title: String, value: String? = nil, trailingSymbol: String = "chevron.right", action: @escaping () -> Void) {
+    init(title: String, value: String? = nil, info: String? = nil, trailingSymbol: String = "chevron.right", action: @escaping () -> Void) {
         self.title = title
         self.value = value
+        self.info = info
         self.trailingSymbol = trailingSymbol
         self.action = action
     }
@@ -306,8 +310,11 @@ struct NavigationRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Text(title).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 0) {
+                    Text(title).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
+                    if let info { InfoButton(title: title, text: info).padding(.vertical, -12).padding(.leading, -6) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if let value {
                     Text(value).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).textLines(1)
                 }
@@ -319,5 +326,45 @@ struct NavigationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
+    }
+}
+
+enum NoticeTone { case info, warning, error }
+
+/// Why something is empty or not working, and the one tap that fixes it ("No model yet. · Add
+/// provider"): a bar in the tone's colour, one line of text, an optional action (as Android's `Notice`).
+struct Notice: View {
+    let text: String
+    var tone: NoticeTone = .info
+    var action: String? = nil
+    var onAction: (() -> Void)? = nil
+    @Environment(\.scheme) private var c
+
+    init(_ text: String, tone: NoticeTone = .info, action: String? = nil, onAction: (() -> Void)? = nil) {
+        self.text = text
+        self.tone = tone
+        self.action = action
+        self.onAction = onAction
+    }
+
+    var body: some View {
+        // The bar is a fill: the vivid amber, whose text-safe ink on paper is a dull brown.
+        let bar = switch tone {
+        case .info: c.primary
+        case .warning: AutobotColors.amber
+        case .error: c.error
+        }
+        HStack(spacing: 10) {
+            Rectangle().fill(bar).frame(width: 3)
+            Text(text).textStyle(.bodySmall).foregroundStyle(c.onSurface)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let action, let onAction { TextAction(action, action: onAction) } else { Spacer().frame(width: 2) }
+        }
+        .frame(minHeight: 44)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh))
+        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
     }
 }

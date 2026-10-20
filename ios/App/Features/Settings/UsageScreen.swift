@@ -19,7 +19,9 @@ struct UsageScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AutobotTopBar(title: "Usage", onBack: { nav.back() })
+            AutobotTopBar(title: "Usage", onBack: { nav.back() }) {
+                InfoButton(title: "Usage", text: UsageWords.shared.ABOUT)
+            }
             ScrollView {
                 if let report = app.usage.report {
                     UsageBoardView(
@@ -94,7 +96,7 @@ struct UsageBoardView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .top, spacing: 18) {
                     BigReadout(label: "tokens", value: tokens(s.tokens))
-                    BigReadout(label: "cost · usd", value: s.costLine)
+                    BigReadout(label: UsageWords.shared.COST, value: s.costLine)
                     BigReadout(label: "requests", value: "\(s.requests)")
                 }
                 MicroLabel("\(tokens(s.input)) in · \(tokens(s.output)) out · \(tokens(s.cacheRead)) cached")
@@ -137,13 +139,11 @@ struct UsageBoardView: View {
                 MicroLabel("add a cloud provider to track its plan")
             }
 
-            SectionLabel("prices · usd per 1m tokens").padding(.top, 8)
+            SectionLabel(UsageWords.shared.PRICES).padding(.top, 8)
             if report.prices.isEmpty { MicroLabel("models show up here once they have answered") }
             ForEach(report.prices) { priceRow($0) }
 
             Hairline().padding(.vertical, 4)
-            Text("Counted on this phone from each provider's own usage report; nothing is sent. Costs use your price table: only Anthropic's published prices ship, every other model stays unknown until you enter its price. Incognito chats are not kept.")
-                .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
             if !report.empty { TextAction("Clear history", color: c.error, action: onClear) }
         }
     }
@@ -275,7 +275,7 @@ private struct PriceEditorSheet: View {
         ScrollView {
             InkStack(alignment: .leading, spacing: 12) {
                 SectionLabel(row.model)
-                MicroLabel("\(row.providerName) · usd per 1m tokens")
+                MicroLabel("\(row.providerName) · \(UsageWords.shared.PRICE_UNIT)")
                 ConsoleTextField(text: $input, placeholder: "unknown", label: "Input", kind: .decimal)
                 ConsoleTextField(text: $output, placeholder: "unknown", label: "Output", kind: .decimal)
                 ConsoleTextField(text: $cacheRead, placeholder: "= input", label: "Cached input", kind: .decimal)

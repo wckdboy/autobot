@@ -1,6 +1,16 @@
 package dev.wckdboy.autobot.feature.settings.vault
 
+import dev.wckdboy.autobot.core.designsystem.component.AddButton
+import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
+import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
+import dev.wckdboy.autobot.core.designsystem.component.NavRow
+import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.shared.vault.VaultWords
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.net.Uri
@@ -18,25 +28,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -194,36 +196,20 @@ fun VaultScreen(
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Vault") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-                actions = {
-                    if (state.documents.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) { ActionText("Delete all") }
-                },
-            )
-        },
-        floatingActionButton = {
-            if (state.model != null && !state.index.running) {
-                FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = "Add files") }
+            AutobotTopBar(title = "Vault", navigation = { BackButton(onBack) }) {
+                if (state.documents.isNotEmpty()) {
+                    IconButton(onClick = { confirmDeleteAll = true }) { Icon(Icons.Filled.Delete, contentDescription = VaultWords.DELETE_ALL, tint = muted) }
+                }
+                if (state.model != null && !state.index.running) AddButton(VaultWords.ADD, onAdd)
             }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item(key = "toggle") {
-                SwitchRow(
-                    "Agent search",
-                    state.enabled,
-                    onEnabled,
-                    info = "When on, the agent can look up passages with vault_search. Files are indexed on this phone, encrypted, never uploaded.",
-                )
+                SwitchRow(VaultWords.AGENT_SEARCH, state.enabled, onEnabled, info = VaultWords.AGENT_SEARCH_INFO)
             }
             item(key = "model") {
-                ListItem(
-                    overlineContent = { Text("Embedding model") },
-                    headlineContent = { Text(state.model ?: "None installed") },
-                    supportingContent = if (state.model == null) null else ({ Text("Text, Markdown and PDF (Android 15+)", color = muted) }),
-                    trailingContent = { TextButton(onClick = onOpenModels) { ActionText("Models") } },
-                )
+                NavRow(VaultWords.EMBEDDING_MODEL, onOpenModels, value = state.model ?: VaultWords.NO_MODEL)
             }
             if (state.index.running) {
                 item(key = "progress") {
@@ -243,26 +229,21 @@ fun VaultScreen(
                 }
             } else if (state.stale > 0) {
                 item(key = "stale") {
-                    ListItem(
-                        headlineContent = { Text("${state.stale} document(s) use another embedding model") },
-                        supportingContent = { Text("They are not searched until re-indexed (from the stored text, no files needed).", color = muted) },
-                        trailingContent = { OutlinedButton(onClick = onReindex) { Text("Re-index") } },
-                    )
+                    Notice(VaultWords.stale(state.stale), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING, action = VaultWords.REINDEX, onAction = onReindex)
                 }
             }
             if (state.documents.isNotEmpty()) {
                 item(key = "search") {
-                    NoPersonalizedLearning {
-                        OutlinedTextField(
-                            value = state.query,
-                            onValueChange = onQuery,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            singleLine = true,
-                            label = { Text("Search your files") },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                        )
-                    }
+                    ConsoleTextField(
+                        value = state.query,
+                        onValueChange = onQuery,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                        placeholder = VaultWords.SEARCH,
+                        singleLine = true,
+                        mono = true,
+                        keyboardOptions = PromptKeyboardOptions.copy(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    )
                 }
             }
             if (state.searching) {
@@ -272,50 +253,50 @@ fun VaultScreen(
             }
             state.searchError?.let { error ->
                 item(key = "searcherror") {
-                    Notice(error, Modifier.padding(16.dp), tone = NoticeTone.ERROR, action = "retry", onAction = onSearch)
+                    Notice(error, Modifier.padding(16.dp), tone = NoticeTone.ERROR, action = "Retry", onAction = onSearch)
                 }
             }
             state.results?.let { results ->
                 if (results.isEmpty() && !state.searching) {
-                    item(key = "noresults") { Text("No passages match.", Modifier.padding(16.dp), color = muted) }
+                    item(key = "noresults") { Text(VaultWords.NO_MATCH, Modifier.padding(16.dp), color = muted, style = MaterialTheme.typography.bodyMedium) }
                 }
                 items(results, key = { "r-" + it.position }) { r ->
-                    ListItem(
-                        overlineContent = { Text(r.position + " · " + "%.2f".format(r.score)) },
-                        headlineContent = { Text(r.snippet, maxLines = 6, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall) },
-                    )
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        MicroLabel(r.position + " · " + "%.2f".format(r.score))
+                        Text(r.snippet, maxLines = 6, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                    Hairline()
                 }
             }
             item(key = "docs-h") {
-                Text(
-                    "${counted(state.documents.size, "document")} · ${state.documents.sumOf { it.chunks }} / ${VaultRules.MAX_CHUNKS} passages",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    style = AutobotTheme.styles.micro,
-                    color = muted,
-                )
+                SectionLabel(VaultWords.count(state.documents.size, state.documents.sumOf { it.chunks }), Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
             if (state.documents.isEmpty()) {
                 item(key = "empty") {
-                    EmptyState("No files yet. Tap + to add notes, Markdown or PDFs.", Modifier.fillMaxWidth())
+                    if (state.model == null) {
+                        EmptyState(VaultWords.empty(hasModel = false), Modifier.fillMaxWidth(), action = "Models", onAction = onOpenModels)
+                    } else {
+                        EmptyState(VaultWords.empty(hasModel = true), Modifier.fillMaxWidth())
+                    }
                 }
             }
             items(state.documents, key = { it.id }, contentType = { "doc" }) { doc ->
-                ListItem(
-                    headlineContent = { Text(doc.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = {
-                        Text(
-                            buildString {
-                                append(doc.type.label).append(" · ").append(formatBytes(doc.sizeBytes))
-                                if (doc.pages > 0) append(" · ").append(doc.pages).append(" pages")
-                                append(" · ").append(doc.chunks).append(" passages")
-                            },
-                            color = muted,
-                        )
-                    },
-                    trailingContent = {
-                        IconButton(onClick = { onDelete(doc.id) }) { Icon(Icons.Filled.Delete, contentDescription = "Remove ${doc.name}") }
-                    },
-                )
+                Column(Modifier.padding(start = 16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(doc.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                            MicroLabel(
+                                buildString {
+                                    append(doc.type.label).append(" · ").append(formatBytes(doc.sizeBytes))
+                                    if (doc.pages > 0) append(" · ").append(doc.pages).append(" pages")
+                                    append(" · ").append(doc.chunks).append(" passages")
+                                },
+                            )
+                        }
+                        IconButton(onClick = { onDelete(doc.id) }) { Icon(Icons.Filled.Delete, contentDescription = "Remove ${doc.name}", tint = muted) }
+                    }
+                    Hairline()
+                }
             }
         }
     }

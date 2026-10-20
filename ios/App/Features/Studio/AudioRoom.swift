@@ -222,9 +222,7 @@ struct AudioRoom: View {
             WorkflowForm(workflow: w, values: $model.workflowValues) { $0.name == "prompt" || $0.type == .seed }
         } else if !model.hasLocalAudio {
             StabilityCredit()
-            StudioEmpty(title: "no audio model yet",
-                        text: "Stable Audio Open Small makes up to 11.9 s of 44.1 kHz stereo sound on this iPhone. Get it in Models › audio (about 600 MB).",
-                        action: "Get the audio model in Models") {
+            StudioEmpty(StudioRoomWords.shared.audioNoModel) {
                 nav.leaveStudio()
                 nav.switchTo(.models)
             }
@@ -245,7 +243,7 @@ struct AudioRoom: View {
 
     @ViewBuilder private var voiceControls: some View {
         if !model.hasVoice {
-            StudioEmpty(title: "no voice yet", text: "Kokoro reads text aloud on this iPhone. Get it in Models › voice.", action: "Get the voice in Models") {
+            StudioEmpty(StudioRoomWords.shared.voiceNoModel) {
                 nav.leaveStudio()
                 nav.switchTo(.models)
             }

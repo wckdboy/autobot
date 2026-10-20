@@ -146,7 +146,7 @@ generation, deletes every Keychain item, the database, files, caches and default
 | Welcome, lock (BiometricPrompt) | Welcome, lock (Face ID / Touch ID / passcode, `LocalAuthentication`), auto-lock timeout on a monotonic clock | |
 | `FLAG_SECURE`, no recents thumbnail | Privacy cover while not active | iOS cannot block screenshots |
 | Run screen (CPU state) | Run screen (chip, idle/busy, thermal state, free storage) | |
-| Sessions list, agent session screen | Same | tools, approvals, plans, questions via the shared runtime |
+| Chat list, agent session screen | Same | tools, approvals, plans, questions via the shared runtime |
 | `AgentHost` (`:agent:runtime`), `generate_image` tool | `SharedAgentRuntime` over `AutobotShared.xcframework`; `generate_image` is a host tool (`AgentBridge.registerTool`) on the Core ML / PC backends | interim plain chat without the framework |
 | llama.cpp CPU / Adreno OpenCL / Hexagon (planned) | llama.cpp on Metal or CPU | no ANE backend in llama.cpp; "npu" falls back |
 | System model: Gemini Nano (opt-in `playServices` flavor only) | Apple Intelligence (`system:apple`, Foundation Models, iOS 26+, on-device only; `Engines/AppleIntelligence.swift`) | fallback when no downloaded model can run, chosen by the shared `LocalModelResolver`; FoundationModels is weak-linked so iOS 18–25 still launch |

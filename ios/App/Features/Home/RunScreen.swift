@@ -166,10 +166,13 @@ struct RunScreen: View {
                         PrimaryButton("Get a model") { nav.switchTo(.models) }
                         Spacer().frame(height: 24)
                     }
-                    HStack(alignment: .center) {
-                        MicroLabel("recent").frame(maxWidth: .infinity, alignment: .leading)
-                        TextAction("All", color: c.onSurfaceVariant) { nav.push(.chatList) }
-                            .accessibilityLabel("All sessions")
+                    // Nothing run yet: no empty section (the cards above are the way in), as on Android.
+                    if !state.recent.isEmpty {
+                        HStack(alignment: .center) {
+                            SectionLabel("Recent runs").frame(maxWidth: .infinity, alignment: .leading)
+                            TextAction("All", color: c.onSurfaceVariant) { nav.push(.chatList) }
+                                .accessibilityLabel("All chats")
+                        }
                     }
                     ForEach(state.recent) { run in
                         RunRow(title: run.title, subtitle: run.subtitle, action: {
@@ -177,7 +180,6 @@ struct RunScreen: View {
                             if let id = run.galleryId { nav.push(.gallery(openId: id)) }
                         }) { RouteTag(route: run.route) }
                     }
-                    if state.recent.isEmpty { MicroLabel("nothing yet · chats and images you run show here", lines: 3).padding(.vertical, 12) }
                     Spacer().frame(height: 16)
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)

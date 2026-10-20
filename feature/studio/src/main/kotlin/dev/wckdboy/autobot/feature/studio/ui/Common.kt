@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.studio.ui
 
+import dev.wckdboy.autobot.shared.studio.StudioRoomWords
 import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
 import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
 import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
@@ -236,6 +237,10 @@ fun RunsOn(label: String?, modifier: Modifier = Modifier) {
 }
 
 /** An empty room: the pixel a, a heading, a plain explanation and what to do. */
+@Composable
+fun EmptyRoom(words: StudioRoomWords.Empty, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) =
+    EmptyRoom(words.title, words.text, modifier, actions)
+
 @Composable
 fun EmptyRoom(title: String, body: String, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) {
     Column(modifier.fillMaxWidth().padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

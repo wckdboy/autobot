@@ -44,7 +44,7 @@ private enum ListDialog: Identifiable, Equatable {
 }
 
 /**
- All sessions (port of `ChatListScreen.kt`): live indicators, incognito toggle, new session,
+ All chats (port of `ChatListScreen.kt`): live indicators, new (or new incognito) chat,
  search over titles and messages, sorting, filters (all, pinned, incognito, folders, archive),
  day groups, swipe / context actions, multi-select, and deletion with undo.
  */
@@ -52,8 +52,6 @@ struct ChatListScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
-    /// `nil` until the user toggles; falls back to the persisted default.
-    @State private var incognitoOverride: Bool?
     @State private var filterKey: String
     @State private var query: String
     @State private var hits: [String: ChatSearchHit]?
@@ -67,7 +65,7 @@ struct ChatListScreen: View {
         _query = State(initialValue: query)
     }
 
-    private var incognito: Bool { incognitoOverride ?? app.settings.settings.incognitoByDefault }
+    private var incognitoByDefault: Bool { app.settings.settings.incognitoByDefault }
     private var sort: ChatSort { ChatSort.companion.parse(name: sortKey) }
     private var selecting: Bool { !selection.isEmpty }
 
@@ -102,13 +100,8 @@ struct ChatListScreen: View {
             .background(c.background)
             .hairlineEdge()
             if loaded && app.providers.providers.isEmpty {
-                Panel(title: "No model provider", accent: AutobotColors.amber) {
-                    Text("Add DeepSeek, OpenRouter, a local Ollama server or any OpenAI-compatible endpoint.")
-                        .textStyle(.bodySmall)
-                        .foregroundStyle(c.onSurfaceVariant)
-                    TextAction("Add provider", color: c.primary) { nav.push(.providers) }
-                }
-                .padding(12)
+                Notice(ChatListWords.shared.NO_MODEL, tone: .warning, action: ChatListWords.shared.ADD_PROVIDER) { nav.push(.providers) }
+                    .padding(12)
             }
             if loaded && m.sections.isEmpty {
                 empty(m)
@@ -163,71 +156,58 @@ struct ChatListScreen: View {
 
     // MARK: Header
 
+    /// One line: the title and New; an incognito chat one tap away beside it (unless every new chat
+    /// already is one, Settings › Incognito by default). At accessibility sizes the actions take a line of their own.
     private func header(_ m: ChatListModel.Model) -> some View {
-        VStack(spacing: 0) {
+        ViewThatFits(in: .horizontal) {
             HStack(spacing: 0) {
-                if !nav.path.isEmpty {
-                    IconAction(symbol: "arrow.left", label: "Back") { nav.back() }
-                }
-                VStack(alignment: .leading, spacing: 0) {
-                    ScreenTitle("Sessions", mark: nav.path.isEmpty)
-                    LiveCountLabel(total: m.total, active: m.activeIds)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                PrivacyStatusPill(status: app.settings.settings.mode.privacyStatus) { nav.push(.privacyCenter) }
+                title(m)
+                newActions
             }
-            .padding(.leading, nav.path.isEmpty ? 16 : 4)
-            .padding(.trailing, Tokens.Spacing.gutter)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
-            // The incognito switch and New share a line; at accessibility sizes the switch and
-            // the button drop under the label rather than breaking "incognito" mid-word.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) {
-                    incognitoLabel
+            VStack(alignment: .leading, spacing: 6) {
+                title(m)
+                HStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    incognitoControls
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    incognitoLabel
-                    HStack(spacing: 10) {
-                        Spacer(minLength: 0)
-                        incognitoControls
-                    }
+                    newActions
                 }
             }
-            .padding(.leading, 16)
-            .padding(.trailing, Tokens.Spacing.gutter)
-            .padding(.bottom, 8)
+        }
+        .padding(.leading, nav.path.isEmpty ? 16 : 4)
+        .padding(.trailing, Tokens.Spacing.gutter)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+    }
+
+    private func title(_ m: ChatListModel.Model) -> some View {
+        HStack(spacing: 0) {
+            if !nav.path.isEmpty {
+                IconAction(symbol: "arrow.left", label: "Back") { nav.back() }
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                ScreenTitle(ChatListWords.shared.TITLE, mark: nav.path.isEmpty)
+                LiveCountLabel(active: m.activeIds)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var incognitoLabel: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "lock.fill")
-                .symbolSize(12)
-                .foregroundStyle(incognito ? c.inks.uv : c.outline)
-            MicroLabel("incognito", color: incognito ? c.inks.uv : c.onSurfaceVariant).fixedSize()
-            InfoButton(title: "Incognito", text: "New sessions are kept in memory only, never written to disk.")
-        }
-    }
-
-    private var incognitoControls: some View {
-        HStack(spacing: 10) {
-            RisoToggle(isOn: Binding(get: { incognito }, set: { incognitoOverride = $0 }))
-                .accessibilityLabel("Incognito")
-            Button(action: newChat) {
+    private var newActions: some View {
+        HStack(spacing: 4) {
+            if !incognitoByDefault {
+                IconAction(symbol: "lock.fill", label: ChatListWords.shared.NEW_INCOGNITO, tint: c.onSurfaceVariant, size: 16) { newChat(incognito: true) }
+            }
+            Button { newChat(incognito: nil) } label: {
                 HStack(spacing: 8) {
-                    AutobotIconView(icon: .terminal, size: 16, color: incognito ? AutobotColors.paperInk : c.onPrimary)
-                    Text("New").textStyle(.labelLarge).fixedSize()
+                    AutobotIconView(icon: .terminal, size: 16, color: c.onPrimary)
+                    Text(ChatListWords.shared.NEW).textStyle(.labelLarge).fixedSize()
                 }
-                .foregroundStyle(incognito ? AutobotColors.paperInk : c.onPrimary)
+                .foregroundStyle(c.onPrimary)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(incognito ? AutobotColors.uv : c.primary))
+                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.primary))
             }
             .buttonStyle(PressStyle())
-            .accessibilityLabel(incognito ? "New incognito session" : "New session")
+            .accessibilityLabel(incognitoByDefault ? ChatListWords.shared.NEW_INCOGNITO : "New chat")
             .fixedSize(horizontal: true, vertical: false)
         }
     }
@@ -240,11 +220,8 @@ struct ChatListScreen: View {
         let allArchived = !chosen.isEmpty && chosen.allSatisfy(\.archived)
         return HStack(spacing: 0) {
             IconAction(symbol: "xmark", label: "Cancel selection") { selection = [] }
-            VStack(alignment: .leading, spacing: 0) {
-                Text("\(chosen.count) SELECTED").textStyle(.titleLarge).foregroundStyle(c.onBackground)
-                MicroLabel("tap to add or remove")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(ChatListWords.shared.selected(count: Int32(chosen.count))).textStyle(.titleLarge).foregroundStyle(c.onBackground)
+                .frame(maxWidth: .infinity, alignment: .leading)
             IconAction(symbol: allPinned ? "pin.slash" : "pin", label: allPinned ? "Unpin" : "Pin", tint: allPinned ? c.primary : c.onSurface) {
                 app.conversations.setPinned(ids, !allPinned)
                 selection = []
@@ -270,7 +247,7 @@ struct ChatListScreen: View {
 
     private var searchRow: some View {
         HStack(spacing: 8) {
-            ConsoleTextField(text: $query, placeholder: "Search")
+            ConsoleTextField(text: $query, placeholder: ChatListWords.shared.SEARCH)
                 .overlay(alignment: .trailing) {
                     if !query.isEmpty {
                         IconAction(symbol: "xmark.circle.fill", label: "Clear search", tint: c.outline, size: 16) { query = "" }
@@ -371,10 +348,9 @@ struct ChatListScreen: View {
     }
 
     private func empty(_ m: ChatListModel.Model) -> some View {
-        let (title, detail) = ChatListModel.emptyState(query: query, filter: m.filter)
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             Spacer()
-            EmptyState("\(title.sentenceCased). \(detail.sentenceCased).")
+            EmptyState(ChatListModel.emptyText(query: query, filter: m.filter))
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -399,9 +375,10 @@ struct ChatListScreen: View {
 
     // MARK: Actions
 
-    private func newChat() {
+    /// A new chat: incognito when [incognito] is true, else as Settings › Incognito by default says.
+    private func newChat(incognito: Bool?) {
         let provider = app.providers.providers.first
-        let conversation = app.conversations.create(incognito: incognito, providerId: provider?.id, model: provider?.defaultModel)
+        let conversation = app.conversations.create(incognito: incognito ?? incognitoByDefault, providerId: provider?.id, model: provider?.defaultModel)
         nav.push(.chat(conversationId: conversation.id))
     }
 
@@ -523,15 +500,14 @@ struct ChatListScreen: View {
 
 /// "N sessions · M live": the only part of the header that follows the running set.
 struct LiveCountLabel: View {
-    let total: Int
     let active: Set<String>
     @Environment(AppContainer.self) private var app
 
-    /// "0 live" is not news: the live count only shows while something runs.
-    static func text(total: Int, live: Int) -> String { live > 0 ? "\(counted(total, "session")) · \(live) live" : counted(total, "session") }
+    /// Only what runs: the list itself shows how many chats there are.
+    static func text(live: Int) -> String? { ChatListWords.shared.live(live: Int32(live)) }
 
     var body: some View {
-        MicroLabel(Self.text(total: total, live: app.agent.running.intersection(active).count))
+        if let text = Self.text(live: app.agent.running.intersection(active).count) { MicroLabel(text) }
     }
 }
 
@@ -729,12 +705,9 @@ final class ChatListModel {
     }
 
     /// What an empty list says, by why it is empty.
-    static func emptyState(query: String, filter: any ChatFilter) -> (title: String, detail: String) {
-        if !query.trimmingCharacters(in: .whitespaces).isEmpty { return ("no matches", "titles and messages on this device were searched") }
-        if filter is ChatFilterArchived { return ("archive is empty", "archived chats are kept here, out of the list") }
-        if filter is ChatFilterPinned { return ("nothing pinned", "pin a chat to keep it on top") }
-        if filter is ChatFilterFolder { return ("empty folder", "long-press a chat, then move it here") }
-        return ("no sessions", "everything stays encrypted on this device")
+    /// One line for an empty list (the shared words, as on Android).
+    static func emptyText(query: String, filter: any ChatFilter) -> String {
+        ChatListWords.shared.empty(searching: !query.trimmingCharacters(in: .whitespaces).isEmpty, filter: filter)
     }
 
     /// Titles of the catalog's models by id ("catalog:qwen3-4b-2507-q4_0" → "Qwen3 4B Instruct 2507").

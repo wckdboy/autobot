@@ -287,13 +287,12 @@ struct NodeBotContent: View {
 
     @ViewBuilder private func content(_ bot: NodeBot) -> some View {
         VStack(alignment: .leading, spacing: 4) {
+            // The name is in the bar; the head says who it is, after Invincible's pixel i (about the node), as on Android.
             HStack(spacing: 8) {
-                // About the node: Invincible's pixel i.
                 NodeMark()
-                Text(bot.name).textStyle(.titleLarge).foregroundStyle(c.onSurface).textLines(1)
-            }
-            if !bot.persona.isEmpty {
-                Text(bot.persona).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                if !bot.persona.isEmpty {
+                    Text(bot.persona).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                }
             }
             SectionLabel("on \(model.node) · \(NodeBots.shared.meta(bot: bot, now: model.now))")
         }

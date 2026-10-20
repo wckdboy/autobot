@@ -42,7 +42,9 @@ import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
+import dev.wckdboy.autobot.core.designsystem.component.KeyboardForm
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
@@ -127,17 +129,12 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
 
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = "Accounts",
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-            )
+            AutobotTopBar(title = "Accounts", navigation = { BackButton(onBack) })
         },
     ) { padding ->
-        Column(
-            Modifier.padding(padding).imePadding().fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            SectionLabel("model hubs · tokens are encrypted on this phone")
+        // The shared form: a focused token field scrolls into view above the keyboard.
+        KeyboardForm(Modifier.padding(padding)) {
+            SectionLabel("Model hubs · encrypted")
             state.message?.let {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     MicroLabel(it, Modifier.weight(1f))
@@ -147,12 +144,8 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
 
             Panel(title = "Hugging Face") {
                 val user = state.accounts.huggingFaceUser
-                Text(
-                    if (user != null) "Signed in as $user. Gated models (Llama, Gemma 3…) download once you accept their terms on huggingface.co."
-                    else "Optional. A read token lifts rate limits and unlocks gated models you have accepted. Create one at huggingface.co/settings/tokens (fine-grained, read access to public gated repos).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // One line and an ⓘ, as on iOS: how to get a token is one tap away.
+                PanelLine(if (user != null) "Signed in as $user" else "Optional read token", "Hugging Face", HF_INFO)
                 if (user == null) {
                     ConsoleTextField(
                         hfToken,
@@ -164,7 +157,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
                         keyboardOptions = SecretKeyboardOptions,
                         visualTransformation = PasswordVisualTransformation(),
                     )
-                    PrimaryButton("Verify & save", { verifying = "hf"; viewModel.saveHuggingFace(hfToken); hfToken = "" }, Modifier.fillMaxWidth(), enabled = (hfToken.isNotBlank() && !state.busy) || hfBusy, busy = hfBusy)
+                    GhostButton("Verify & save", { verifying = "hf"; viewModel.saveHuggingFace(hfToken); hfToken = "" }, Modifier.fillMaxWidth(), accent = MaterialTheme.colorScheme.primary, enabled = (hfToken.isNotBlank() && !state.busy) || hfBusy, busy = hfBusy)
                 } else {
                     GhostButton("Sign out", viewModel::signOutHuggingFace)
                 }
@@ -172,11 +165,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
 
             Panel(title = "Civitai") {
                 val user = state.accounts.civitaiUser
-                Text(
-                    if (user != null) "API key saved for $user." else "Optional. Some creators require login to download. Create a key in civitai.com → Account settings → API keys.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                PanelLine(if (user != null) "Key saved · $user" else "Optional API key", "Civitai", CIVITAI_INFO)
                 if (user == null) {
                     ConsoleTextField(
                         civitaiKey,
@@ -188,7 +177,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
                         keyboardOptions = SecretKeyboardOptions,
                         visualTransformation = PasswordVisualTransformation(),
                     )
-                    PrimaryButton("Verify & save", { verifying = "civitai"; viewModel.saveCivitai(civitaiKey); civitaiKey = "" }, Modifier.fillMaxWidth(), enabled = (civitaiKey.isNotBlank() && !state.busy) || civitaiBusy, busy = civitaiBusy)
+                    GhostButton("Verify & save", { verifying = "civitai"; viewModel.saveCivitai(civitaiKey); civitaiKey = "" }, Modifier.fillMaxWidth(), accent = MaterialTheme.colorScheme.primary, enabled = (civitaiKey.isNotBlank() && !state.busy) || civitaiBusy, busy = civitaiBusy)
                 } else {
                     GhostButton("Remove key", viewModel::signOutCivitai)
                 }
@@ -198,7 +187,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Mature content", style = MaterialTheme.typography.titleSmall)
-                        Text("Show NSFW models (previews stay blurred). 18+ only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("18+ · previews blurred", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
                         checked = state.accounts.showMature,
@@ -219,3 +208,16 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
         )
     }
 }
+
+/** A panel's one line of state, and the how-to behind its ⓘ. */
+@Composable
+private fun PanelLine(text: String, title: String, info: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        InfoButton(title, info)
+    }
+}
+
+private const val HF_INFO = "A read token lifts rate limits and unlocks gated models (Llama, Gemma 3…) once you accept their terms on huggingface.co. " +
+    "Create one at huggingface.co/settings/tokens (fine-grained, read access to public gated repos)."
+private const val CIVITAI_INFO = "Some creators require login to download. Create a key in civitai.com → Account settings → API keys."

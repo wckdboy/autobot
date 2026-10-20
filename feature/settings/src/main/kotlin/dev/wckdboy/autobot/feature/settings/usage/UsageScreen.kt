@@ -47,6 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
+import dev.wckdboy.autobot.shared.usage.UsageWords
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
@@ -119,10 +122,9 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
 
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = "Usage",
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-            )
+            AutobotTopBar(title = "Usage", navigation = { BackButton(onBack) }) {
+                InfoButton("Usage", UsageWords.ABOUT)
+            }
         },
     ) { padding ->
         LazyColumn(
@@ -142,7 +144,7 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
                 // Wraps: "$6.00 + unknown" in the display face, at a large font size, leaves no room for requests.
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     BigReadout("tokens", UsageFormat.tokens(period.sums.tokens))
-                    BigReadout("cost · usd", period.sums.costLine)
+                    BigReadout(UsageWords.COST, period.sums.costLine)
                     BigReadout("requests", period.sums.requests.toString())
                 }
                 Spacer(Modifier.height(6.dp))
@@ -187,19 +189,12 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
                 if (state.providers.isEmpty()) MicroLabel("add a cloud provider to track its plan", maxLines = 3)
             }
 
-            item { SectionLabel("prices · usd per 1m tokens", Modifier.padding(top = 8.dp)) }
+            item { SectionLabel(UsageWords.PRICES, Modifier.padding(top = 8.dp)) }
             if (report.prices.isEmpty()) item { MicroLabel("models show up here once they have answered", maxLines = 3) }
             items(report.prices, key = { "${it.provider}|${it.model}" }) { row -> PriceRowView(row, onClick = { editingPrice = row }) }
 
             item {
                 Hairline(Modifier.padding(vertical = 4.dp))
-                Text(
-                    "Counted on this phone from each provider's own usage report; nothing is sent. Costs use your price table: " +
-                        "only Anthropic's published prices ship, every other model stays unknown until you enter its price. " +
-                        "Incognito chats are not kept.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 if (!report.empty) TextButton(onClick = { confirmClear = true }) { ActionText("Clear history", color = MaterialTheme.colorScheme.error) }
             }
         }
@@ -312,7 +307,7 @@ private fun PriceDialog(row: PriceRow, onDismiss: () -> Unit, onSave: (String, S
         title = { Text(row.model, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                MicroLabel("${row.providerName} · usd per 1m tokens")
+                MicroLabel("${row.providerName} · ${UsageWords.PRICE_UNIT}")
                 NoPersonalizedLearning {
                     PriceField("Input", input) { input = it }
                     PriceField("Output", output) { output = it }

@@ -356,16 +356,13 @@ struct ImageRoom: View {
     var body: some View {
         if model.backends.isEmpty && model.workflows.isEmpty {
             ScrollView {
-                StudioEmpty(title: "no image engine yet",
-                            text: "Download a Core ML image model to run on this iPhone, point Autobot at a PC (A1111 / Forge / Local Dream), or add a ComfyUI workflow.",
-                            action: "Get a model") {
+                // One primary action; a PC is the quiet second path (as on Android and in Imagine).
+                StudioEmpty(StudioRoomWords.shared.imageNoEngine) {
                     nav.leaveStudio()
                     nav.switchTo(.models)
                 }
-                HStack(spacing: 8) {
-                    GhostButton("Add a pc") { nav.leaveStudio(); nav.reset(.run, [.imageBackends]) }
-                    GhostButton("Workflows") { nav.studio = .workflows }
-                }
+                TextAction("Use a PC instead") { nav.leaveStudio(); nav.reset(.run, [.imageBackends]) }
+                    .frame(maxWidth: .infinity)
                 .padding(.horizontal, Tokens.Spacing.gutter)
             }
         } else {

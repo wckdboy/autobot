@@ -16,15 +16,16 @@ struct RecipesScreen: View {
         let center = app.recipes
         let copy = RecipeRules.copy
         VStack(spacing: 0) {
+            // How iOS schedules recipes sits behind the ⓘ, not in a paragraph under the list (as on Android).
             AutobotTopBar(title: copy.SCREEN_TITLE, onBack: { nav.back() }) {
+                InfoButton(title: copy.SCREEN_TITLE, text: copy.IOS_NOTE)
                 IconAction(symbol: "plus", label: copy.NEW_RECIPE, tint: c.primary) { editing = RecipeRules.blank() }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if !hasLocalModel {
-                        MicroLabel(copy.NO_MODEL, color: c.error, lines: 3).padding(.vertical, 8)
+                        Notice(copy.NO_MODEL, tone: .warning).padding(.vertical, 8)
                     }
-                    SectionLabel("scheduled · \(center.recipes.filter(\.enabled).count) on").padding(.vertical, 8)
                     if let notice = center.nodeNotice {
                         MicroLabel(notice, color: c.error, lines: 3).padding(.bottom, 8)
                     }
@@ -39,15 +40,10 @@ struct RecipesScreen: View {
                     )
                     .padding(.horizontal, -Tokens.Spacing.gutter)
                     .padding(.top, 8)
-                    Text(copy.IOS_NOTE)
-                        .textStyle(.bodySmall)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.vertical, 12)
                 }
                 .animation(.inkDissolve, value: center.recipes.map(\.id))
                 .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.bottom, 96)
+                .padding(.bottom, 24)
             }
         }
         .background(c.background)
@@ -119,7 +115,8 @@ struct RecipeEditorSheet: View {
 
     var body: some View {
         let copy = RecipeRules.copy
-        ScrollView {
+        // The shared form: the focused field scrolls into view and Save stays above the keyboard.
+        KeyboardForm {
             InkStack(alignment: .leading, spacing: 12) {
                 SectionLabel(isNew ? "new recipe" : "edit recipe")
                 ConsoleTextField(text: $draft.name, placeholder: "Morning brief", label: "Name")
@@ -175,17 +172,18 @@ struct RecipeEditorSheet: View {
 
                 ForEach(problems, id: \.self) { MicroLabel($0, color: c.error, lines: 2) }
 
+                if !isNew {
+                    TextAction(copy.DELETE, color: c.error) { confirmDelete = true }.frame(maxWidth: .infinity)
+                }
+            }
+        } footer: {
+            HStack(spacing: 8) {
+                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss)
                 PrimaryButton("Save") {
                     problems = app.recipes.save(draft)
                     if problems.isEmpty { onDismiss() }
                 }
-                if !isNew {
-                    TextAction(copy.DELETE, color: c.error) { confirmDelete = true }.frame(maxWidth: .infinity)
-                }
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
         }
         .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])

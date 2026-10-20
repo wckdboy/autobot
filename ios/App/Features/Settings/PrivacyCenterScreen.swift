@@ -228,14 +228,10 @@ private struct AuditRowView: View {
     }()
 
     var body: some View {
-        let accent = row.blocked ? c.error : c.primary
+        // The method as a quiet hairline tag; a blocked request says so with the glyph, in the error
+        // colour (BRAND: words first, then a glyph; no filled signal), as on Android.
         HStack(alignment: .top, spacing: 10) {
-            Text(row.blocked ? "BLOCKED" : row.method)
-                .textStyle(.labelSmall, weight: 700)
-                .foregroundStyle(accent)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(accent.opacity(0.15)))
+            Tag(row.blocked ? "✗ blocked" : row.method, accent: row.blocked ? c.error : c.onSurfaceVariant)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.host + row.path).textStyle(.codeBlock).foregroundStyle(c.onSurface).lineLimit(2)

@@ -210,7 +210,6 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onBack = ::back,
                             onOpenChat = { navigate(Chat(it)) },
                             onOpenProviders = { navigate(Providers()) },
-                            onOpenPrivacyCenter = { navigate(PrivacyCenter) },
                         )
                     }
                     entry<Chat> { key ->

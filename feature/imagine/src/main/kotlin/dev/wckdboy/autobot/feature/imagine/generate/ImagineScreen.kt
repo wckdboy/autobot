@@ -75,6 +75,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.linesFor
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
 import dev.wckdboy.autobot.core.designsystem.component.BigReadout
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
@@ -187,12 +188,12 @@ fun ImagineScreen(
         topBar = {
             AutobotTopBar(
                 title = "Image",
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                navigation = { BackButton(onBack) },
                 actions = {
                     route?.let { RouteTag(it) }
-                    // The full image room (queue, grids, workflows) is in Studio mode.
-                    Tag("Studio", accent = MaterialTheme.colorScheme.onSurface, onClick = onOpenStudio)
                     IconButton(onClick = onOpenGallery) { Icon(AutobotIcons.Image, contentDescription = "Gallery") }
+                    // The full image room (queue, grids, workflows) is in Studio mode.
+                    TextButton(onClick = onOpenStudio) { ActionText("Studio") }
                 },
             )
         },
@@ -210,15 +211,14 @@ fun ImagineScreen(
         ) {
             state.error?.let { ErrorLine(it, actions::dismissError) }
             if (state.loaded && state.backends.isEmpty()) {
-                SectionLabel("no image engine yet")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryButton("Get a model", onOpenModels, Modifier.weight(1f))
-                    GhostButton("Add a PC", onOpenBackends, Modifier.weight(1f))
-                }
+                // One short sentence, one action; a PC is the secondary path (as on iOS).
+                Text("No image model yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PrimaryButton("Get a model", onOpenModels, Modifier.fillMaxWidth())
+                TextButton(onClick = onOpenBackends, modifier = Modifier.align(Alignment.CenterHorizontally)) { ActionText("Use a PC instead") }
             }
 
-            // An engine is ready and nothing is written yet: the keyboard comes up, one tap fewer to a first image.
-            PromptField(request.prompt, actions::setPrompt, state.tokenEstimate, state.wildcards, autoFocus = state.loaded && state.backends.isNotEmpty())
+            // The keyboard waits for a tap on the prompt: arriving here shows the whole room, not a third of it.
+            PromptField(request.prompt, actions::setPrompt, state.tokenEstimate, state.wildcards)
             // Always there, dimmed while it cannot apply: the row coming and going with the first
             // letter typed and with each run moved everything under it (the proofs jumped).
             StyleRow(actions::applyStyle, enabled = request.prompt.isNotBlank() && state.running == null)
@@ -308,21 +308,15 @@ private fun sizeLabel(w: Int, h: Int) = if (w == h) "$w²" else "${w}×$h"
 
 /** The prompt, set in the display face with a red caret (mockup 04). */
 @Composable
-private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, wildcards: String?, autoFocus: Boolean = false) {
+private fun PromptField(value: String, onChange: (String) -> Unit, tokens: Int, wildcards: String?) {
     // The text lives here: typing never waits on the studio's state round trip.
     val prompt = rememberLocalText(value, onChange)
-    val focus = remember { FocusRequester() }
-    var focused by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(autoFocus) {
-        if (autoFocus && !focused && prompt.text.isEmpty()) runCatching { focus.requestFocus() }
-        if (autoFocus) focused = true
-    }
     Column {
         NoPersonalizedLearning {
             BasicTextField(
                 value = prompt.text,
                 onValueChange = prompt::edit,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp).focusRequester(focus),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
                 textStyle = MaterialTheme.typography.headlineMedium.copy(color = MaterialTheme.colorScheme.onBackground),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = PromptKeyboardOptions,

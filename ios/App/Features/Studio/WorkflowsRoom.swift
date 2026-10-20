@@ -26,8 +26,7 @@ struct WorkflowsRoom: View {
             VStack(alignment: .leading, spacing: 12) {
                 SectionLabel("comfyui pcs")
                 if studio.comfyServers.isEmpty {
-                    Text("Workflows run on your own PC with ComfyUI. Add its address: https (Tailscale, a reverse proxy), or http://127.0.0.1 only for a server on this iPhone.")
-                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                    StudioEmpty(StudioRoomWords.shared.workflowsNoPc)
                 }
                 ForEach(studio.comfyServers) { s in
                     Panel(title: s.name, accent: AutobotColors.cyan) {

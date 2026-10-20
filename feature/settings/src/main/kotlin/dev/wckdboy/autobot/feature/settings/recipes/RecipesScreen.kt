@@ -59,7 +59,13 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.agent.runtime.recipes.RecipeModelChoice
+import dev.wckdboy.autobot.core.designsystem.component.AddButton
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
+import dev.wckdboy.autobot.core.designsystem.component.Notice
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
@@ -123,18 +129,16 @@ fun RecipesScreen(
 ) {
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = RecipeCopy.SCREEN_TITLE,
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = RecipeCopy.NEW_RECIPE) }
+            // How recipes are scheduled sits behind the ⓘ, not in a paragraph under the list (as on iOS).
+            AutobotTopBar(title = RecipeCopy.SCREEN_TITLE, navigation = { BackButton(onBack) }) {
+                InfoButton(RecipeCopy.SCREEN_TITLE, RecipeCopy.ANDROID_NOTE)
+                AddButton(RecipeCopy.NEW_RECIPE, onAdd)
+            }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             if (state.loaded && state.models.isEmpty()) {
-                item { Note(RecipeCopy.NO_MODEL, MaterialTheme.colorScheme.error) }
+                item { Notice(RecipeCopy.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING) }
             }
             if (state.loaded && state.recipes.isEmpty()) item { Note(RecipeCopy.EMPTY) }
             state.notice?.let { item { Note(it, MaterialTheme.colorScheme.error) } }
@@ -143,9 +147,7 @@ fun RecipesScreen(
                 HorizontalDivider()
             }
             item {
-                SectionLabel("Notifications", Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp))
                 SwitchRow(RecipeCopy.SUMMARY_SWITCH, state.summaryInNotifications, onSummary, info = RecipeCopy.SUMMARY_DETAIL)
-                Note(RecipeCopy.ANDROID_NOTE)
             }
         }
     }
@@ -178,23 +180,22 @@ private fun RecipeListRow(
             .clickable { onEdit(row.id) }
             .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
     ) {
+        // When it runs over its name, then how the last run went (as on iOS and the MCP and memory rows).
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(row.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(row.schedule, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(row.schedule, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(row.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    row.status,
+                    style = AutobotTheme.styles.micro,
+                    color = if (row.lastStatus == RecipeRunStatus.DONE || row.lastStatus == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                )
+                row.lastSummary?.let { Text(it, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                row.notes.forEach { Text(it, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error, maxLines = 2) }
             }
             Switch(checked = row.enabled, onCheckedChange = { onEnabled(row.id, it) })
         }
-        Text(
-            row.status,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (row.lastStatus == RecipeRunStatus.DONE || row.lastStatus == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        row.lastSummary?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
-        }
-        row.notes.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotColors.Amber) }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { onRunNow(row.id) }, enabled = !row.running) { ActionText(if (row.running) "Running…" else RecipeCopy.RUN_NOW) }
             row.lastChat?.let { chat -> TextButton(onClick = { onOpenChat(chat) }) { ActionText(RecipeCopy.OPEN_RESULT) } }
@@ -324,7 +325,7 @@ private fun RecipeEditorSheet(
                     if (!isNew) TextButton(onClick = { confirmDelete = true }) { ActionText(RecipeCopy.DELETE, color = MaterialTheme.colorScheme.error) }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { ActionText("Cancel") }
-                    Button(onClick = onSave, enabled = problems.isEmpty()) { Text("Save") }
+                    PrimaryButton("Save", onSave, enabled = problems.isEmpty())
                 }
                 Spacer(Modifier.height(8.dp))
             }

@@ -1,6 +1,14 @@
 package dev.wckdboy.autobot.feature.settings.memory
 
+import dev.wckdboy.autobot.core.designsystem.component.AddButton
+import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
+import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
@@ -8,28 +16,22 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -58,6 +60,7 @@ import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.shared.memory.MemoryNote
 import dev.wckdboy.autobot.shared.memory.MemoryRules
+import dev.wckdboy.autobot.shared.memory.MemoryWords
 import dev.wckdboy.autobot.shared.memory.SaveResult
 import java.text.DateFormat
 import java.util.Date
@@ -142,7 +145,6 @@ fun MemoryRoute(onBack: () -> Unit, viewModel: MemoryViewModel = hiltViewModel()
 /** Note being edited; [id] null for a new one. */
 private data class Draft(val id: String?, val text: String, val tags: String)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemoryScreen(
     state: MemoryUiState,
@@ -160,68 +162,41 @@ fun MemoryScreen(
     val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Memory") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-                actions = {
-                    if (state.total > 0) {
-                        TextButton(onClick = { confirmDeleteAll = true }) { ActionText("Delete all") }
+            AutobotTopBar(title = "Memory", navigation = { BackButton(onBack) }) {
+                if (state.total > 0) {
+                    IconButton(onClick = { confirmDeleteAll = true }) {
+                        Icon(Icons.Filled.Delete, contentDescription = MemoryWords.DELETE_ALL, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                },
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { draft = Draft(null, "", "") }) { Icon(Icons.Filled.Add, contentDescription = "Add note") }
+                }
+                AddButton(MemoryWords.ADD) { draft = Draft(null, "", "") }
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            ListItem(
-                modifier = Modifier.clickable { onEnabled(!state.enabled) },
-                headlineContent = { Text("Use memory in chats") },
-                supportingContent = {
-                    Text(
-                        if (state.enabled) {
-                            "The agent recalls relevant notes and can save new ones. Notes stay encrypted on this phone."
-                        } else {
-                            "Off: the agent neither sees nor saves notes."
-                        },
-                    )
-                },
-                trailingContent = { Switch(checked = state.enabled, onCheckedChange = onEnabled) },
-            )
+            SwitchRow(MemoryWords.USE_IN_CHATS, state.enabled, onEnabled, info = MemoryWords.USE_INFO)
             val query = rememberLocalText(state.query, onQuery)
-            NoPersonalizedLearning {
-                OutlinedTextField(
-                    value = query.text,
-                    onValueChange = query::edit,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                    singleLine = true,
-                    label = { Text("Search notes") },
-                )
-            }
-            Text(
-                "${state.total} / ${counted(MemoryRules.MAX_NOTES, "note")}",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = AutobotTheme.styles.micro,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ConsoleTextField(
+                value = query.text,
+                onValueChange = query::edit,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                placeholder = MemoryWords.SEARCH,
+                singleLine = true,
+                mono = true,
             )
+            SectionLabel(MemoryWords.count(state.total), Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             if (state.notes.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    EmptyState(if (state.total == 0) "No notes yet. Tap + to write one, or ask the agent to remember something." else "No notes match.")
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    EmptyState(MemoryWords.empty(state.total))
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                     items(state.notes, key = { it.id }, contentType = { "note" }) { note ->
-                        val tagLine: (@Composable () -> Unit)? =
-                            if (note.tags.isEmpty()) null else ({ Text(note.tags.joinToString(" ") { "#$it" }) })
-                        ListItem(
-                            modifier = Modifier.inkDissolve(dissolve, note.id).clickable { draft = Draft(note.id, note.text, note.tags.joinToString(", ")) },
-                            overlineContent = { Text(note.id + " · " + dates.format(Date(note.updatedAt))) },
-                            headlineContent = { Text(note.text, maxLines = 4, overflow = TextOverflow.Ellipsis) },
-                            supportingContent = tagLine,
-                            trailingContent = {
-                                IconButton(onClick = { dissolve.dissolve(note.id) { onDelete(note.id) } }) { Icon(Icons.Filled.Delete, contentDescription = "Delete note ${note.id}") }
-                            },
+                        NoteRow(
+                            note = note,
+                            date = dates.format(Date(note.updatedAt)),
+                            modifier = Modifier.inkDissolve(dissolve, note.id),
+                            onEdit = { draft = Draft(note.id, note.text, note.tags.joinToString(", ")) },
+                            onDelete = { dissolve.dissolve(note.id) { onDelete(note.id) } },
                         )
                     }
                 }
@@ -280,5 +255,26 @@ fun MemoryScreen(
             text = { Text(message) },
             confirmButton = { TextButton(onClick = onDismissMessage) { ActionText("OK") } },
         )
+    }
+}
+
+/** A note: its id and date, the text, its tags; tap to edit, the bin deletes (as on iOS). */
+@Composable
+private fun NoteRow(note: MemoryNote, date: String, modifier: Modifier, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Column(modifier) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onEdit).padding(start = 16.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                MicroLabel("${note.id} · $date")
+                Text(note.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                if (note.tags.isNotEmpty()) {
+                    Text(note.tags.joinToString(" ") { "#$it" }, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete note ${note.id}", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Hairline(Modifier.padding(start = 16.dp))
     }
 }

@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.studio.ui.video
 
+import dev.wckdboy.autobot.shared.studio.StudioRoomWords
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -68,15 +69,12 @@ fun VideoRoom(state: VideoRoomState, shell: StudioShellState, actions: VideoActi
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             state.message?.let { ErrorLine(it, actions::dismiss) }
             when {
-                state.loaded && state.backends.isEmpty() -> EmptyRoom(
-                    "video runs on your pc",
-                    "Phones can't run today's open video models, so video comes from ComfyUI on a PC with a GPU (LTX-Video, Wan 2.x …). " +
-                        "Add your ComfyUI server and import a video workflow in Workflows; this room then runs it and plays the result here.",
-                ) { PrimaryButton("Set up in Workflows", onOpenWorkflows, Modifier.fillMaxWidth()) }
-                state.loaded && state.workflows.isEmpty() -> EmptyRoom(
-                    "no video workflow yet",
-                    "Import a ComfyUI workflow that saves video (VHS Video Combine, SaveAnimatedWEBP, SaveVideo …) in Workflows.",
-                ) { PrimaryButton("Import in Workflows", onOpenWorkflows, Modifier.fillMaxWidth()) }
+                state.loaded && state.backends.isEmpty() -> EmptyRoom(StudioRoomWords.videoNoPc) {
+                    PrimaryButton(StudioRoomWords.videoNoPc.action!!, onOpenWorkflows, Modifier.fillMaxWidth())
+                }
+                state.loaded && state.workflows.isEmpty() -> EmptyRoom(StudioRoomWords.videoNoWorkflow) {
+                    PrimaryButton(StudioRoomWords.videoNoWorkflow.action!!, onOpenWorkflows, Modifier.fillMaxWidth())
+                }
             }
             if (running != null) {
                 val preview = rememberDecoded(running.preview?.bytes)

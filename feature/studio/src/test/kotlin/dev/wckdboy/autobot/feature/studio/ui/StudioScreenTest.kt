@@ -124,7 +124,7 @@ class StudioScreenTest {
         assertTrue("audio follows the (light) app theme", darkIcons())
 
         goTo(StudioRoom.VIDEO)
-        compose.onNodeWithText("Set up in Workflows", ignoreCase = true).assertIsDisplayed()
+        compose.onNodeWithText("Add a ComfyUI PC", ignoreCase = true).assertIsDisplayed()
         assertFalse("video is a darkroom", darkIcons())
 
         goTo(StudioRoom.LIBRARY)

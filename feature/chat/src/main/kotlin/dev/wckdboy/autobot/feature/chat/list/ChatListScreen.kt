@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,7 +52,6 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -70,8 +68,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -88,22 +84,18 @@ import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
-import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.InfoButton
-import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.chat.FolderChoice
 import dev.wckdboy.autobot.feature.chat.FolderPickerDialog
 import dev.wckdboy.autobot.feature.chat.NameDialog
 import dev.wckdboy.autobot.shared.chats.ChatFilter
+import dev.wckdboy.autobot.shared.chats.ChatListWords
 import dev.wckdboy.autobot.shared.chats.ChatSort
 import dev.wckdboy.autobot.shared.chats.HighlightSpan
 import kotlinx.coroutines.delay
@@ -113,7 +105,6 @@ fun ChatListRoute(
     onBack: (() -> Unit)? = null,
     onOpenChat: (String) -> Unit,
     onOpenProviders: () -> Unit,
-    onOpenPrivacyCenter: () -> Unit,
     viewModel: ChatListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -132,14 +123,13 @@ fun ChatListRoute(
         onBack = onBack,
         onOpenChat = onOpenChat,
         onOpenProviders = onOpenProviders,
-        onOpenPrivacyCenter = onOpenPrivacyCenter,
     )
 }
 
 /** What the list can do (the view model in the app, no-ops in previews). */
 class ChatListActions(
-    val newChat: () -> Unit = {},
-    val setIncognito: (Boolean) -> Unit = {},
+    /** A new chat: incognito when true, the default (Settings › Incognito by default) when null. */
+    val newChat: (Boolean?) -> Unit = {},
     val setFilter: (ChatFilter) -> Unit = {},
     val setSort: (ChatSort) -> Unit = {},
     val setQuery: (String) -> Unit = {},
@@ -161,7 +151,7 @@ class ChatListActions(
 )
 
 private fun ChatListViewModel.asActions() = ChatListActions(
-    newChat = ::newChat, setIncognito = ::setIncognito, setFilter = ::setFilter, setSort = ::setSort, setQuery = ::setQuery,
+    newChat = ::newChat, setFilter = ::setFilter, setSort = ::setSort, setQuery = ::setQuery,
     toggleSelected = ::toggleSelected, selectAll = ::selectAll, clearSelection = ::clearSelection, rename = ::rename,
     setPinned = ::setPinned, setArchived = ::setArchived, move = ::move, delete = ::delete, undoDelete = ::undoDelete,
     commitDelete = ::commitDelete, folderProblem = ::folderProblem, createFolder = ::createFolder, renameFolder = ::renameFolder,
@@ -186,7 +176,6 @@ fun ChatListScreen(
     onBack: (() -> Unit)? = null,
     onOpenChat: (String) -> Unit,
     onOpenProviders: () -> Unit,
-    onOpenPrivacyCenter: () -> Unit,
 ) {
     var dialog by remember { mutableStateOf<ListDialog?>(null) }
     val dissolve = rememberInkDissolve()
@@ -216,7 +205,7 @@ fun ChatListScreen(
                     if (state.selecting) {
                         SelectionBar(state, actions) { dialog = it }
                     } else {
-                        Header(state, actions, onBack, onOpenPrivacyCenter)
+                        Header(state, actions, onBack)
                     }
                     SearchAndSort(state, actions)
                     FilterChips(state, actions) { dialog = it }
@@ -226,7 +215,7 @@ fun ChatListScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!state.loading && !state.hasProviders) {
-                Notice("No model yet.", Modifier.padding(12.dp), tone = NoticeTone.WARNING, action = "Add provider", onAction = onOpenProviders)
+                Notice(ChatListWords.NO_MODEL, Modifier.padding(12.dp), tone = NoticeTone.WARNING, action = ChatListWords.ADD_PROVIDER, onAction = onOpenProviders)
             }
             if (!state.loading && state.sections.isEmpty()) {
                 EmptyList(state)
@@ -277,50 +266,49 @@ fun ChatListScreen(
 }
 
 @Composable
-private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (() -> Unit)?, onOpenPrivacyCenter: () -> Unit) {
+private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (() -> Unit)?) {
+    // One line: the title and New. An incognito chat is one tap away beside it (unless every new chat already is one).
+    val large = isLargeText()
+    val newChat = @Composable {
+        Button(
+            onClick = { actions.newChat(null) },
+            shape = MaterialTheme.shapes.extraSmall,
+            contentPadding = PaddingValues(horizontal = 14.dp),
+        ) {
+            Icon(AutobotIcons.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(ChatListWords.NEW, style = AutobotTheme.styles.action)
+        }
+    }
+    val newIncognito = @Composable {
+        if (!state.incognito) {
+            IconButton(onClick = { actions.newChat(true) }) {
+                Icon(Icons.Filled.Lock, contentDescription = ChatListWords.NEW_INCOGNITO, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
+        Modifier.fillMaxWidth().padding(start = if (onBack != null) 4.dp else 16.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onBack != null) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
         }
         Column(Modifier.weight(1f)) {
-            ScreenTitle("Sessions", style = MaterialTheme.typography.headlineMedium)
-            // Only what there is: the empty state already says "no sessions".
-            if (state.total > 0) MicroLabel(counted(state.total, "session") + if (state.live > 0) " · ${state.live} live" else "")
+            ScreenTitle(ChatListWords.TITLE, style = MaterialTheme.typography.headlineMedium, mark = onBack == null)
+            ChatListWords.live(state.live)?.let { MicroLabel(it) }
         }
-        PrivacyStatusPill(state.privacyStatus, onClick = onOpenPrivacyCenter)
-    }
-    val newChat = @Composable {
-        Button(
-            onClick = actions.newChat,
-            shape = MaterialTheme.shapes.small,
-            colors = if (state.incognito) ButtonDefaults.buttonColors(containerColor = AutobotColors.Uv, contentColor = AutobotColors.PaperInk) else ButtonDefaults.buttonColors(),
-            contentPadding = PaddingValues(horizontal = 14.dp),
-        ) {
-            Icon(AutobotIcons.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("New", style = AutobotTheme.styles.action)
+        if (!large) {
+            newIncognito()
+            newChat()
         }
     }
-    // A large font leaves no room for the New button beside the incognito switch: it goes under it.
-    val large = isLargeText()
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 8.dp), horizontalAlignment = Alignment.End) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.outline)
-            MicroLabel("Incognito", color = if (state.incognito) AutobotTheme.inks.uv else MaterialTheme.colorScheme.onSurfaceVariant)
-            InfoButton("Incognito", "New chats are kept in memory only, never written to disk.")
-            Spacer(Modifier.weight(1f))
-            // Named for TalkBack: the "incognito" label beside it is a separate node.
-            Switch(checked = state.incognito, onCheckedChange = actions.setIncognito, modifier = Modifier.semantics { contentDescription = "Incognito" })
-            if (!large) newChat()
+    // A large font leaves no room beside the title: the actions take their own line.
+    if (large) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            newIncognito()
+            newChat()
         }
-        if (large) newChat()
     }
 }
 
@@ -337,10 +325,7 @@ private fun SelectionBar(state: ChatListUiState, actions: ChatListActions, open:
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = actions.clearSelection) { Icon(Icons.Filled.Close, contentDescription = "Cancel selection") }
-        Column(Modifier.weight(1f)) {
-            Text("${ids.size} selected", style = MaterialTheme.typography.titleLarge)
-            MicroLabel("tap to add or remove")
-        }
+        Text(ChatListWords.selected(ids.size), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
         IconButton(onClick = { actions.setPinned(ids, !allPinned) }) {
             Icon(AutobotIcons.Pin, contentDescription = if (allPinned) "Unpin" else "Pin", tint = MaterialTheme.colorScheme.onSurface)
         }
@@ -375,7 +360,7 @@ private fun SearchAndSort(state: ChatListUiState, actions: ChatListActions) {
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.weight(1f),
-            placeholder = "Search titles and messages",
+            placeholder = ChatListWords.SEARCH,
             singleLine = true,
             trailingIcon = {
                 if (query.isNotEmpty()) {
@@ -441,15 +426,8 @@ private fun Chip(text: String, selected: Boolean, accent: Color = Color.Unspecif
 
 @Composable
 private fun EmptyList(state: ChatListUiState) {
-    val text = when {
-        state.searching -> "No chats on this phone match that search."
-        state.filter == ChatFilter.Archived -> "No archived chats."
-        state.filter == ChatFilter.Pinned -> "Nothing pinned. Pin a chat to keep it on top."
-        state.filter is ChatFilter.Folder -> "This folder is empty. Long-press a chat to move it here."
-        else -> "No sessions yet. They stay encrypted on this phone."
-    }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        EmptyState(text)
+        EmptyState(ChatListWords.empty(state.searching, state.filter))
     }
 }
 
@@ -701,11 +679,10 @@ private fun ChatListScreenPreview() {
                     ChatListSection("Today", listOf(ConversationItem("2", "Private question", "Ollama · qwen3", 0L, true))),
                 ),
                 folders = listOf(FolderChip("f", "Work", 3)),
-                privacyStatus = PrivacyStatus.OFFLINE,
                 loading = false,
             ),
             actions = ChatListActions(),
-            onOpenChat = {}, onOpenProviders = {}, onOpenPrivacyCenter = {},
+            onOpenChat = {}, onOpenProviders = {},
         )
     }
 }

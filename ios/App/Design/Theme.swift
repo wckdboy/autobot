@@ -381,7 +381,10 @@ extension String {
      the first letter is capitalised and a leading acronym is spelled as such ("cfg" → "CFG").
      The rest is left as written (model names, paths and units keep their case).
      */
-    var sentenceCased: String {
+    var sentenceCased: String { Self.spellingAbbreviations(self).leadCased }
+
+    /// The first letter capitalised (or a leading acronym spelled); see [sentenceCased].
+    private var leadCased: String {
         guard let first = firstIndex(where: \.isLetter) else { return self }
         // URLs, hosts, file names and ids lead as written ("civitai.com", "https://…", "plan.md").
         let lead = self[first...].prefix { !$0.isWhitespace }
@@ -398,6 +401,36 @@ extension String {
         let cased = String(self[..<first]) + self[first].uppercased() + String(self[index(after: first)...])
         return cased.hasPrefix("Core ml") ? "Core ML" + cased.dropFirst(7) : cased
     }
+
+    /// Abbreviations anywhere in a label, as whole lowercase words, in their written form
+    /// ("models · api & lan" → "models · API & LAN"): the same words and rule as Android's `labelCase`.
+    static func spellingAbbreviations(_ text: String) -> String {
+        guard text.contains(where: \.isLowercase) else { return text }
+        if let hit = abbreviationCache.object(forKey: text as NSString) { return hit as String }
+        let ns = text as NSString
+        var out = text
+        for match in abbreviationWord.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let word = ns.substring(with: match.range)
+            if let fixed = abbreviations[word], let range = Range(match.range, in: out) { out.replaceSubrange(range, with: fixed) }
+        }
+        abbreviationCache.setObject(out as NSString, forKey: text as NSString)
+        return out
+    }
+
+    nonisolated(unsafe) private static let abbreviationWord = try! NSRegularExpression(pattern: "(?<![\\w./-])[a-z][a-z0-9+-]*(?![\\w/.-])")
+    nonisolated(unsafe) private static let abbreviationCache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 2000
+        return cache
+    }()
+
+    /// Android's `labelCase` abbreviations.
+    private static let abbreviations: [String: String] = [
+        "api": "API", "apis": "APIs", "lan": "LAN", "pc": "PC", "pcs": "PCs", "npu": "NPU", "gpu": "GPU", "cpu": "CPU",
+        "usd": "USD", "cfg": "CFG", "lora": "LoRA", "loras": "LoRAs", "apk": "APK", "mcp": "MCP", "http": "HTTP",
+        "sha-256": "SHA-256", "ram": "RAM", "url": "URL", "vae": "VAE", "comfyui": "ComfyUI", "controlnet": "ControlNet",
+        "aicore": "AICore", "ai": "AI", "pin": "PIN",
+    ]
 
     private static let acronyms: [String: String] = [
         "cfg": "CFG", "npu": "NPU", "gpu": "GPU", "cpu": "CPU", "api": "API", "usd": "USD", "mcp": "MCP",
