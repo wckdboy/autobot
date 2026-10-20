@@ -7,7 +7,7 @@ import Observation
 struct AppSettings: Codable, Equatable, Sendable {
     static let defaultLockTimeoutMillis: Int64 = 60_000
 
-    var themeMode: ThemeMode = .dark
+    var themeMode: ThemeMode = .system
     var amoled = false
     /// Android only (Material You); kept so an export round-trips it.
     var dynamicColor = false
@@ -59,7 +59,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// The shared string form (`SettingsSchema.encode`): what is stored and exported.
     var values: [String: String] {
         let shared = AutobotShared.AppSettings(
-            themeMode: AutobotShared.ThemeMode.entries.first { $0.name == themeMode.rawValue } ?? .dark,
+            themeMode: AutobotShared.ThemeMode.entries.first { $0.name == themeMode.rawValue } ?? .system,
             amoled: amoled,
             dynamicColor: dynamicColor,
             networkMode: mode.shared,
@@ -84,7 +84,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// Parses the shared string form; unknown, missing or malformed values fall back to defaults.
     init(values: [String: String]) {
         let s = SettingsSchema.shared.decode(values: values)
-        themeMode = ThemeMode(rawValue: s.themeMode.name) ?? .dark
+        themeMode = ThemeMode(rawValue: s.themeMode.name) ?? .system
         amoled = s.amoled
         dynamicColor = s.dynamicColor
         networkMode = NetworkMode.encode(NetworkMode(shared: s.networkMode))

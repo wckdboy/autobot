@@ -13,7 +13,7 @@ enum class ThemeMode { SYSTEM, DARK, LIGHT }
  * they live in the platform's secret store.
  */
 data class AppSettings(
-    val themeMode: ThemeMode = ThemeMode.DARK,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val amoled: Boolean = false,
     val dynamicColor: Boolean = false,
     val networkMode: NetworkMode = NetworkMode.Offline,
@@ -94,7 +94,7 @@ object SettingsSchema {
     /** Lock timeouts offered in Settings; anything else read from storage is clamped to these bounds. */
     val LOCK_TIMEOUTS_MILLIS = listOf(0L, 30_000L, 60_000L, 300_000L, 900_000L)
 
-    fun themeMode(value: String?): ThemeMode = ThemeMode.entries.firstOrNull { it.name == value } ?: ThemeMode.DARK
+    fun themeMode(value: String?): ThemeMode = ThemeMode.entries.firstOrNull { it.name == value } ?: ThemeMode.SYSTEM
 
     fun searchProvider(value: String?): SearchProvider = SearchProvider.parse(value)
 
