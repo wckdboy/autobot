@@ -63,6 +63,8 @@ data class NodeBotsState(
     val loading: Boolean = false,
     /** Why the last refresh or switch did not work; null when it did. */
     val problem: String? = null,
+    /** What the node said it did on the last switch or reload ("ops is running."); null otherwise. */
+    val notice: String? = null,
 ) {
     /** Show the Bots list: the node has bots mode (one bot shows as a single row). */
     val showList: Boolean get() = supported == true && bots.isNotEmpty()
@@ -98,14 +100,17 @@ class NodeBotsRepository(private val agent: NodeAgent) {
     }
 
     /**
-     * Switches bot [name] on or off: shown at once, put back when the node says no. Null, or why it
-     * did not work.
+     * Switches bot [name] on or off: shown at once, then as the node says it is (its answer in
+     * [NodeBotsState.notice]), put back when the node says no. Null, or why it did not work.
      */
     suspend fun setEnabled(name: String, enabled: Boolean): String? {
         val before = _state.value.bot(name) ?: return "There is no bot called $name on the node."
-        _state.update { s -> s.copy(bots = s.bots.map { if (it.name == name) NodeBots.switched(it, enabled) else it }, problem = null) }
+        _state.update { s -> s.copy(bots = s.bots.map { if (it.name == name) NodeBots.switched(it, enabled) else it }, problem = null, notice = null) }
         return try {
-            agent.setBotEnabled(name, enabled)
+            val answer = agent.setBotEnabled(name, enabled)
+            _state.update { s ->
+                s.copy(bots = s.bots.map { if (it.name == name) NodeBotDetails.afterSwitch(it, answer) else it }, notice = NodeBotDetails.switched(name, answer))
+            }
             null
         } catch (e: CancellationException) {
             throw e
@@ -114,6 +119,26 @@ class NodeBotsRepository(private val agent: NodeAgent) {
             _state.update { s -> s.copy(bots = s.bots.map { if (it.name == name) before else it }, problem = why) }
             why
         }
+    }
+
+    /**
+     * Asks the node to bring its bots in line with their configuration now, then lists them again;
+     * what it did is [NodeBotsState.notice] (or [NodeBotsState.problem]).
+     */
+    suspend fun reload(): NodeBotsState {
+        val notice = try {
+            NodeBotDetails.reloaded(agent.reloadBots())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: NodeAgentException) {
+            if (e.type == "not_configurable") "This node has no bot configuration to reload." else null.also { _state.update { s -> s.copy(problem = e.message) } }
+        } catch (e: Exception) {
+            null.also { _state.update { s -> s.copy(problem = e.message ?: "The node did not answer.") } }
+        }
+        val problem = _state.value.problem
+        refresh()
+        _state.update { it.copy(notice = notice, problem = it.problem ?: problem) }
+        return _state.value
     }
 }
 

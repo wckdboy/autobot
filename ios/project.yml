@@ -119,6 +119,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSFaceIDUsageDescription: Unlock Autobot with Face ID. Your conversations are encrypted on this device.
         NSMicrophoneUsageDescription: Dictation is transcribed on this phone. Audio is never stored or sent anywhere.
+        NSCameraUsageDescription: Take a photo for the agent on your node. It is downscaled on this phone and sent without its location.
         NSPhotoLibraryAddUsageDescription: Export saves an unencrypted copy of an image you choose to your photo library.
         NSLocalNetworkUsageDescription: Reach image backends and model servers you configure on your own network.
         NSAppTransportSecurity:

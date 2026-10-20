@@ -47,7 +47,13 @@ sealed interface AgentEvent {
     /** A team member on the node finished the task it was handed: its answer to the lead. */
     data class Member(val agent: String, val text: String) : AgentEvent
     data class Answer(val text: String, val receipts: List<String>) : AgentEvent
-    data class Failed(val text: String) : AgentEvent
+    /** [code]: the node's error code when it refused the turn (`model_cannot_see_images`, …). */
+    data class Failed(val text: String, val code: String? = null) : AgentEvent
+    /**
+     * After [Answer], when the turn was at a nudge: what the agent kept on its own
+     * (`profile: …`, `memory: …`). The conversation is already free for the next turn.
+     */
+    data class Kept(val text: String) : AgentEvent
 }
 
 enum class ApprovalAnswer(val wire: String) { ONCE("once"), ALWAYS("always"), DENY("deny") }
@@ -94,14 +100,14 @@ data class AgentSchedule(
 /** The agent as a device opens it: its conversation id there, the agent's settings, the conversation so far. */
 data class NodeAgentOpened(val session: String, val info: AgentInfo, val history: List<AgentLine>)
 
-/** A line of a conversation's history: who and what (tool calls summarized). */
-data class AgentLine(val role: String, val text: String)
+/** A line of a conversation's history: who and what (tool calls summarized); [images]: the names of a user message's images. */
+data class AgentLine(val role: String, val text: String, val images: List<String> = emptyList())
 
 /** One finished run of a schedule on the node (Unix seconds); [receipts] are the gateway's request ids. */
 data class NodeRun(val at: Long, val finished: Long, val ok: Boolean, val result: String, val receipts: List<String>, val trigger: String)
 
-/** The node answered with an error (spec/agent.md's error shape). */
-class NodeAgentException(val status: Int, val type: String?, message: String) : Exception(message)
+/** The node answered with an error (spec/agent.md's error shape); [code] when it gave one. */
+class NodeAgentException(val status: Int, val type: String?, message: String, val code: String? = null) : Exception(message)
 
 /**
  * The Autobot Agent on a paired node, through the gateway's `/v1/agent` (spec/agent.md), over a
@@ -112,19 +118,28 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     /**
      * Runs a turn in [session]; events as they come. Cancelling stops listening, not the turn.
      * [bot] picks the bot a new session belongs to (bots mode); null for the default one.
+     * [images]: JPEG photos, base64 (no `data:` prefix), sent as OpenAI-style `image_url` parts
+     * ([NodeImages.turnBody]). After the answer the stream may carry [AgentEvent.Kept] events.
      */
-    fun turn(session: String, text: String, bot: String? = null): Flow<AgentEvent> = callbackFlow {
-        val body = buildJsonObject {
-            put("text", text)
-            if (bot != null) put("bot", bot)
-        }.toString()
+    fun turn(session: String, text: String, bot: String? = null, images: List<String> = emptyList()): Flow<AgentEvent> =
+        stream("/sessions/$session/turns", NodeImages.turnBody(text, bot, images))
+
+    /**
+     * Runs the last turn of [session] again (`POST …/retry`): it leaves the conversation and its
+     * request, with its images, runs again; streamed like a turn. No turn to retry is a
+     * [AgentEvent.Failed] with code `not_found`.
+     */
+    fun retry(session: String): Flow<AgentEvent> = stream("/sessions/$session/retry", "{}")
+
+    private fun stream(path: String, body: String): Flow<AgentEvent> = callbackFlow {
         var finished = false
-        val request = spec("POST", "/sessions/$session/turns", body, accept = "text/event-stream")
+        val request = spec("POST", path, body, accept = "text/event-stream")
         val running = transport.send(request, object : HttpSink {
             override fun onResponse(status: Int, headers: Map<String, String>, errorBody: String?) {
                 if (status !in 200..299) {
                     finished = true
-                    trySend(AgentEvent.Failed(errorMessage(status, errorBody).message ?: "error $status"))
+                    val e = errorMessage(status, errorBody)
+                    trySend(AgentEvent.Failed(e.message ?: "error $status", e.code ?: e.type))
                     close()
                 }
             }
@@ -141,7 +156,8 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
             }
 
             override fun onFailure(blocked: Boolean, message: String) {
-                trySend(AgentEvent.Failed(if (blocked) "Blocked by network policy: $message" else message))
+                // After the answer only `kept` notes were still to come: nothing is lost.
+                if (!finished) trySend(AgentEvent.Failed(if (blocked) "Blocked by network policy: $message" else message))
                 close()
             }
         })
@@ -221,10 +237,38 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         if (e.status == 404) null else throw e
     }
 
-    /** Switches bot [name] on or off on the node. */
-    suspend fun setBotEnabled(name: String, enabled: Boolean) {
-        request("POST", "/bots/${encoded(name)}/${if (enabled) "enable" else "disable"}", "")
+    /** Switches bot [name] on or off on the node; what the node did about it. */
+    suspend fun setBotEnabled(name: String, enabled: Boolean): BotSwitch =
+        NodeBotDetails.parseSwitch(request("POST", "/bots/${encoded(name)}/${if (enabled) "enable" else "disable"}", "{}"), enabled)
+
+    /** Brings the running bots in line with their configuration now (`POST /v1/agent/bots/reload`). */
+    suspend fun reloadBots(): BotsReload = NodeBotDetails.parseReload(request("POST", "/bots/reload", "{}"))
+
+    /** The personalities [bot] can take, the one in use and its SOUL.md. */
+    suspend fun personalities(bot: String? = null): NodePersonalities =
+        NodeBotDetails.parsePersonalities(request("GET", "/personalities" + botQuery(bot, first = true)))
+
+    /** Sets [bot]'s personality for every turn from now on ([name] null or `none`: none); the one in use. */
+    suspend fun setPersonality(name: String?, bot: String? = null): String? {
+        val body = buildJsonObject { put("name", name ?: NodeBotDetails.NONE) }.toString()
+        val o = json.parseToJsonElement(request("POST", "/personality" + botQuery(bot, first = true), body)).jsonObject
+        return o.text("active")?.takeUnless { it == NodeBotDetails.NONE }
     }
+
+    /** What [bot] keeps about how the owner works (its USER.md). */
+    suspend fun profile(bot: String? = null): NodeProfile = NodeBotDetails.parseProfile(request("GET", "/profile" + botQuery(bot, first = true)))
+
+    /** [bot]'s usage today (and in [session]), from its turn log. */
+    suspend fun usage(bot: String? = null, session: String? = null): NodeUsage {
+        val query = listOfNotNull(session?.let { "session=${encoded(it)}" }, bot?.let { "bot=${encoded(it)}" }).joinToString("&")
+        return NodeBotDetails.parseUsage(request("GET", "/usage" + (if (query.isEmpty()) "" else "?$query")))
+    }
+
+    /** What [bot] did over the last [days]. */
+    suspend fun insights(bot: String? = null, days: Int = 7): NodeInsights =
+        NodeBotDetails.parseInsights(request("GET", "/insights?days=$days" + botQuery(bot, first = false)))
+
+    private fun botQuery(bot: String?, first: Boolean): String = bot?.let { (if (first) "?" else "&") + "bot=${encoded(it)}" } ?: ""
 
     /** [value] as a path segment or query value: letters, digits and `-_.~` as they are, the rest %-encoded. */
     private fun encoded(value: String): String = buildString {
@@ -246,8 +290,11 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
             val calls = (o["tool_calls"] as? JsonArray).orEmpty().mapNotNull { c ->
                 (c as? JsonObject)?.get("function")?.jsonObject?.text("name")
             }
+            // Images stay on the node by reference (spec/agent.md, `autobot_images`): their names.
+            val images = (o["autobot_images"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.let { i -> i.text("name") ?: "image" } }
             when {
-                role == "user" || (role == "assistant" && content.isNotBlank()) -> AgentLine(role, content.trim())
+                role == "user" -> AgentLine(role, content.trim(), images)
+                role == "assistant" && content.isNotBlank() -> AgentLine(role, content.trim())
                 role == "assistant" && calls.isNotEmpty() -> AgentLine("tool", calls.joinToString(", "))
                 else -> null
             }
@@ -421,12 +468,13 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         private fun errorMessage(status: Int, body: String?): NodeAgentException {
             val error = runCatching { json.parseToJsonElement(body.orEmpty()).jsonObject["error"]?.jsonObject }.getOrNull()
             val type = error?.text("type")
-            val message = when (type) {
+            val code = error?.text("code")
+            val message = if (code == NodeImages.CANNOT_SEE || type == NodeImages.CANNOT_SEE) NodeImages.CANNOT_SEE_MESSAGE else when (type) {
                 "agent_unavailable" -> "The Autobot Agent is not running on the node. Start it there with `autobot serve` (or `autobot service install`)."
                 "session_busy" -> "The agent is still working on this conversation."
                 else -> error?.text("message") ?: "The node answered $status."
             }
-            return NodeAgentException(status, type, message)
+            return NodeAgentException(status, type, message, code)
         }
 
         /** One `data:` payload of a turn's stream; null for what this app does not understand. */
@@ -439,7 +487,8 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
                 "approval" -> AgentEvent.Approval(o.text("id") ?: return null, o.text("text").orEmpty(), action(o["action"]), o.text("agent"))
                 "member" -> AgentEvent.Member(o.text("agent") ?: return null, o.text("text").orEmpty())
                 "answer" -> AgentEvent.Answer(o.text("text").orEmpty(), (o["receipts"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull })
-                "error" -> AgentEvent.Failed(o.text("text").orEmpty())
+                "error" -> AgentEvent.Failed(o.text("text").orEmpty(), o.text("code"))
+                "kept" -> o.text("text")?.takeIf { it.isNotBlank() }?.let { AgentEvent.Kept(it.trim()) }
                 else -> null
             }
         }

@@ -22,7 +22,7 @@ enum BotsDemo {
     }
 
     static func state(now: Int64 = unixNow()) -> NodeBotsState {
-        NodeBotsState(bots: NodeBots.shared.ordered(bots: NodeBots.shared.sample(now: now)), supported: KotlinBoolean(value: true), loading: false, problem: nil)
+        NodeBotsState(bots: NodeBots.shared.ordered(bots: NodeBots.shared.sample(now: now)), supported: KotlinBoolean(value: true), loading: false, problem: nil, notice: nil)
     }
 }
 
@@ -31,6 +31,21 @@ enum BotsDemo {
 @Observable
 final class NodeBotsModel {
     private(set) var states: [String: NodeBotsState] = [:]
+
+    /// Asks node [id] to bring its bots in line with their configuration now; what it did shows under the list.
+    func reload(app: AppContainer, node id: String) async {
+        if BotsDemo.on(id) {
+            let s = BotsDemo.state()
+            states[id] = s.doCopy(bots: s.bots, supported: s.supported, loading: false, problem: nil, notice: "Nothing to change.")
+            return
+        }
+        guard let runtime = app.agent as? SharedAgentRuntime else { return }
+        let state = await runtime.nodeBotsReload(id)
+        // A node that did not answer keeps the list it showed, with why.
+        if state.problem == nil || states[id] == nil { states[id] = state } else if let old = states[id] {
+            states[id] = old.doCopy(bots: old.bots, supported: old.supported, loading: false, problem: state.problem, notice: state.notice)
+        }
+    }
 
     func refresh(app: AppContainer, nodes: [String]) async {
         let runtime = app.agent as? SharedAgentRuntime
@@ -98,7 +113,11 @@ final class NodeBotModel {
     let providerId: String
     let name: String
     private(set) var node = ""
-    private(set) var state = NodeBotsState(bots: [], supported: nil, loading: true, problem: nil)
+    private(set) var state = NodeBotsState(bots: [], supported: nil, loading: true, problem: nil, notice: nil)
+    /// Its personality, profile, usage and insights; nil until loaded (each part nil on an older node).
+    private(set) var detail: NodeBotDetail?
+    /// A personality being set ("none" for none).
+    private(set) var settingPersonality: String?
     /// Its recent sessions, newest first; nil until loaded.
     private(set) var sessions: [AutobotShared.AgentSession]?
     private(set) var approvals: [PendingApproval] = []
@@ -122,6 +141,7 @@ final class NodeBotModel {
             state = BotsDemo.state(now: now)
             sessions = NodeBots.shared.sampleSessions(now: now).filter { NodeBots.shared.of(bot: $0.bot) == name }
             approvals = NodeBots.shared.sampleApprovals(now: now).filter { NodeBots.shared.of(bot: $0.bot) == name }
+            if detail == nil { detail = NodeBotDetails.shared.sample(bot: name) }
             return
         }
         runtime = app.agent as? SharedAgentRuntime
@@ -132,16 +152,63 @@ final class NodeBotModel {
         sessions = list ?? []
         if let error { problem = error }
         approvals = await runtime.nodeAgentApprovals(providerId).filter { NodeBots.shared.of(bot: $0.bot) == name }
+        let edits = personalityEdits
+        let fetched = await runtime.nodeBotDetail(providerId, bot: name)
+        // A personality chosen while this was asked for wins over what the node said before it.
+        if edits != personalityEdits, let current = detail?.personalities {
+            detail = Self.with(fetched, current)
+        } else {
+            detail = fetched
+        }
+    }
+
+    /// Personalities set here, so a refresh that started before one does not undo it on screen.
+    @ObservationIgnored private var personalityEdits = 0
+
+    /// Sets the bot's personality ([personality] nil for none): shown at once, put back when the node says no.
+    func setPersonality(_ personality: String?) async {
+        guard let detail, let before = detail.personalities else { return }
+        personalityEdits += 1
+        let wanted = personality == NodeBotDetails.shared.NONE ? nil : personality
+        self.detail = Self.with(detail, NodePersonalities(active: wanted, soul: before.soul, list: before.list))
+        settingPersonality = wanted ?? NodeBotDetails.shared.NONE
+        problem = nil
+        defer { settingPersonality = nil }
+        guard !BotsDemo.on(providerId), let runtime else { return }
+        let (active, error) = await runtime.nodeBotSetPersonality(providerId, bot: name, name: wanted)
+        guard let current = self.detail else { return }
+        if let error {
+            self.detail = Self.with(current, before)
+            problem = error
+        } else {
+            self.detail = Self.with(current, NodePersonalities(active: active, soul: before.soul, list: before.list))
+        }
+    }
+
+    /// Shows [detail] as if the node had answered (tests).
+    func show(detail: NodeBotDetail) { self.detail = detail }
+
+    nonisolated static func with(_ d: NodeBotDetail, _ p: NodePersonalities) -> NodeBotDetail {
+        d.doCopy(personalities: p, profile: d.profile, usage: d.usage, insights: d.insights, problem: d.problem)
     }
 
     func setEnabled(_ enabled: Bool) async {
         guard let before = bot else { return }
-        state = state.doCopy(bots: state.bots.map { $0.name == name ? NodeBots.shared.switched(bot: $0, enabled: enabled) : $0 }, supported: state.supported, loading: false, problem: nil)
-        guard !BotsDemo.on(providerId), let runtime else { return }
-        if let error = await runtime.nodeBotSetEnabled(providerId, name: name, enabled: enabled) {
+        state = state.doCopy(bots: state.bots.map { $0.name == name ? NodeBots.shared.switched(bot: $0, enabled: enabled) : $0 }, supported: state.supported, loading: false, problem: nil, notice: nil)
+        guard !BotsDemo.on(providerId), let runtime else {
+            let answer = BotSwitch(enabled: enabled, restart: false, status: enabled ? "running" : "stopped", error: nil)
+            state = state.doCopy(bots: state.bots, supported: state.supported, loading: false, problem: nil, notice: NodeBotDetails.shared.switched(name: name, s: answer))
+            return
+        }
+        let (answer, error) = await runtime.nodeBotSetEnabled(providerId, name: name, enabled: enabled)
+        if let answer {
+            // As the node says it is now, and what it did, in words.
+            state = state.doCopy(bots: state.bots.map { $0.name == name ? NodeBotDetails.shared.afterSwitch(bot: $0, s: answer) : $0 }, supported: state.supported, loading: false, problem: nil, notice: NodeBotDetails.shared.switched(name: name, s: answer))
+        } else {
             // The node said no: put it back as it was.
-            state = state.doCopy(bots: state.bots.map { $0.name == name ? before : $0 }, supported: state.supported, loading: false, problem: error)
-            problem = error
+            let why = error ?? "The node did not answer"
+            state = state.doCopy(bots: state.bots.map { $0.name == name ? before : $0 }, supported: state.supported, loading: false, problem: why, notice: nil)
+            problem = why
         }
     }
 
@@ -246,6 +313,10 @@ struct NodeBotContent: View {
             .accessibilityLabel("On")
         }
         .frame(minHeight: SwitchRow.minHeight)
+        // What the node said it did ("ops is running.").
+        if let notice = model.state.notice {
+            Text(notice).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true).padding(.bottom, 8)
+        }
         Hairline()
 
         SectionLabel("channels").padding(.top, 16)
@@ -281,6 +352,14 @@ struct NodeBotContent: View {
             Text(NodeBots.shared.approvals(mode: bot.approvals)).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
         }
         .padding(.top, 16)
+
+        if let detail = model.detail {
+            BotDetailSections(detail: detail, bot: bot.name, node: model.node, setting: model.settingPersonality) { name in
+                Task { await model.setPersonality(name) }
+            }
+        } else {
+            InkLoader(.inline).padding(.top, 16)
+        }
 
         if !model.approvals.isEmpty {
             SectionLabel("waiting for you · \(model.approvals.count)").padding(.top, 16)

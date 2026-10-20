@@ -45,6 +45,7 @@ class NodeBotsScreenTest {
         bots = bots,
         sessions = NodeBots.sampleSessions(now).filter { NodeBots.of(it.bot) == name },
         approvals = NodeBots.sampleApprovals(now).filter { NodeBots.of(it.bot) == name },
+        detail = dev.wckdboy.autobot.shared.invincible.NodeBotDetails.sample(name),
         now = now,
     )
 
@@ -93,6 +94,51 @@ class NodeBotsScreenTest {
         compose.onNodeWithTag("node-bot").performScrollToNode(hasText("New chat with ops"))
         compose.onNodeWithText("New chat with ops").performClick()
         assertEquals(listOf("tg-ops-4411", null), opened)
+    }
+
+    @Test
+    fun theDetailShowsPersonalityProfileAndUsageAndSetsAPersonality() {
+        val picked = mutableListOf<String?>()
+        compose.setContent { Themed { NodeBotScreen(detail(), {}, {}, {}, {}, {}, onPersonality = { picked += it }) } }
+        compose.onNodeWithTag("node-bot").performScrollToNode(hasText("Short answers, no preamble."))
+        compose.onNodeWithText("Short answers, no preamble.").assertIsDisplayed()
+        compose.onNodeWithText("reviewer").performClick()
+        compose.onNodeWithText("none").performClick()
+        // The one in use is not set again.
+        compose.onNodeWithText("concise").performClick()
+        assertEquals(listOf("reviewer", null), picked)
+        compose.onNodeWithTag("node-bot").performScrollToNode(hasText("Wants restarts confirmed in one line."))
+        compose.onNodeWithText("Wants restarts confirmed in one line.").assertIsDisplayed()
+        compose.onNodeWithText("Edit USER.md on studio-mac").assertIsDisplayed()
+        compose.onNodeWithTag("node-bot").performScrollToNode(hasText("46 turns · 131 model calls · 440.4k tokens · 31m 52s"))
+        compose.onNodeWithTag("node-bot").performScrollToNode(hasText("Model calls · all local"))
+        compose.onNodeWithText("Model calls · all local").assertIsDisplayed()
+        compose.onNodeWithTag("node-bot").performScrollToNode(hasText("terminal"))
+        compose.onNodeWithText("58").assertIsDisplayed()
+    }
+
+    @Test
+    fun anOlderNodeLeavesTheNewSectionsOut() {
+        compose.setContent { Themed { NodeBotScreen(detail().copy(detail = dev.wckdboy.autobot.shared.invincible.NodeBotDetail()), {}, {}, {}, {}, {}) } }
+        assertEquals(0, compose.onAllNodes(hasText("Personality")).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodes(hasText("What it knows about you")).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun theNodesAnswerToASwitchShows() {
+        val state = detail().let { it.copy(bots = it.bots.copy(notice = "ops is running.")) }
+        compose.setContent { Themed { NodeBotScreen(state, {}, {}, {}, {}, {}) } }
+        compose.onNodeWithText("ops is running.").assertIsDisplayed()
+    }
+
+    @Test
+    fun remoteReloadsTheBots() {
+        val reloaded = mutableListOf<String>()
+        val state = remote.copy(bots = mapOf("n1" to bots.copy(notice = "Restarted ops")))
+        compose.setContent { Themed { RemoteScreen(state, {}, {}, {}, {}, onReloadBots = { reloaded += it }) } }
+        compose.onNodeWithText("Reload").performClick()
+        assertEquals(listOf("n1"), reloaded)
+        compose.onNodeWithText("Restarted ops").assertIsDisplayed()
     }
 
     @Test

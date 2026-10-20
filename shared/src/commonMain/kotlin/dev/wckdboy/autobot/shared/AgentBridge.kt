@@ -11,6 +11,9 @@ import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.AgentEvent
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
+import dev.wckdboy.autobot.shared.invincible.BotSwitch
+import dev.wckdboy.autobot.shared.invincible.NodeBotDetail
+import dev.wckdboy.autobot.shared.invincible.NodeBotDetails
 import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.NodeDigest
 import dev.wckdboy.autobot.shared.invincible.NodeDigests
@@ -679,13 +682,22 @@ class AgentBridge(
     /**
      * Runs a turn; [listener] gets its events, the last being an answer or a failure. Cancelling
      * stops listening, not the turn. [bot]: the bot a new session belongs to (bots mode); null for
-     * the default one.
+     * the default one. [images]: JPEG photos, base64, downscaled by the host
+     * ([dev.wckdboy.autobot.shared.invincible.NodeImages]). After the answer, [AgentEvent.Kept]
+     * notes may still come.
      */
-    fun nodeAgentTurn(providerId: String, session: String, text: String, bot: String?, listener: (AgentEvent) -> Unit): Cancellable {
+    fun nodeAgentTurn(providerId: String, session: String, text: String, bot: String?, images: List<String>, listener: (AgentEvent) -> Unit): Cancellable =
+        nodeAgentStream(providerId, listener) { it.turn(session, text, bot, images) }
+
+    /** Runs the last turn of [session] again (`POST …/retry`); events as for a turn. */
+    fun nodeAgentRetry(providerId: String, session: String, listener: (AgentEvent) -> Unit): Cancellable =
+        nodeAgentStream(providerId, listener) { it.retry(session) }
+
+    private fun nodeAgentStream(providerId: String, listener: (AgentEvent) -> Unit, flow: (NodeAgent) -> kotlinx.coroutines.flow.Flow<AgentEvent>): Cancellable {
         val job = scope.launch {
             try {
                 val (agent, _) = requireNodeAgent(providerId)
-                agent.turn(session, text, bot).collect { listener(it) }
+                flow(agent).collect { listener(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -719,14 +731,29 @@ class AgentBridge(
         failed = { NodeBotsState(problem = it) },
     ) { NodeBotsRepository(requireNodeAgent(providerId).first).refresh() }
 
-    /** Switches bot [name] on or off; null, or why it did not work. */
-    fun nodeBotSetEnabled(providerId: String, name: String, enabled: Boolean, callback: (String?) -> Unit) = launchAnswering(
+    /** Switches bot [name] on or off: what the node did, or why it did not work. */
+    fun nodeBotSetEnabled(providerId: String, name: String, enabled: Boolean, callback: (BotSwitch?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<BotSwitch?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) { requireNodeAgent(providerId).first.setBotEnabled(name, enabled) to null }
+
+    /** Brings the node's bots in line with their configuration now, then lists them; what it did is the state's notice. */
+    fun nodeBotsReload(providerId: String, callback: (NodeBotsState) -> Unit) = launchAnswering(
         callback = callback,
-        failed = { it },
-    ) {
-        requireNodeAgent(providerId).first.setBotEnabled(name, enabled)
-        null
-    }
+        failed = { NodeBotsState(problem = it) },
+    ) { NodeBotsRepository(requireNodeAgent(providerId).first).reload() }
+
+    /** Bot [bot]'s personality, profile, usage today and the last week's insights. */
+    fun nodeBotDetail(providerId: String, bot: String, callback: (NodeBotDetail) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { NodeBotDetail(problem = it) },
+    ) { NodeBotDetails.fetch(requireNodeAgent(providerId).first, bot) }
+
+    /** Sets bot [bot]'s personality ([name] null for none): the one in use now, or why not. */
+    fun nodeBotSetPersonality(providerId: String, bot: String, name: String?, callback: (String?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<String?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) { requireNodeAgent(providerId).first.setPersonality(name, bot) to null }
 
     /** The node's conversations, or only [bot]'s (bots mode), newest first. */
     fun nodeAgentSessions(providerId: String, bot: String?, callback: (List<AgentSession>?, String?) -> Unit) = launchAnswering(

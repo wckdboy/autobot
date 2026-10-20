@@ -277,6 +277,21 @@ short line per bot. An older node without bots answers 404 to `GET /v1/agent/bot
 screens stay as they were. With the demo data (below) the paired node has three sample bots:
 `default`, `ops` on Telegram and Slack with Slack down, and `support` on email.
 
+**A bot's personality, what it knows, what it did.** With Invincible 0.0.14 or later, a bot's
+page also shows its personality, picked from the node's list (`none`, `concise`, …) and set for
+every turn from then on; *What it knows about you*, the entries of its `USER.md` profile, read-only
+here, with the command to edit it in the node's terminal; and its usage: today's turns, model
+calls, tokens and cost, then the last 7 days with the share of calls that stayed on the machine,
+what the cloud cost (or which cloud models have no price), the tools and models it used as flat
+bars, and what went wrong. Turning a bot on or off says what the node did (`ops is running.`, or
+why it could not start), and Remote's bot list has *Reload* to bring the bots in line with their
+configuration at once. In a chat with the node's agent, a photo from the camera or the library
+goes with the message, downscaled on the phone to 1568 px and re-encoded as JPEG without its
+location; a bot whose model cannot see images says so and gives the text back. When the agent
+keeps something on its own after an answer, a quiet `kept · profile: …` line says what. Retry on
+the last answer runs that turn again on the node (`POST …/retry`). An older node shows none of
+this and the page stays as it was.
+
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and
@@ -618,7 +633,9 @@ only when `BuildConfig.DEBUG` is set, and the sample data is compiled into `src/
 reads them under `#if DEBUG`). Both apps seed an empty install with the same sample: providers
 (DeepSeek, Ollama, a paired node), a chat with reasoning and code, an agent run with tool steps and
 a plan, a "phone first" chat, a recipe run, four gallery images, an installed model, an image
-backend, audit entries, three bots on the node (`NodeBots.sample`) and the node digest sample, one line per
+backend, audit entries, three bots on the node (`NodeBots.sample`), each with a personality, a
+profile and a week of usage (`NodeBotDetails.sample`), a chat with the node's agent with a photo
+and what it kept (`NodeChatSample`, the `node` screen), and the node digest sample, one line per
 bot (`NodeDigests.sampleWithBots`).
 
 | | Android (intent extras) | iOS (launch arguments) |
@@ -631,7 +648,7 @@ bot (`NodeDigests.sampleWithBots`).
 | Past the welcome | `--ez skip_welcome true` | `-AutobotSkipWelcome` |
 
 Screens: `run`, `sessions`, `chat`, `agent`, `phone-first`, `imagine`, `gallery`, `viewer`,
-`backends`, `models`, `compute`, `accounts`, `remote`, `providers`, `node`, `settings`, `privacy`,
+`backends`, `models`, `compute`, `accounts`, `remote`, `providers`, `node` (a chat with its agent), `settings`, `privacy`,
 `bot` (the node's ops bot), `about`, `licenses`, `memory`, `vault`, `usage`, `recipes`, `mcp`, `studio`,
 `studio-<room>`.
 

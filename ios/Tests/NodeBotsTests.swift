@@ -62,7 +62,7 @@ struct NodeBotsTests {
     }
 
     @Test func aNodeWithoutBotsShowsNoList() {
-        let older = NodeBotsState(bots: [], supported: KotlinBoolean(value: false), loading: false, problem: nil)
+        let older = NodeBotsState(bots: [], supported: KotlinBoolean(value: false), loading: false, problem: nil, notice: nil)
         #expect(!older.showList)
         #expect(!older.several)
     }
