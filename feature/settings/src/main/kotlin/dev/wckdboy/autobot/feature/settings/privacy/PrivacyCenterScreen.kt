@@ -133,7 +133,7 @@ fun PrivacyCenterScreen(
             }
             item(key = "audit-header", contentType = "header") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Header("Audit log (${state.audit.size})")
+                    Header("Audit log · ${state.audit.size}")
                     InfoButton("Audit log", "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.", Modifier.weight(1f))
                     TextButton(onClick = onClearAudit, modifier = Modifier.padding(end = 8.dp)) { ActionText("Clear") }
                 }
