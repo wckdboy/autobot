@@ -29,6 +29,11 @@ androidxHiltLifecycle = "1.4.0"
 androidxNavigation3 = "1.2.0"
 # Adaptive layouts: window size classes and list-detail scenes for Navigation 3.
 material3Adaptive = "1.3.0"
+# Material 3 Expressive (MaterialExpressiveTheme, loading indicators, button groups, toolbars):
+# ahead of the BOM's 1.4.0.
+material3 = "1.5.0-beta01"
+# The color scheme generated from the brand color (Material's color utilities).
+materialKolor = "5.0.1"
 androidxDatastore = "1.2.1"
 androidxBiometric = "1.1.0"
 androidxSqlite = "2.7.1"
@@ -87,9 +92,10 @@ androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graph
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
-androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+material-kolor = { group = "com.materialkolor", name = "material-kolor", version.ref = "materialKolor" }
 androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
-androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite" }
+androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compose.material3", name = "material3-adaptive-navigation-suite", version.ref = "material3" }
 androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive", version.ref = "material3Adaptive" }
 androidx-compose-material3-adaptive-navigation3 = { group = "androidx.compose.material3.adaptive", name = "adaptive-navigation3", version.ref = "material3Adaptive" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
