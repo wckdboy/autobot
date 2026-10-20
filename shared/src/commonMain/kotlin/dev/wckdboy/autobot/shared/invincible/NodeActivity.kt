@@ -41,6 +41,8 @@ data class AgentActionEntry(
     val ran: Boolean,
     /** `policy`, `grant`, `unattended`, or the channel the owner answered on (`cli`, `app`, `telegram`). */
     val by: String,
+    /** The bot that asked (bots mode); null on a node without bots: the default one. */
+    val bot: String? = null,
 )
 
 data class AgentFact(val id: Long, val at: Long, val text: String)
@@ -178,6 +180,7 @@ internal object NodeActivityParser {
                 action = o.text("action").orEmpty(),
                 ran = (o["ran"] as? JsonPrimitive)?.booleanOrNull ?: false,
                 by = o.text("by") ?: "?",
+                bot = o.text("bot"),
             )
         }.reversed()
 

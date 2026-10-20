@@ -14,6 +14,7 @@ import dev.wckdboy.autobot.navigation.McpServers
 import dev.wckdboy.autobot.navigation.Memory
 import dev.wckdboy.autobot.navigation.Models
 import dev.wckdboy.autobot.navigation.NodeAgent
+import dev.wckdboy.autobot.navigation.NodeBot
 import dev.wckdboy.autobot.navigation.PrivacyCenter
 import dev.wckdboy.autobot.navigation.Providers
 import dev.wckdboy.autobot.navigation.Recipes
@@ -95,6 +96,8 @@ data class DebugLaunch(
             "remote" -> listOf(Remote)
             "providers" -> listOf(Remote, Providers())
             "node" -> listOf(Remote, NodeAgent(DEMO_NODE))
+            // The demo node's ops bot (Bot detail), as iOS's `-AutobotOpen bot`.
+            "bot" -> listOf(Remote, NodeBot(DEMO_NODE, "ops"))
             "settings" -> listOf(Settings)
             "sessions" -> listOf(Run, ChatList)
             "privacy" -> listOf(Settings, PrivacyCenter)

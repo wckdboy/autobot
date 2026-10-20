@@ -25,6 +25,12 @@ data class NodeDigestRecipe(
     val lastChat: String? = null,
 )
 
+/**
+ * What one bot did since the last look (bots mode, a node with more than one bot): the actions it
+ * asked to do, how many did not run, and the approvals waiting for it now.
+ */
+data class NodeDigestBot(val name: String, val actions: Int = 0, val refused: Int = 0, val approvals: Int = 0)
+
 /** One line of the digest: the words, and how they are shown (words first; tone only adds color). */
 data class NodeDigestLine(val text: String, val tone: Tone) {
     enum class Tone { PLAIN, OK, WARNING, ERROR }
@@ -69,6 +75,11 @@ data class NodeDigest(
     val failedTasks: List<BoardTask> = emptyList(),
     /** Why the agent's part is missing (it is not running); null when it answered. */
     val agentProblem: String? = null,
+    /**
+     * Per bot, for a node with more than one (bots mode), the default bot first; empty on a node
+     * with one bot or none, where the card reads as before.
+     */
+    val bots: List<NodeDigestBot> = emptyList(),
 ) {
     val failedRuns: List<NodeDigestRun> get() = runs.filter { !it.ok }
 
@@ -141,6 +152,22 @@ object NodeDigests {
         )
     }
 
+    /**
+     * [digest] split per bot when the node has more than one ([names]): each bot's actions after
+     * the digest's start (from [actions]) and the approvals waiting for it. A node with one bot or
+     * none gets [digest] as it is.
+     */
+    fun byBot(digest: NodeDigest, names: List<String>, actions: List<AgentActionEntry>): NodeDigest {
+        if (names.distinct().size < 2) return digest.copy(bots = emptyList())
+        val after = actions.filter { it.at > digest.since }
+        val waiting = digest.approvals.orEmpty()
+        val bots = NodeBots.ordered(names.distinct().map { NodeBot(it) }).map { bot ->
+            val mine = after.filter { NodeBots.of(it.bot) == bot.name }
+            NodeDigestBot(bot.name, mine.size, mine.count { !it.ran }, waiting.count { NodeBots.of(it.bot) == bot.name })
+        }
+        return digest.copy(bots = bots)
+    }
+
     /** Who decides without asking the owner (spec/audit.md, the action log's `by`). */
     private val AUTOMATIC = setOf("policy", "grant", "unattended")
 
@@ -207,10 +234,19 @@ object NodeDigests {
         val activity: NodeActivity
         var schedules = emptyList<AgentSchedule>()
         var approvals: List<PendingApproval>? = null
+        var bots = emptyList<String>()
         activity = try {
             val board = orEmptyOn404 { agent.board() }
             schedules = orEmptyOn404 { agent.schedules() }
             approvals = agent.approvals()
+            // Bots mode: the card says which bot did what (an older node has none).
+            bots = try {
+                agent.bots().orEmpty().map { it.name }
+            } catch (e: NodeAgentException) {
+                // The bots list failing is no reason to lose the rest of the card.
+                if (e.status == 0) throw e
+                emptyList()
+            }
             NodeActivity(requests, agent.actions(limit = MAX_ENTRIES, since = since), emptyList(), emptyList(), board = board)
         } catch (e: CancellationException) {
             throw e
@@ -218,7 +254,8 @@ object NodeDigests {
             if (e.status == 0) throw e
             NodeActivity(requests, emptyList(), emptyList(), emptyList(), agentProblem = e.message)
         }
-        return compute(activity, runs(providerId, recipes, schedules), since, exceptDevice).copy(approvals = approvals?.sortedBy { it.askedAt })
+        val digest = compute(activity, runs(providerId, recipes, schedules), since, exceptDevice).copy(approvals = approvals?.sortedBy { it.askedAt })
+        return byBot(digest, bots, activity.actions)
     }
 
     private suspend fun <T> orEmptyOn404(block: suspend () -> List<T>): List<T> = try {
@@ -234,7 +271,25 @@ object NodeDigests {
      * A digest for screenshots and UI work (debug builds' demo data): a quiet night on the node,
      * with a question waiting; [failedReceipt] adds one receipt that did not verify.
      */
-    fun sample(now: Long, failedReceipt: Boolean = false): NodeDigest = NodeDigest(
+    fun sample(now: Long, failedReceipt: Boolean = false): NodeDigest = sampleDigest(now, failedReceipt)
+
+    /**
+     * [sample] on a node with the three sample bots ([NodeBots.sample]): the card says which bot
+     * did what, and the approvals waiting are the ops bot's.
+     */
+    fun sampleWithBots(now: Long): NodeDigest {
+        val d = sampleDigest(now, failedReceipt = false)
+        val approvals = d.approvals.orEmpty().map { it.copy(bot = "ops") }
+        val actions = listOf(
+            AgentActionEntry(now - 3 * 3_600, "app-studio-phone", "command", "run: df -h", ran = true, by = "policy"),
+            AgentActionEntry(now - 2 * 3_600, "tg-ops-4411", "command", "run: systemctl status nginx", ran = true, by = "policy", bot = "ops"),
+            AgentActionEntry(now - 50 * 60, "tg-ops-4411", "command", "run: systemctl restart nginx", ran = true, by = "telegram", bot = "ops"),
+            AgentActionEntry(now - 30 * 60, "email-support-118", "write", "write drafts/reply-118.md", ran = true, by = "policy", bot = "support"),
+        )
+        return byBot(d.copy(approvals = approvals, actions = 4, autoAllowed = 3, approved = 1), NodeBots.sample(now).map { it.name }, actions)
+    }
+
+    private fun sampleDigest(now: Long, failedReceipt: Boolean): NodeDigest = NodeDigest(
         since = now - 9 * 60 * 60,
         requests = 12,
         onNode = 12,
@@ -292,6 +347,27 @@ object NodeDigestWords {
         }
     }
 
+    /**
+     * On a node with several bots, a line for each that did something or waits for the owner:
+     * "ops: 2 actions, 2 waiting", "support: 1 action". At most [MAX_BOT_LINES], then "and 2 more
+     * bots"; empty with one bot or none.
+     */
+    fun bots(d: NodeDigest): List<String> {
+        if (d.bots.size < 2) return emptyList()
+        val busy = d.bots.filter { it.actions > 0 || it.approvals > 0 }
+        val lines = busy.take(MAX_BOT_LINES).map { b ->
+            val parts = listOfNotNull(
+                b.actions.takeIf { it > 0 }?.let { plural(it, "action") + (if (b.refused > 0) " (${b.refused} refused)" else "") },
+                b.approvals.takeIf { it > 0 }?.let { "$it waiting" },
+            )
+            "${b.name}: ${parts.joinToString(", ")}"
+        }
+        val more = busy.size - MAX_BOT_LINES
+        return if (more > 0) lines + "and ${plural(more, "more bot")}" else lines
+    }
+
+    private const val MAX_BOT_LINES = 3
+
     /** "Morning brief ran", "Morning brief and Backups ran", "Morning brief, Backups and 2 more ran". */
     fun ran(d: NodeDigest): String? = names(d.runs.filter { it.ok }.map { it.name })?.let { "$it ran" }
 
@@ -323,7 +399,11 @@ object NodeDigestWords {
         val receipts = receipts(d)
         return buildList {
             if (receipts?.tone == NodeDigestLine.Tone.ERROR) add(receipts)
-            listOfNotNull(requests(d), actions(d), ran(d)).forEach { add(NodeDigestLine(it, NodeDigestLine.Tone.PLAIN)) }
+            // Several bots: one short line each instead of the one actions line.
+            val perBot = bots(d)
+            listOfNotNull(requests(d), actions(d).takeIf { perBot.isEmpty() }).forEach { add(NodeDigestLine(it, NodeDigestLine.Tone.PLAIN)) }
+            perBot.forEach { add(NodeDigestLine(it, NodeDigestLine.Tone.PLAIN)) }
+            ran(d)?.let { add(NodeDigestLine(it, NodeDigestLine.Tone.PLAIN)) }
             failed(d)?.let { add(NodeDigestLine("$it ✗", NodeDigestLine.Tone.ERROR)) }
             if (d.agentProblem != null) add(NodeDigestLine("The agent was not running there !", NodeDigestLine.Tone.WARNING))
             if (receipts?.tone == NodeDigestLine.Tone.OK) add(receipts)

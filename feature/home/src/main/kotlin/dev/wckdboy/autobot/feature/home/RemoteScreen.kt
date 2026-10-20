@@ -43,11 +43,24 @@ import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.network.NetworkPolicy
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
+import dev.wckdboy.autobot.feature.home.node.BotRow
+import dev.wckdboy.autobot.feature.home.node.BotsDemo
+import dev.wckdboy.autobot.providers.remote.NodeAgents
+import dev.wckdboy.autobot.shared.invincible.NodeBotsState
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+
+/** A paired node in Remote: its agent row, and its bots when it has bots mode. */
+@Immutable
+data class RemoteNode(val id: String, val name: String)
 
 @Immutable
 data class RemoteUiState(
@@ -55,16 +68,26 @@ data class RemoteUiState(
     val backends: List<DiffusionBackend> = emptyList(),
     val accounts: AccountState = AccountState(),
     val network: PrivacyStatus = PrivacyStatus.OFFLINE,
+    /** The paired nodes. */
+    val nodes: List<RemoteNode> = emptyList(),
+    /** Each node's bots, by provider id; a node not asked yet, or too old for bots, shows no list. */
+    val bots: Map<String, NodeBotsState> = emptyMap(),
+    /** Unix seconds, for the rows' "active 5m ago". */
+    val now: Long = 0,
 )
 
 @HiltViewModel
 class RemoteViewModel @Inject constructor(
-    providers: ProviderRepository,
+    private val providers: ProviderRepository,
     backends: DiffusionBackendRepository,
     accounts: ModelAccounts,
     policy: NetworkPolicy,
+    private val agents: NodeAgents,
 ) : ViewModel() {
-    val uiState: StateFlow<RemoteUiState> = combine(providers.observeProviders(), backends.backends, accounts.state, policy.mode) { p, b, a, m ->
+    private val bots = MutableStateFlow<Map<String, NodeBotsState>>(emptyMap())
+
+    private val base = combine(providers.observeProviders(), backends.backends, accounts.state, policy.mode) { p, b, a, m ->
+        val nodes = p.filter { it.kind == ProviderKind.INVINCIBLE_NODE }.map { RemoteNode(it.id, it.displayName) }
         RemoteUiState(
             providers = p.filter { it.kind != ProviderKind.LOCAL },
             backends = b.filter { it.kind != BackendKind.ON_DEVICE },
@@ -75,8 +98,26 @@ class RemoteViewModel @Inject constructor(
                 is NetworkMode.Tor -> PrivacyStatus.TOR
                 is NetworkMode.Socks5 -> PrivacyStatus.PROXY
             },
+            nodes = nodes,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RemoteUiState())
+    }
+
+    val uiState: StateFlow<RemoteUiState> = combine(base, bots) { s, b -> s.copy(bots = b, now = BotsDemo.now()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RemoteUiState())
+
+    /** Asks each paired node for its bots (an older node answers 404: no list, today's agent row). */
+    fun refreshBots() {
+        viewModelScope.launch {
+            providers.observeProviders().first().filter { it.kind == ProviderKind.INVINCIBLE_NODE }.forEach { p ->
+                launch {
+                    // Debug builds' demo node (`--ez demo true`): the three sample bots.
+                    if (BotsDemo.on(p.id)) return@launch bots.update { it + (p.id to BotsDemo.state()) }
+                    val state = runCatching { agents.bots(p)?.refresh() }.getOrNull() ?: return@launch
+                    bots.update { it + (p.id to state) }
+                }
+            }
+        }
+    }
 }
 
 /** The Remote tab: everything that leaves the phone — APIs, PCs on the LAN, hub accounts, the route. */
@@ -88,10 +129,16 @@ fun RemoteRoute(
     onOpenPrivacy: () -> Unit,
     onOpenNodeAgent: (providerId: String) -> Unit = {},
     onPairNode: () -> Unit = onOpenProviders,
+    onOpenBot: (providerId: String, bot: String) -> Unit = { _, _ -> },
     viewModel: RemoteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy, onOpenNodeAgent, onPairNode)
+    // Each time the tab shows: a bot's state changes on the node, not here.
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshBots()
+        onPauseOrDispose {}
+    }
+    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy, onOpenNodeAgent, onPairNode, onOpenBot)
 }
 
 @Composable
@@ -103,9 +150,9 @@ fun RemoteScreen(
     onOpenPrivacy: () -> Unit,
     onOpenNodeAgent: (providerId: String) -> Unit = {},
     onPairNode: () -> Unit = onOpenProviders,
+    onOpenBot: (providerId: String, bot: String) -> Unit = { _, _ -> },
 ) {
-    val nodes
- = state.providers.filter { it.kind == ProviderKind.INVINCIBLE_NODE }
+    val nodes = state.nodes
     Scaffold(
         topBar = {
             AutobotTopBar(
@@ -120,15 +167,23 @@ fun RemoteScreen(
             if (nodes.isNotEmpty()) {
                 // The Autobot Agent on each paired node: tasks run there, approvals come here.
                 item { SectionLabel("agents · my node") }
-                items(nodes, key = { "a-${it.id}" }) { n ->
-                    RunRow(
-                        "Agent on ${n.displayName}",
-                        "runs there · you approve",
-                        // The node's own mark: Invincible's pixel i.
-                        leading = { NodeMark() },
-                        onClick = { onOpenNodeAgent(n.id) },
-                    ) {
-                        RouteTag(Route.PC_LAN)
+                nodes.forEach { n ->
+                    item(key = "a-${n.id}") {
+                        RunRow(
+                            "Agent on ${n.name}",
+                            "runs there · you approve",
+                            // The node's own mark: Invincible's pixel i.
+                            leading = { NodeMark() },
+                            onClick = { onOpenNodeAgent(n.id) },
+                        ) {
+                            RouteTag(Route.PC_LAN)
+                        }
+                    }
+                    // Bots mode: the node's bots, one row each (an older node has no list).
+                    val bots = state.bots[n.id]
+                    if (bots?.showList == true) {
+                        item(key = "bl-${n.id}") { SectionLabel(if (nodes.size > 1) "bots · ${n.name}" else "bots", Modifier.padding(top = 12.dp)) }
+                        items(bots.bots, key = { "bot-${n.id}-${it.name}" }) { bot -> BotRow(bot, state.now, onClick = { onOpenBot(n.id, bot.name) }) }
                     }
                 }
                 item { Spacer(Modifier.height(18.dp)) }

@@ -105,7 +105,11 @@ class RepositoryNodeDigestSource @Inject constructor(
 
     override suspend fun digest(providerId: String, since: Long): NodeDigest? {
         // Debug builds' demo (`--ez demo true`): the shared sample, as iOS's `-AutobotDemo` shows it.
-        if (DemoMode.on) return NodeDigests.sample(now = System.currentTimeMillis() / 1000, failedReceipt = DemoMode.digestFailed)
+        // The demo node has three sample bots ([BotsDemo]): the card says which bot did what.
+        if (DemoMode.on) {
+            val now = System.currentTimeMillis() / 1000
+            return if (DemoMode.digestFailed) NodeDigests.sample(now, failedReceipt = true) else NodeDigests.sampleWithBots(now)
+        }
         val provider = providers.observeProviders().first().firstOrNull { it.id == providerId } ?: return null
         return agents.digest(provider, since, recipes.all().map(NodeDigests::recipe))
     }

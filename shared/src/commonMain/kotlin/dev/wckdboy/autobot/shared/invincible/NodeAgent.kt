@@ -64,11 +64,15 @@ data class PendingApproval(
     val agent: String? = null,
     val askedAt: Long,
     val expiresAt: Long? = null,
+    /** The bot whose conversation it is (bots mode); null on a node without bots: the default one. */
+    val bot: String? = null,
 )
 
-data class AgentInfo(val name: String, val model: String, val workdir: String, val approvals: String, val private: Boolean)
+/** [bots]: the names of the node's bots (bots mode); empty on an older node. */
+data class AgentInfo(val name: String, val model: String, val workdir: String, val approvals: String, val private: Boolean, val bots: List<String> = emptyList())
 
-data class AgentSession(val id: String, val modified: Long)
+/** A conversation on the node; [bot] is the bot it belongs to (null on a node without bots: the default one). */
+data class AgentSession(val id: String, val modified: Long, val bot: String? = null)
 
 /**
  * A task the agent runs on a schedule (spec/agent.md): [schedule] is a cron expression, `@daily`,
@@ -105,9 +109,15 @@ class NodeAgentException(val status: Int, val type: String?, message: String) : 
  */
 class NodeAgent(private val transport: HttpTransport, private val tag: String = "node agent") {
 
-    /** Runs a turn in [session]; events as they come. Cancelling stops listening, not the turn. */
-    fun turn(session: String, text: String): Flow<AgentEvent> = callbackFlow {
-        val body = buildJsonObject { put("text", text) }.toString()
+    /**
+     * Runs a turn in [session]; events as they come. Cancelling stops listening, not the turn.
+     * [bot] picks the bot a new session belongs to (bots mode); null for the default one.
+     */
+    fun turn(session: String, text: String, bot: String? = null): Flow<AgentEvent> = callbackFlow {
+        val body = buildJsonObject {
+            put("text", text)
+            if (bot != null) put("bot", bot)
+        }.toString()
         var finished = false
         val request = spec("POST", "/sessions/$session/turns", body, accept = "text/event-stream")
         val running = transport.send(request, object : HttpSink {
@@ -153,6 +163,7 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
                 agent = o.text("agent"),
                 askedAt = (o["asked_at"] as? JsonPrimitive)?.longOrNull ?: 0,
                 expiresAt = (o["expires_at"] as? JsonPrimitive)?.longOrNull,
+                bot = o.text("bot"),
             )
         }
     } catch (e: NodeAgentException) {
@@ -183,14 +194,49 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
 
     suspend fun info(): AgentInfo {
         val o = json.parseToJsonElement(request("GET", "")).jsonObject
-        return AgentInfo(o.text("name") ?: "Autobot", o.text("model") ?: "auto", o.text("workdir") ?: "", o.text("approvals") ?: "ask", o["private"]?.jsonPrimitive?.booleanOrNull ?: true)
+        return AgentInfo(
+            o.text("name") ?: "Autobot",
+            o.text("model") ?: "auto",
+            o.text("workdir") ?: "",
+            o.text("approvals") ?: "ask",
+            o["private"]?.jsonPrimitive?.booleanOrNull ?: true,
+            bots = (o["bots"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull },
+        )
     }
 
-    suspend fun sessions(): List<AgentSession> =
-        json.parseToJsonElement(request("GET", "/sessions")).jsonObject["sessions"]?.jsonArray.orEmpty().mapNotNull {
+    /** The conversations on the node, or only [bot]'s (bots mode). */
+    suspend fun sessions(bot: String? = null): List<AgentSession> =
+        json.parseToJsonElement(request("GET", "/sessions" + (bot?.let { "?bot=${encoded(it)}" } ?: ""))).jsonObject["sessions"]?.jsonArray.orEmpty().mapNotNull {
             val o = it as? JsonObject ?: return@mapNotNull null
-            AgentSession(o.text("id") ?: return@mapNotNull null, o["modified"]?.jsonPrimitive?.longOrNull ?: 0)
+            AgentSession(o.text("id") ?: return@mapNotNull null, (o["modified"] as? JsonPrimitive)?.longOrNull ?: 0, o.text("bot"))
         }
+
+    /**
+     * The node's bots (bots mode), as it lists them; null from a node too old to have bots (it
+     * answers 404): one agent, the screens as before.
+     */
+    suspend fun bots(): List<NodeBot>? = try {
+        NodeBots.parse(request("GET", "/bots"))
+    } catch (e: NodeAgentException) {
+        if (e.status == 404) null else throw e
+    }
+
+    /** Switches bot [name] on or off on the node. */
+    suspend fun setBotEnabled(name: String, enabled: Boolean) {
+        request("POST", "/bots/${encoded(name)}/${if (enabled) "enable" else "disable"}", "")
+    }
+
+    /** [value] as a path segment or query value: letters, digits and `-_.~` as they are, the rest %-encoded. */
+    private fun encoded(value: String): String = buildString {
+        value.encodeToByteArray().forEach { b ->
+            val c = b.toInt().toChar()
+            if (b >= 0 && (c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c in "-_.~")) {
+                append(c)
+            } else {
+                append('%').append(HEX[(b.toInt() shr 4) and 0xF]).append(HEX[b.toInt() and 0xF])
+            }
+        }
+    }
 
     suspend fun history(session: String): List<AgentLine> =
         json.parseToJsonElement(request("GET", "/sessions/$session")).jsonObject["messages"]?.jsonArray.orEmpty().mapNotNull { m ->
@@ -367,6 +413,7 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         private const val BASE = "http://invincible/v1/agent"
         private const val AUDIT = "http://invincible/v1/audit"
         private const val MAX_BYTES = 8L * 1024 * 1024
+        private const val HEX = "0123456789ABCDEF"
         private val json = Json { ignoreUnknownKeys = true }
 
         private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull

@@ -59,11 +59,12 @@ import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.shared.invincible.AgentAction
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
+import dev.wckdboy.autobot.shared.invincible.NodeBots
 
 /** The Autobot Agent on a paired node: tasks run on that machine; questions come here. */
 @Composable
-fun NodeAgentRoute(providerId: String, onBack: () -> Unit, open: String? = null, session: String? = null) {
-    val viewModel = hiltViewModel<NodeAgentViewModel, NodeAgentViewModel.Factory>(key = "$providerId/${session.orEmpty()}") { it.create(providerId, session) }
+fun NodeAgentRoute(providerId: String, onBack: () -> Unit, open: String? = null, session: String? = null, bot: String? = null) {
+    val viewModel = hiltViewModel<NodeAgentViewModel, NodeAgentViewModel.Factory>(key = "$providerId/${session.orEmpty()}/${bot.orEmpty()}") { it.create(providerId, session, bot) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showSchedules by rememberSaveable { mutableStateOf(false) }
     // Opened from the Run screen's "While you were away": straight to the activity (or its board).
@@ -150,6 +151,8 @@ fun NodeAgentScreen(
                         state.info == null -> InkLoader()
                         else -> SectionLabel(
                             listOfNotNull(
+                                // Several bots: which one this conversation is with.
+                                "bot ${NodeBots.of(state.bot)}".takeIf { state.severalBots },
                                 "runs on ${state.node}",
                                 "approvals: ${state.info.approvals}",
                                 "local models only".takeIf { state.info.private },
@@ -218,6 +221,8 @@ internal fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAns
         is AgentAction.Other -> "Approve?" to row.text
     }.let { (title, detail) -> (row.agent?.let { "$it: $title" } ?: title) to detail }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small).padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
+        // Several bots: which one asks.
+        if (row.bot != null) SectionLabel("bot ${row.bot}", Modifier.padding(bottom = 4.dp))
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(detail, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 8.dp))
         if (row.instead != null) {

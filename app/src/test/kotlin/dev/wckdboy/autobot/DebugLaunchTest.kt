@@ -65,7 +65,7 @@ class DebugLaunchTest {
         assertEquals(listOf(Run, Studio("AUDIO")), DebugLaunch.destinations("studio-audio"))
         val ios = listOf(
             "imagine", "gallery", "viewer", "backends", "models", "compute", "accounts", "remote", "settings", "sessions",
-            "privacy", "providers", "about", "mcp", "licenses", "memory", "vault", "usage", "recipes", "studio", "chat", "agent", "phone-first",
+            "privacy", "providers", "about", "mcp", "licenses", "memory", "vault", "usage", "recipes", "studio", "chat", "agent", "phone-first", "bot",
         )
         for (screen in ios) {
             val keys = DebugLaunch.destinations(screen)

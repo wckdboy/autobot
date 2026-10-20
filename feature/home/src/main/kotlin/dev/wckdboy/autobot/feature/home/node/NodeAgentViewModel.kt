@@ -16,6 +16,7 @@ import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
+import dev.wckdboy.autobot.shared.invincible.NodeBots
 import dev.wckdboy.autobot.shared.invincible.PendingApproval
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +46,8 @@ sealed interface AgentRow {
         val answer: ApprovalAnswer? = null,
         val agent: String? = null,
         val instead: String? = null,
+        /** The bot whose conversation it waits in, shown when the node has several. */
+        val bot: String? = null,
     ) : AgentRow {
         val answered: Boolean get() = answer != null || instead != null
     }
@@ -67,7 +70,12 @@ data class NodeAgentUiState(
     /** What the node and the agent did and know; null until loaded. */
     val activity: NodeActivity? = null,
     val activityProblem: String? = null,
-)
+    /** The bot this conversation is with (bots mode); null for the default one. */
+    val bot: String? = null,
+) {
+    /** The node has more than one bot: the screen says which one this is. */
+    val severalBots: Boolean get() = (info?.bots?.size ?: 0) > 1
+}
 
 /** Folds a turn's events into the transcript; pure, so the screen's logic is testable on its own. */
 object AgentTranscript {
@@ -93,9 +101,11 @@ object AgentTranscript {
      * The approvals waiting on the node (any conversation) as question cards, after [rows]; those
      * already on screen are left as they are.
      */
-    fun waiting(rows: List<AgentRow>, approvals: List<PendingApproval>, key: (PendingApproval) -> String): List<AgentRow> {
+    fun waiting(rows: List<AgentRow>, approvals: List<PendingApproval>, severalBots: Boolean = false, key: (PendingApproval) -> String): List<AgentRow> {
         val shown = rows.filterIsInstance<AgentRow.Question>().map { it.id }.toSet()
-        return rows + approvals.filter { it.id !in shown }.map { AgentRow.Question(key(it), it.id, it.text, it.action, agent = it.agent) }
+        return rows + approvals.filter { it.id !in shown }.map {
+            AgentRow.Question(key(it), it.id, it.text, it.action, agent = it.agent, bot = if (severalBots) NodeBots.of(it.bot) else null)
+        }
     }
 
     /** "qwen3.5-4b · node" for the last receipt. */
@@ -107,15 +117,17 @@ class NodeAgentViewModel @AssistedInject constructor(
     @Assisted("provider") private val providerId: String,
     /** A conversation to open instead of this device's own (the one approvals wait in); null for this device's. */
     @Assisted("session") private val openSession: String?,
+    /** The bot of [openSession], or with no session, the bot to start a new conversation with. */
+    @Assisted("bot") private val bot: String?,
     private val providers: ProviderRepository,
     private val agents: NodeAgents,
 ) : ViewModel() {
     @AssistedFactory
     interface Factory {
-        fun create(@Assisted("provider") providerId: String, @Assisted("session") openSession: String?): NodeAgentViewModel
+        fun create(@Assisted("provider") providerId: String, @Assisted("session") openSession: String?, @Assisted("bot") bot: String?): NodeAgentViewModel
     }
 
-    private val _state = MutableStateFlow(NodeAgentUiState())
+    private val _state = MutableStateFlow(NodeAgentUiState(bot = bot))
     val state: StateFlow<NodeAgentUiState> = _state
 
     private var agent: NodeAgent? = null
@@ -141,10 +153,12 @@ class NodeAgentViewModel @AssistedInject constructor(
                 return@launch
             }
             this@NodeAgentViewModel.agent = agent
-            session = openSession ?: NodeAgent.sessionFor(device)
+            // A new chat with a bot: a conversation of its own (kept across reconnects).
+            val fresh = openSession == null && bot != null
+            if (session == "app") session = openSession ?: bot?.let { NodeBots.newSession(device, it, System.currentTimeMillis() / 1000) } ?: NodeAgent.sessionFor(device)
             runCatching {
                 val info = agent.info()
-                val history = agent.history(session).map { line ->
+                val history = if (fresh && _state.value.rows.isEmpty()) emptyList() else agent.history(session).map { line ->
                     when (line.role) {
                         "user" -> AgentRow.User(nextKey(), line.text)
                         "tool" -> AgentRow.Note(nextKey(), line.text, AgentRow.Tone.TOOL)
@@ -153,7 +167,7 @@ class NodeAgentViewModel @AssistedInject constructor(
                 }
                 // Approvals waiting anywhere on the node (an older node cannot list them: none shown).
                 val waiting = runCatching { agent.approvals() }.getOrNull().orEmpty()
-                _state.update { it.copy(info = info, rows = AgentTranscript.waiting(history, waiting) { nextKey() }) }
+                _state.update { it.copy(info = info, rows = AgentTranscript.waiting(history, waiting, severalBots = info.bots.size > 1) { nextKey() }) }
             }.onFailure { e -> _state.update { it.copy(problem = e.message ?: "The node did not answer.") } }
         }
     }
@@ -166,7 +180,7 @@ class NodeAgentViewModel @AssistedInject constructor(
         turn = viewModelScope.launch {
             var route: String? = null
             try {
-                agent.turn(session, trimmed).collect { event ->
+                agent.turn(session, trimmed, bot).collect { event ->
                     if (event is AgentEvent.Receipt) route = AgentTranscript.route(event)
                     _state.update { it.copy(rows = AgentTranscript.apply(it.rows, event, route, nextKey())) }
                 }
