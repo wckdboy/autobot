@@ -73,6 +73,6 @@ class EntryRoutingTest {
     fun aPairingLinkOpensProvidersInSettings() {
         val plan = EntryRouting.plan(EntryRequest.PairNode("invincible://pair?v=0"), canChat = false)
         assertEquals(EntryPlan.PairNode("invincible://pair?v=0"), plan)
-        assertEquals(listOf(Settings, Providers), EntryRouting.backStack(plan, null))
+        assertEquals(listOf(Settings, Providers()), EntryRouting.backStack(plan, null))
     }
 }

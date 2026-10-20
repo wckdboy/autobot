@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -83,10 +87,11 @@ fun RemoteRoute(
     onOpenAccounts: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenNodeAgent: (providerId: String) -> Unit = {},
+    onPairNode: () -> Unit = onOpenProviders,
     viewModel: RemoteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy, onOpenNodeAgent)
+    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy, onOpenNodeAgent, onPairNode)
 }
 
 @Composable
@@ -97,8 +102,10 @@ fun RemoteScreen(
     onOpenAccounts: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenNodeAgent: (providerId: String) -> Unit = {},
+    onPairNode: () -> Unit = onOpenProviders,
 ) {
-    val nodes = state.providers.filter { it.kind == ProviderKind.INVINCIBLE_NODE }
+    val nodes
+ = state.providers.filter { it.kind == ProviderKind.INVINCIBLE_NODE }
     Scaffold(
         topBar = {
             AutobotTopBar(
@@ -126,16 +133,24 @@ fun RemoteScreen(
                 }
                 item { Spacer(Modifier.height(18.dp)) }
             }
-            item { SectionLabel("models · api & lan") }
+            if (nodes.isEmpty()) {
+                // Bringing a PC is a first-run path (the welcome screen's "Pair a PC"): one row away here too.
+                item {
+                    SectionLabel("agents · my node")
+                    RunRow("Pair a PC", "your Invincible node · end to end encrypted", leading = { NodeMark() }, onClick = onPairNode) { Chevron() }
+                    Spacer(Modifier.height(18.dp))
+                }
+            }
+            item { SectionLabel("providers") }
             items(state.providers, key = { "p-${it.id}" }) { p ->
                 RunRow(p.displayName, "${p.defaultModel} · ${p.baseUrl.substringAfter("://").substringBefore('/')}", onClick = onOpenProviders) {
                     RouteTag(if (Loopback.isLoopbackUrl(p.baseUrl) || p.kind == ProviderKind.OLLAMA || p.kind == ProviderKind.INVINCIBLE_NODE) Route.PC_LAN else Route.CLOUD_API)
                 }
             }
             item {
-                RunRow(if (state.providers.isEmpty()) "Add a provider" else "Edit providers", "", onClick = onOpenProviders) { Tag(if (state.providers.isEmpty()) "Add" else "Open") }
+                RunRow(if (state.providers.isEmpty()) "Add an API key or server" else "Add or edit", "", onClick = onOpenProviders) { Chevron() }
                 Spacer(Modifier.height(18.dp))
-                SectionLabel("image backends · pc & lan")
+                SectionLabel("image backends")
             }
             items(state.backends, key = { "b-${it.id}" }) { b ->
                 RunRow(b.name, "${b.kind.label} · ${b.baseUrl.substringAfter("://")}", onClick = onOpenBackends) {
@@ -143,12 +158,18 @@ fun RemoteScreen(
                 }
             }
             item {
-                RunRow(if (state.backends.isEmpty()) "Add a PC" else "Edit backends", "", onClick = onOpenBackends) { Tag(if (state.backends.isEmpty()) "Add" else "Open") }
+                RunRow(if (state.backends.isEmpty()) "Add an image server" else "Add or edit", "", onClick = onOpenBackends) { Chevron() }
                 Spacer(Modifier.height(18.dp))
-                SectionLabel("accounts · model hubs")
-                RunRow("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts) { Tag("Open") }
-                RunRow("Civitai", (state.accounts.civitaiUser?.let { "key · $it" } ?: "no API key") + " · ${state.accounts.civitaiHost.host}", onClick = onOpenAccounts) { Tag("Open") }
+                SectionLabel("accounts")
+                RunRow("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts) { Chevron() }
+                RunRow("Civitai", (state.accounts.civitaiUser?.let { "key · $it" } ?: "no API key") + " · ${state.accounts.civitaiHost.host}", onClick = onOpenAccounts) { Chevron() }
             }
         }
     }
+}
+
+/** A row that opens a screen: the chevron, as in Settings (and on iOS). */
+@Composable
+private fun Chevron() {
+    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
 }

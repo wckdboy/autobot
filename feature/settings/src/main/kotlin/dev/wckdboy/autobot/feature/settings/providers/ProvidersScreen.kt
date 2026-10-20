@@ -3,6 +3,10 @@ package dev.wckdboy.autobot.feature.settings.providers
 import dev.wckdboy.autobot.core.designsystem.component.EmptyState
 import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import dev.wckdboy.autobot.core.designsystem.component.Notice
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.network.Loopback
+import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,8 +92,19 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 
 @Composable
-fun ProvidersRoute(onBack: () -> Unit, viewModel: ProvidersViewModel = hiltViewModel()) {
+fun ProvidersRoute(onBack: () -> Unit, start: ProvidersStart? = null, viewModel: ProvidersViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    // The welcome screen's "Pair a PC" / "Add an API key": the sheet they lead to opens at once (once).
+    var started by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(start) {
+        if (start != null && !started) {
+            started = true
+            when (start) {
+                ProvidersStart.PAIR -> viewModel.openPairing("")
+                ProvidersStart.ADD -> viewModel.startAdd()
+            }
+        }
+    }
     ProvidersScreen(
         state = state,
         actions = object : ProvidersActions {
@@ -108,9 +123,13 @@ fun ProvidersRoute(onBack: () -> Unit, viewModel: ProvidersViewModel = hiltViewM
             override fun changePairing(transform: (PairingDraft) -> PairingDraft) = viewModel.updatePairing(transform)
             override fun pair() = viewModel.pair()
             override fun dismissPairing() = viewModel.dismissPairing()
+            override fun allowNetwork() = viewModel.allowNetwork()
         },
     )
 }
+
+/** What the Providers screen opens with: the pairing sheet, or the "add provider" picker. */
+enum class ProvidersStart { PAIR, ADD }
 
 interface ProvidersActions {
     fun back()
@@ -128,6 +147,7 @@ interface ProvidersActions {
     fun changePairing(transform: (PairingDraft) -> PairingDraft) {}
     fun pair() {}
     fun dismissPairing() {}
+    fun allowNetwork() {}
 }
 
 private val ProviderRouting.label: String
@@ -195,7 +215,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
 
     state.pickerQuery?.let { query -> PresetPickerSheet(query, actions) }
     state.editor?.let { draft -> ProviderEditorSheet(draft, state, actions) }
-    state.pairing?.let { pairing -> PairingSheet(pairing, actions) }
+    state.pairing?.let { pairing -> PairingSheet(pairing, state.offline, actions) }
     deleting?.let { row ->
         AlertDialog(
             onDismissRequest = { deleting = null },
@@ -212,7 +232,40 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
     }
 }
 
+@Composable
+private fun ApiKeyField(draft: ProviderDraft, preset: ProviderPreset, actions: ProvidersActions) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        ConsoleTextField(
+            draft.apiKeyInput, { v -> actions.change { it.copy(apiKeyInput = v, clearStoredKey = false) } }, Modifier.fillMaxWidth(),
+            label = if (preset.requiresApiKey) "API key" else "API key (optional)",
+            placeholder = if (draft.hasStoredKey && !draft.clearStoredKey) "•••••••• saved — type to replace" else null,
+            singleLine = true,
+            keyboardOptions = SecretKeyboardOptions,
+            visualTransformation = PasswordVisualTransformation(),
+        )
+        // A new provider's empty key is a step still to do, not an error yet.
+        if (draft.missingKey) MicroLabel("This provider needs an API key", color = if (draft.isNew) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        draft.keyProblem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        MicroLabel("encrypted with Android Keystore · sent only to ${preset.host.ifBlank { "this host" }}")
+        if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
+            TextButton(onClick = { actions.change { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
+                ActionText(if (draft.clearStoredKey) "Keep saved key" else "Remove saved key")
+            }
+        }
+    }
+}
+
+/** Offline mode would make the sheet's work fail: say so, with the one tap that allows the network. */
+
+@Composable
+private fun OfflineLine(actions: ProvidersActions) {
+    Notice(OFFLINE_LINE, tone = NoticeTone.WARNING, action = "Allow network", onAction = actions::allowNetwork)
+}
+
+internal const val OFFLINE_LINE = "Offline mode is on, so this can't reach the network."
+
 /** Its API key goes with it; chats on it move to the next provider (`ChatRoutes`). */
+
 private fun deleteMessage(row: ProviderRow, providers: List<ProviderRow>): String {
     val next = providers.firstOrNull { it.id != row.id }
     val used = if (row.chats == 1) "1 chat uses it" else "${row.chats} chats use it"
@@ -295,11 +348,18 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SectionLabel(if (draft.isNew) "add provider" else "edit provider")
+                if (state.offline && !Loopback.isLoopbackUrl(draft.baseUrl)) OfflineLine(actions)
+
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(preset.displayName, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     Tag(preset.group.label)
                 }
                 preset.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+
+                // Adding a cloud preset, the key is the one thing to fill in (name and address come
+                // filled): it comes first.
+                val keyFirst = draft.isNew && preset.requiresApiKey && !draft.isNode
+                if (keyFirst) ApiKeyField(draft, preset, actions)
 
                 ConsoleTextField(draft.displayName, { v -> actions.change { it.copy(displayName = v) } }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
                 if (draft.isNode) {
@@ -320,24 +380,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                     }
                 }
 
-                if (!draft.isNode) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ConsoleTextField(
-                        draft.apiKeyInput, { v -> actions.change { it.copy(apiKeyInput = v, clearStoredKey = false) } }, Modifier.fillMaxWidth(),
-                        label = if (preset.requiresApiKey) "API key" else "API key (optional)",
-                        placeholder = if (draft.hasStoredKey && !draft.clearStoredKey) "•••••••• saved — type to replace" else null,
-                        singleLine = true,
-                        keyboardOptions = SecretKeyboardOptions,
-                        visualTransformation = PasswordVisualTransformation(),
-                    )
-                    if (draft.missingKey) MicroLabel("This provider needs an API key", color = MaterialTheme.colorScheme.error)
-                    draft.keyProblem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                    MicroLabel("encrypted with Android Keystore · sent only to ${preset.host.ifBlank { "this host" }}")
-                    if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
-                        TextButton(onClick = { actions.change { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
-                            ActionText(if (draft.clearStoredKey) "Keep saved key" else "Remove saved key")
-                        }
-                    }
-                }
+                if (!draft.isNode && !keyFirst) ApiKeyField(draft, preset, actions)
 
                 ModelPicker(draft, models, state.now, preset.modelsApi != ModelsApi.NONE, actions)
                 HelperModelField(draft, models, actions)
@@ -398,7 +441,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PairingSheet(draft: PairingDraft, actions: ProvidersActions) {
+private fun PairingSheet(draft: PairingDraft, offline: Boolean, actions: ProvidersActions) {
     ModalBottomSheet(onDismissRequest = actions::dismissPairing, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         NoPersonalizedLearning {
             Column(
@@ -412,6 +455,7 @@ private fun PairingSheet(draft: PairingDraft, actions: ProvidersActions) {
             ) {
                 SectionLabel("pair with my node")
                 Text("My node (Invincible)", style = MaterialTheme.typography.titleLarge)
+                if (offline) OfflineLine(actions)
                 Text(
                     "On the node, run `invincible pair`. Point the camera app at the QR code it shows, or paste the code below.",
                     style = MaterialTheme.typography.bodySmall,
@@ -435,12 +479,13 @@ private fun PairingSheet(draft: PairingDraft, actions: ProvidersActions) {
                     label = "This phone's name on the node", singleLine = true,
                 )
                 Text(
-                    "Pairing is end-to-end encrypted (Noise) and needs no account. The kill switch and routing apply: it fails in offline mode.",
+                    "Pairing is end-to-end encrypted (Noise) and needs no account. The kill switch and routing apply.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (!draft.running) draft.problem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                // An empty code needs no second telling: the line above says where it comes from.
+                if (!draft.running && draft.code.isNotBlank()) draft.problem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
                 PrimaryButton("Pair", actions::pair, Modifier.fillMaxWidth(), enabled = draft.problem == null && !draft.running, busy = draft.running)
                 TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { ActionText("Cancel") }
             }
