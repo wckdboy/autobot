@@ -172,13 +172,6 @@ struct ChatScreen: View {
         let planShown = transcript.projection.todos.contains(where: { $0.status != .completed })
 
         VStack(spacing: 0) {
-            AutobotTopBar(title: settings.toolsEnabled ? "Agent run" : "Chat", onBack: { nav.back() }) {
-                Tag("voice", accent: model.voice != nil ? c.primary : nil, filled: model.voice != nil) {
-                    model.setVoiceMode(model.voice == nil, app: app, conversationId: conversationId)
-                }
-                Button { showModels = true } label: { RouteTag(route: routing.route) }.buttonStyle(PressStyle())
-                IconAction(symbol: "ellipsis", label: "Session settings") { showSession = true }
-            }
             // One banner at a time: a notice answers what was just done, else the most pressing one.
             if let notice = model.notice {
                 Banner(text: notice, action: "OK") { model.notice = nil }
@@ -231,6 +224,7 @@ struct ChatScreen: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
+                    .readableWidth()
                 }
                 .defaultScrollAnchor(.bottom)
                 // The plan panel and a question card take room from the transcript as they come and
@@ -239,9 +233,6 @@ struct ChatScreen: View {
                 .scrollDismissesKeyboard(.interactively)
                 // The bottom stack rides on the keyboard; the transcript's end stays right above it.
                 .safeAreaInset(edge: .bottom, spacing: 0) { bottomStack(session: session, transcript: transcript, settings: settings, running: running, planShown: planShown) }
-                // One ground per screen: with the voice panel up, its own paper is the ground (two fields
-                // with their own grids would meet at the panel's edge).
-                .inkGround(app.dataLoaded && transcript.items.isEmpty && !isLive && model.voice == nil, fade: UnitPoint(x: 0.3, y: 0.15))
                 .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isLive) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: planShown) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
@@ -255,7 +246,25 @@ struct ChatScreen: View {
                 .onChange(of: session?.question?.callId) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
-        .background(c.background)
+        .background(Color(.systemBackground))
+        .navigationTitle(settings.toolsEnabled ? "Agent run" : "Chat")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                TitleWithDot(settings.toolsEnabled ? "Agent run" : "Chat")
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    model.setVoiceMode(model.voice == nil, app: app, conversationId: conversationId)
+                } label: {
+                    Label("Voice", systemImage: model.voice != nil ? "waveform.circle.fill" : "waveform")
+                }
+                .accessibilityValue(model.voice != nil ? "On" : "Off")
+                Button { showModels = true } label: { RouteBadge(route: routing.route) }
+                    .accessibilityLabel("Model and route: \(routing.route.label)")
+                Button { showSession = true } label: { Label("Session settings", systemImage: "ellipsis") }
+            }
+        }
         .imageViewer(Binding(get: { model.viewer }, set: { model.viewer = $0 })) { id, intent in nav.push(.imagine(handoffId: id, intent: intent)) }
         .sheet(isPresented: $showModels) {
             ModelSheet(conversationId: conversationId, routing: routing) { showModels = false }
@@ -340,7 +349,10 @@ struct ChatScreen: View {
                 InputBar(model: model, running: running, onSend: send, onStop: { app.agent.cancel(conversationId) }).equatable()
             }
         }
-        .background(c.background)
+        // One glass panel floats over the transcript's end: the plan, a question, the chips and the composer.
+        .glassSurface(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
     }
 
     private static let emptyTranscript = SessionTranscript(SessionProjection())
@@ -508,12 +520,11 @@ private struct LiveSlot: View {
 private struct RunHeader: View {
     let prompt: String
     let label: String
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(label)
-            Text(prompt).textStyle(.headlineLarge).foregroundStyle(c.onBackground).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(prompt).font(.title2.weight(.semibold)).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.bottom, 8)
     }
@@ -521,12 +532,11 @@ private struct RunHeader: View {
 
 private struct FollowUp: View {
     let text: String
-    @Environment(\.scheme) private var c
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("›").textStyle(.code).foregroundStyle(c.primary)
-            Text(text).textStyle(.titleMedium).foregroundStyle(c.onBackground).fixedSize(horizontal: false, vertical: true)
+            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tint).accessibilityHidden(true)
+            Text(text).font(.body.weight(.semibold)).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -544,7 +554,6 @@ private struct AssistantMessage: View {
     var onRetry: (() -> Void)? = nil
     var onSelect: (() -> Void)? = nil
     let onSpeak: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -571,11 +580,10 @@ private struct AssistantMessage: View {
             ReceiptLine(receipt: receipt, onOpen: onReceipt)
         }
         .contextMenu { MessageActions(text: text, onRetry: onRetry, onSpeak: onSpeak, onSelect: onSelect).menu() }
-
     }
 
     @ViewBuilder private var footerStatus: some View {
-        if interrupted { Tag("interrupted", accent: c.inks.amber) }
+        if interrupted { CapsuleTag("interrupted", color: .orange) }
         if let outputTokens { TokenRateLabel(totalTokens: outputTokens) }
     }
 
@@ -584,18 +592,18 @@ private struct AssistantMessage: View {
         CopyMessageButton(markdown: text)
         ShareMessageButton(markdown: text)
         if let onRetry {
-            IconAction(symbol: "arrow.clockwise", label: "Retry", tint: c.onSurfaceVariant, size: 17, action: onRetry)
-                .compactActionFrame()
+            Button(action: onRetry) { Image(systemName: "arrow.clockwise") }
+                .messageAction()
+                .accessibilityLabel("Retry")
         }
-        IconAction(.speaker, label: speaking ? "Stop reading" : "Read aloud", tint: speaking ? c.primary : c.onSurfaceVariant, size: 18, action: onSpeak)
-            .compactActionFrame()
-
+        Button(action: onSpeak) { Image(systemName: speaking ? "speaker.wave.2.fill" : "speaker.wave.2") }
+            .messageAction(active: speaking)
+            .accessibilityLabel(speaking ? "Stop reading" : "Read aloud")
     }
 }
 
 private struct LiveMessage: View {
     let live: LiveState
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let _ = InkProbe.hit("body.liveMessage")
@@ -616,9 +624,9 @@ private struct LiveMessage: View {
             }
             ForEach(Array(live.toolNames.enumerated()), id: \.offset) { _, name in
                 HStack(spacing: 10) {
-                    HalftoneStrip(color: c.primary, cell: 3)
-                    Text(stepTitle(name)).textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                    MicroLabel("composing…")
+                    ProgressView().controlSize(.small)
+                    Text(stepTitle(name)).font(.subheadline.weight(.semibold))
+                    Text("composing…").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -689,12 +697,11 @@ private struct StepRow: View {
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(stepTitle(tool.name)).textStyle(.titleMedium).strikethrough(tool.isUndone).foregroundStyle(c.onSurface)
+                        Text(stepTitle(tool.name)).font(.subheadline.weight(.semibold)).strikethrough(tool.isUndone).foregroundStyle(.primary)
                         HStack(spacing: 8) {
                             Text(StepGrammar.detail(name: tool.name, summary: tool.summary))
-
-                                .textStyle(.micro)
-                                .foregroundStyle(c.onSurfaceVariant)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
                             if let change = tool.change { ChangeCounts(change: change) }
                         }
@@ -703,8 +710,8 @@ private struct StepRow: View {
                            let reason = tool.output?.split(whereSeparator: \.isNewline).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
                            !["denied", "error: denied"].contains(reason.lowercased()) {
                             Text(reason.hasPrefix("Error: ") ? String(reason.dropFirst(7)) : String(reason))
-                                .textStyle(.bodySmall)
-                                .foregroundStyle(tool.state == .error ? c.error : c.onSurfaceVariant)
+                                .font(.footnote)
+                                .foregroundStyle(tool.state == .error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
                         }
@@ -713,20 +720,20 @@ private struct StepRow: View {
                     // The mark keeps its identity so it can stamp in when the step settles.
                     ZStack(alignment: .topTrailing) {
                         Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
-                            .textStyle(.readout)
+                            .font(.caption.monospacedDigit())
                             .foregroundStyle(markColor)
                             .stamp(StampKey(state: tool.state, undone: tool.isUndone), when: { Self.settled($0.state) })
-                        if mark.isEmpty { InkLoader().padding(.top, 4) }
+                        if mark.isEmpty { ProgressView().controlSize(.small).padding(.top, 2) }
                     }
                 }
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(PressStyle())
+            .buttonStyle(.plain)
             if expanded, let steps = tool.steps, !steps.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                        Text(step).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
+                        Text(step).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -737,19 +744,21 @@ private struct StepRow: View {
                 VStack(alignment: .leading, spacing: 6) {
                     DiffBlock(change: change)
                     if tool.isUndone, let redo = tool.revertId {
-                        Tag("↷ redo", accent: c.primary) { if !running { onRedo(redo) } }
+                        Button { if !running { onRedo(redo) } } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                     } else if !tool.isUndone && change.undoable {
-                        Tag("↶ undo step", accent: c.primary) { if !running { onUndo(tool.callId) } }
+                        Button { if !running { onUndo(tool.callId) } } label: { Label("Undo step", systemImage: "arrow.uturn.backward") }
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                     }
                 }
                 .padding(.bottom, 6)
             } else if expanded, let output = tool.output {
                 Text(String(output.prefix(4000)))
-                    .textStyle(.codeBlock)
-                    .foregroundStyle(c.onSurfaceVariant)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(c.surfaceContainerLow)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .textSelection(.enabled)
             }
             if tool.name == "generate_image" && (tool.state == .running || !tool.galleryIds.isEmpty) {
@@ -779,7 +788,7 @@ private struct StepRow: View {
                 }
                 .padding(.bottom, 6)
             }
-            Hairline()
+            Divider()
         }
     }
 }
@@ -791,16 +800,18 @@ private struct StepRow: View {
 private struct UnsavedMark: View {
     let id: String
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if UnsavedImages.isUnsaved(id) && app.gallery.unsaved.get(id) != nil || app.gallery.keptIncognito[id] != nil {
             if app.gallery.keptIncognito[id] != nil {
-                MicroLabel(PanicCopy.shared.SAVED)
+                Text(PanicCopy.shared.SAVED).font(.caption).foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 6) {
-                    MicroLabel(PanicCopy.shared.NOT_SAVED)
-                    Tag(PanicCopy.shared.SAVE, accent: c.primary) { Task { try? await app.gallery.keep(id) } }
+                    Text(PanicCopy.shared.NOT_SAVED).font(.caption).foregroundStyle(.secondary)
+                    Button(PanicCopy.shared.SAVE) { Task { try? await app.gallery.keep(id) } }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.mini)
                 }
             }
         }
@@ -811,16 +822,15 @@ private struct GalleryThumb: View {
     let id: String
     let model: ChatModel
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var image: UIImage?
 
     var body: some View {
         ZStack {
-            c.surfaceContainerLow
+            Color(.secondarySystemBackground)
             if let image { Image(uiImage: image).resizable().scaledToFill() }
         }
         .frame(width: 120, height: 120)
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityLabel("Generated image")
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the image full screen")
@@ -884,33 +894,32 @@ private struct ApprovalCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                HStack(spacing: 6) {
-                    // What needs you now: the one purple mark on the card.
-                    Rectangle().fill(AutobotColors.purple).frame(width: 6, height: 6)
-                    Text(StepGrammar.approvalNeeded).textStyle(.micro).foregroundStyle(c.onSurface)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Text((privateData.isEmpty ? approval.reason ?? "" : "private data")).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
+                Label(StepGrammar.approvalNeeded, systemImage: "hand.raised.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text((privateData.isEmpty ? approval.reason ?? "" : "private data")).font(.caption).foregroundStyle(.secondary)
             }
-            Text(stepTitle(tool.name)).textStyle(.headlineMedium).foregroundStyle(c.onSurface)
-            Text(marked("\(tool.name)(\(approval.summary))")).textStyle(.codeBlock).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+            Text(stepTitle(tool.name)).font(.title3.weight(.semibold))
+            Text(marked("\(tool.name)(\(approval.summary))")).font(.callout.monospaced()).fixedSize(horizontal: false, vertical: true)
             if !privateData.isEmpty {
-                Text(marked(approval.reason ?? "")).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+                Text(marked(approval.reason ?? "")).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
-                GhostButton("Deny") { onDecide(.rejected) }
-                PaperButton("Approve") { onDecide(.allowedOnce) }
+                Button { onDecide(.rejected) } label: { Text("Deny").frame(maxWidth: .infinity) }
+                    .glassButton()
+                Button { onDecide(.allowedOnce) } label: { Text("Approve").frame(maxWidth: .infinity) }
+                    .glassProminentButton()
             }
-            Button { onDecide(.allowedForSession) } label: {
-                Text("Always allow \(tool.name) in this run").textStyle(.micro).underline(color: c.primary).foregroundStyle(c.onSurface)
-                    .padding(.vertical, 4).frame(minHeight: 44)
-            }
-            .buttonStyle(PressStyle())
+            .controlSize(.large)
+            Button("Always allow \(tool.name) in this run") { onDecide(.allowedForSession) }
+                .font(.footnote)
+                .frame(minHeight: 44)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.medium).fill(c.surfaceContainer))
-        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.medium).strokeBorder(c.primary, lineWidth: Tokens.Stroke.border))
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.tint, lineWidth: 1.5))
     }
 
     private var privateData: [String] { (approval.privateData ?? []).filter { !$0.isEmpty } }
@@ -937,44 +946,38 @@ private struct NoticeRow: View {
     /// The failed turn's prompt can be sent again.
     var onRetry: (() -> Void)? = nil
     @State private var expanded = false
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        let color: Color = switch kind {
-        case .info: c.outline
-        case .warn: c.inks.amber
-        case .error: c.error
-        }
         if kind == .error {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("✗ " + text)
-                    .textStyle(.bodySmall)
-                    .foregroundStyle(color)
-                    .lineLimit(expanded ? nil : 3)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onTapGesture { expanded.toggle() }
-                if let onRetry { TextAction("Retry", color: c.onSurface, action: onRetry) }
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text(text)
+                        .lineLimit(expanded ? nil : 3)
+                        .textSelection(.enabled)
+                } icon: {
+                    Image(systemName: "xmark.octagon.fill")
+                }
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { expanded.toggle() }
+                if let onRetry {
+                    Button("Retry", action: onRetry).glassButton().controlSize(.small)
+                }
             }
-
         } else {
-            Text(text.sentenceCased).textStyle(.micro).foregroundStyle(color).lineLimit(3)
+            Text(text.sentenceCased).font(.caption).foregroundStyle(kind == .warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary)).lineLimit(3)
         }
     }
 }
 
 private struct EmptySession: View {
     let toolsEnabled: Bool
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(toolsEnabled ? "agent" : "chat")
-            Text(toolsEnabled ? "What should\nit do?" : "Ask\nanything.").textStyle(.displaySmall).foregroundStyle(c.onSurface)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 48)
+        MarkUnavailable(toolsEnabled ? "What should it do?" : "Ask anything.", description: toolsEnabled ? "Agent" : "Chat")
+            .padding(.vertical, 48)
     }
 }
 
@@ -997,7 +1000,7 @@ private struct PolicyLine: View {
 
     @ViewBuilder private var context: some View {
         if settings.toolsEnabled, let used = contextUsed, let window = contextWindow, window > 0 {
-            MicroLabel("\(compactCount(used))/\(compactCount(window))").fixedSize()
+            Text("\(compactCount(used))/\(compactCount(window))").font(.caption.monospacedDigit()).foregroundStyle(.secondary).fixedSize()
         }
     }
 
@@ -1007,16 +1010,16 @@ private struct PolicyLine: View {
         let cascade = settings.cascade != "NONE"
         if settings.toolsEnabled || think || redact || cascade {
             let text = switch settings.permissionPreset {
-            case .readOnly: "policy · read-only · asks: network"
-            case .workspace: "policy · workspace · asks: delete, network"
-            case .fullAccess: "policy · full access"
+            case .readOnly: "Policy · read-only · asks: network"
+            case .workspace: "Policy · workspace · asks: delete, network"
+            case .fullAccess: "Policy · full access"
             }
             // One row when it fits; on a narrow phone the policy moves under the chips rather than
-            // squeezing them (`THINK · AU…`) or cutting itself short.
+            // squeezing them or cutting itself short.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
                     chips
-                    if settings.toolsEnabled { MicroLabel(text).fixedSize() }
+                    if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).fixedSize() }
                     Spacer(minLength: 0)
                     context
                 }
@@ -1026,11 +1029,12 @@ private struct PolicyLine: View {
                         Spacer(minLength: 0)
                         context
                     }
-                    if settings.toolsEnabled { MicroLabel(text, lines: 2) }
+                    if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
         }
     }
 }
@@ -1040,26 +1044,19 @@ private struct ThinkChip: View {
     let choice: ThinkingChoice
     let onTap: () -> Void
     let onLongPress: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let active = choice.mode != "OFF"
-        HStack(spacing: 4) {
-            Text("∴").textStyle(.code).foregroundStyle(active ? c.secondary : c.outline)
-            MicroLabel(choice.chipLabel, color: active ? c.secondary : c.onSurfaceVariant)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .overlay(Rectangle().stroke(active ? c.secondary.opacity(0.7) : c.outlineVariant, lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
-        .onLongPressGesture(perform: onLongPress)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Thinking")
-        .accessibilityValue(choice.chipLabel.replacingOccurrences(of: "think · ", with: ""))
-        .accessibilityHint("Tap to switch auto, on or off. Hold for the budget.")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: "Budget", onLongPress)
+        Label(choice.chipLabel.prefix(1).uppercased() + choice.chipLabel.dropFirst(), systemImage: "brain")
+            .chipLook(active: active)
+            .onTapGesture(perform: onTap)
+            .onLongPressGesture(perform: onLongPress)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Thinking")
+            .accessibilityValue(choice.chipLabel.replacingOccurrences(of: "think · ", with: ""))
+            .accessibilityHint("Tap to switch auto, on or off. Hold for the budget.")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: "Budget", onLongPress)
     }
 }
 
@@ -1068,14 +1065,10 @@ private struct ThinkChip: View {
 private struct RedactChip: View {
     let on: Bool
     let onTap: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        MicroLabel(on ? "▮ redact" : "redact off", color: on ? c.primary : c.onSurfaceVariant)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .overlay(Rectangle().stroke(on ? c.primary.opacity(0.7) : c.outlineVariant, lineWidth: 1))
-            .contentShape(Rectangle())
+        Label(on ? "Redact" : "Redact off", systemImage: on ? "eye.slash.fill" : "eye")
+            .chipLook(active: on)
             .onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Redaction")
@@ -1090,16 +1083,12 @@ private struct RedactChip: View {
 private struct CascadeChip: View {
     let policy: String
     let onTap: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let p = CascadePolicy.companion.parse(value: policy) ?? CascadePolicy.off
         let on = p.localFirst
-        MicroLabel(on ? "▮ " + p.chip : p.chip, color: on ? c.primary : c.onSurfaceVariant)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .overlay(Rectangle().stroke(on ? c.primary.opacity(0.7) : c.outlineVariant, lineWidth: 1))
-            .contentShape(Rectangle())
+        Label(p.chip.prefix(1).uppercased() + p.chip.dropFirst(), systemImage: "iphone")
+            .chipLook(active: on)
             .onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Phone first")
@@ -1114,19 +1103,19 @@ struct CascadeOfferRow: View {
     let offer: CascadeOffer
     let model: String
     let onAsk: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            MicroLabel("▮ phone first", color: c.primary)
-            Text(offer.text).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-            Tag(CascadeLabels.shared.ask(model: model), accent: c.primary, filled: true, action: onAsk)
+            Label("Phone first", systemImage: "iphone").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+            Text(offer.text).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button(CascadeLabels.shared.ask(model: model), action: onAsk)
+                .glassProminentButton()
+                .controlSize(.small)
                 .accessibilityHint("Sends this prompt to the cloud model, redacted when redaction is on.")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(Rectangle().stroke(c.primary.opacity(0.45), lineWidth: 1))
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -1136,7 +1125,6 @@ struct CascadeSheet: View {
     let model: String
     let onChoose: (String) -> Void
     @State private var current: String
-    @Environment(\.scheme) private var c
 
     init(policy: String, model: String, onChoose: @escaping (String) -> Void) {
         self.policy = policy
@@ -1147,19 +1135,27 @@ struct CascadeSheet: View {
 
     var body: some View {
         let chosen = CascadePolicy.companion.parse(value: current) ?? CascadePolicy.off
-        VStack(alignment: .leading, spacing: 14) {
-            SectionLabel("phone first")
-            Segmented(options: CascadePolicy.entries.map(\.name), selected: chosen.name, label: { (CascadePolicy.companion.parse(value: $0)?.title ?? $0).lowercased() }) { name in
-                current = name
-                onChoose(name)
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Phone first", selection: Binding(get: { chosen.name }, set: { name in
+                        current = name
+                        onChoose(name)
+                    })) {
+                        ForEach(CascadePolicy.entries, id: \.name) { p in Text(p.title).tag(p.name) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } footer: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(chosen.detail)
+                        Text(CascadeLabels.shared.sheetNote(model: model, node: false))
+                    }
+                }
             }
-            Text(chosen.detail).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
-            Text(CascadeLabels.shared.sheetNote(model: model, node: false)).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-                .fixedSize(horizontal: false, vertical: true)
+            .navigationTitle("Phone first")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(c.surface)
     }
 }
 
@@ -1171,7 +1167,6 @@ struct ThinkSheet: View {
     let onDefault: (ThinkingChoice?) -> Void
     @State private var current: ThinkingChoice
     @State private var saved: ThinkingChoice?
-    @Environment(\.scheme) private var c
 
     init(choice: ThinkingChoice, modelDefault: ThinkingChoice?, onChoose: @escaping (ThinkingChoice) -> Void, onDefault: @escaping (ThinkingChoice?) -> Void) {
         self.choice = choice
@@ -1182,49 +1177,47 @@ struct ThinkSheet: View {
         _saved = State(initialValue: modelDefault)
     }
 
-    private struct Mode: Hashable {
-        let id: String
-        let label: String
-    }
-
-    private static let modes = [Mode(id: "OFF", label: "off"), Mode(id: "AUTO", label: "auto"), Mode(id: "ON", label: "on")]
+    private static let modes = [("OFF", "Off"), ("AUTO", "Auto"), ("ON", "On")]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionLabel("think")
-            Segmented(options: Self.modes, selected: Self.modes.first { $0.id == current.mode } ?? Self.modes[1], label: \.label) { mode in
-                current = ThinkingChoice(mode: mode.id, budget: mode.id == "ON" ? current.budget : nil)
-                onChoose(current)
-            }
-            if current.mode == "ON" {
-                VStack(alignment: .leading, spacing: 6) {
-                    MicroLabel("budget")
-                    HStack(spacing: 6) {
-                        ForEach(ThinkingChoice.budgets, id: \.self) { budget in
-                            let label = budget.map { ThinkingChoice.tokens($0) } ?? "model"
-                            Tag(label, accent: current.budget == budget ? c.secondary : nil, filled: current.budget == budget) {
-                                current = ThinkingChoice(mode: "ON", budget: budget)
-                                onChoose(current)
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Think", selection: Binding(get: { current.mode }, set: { mode in
+                        current = ThinkingChoice(mode: mode, budget: mode == "ON" ? current.budget : nil)
+                        onChoose(current)
+                    })) {
+                        ForEach(Self.modes, id: \.0) { Text($0.1).tag($0.0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                if current.mode == "ON" {
+                    Section("Budget") {
+                        Picker("Budget", selection: Binding(get: { current.budget }, set: { budget in
+                            current = ThinkingChoice(mode: "ON", budget: budget)
+                            onChoose(current)
+                        })) {
+                            ForEach(ThinkingChoice.budgets, id: \.self) { budget in
+                                Text(budget.map { ThinkingChoice.tokens($0) } ?? "model").tag(budget)
                             }
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                }
+                Section {
+                    LabeledContent("Model default", value: saved.map { $0.chipLabel.replacingOccurrences(of: "think · ", with: "") } ?? "auto")
+                    Button(saved == current ? "Clear default" : "Set as default") {
+                        let next: ThinkingChoice? = saved == current ? nil : current
+                        saved = next
+                        onDefault(next)
                     }
                 }
             }
-            HStack {
-                MicroLabel(saved.map { "model default · " + $0.chipLabel.replacingOccurrences(of: "think · ", with: "") } ?? "model default · auto")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button(saved == current ? "Clear" : "Set") {
-                    let next: ThinkingChoice? = saved == current ? nil : current
-                    saved = next
-                    onDefault(next)
-                }
-                .textStyle(.labelLarge)
-                .foregroundStyle(c.primary)
-            }
+            .navigationTitle("Think")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(c.surface)
     }
 }
 
@@ -1246,16 +1239,17 @@ private struct Banner: View {
     let text: String
     let action: String
     let onAction: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        HStack(spacing: 0) {
-            Text(text).textStyle(.bodySmall).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-            TextAction(action, style: .labelMedium, action: onAction)
+        HStack(spacing: 12) {
+            Label(text, systemImage: "exclamationmark.circle")
+                .font(.footnote)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action, action: onAction).glassButton().controlSize(.small)
         }
-        .padding(.leading, 16)
-        .background(c.surfaceContainerHigh)
-        .hairlineEdge()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemBackground))
     }
 }
 
@@ -1264,34 +1258,32 @@ private struct Banner: View {
 private struct TodoPanel: View {
     let todos: [TodoItem]
     @State private var open = true
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let done = todos.filter { $0.status == .completed }.count
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                SectionLabel("plan · \(done)/\(todos.count)")
-                Tag(open ? "hide" : "show") { open.toggle() }
-            }
-            if open {
+        DisclosureGroup(isExpanded: $open) {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(todos.enumerated()), id: \.offset) { _, todo in
-                    let (glyph, color): (String, Color) = switch todo.status {
-                    case .completed: ("■", c.outline)
-                    case .inProgress: ("▶", c.primary)
-                    case .pending: ("□", c.onSurfaceVariant)
+                    let (symbol, style): (String, AnyShapeStyle) = switch todo.status {
+                    case .completed: ("checkmark.circle.fill", AnyShapeStyle(.secondary))
+                    case .inProgress: ("play.circle.fill", AnyShapeStyle(.tint))
+                    case .pending: ("circle", AnyShapeStyle(.secondary))
                     }
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(glyph).textStyle(.code).foregroundStyle(color)
-                        Text(todo.content).textStyle(.bodySmall).foregroundStyle(todo.status == .completed ? c.outline : c.onSurface).lineLimit(2)
+                    Label {
+                        Text(todo.content).foregroundStyle(todo.status == .completed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)).lineLimit(2)
+                    } icon: {
+                        Image(systemName: symbol).foregroundStyle(style)
                     }
-                    .padding(.top, 6)
+                    .font(.footnote)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
+        } label: {
+            Text("Plan · \(done)/\(todos.count)").font(.subheadline.weight(.semibold))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(c.surfaceContainer)
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
     }
 }
 
@@ -1300,38 +1292,44 @@ private struct QuestionCard: View {
     let onAnswer: ([String]?) -> Void
     @State private var free = ""
     @State private var picked: [String] = []
-    @Environment(\.scheme) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionLabel("agent asks")
-                Tag("skip") { onAnswer(nil) }
+                Label("Agent asks", systemImage: "questionmark.bubble").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                Spacer()
+                Button("Skip") { onAnswer(nil) }.controlSize(.small)
             }
-            Text(question.question).textStyle(.titleMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+            Text(question.question).font(.headline).fixedSize(horizontal: false, vertical: true)
             if !question.options.isEmpty {
                 ChatFlow(spacing: 6) {
                     ForEach(question.options, id: \.self) { option in
                         let active = picked.contains(option)
-                        Tag(option, accent: active ? c.primary : c.onSurfaceVariant, filled: active) {
+                        let button = Button(option) {
                             if question.multiSelect {
                                 if active { picked.removeAll { $0 == option } } else { picked.append(option) }
                             } else {
                                 onAnswer([option])
                             }
                         }
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        .accessibilityAddTraits(active ? .isSelected : [])
+                        if active { button.buttonStyle(.borderedProminent) } else { button.buttonStyle(.bordered) }
                     }
                 }
             }
             HStack(alignment: .center, spacing: 8) {
-                ConsoleTextField(text: $free, placeholder: "or type an answer")
+                TextField("or type an answer", text: $free)
+                    .textFieldStyle(.roundedBorder)
                 let answer = picked + (free.trimmingCharacters(in: .whitespaces).isEmpty ? [] : [free.trimmingCharacters(in: .whitespaces)])
-                PrimaryButton("Send", enabled: !answer.isEmpty) { onAnswer(answer) }.frame(minWidth: 96).fixedSize(horizontal: true, vertical: false)
+                Button("Send") { onAnswer(answer) }
+                    .glassProminentButton()
+                    .disabled(answer.isEmpty)
             }
         }
-        .padding(16)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(c.surfaceContainerHigh)
         .onChange(of: question.callId) { _, _ in
             free = ""
             picked = []
@@ -1348,7 +1346,6 @@ private struct InputBar: View, Equatable {
     /// The actions reach stable objects (the screen's agent and conversation): not compared.
     nonisolated static func == (a: Self, b: Self) -> Bool { a.model === b.model && a.running == b.running }
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
     @FocusState private var focused: Bool
@@ -1360,23 +1357,24 @@ private struct InputBar: View, Equatable {
     @ViewBuilder private var tools: some View {
         let attached = model.pendingImages.count
         PhotosPicker(selection: $picks, maxSelectionCount: max(1, ChatModel.maxAttachments - attached), matching: .images) {
-            AutobotIconView(icon: .image, size: 24, color: attached < ChatModel.maxAttachments ? c.onSurface : c.onSurface.opacity(0.38))
-                .frame(width: 44, height: composerButtonSize)
+            Image(systemName: "photo.on.rectangle")
+                .font(.title3)
+                .frame(width: 40, height: 40)
         }
         .disabled(attached >= ChatModel.maxAttachments)
         .accessibilityLabel("Attach image")
         Button { model.toggleDictation(app: app) } label: {
             Group {
                 switch model.dictation {
-                case .idle: AutobotIconView(icon: .mic, size: 24, color: c.onSurface)
-                case .recording: Rectangle().fill(c.primary).frame(width: 14, height: 14)
-                case .transcribing: InkLoader(.button)
+                case .idle: Image(systemName: "mic")
+                case .recording: Image(systemName: "stop.circle.fill").foregroundStyle(.tint)
+                case .transcribing: ProgressView()
                 }
             }
-            .frame(width: 44, height: composerButtonSize)
+            .font(.title3)
+            .frame(width: 40, height: 40)
             .contentShape(Rectangle())
         }
-        .buttonStyle(PressStyle())
         .disabled(model.dictation == .transcribing)
         .accessibilityLabel(model.dictation == .recording ? "Stop dictation" : "Dictate")
     }
@@ -1384,31 +1382,31 @@ private struct InputBar: View, Equatable {
     var body: some View {
         let attached = model.pendingImages.count
         let action = Composer.shared.action(text: text, attachments: Int32(attached), running: running)
-        ComposerBar(text: $text, placeholder: Composer.shared.placeholder(running: running, node: false), focused: $focused) {
+        VStack(spacing: 0) {
             if !model.pendingImages.isEmpty {
                 AttachmentStrip(ids: model.pendingImages, model: model) { model.removeAttachment($0, app: app) }
                     .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                    .padding(.top, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if text.hasPrefix("/") {
                 let typed = String(text.split(separator: " ", maxSplits: 1).first ?? "")
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(commands.filter { $0.0.hasPrefix(typed) }, id: \.0) { cmd, help in
                         Button { text = String(cmd.split(separator: " ").first ?? "") + " " } label: {
                             HStack(spacing: 10) {
-                                Text(cmd).textStyle(.codeBlock).foregroundStyle(c.primary).lineLimit(1).fixedSize()
-                                Text(help).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
+                                Text(cmd).font(.footnote.monospaced()).foregroundStyle(.tint).lineLimit(1).fixedSize()
+                                Text(help).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                                 Spacer(minLength: 0)
                             }
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(PressStyle())
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                Hairline()
+                .padding(.vertical, 8)
+                Divider()
             }
             if model.dictation != .idle {
                 LiveWordsLine(words: model.heardWords)
@@ -1418,21 +1416,41 @@ private struct InputBar: View, Equatable {
             // A large font leaves the field too narrow beside attach and dictate: they take a row above it (as on Android).
             if large {
                 HStack(spacing: 8) { tools }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 8)
                     .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } leading: {
-            if !large { tools }
-        } trailing: {
-            if action == .stop {
-                StopButton(action: onStop)
-            } else {
-                SendButton(enabled: Composer.shared.enabled(action: action, text: text, attachments: Int32(attached), ready: true), label: Composer.shared.label(action: action)) {
-                    onSend(text)
-                    text = ""
+            HStack(alignment: .bottom, spacing: 4) {
+                if !large { tools }
+                TextField(Composer.shared.placeholder(running: running, node: false), text: $text, axis: .vertical)
+                    .lineLimit(1 ... Int(Composer.shared.MAX_LINES))
+                    .focused($focused)
+                    .textInputAutocapitalization(.sentences)
+                    .padding(.vertical, 10)
+                    .padding(.leading, 4)
+                if action == .stop {
+                    Button(action: onStop) {
+                        Image(systemName: "stop.fill").font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                    }
+                    .glassButton()
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("Stop")
+                } else {
+                    let enabled = Composer.shared.enabled(action: action, text: text, attachments: Int32(attached), ready: true)
+                    Button {
+                        onSend(text)
+                        text = ""
+                    } label: {
+                        Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                    }
+                    .glassProminentButton()
+                    .buttonBorderShape(.circle)
+                    .disabled(!enabled)
+                    .accessibilityLabel(Composer.shared.label(action: action))
                 }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
         .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(600)); focused = true } }
         .onChange(of: model.dictated) { _, spoken in
@@ -1465,7 +1483,6 @@ private struct VoicePanel: View {
     let voice: VoiceState
     let model: ChatModel
     let onType: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let (label, hint): (String, String) = switch voice.phase {
@@ -1485,52 +1502,57 @@ private struct VoicePanel: View {
         }
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                StatusDot(color: voice.phase == .ready ? c.outline : c.primary, live: voice.phase != .ready)
-                SectionLabel("voice · \(label)").inkClearance(c.background).frame(maxWidth: .infinity, alignment: .leading)
-                Tag("hands-free", accent: voice.handsFree ? c.primary : nil, filled: voice.handsFree) { model.setHandsFree(!voice.handsFree) }
-                Tag("type", action: onType).inkClearance(c.background)
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(voice.phase == .ready ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.tint))
+                    .symbolEffect(.pulse, isActive: voice.phase != .ready)
+                    .accessibilityHidden(true)
+                Text("Voice · \(label)").font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
+                Toggle("Hands-free", isOn: Binding(get: { voice.handsFree }, set: { model.setHandsFree($0) }))
+                    .toggleStyle(.button)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                Button("Type", action: onType)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
             }
             if voice.phase == .listening || voice.phase == .transcribing {
-                LiveWordsLine(words: model.heardWords).inkClearance(c.background)
+                LiveWordsLine(words: model.heardWords)
             }
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Group {
                         if voice.phase == .speaking {
-                            // On plain paper: its 6 pt screen over the ground's own grid read as two
-                            // misaligned dot grids.
-                            SpeechStrip(spoken: voice.spoken).background(c.background)
+                            SpeechStrip(spoken: voice.spoken)
                         } else {
                             LevelMeter(levels: model.levels, listening: voice.phase == .listening)
                         }
                     }
                     .frame(height: 36)
-                    MicroLabel(hint).inkClearance(c.background)
+                    Text(hint.prefix(1).uppercased() + hint.dropFirst()).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Button { model.voiceTap() } label: {
+                let button = Button { model.voiceTap() } label: {
                     Group {
                         switch voice.phase {
-                        case .ready, .speaking: AutobotIconView(icon: .mic, size: 26, color: quiet ? c.primary : c.onPrimary)
-                        case .listening: Rectangle().fill(c.onPrimary).frame(width: 16, height: 16)
-                        case .transcribing: InkLoader(.button, color: c.onPrimary)
-                        case .thinking: Rectangle().fill(c.primary).frame(width: 14, height: 14)
+                        case .ready, .speaking: Image(systemName: "mic.fill")
+                        case .listening: Image(systemName: "stop.fill")
+                        case .transcribing: ProgressView()
+                        case .thinking: Image(systemName: "stop.fill")
                         }
                     }
-                    .frame(width: 64, height: 64)
-                    .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(quiet ? c.surfaceContainerHigh : c.primary))
-                    .contentShape(Rectangle())
+                    .font(.title2)
+                    .frame(width: 44, height: 44)
                 }
-                .buttonStyle(PressStyle())
+                .buttonBorderShape(.circle)
                 .disabled(voice.phase == .transcribing)
                 .accessibilityLabel(action)
+                if quiet { button.glassButton() } else { button.glassProminentButton() }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .inkGround(plate: false)
-        .background(c.background)
-        .hairlineEdge(top: true, bottom: false)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }
 
@@ -1542,7 +1564,6 @@ private struct VoicePanel: View {
 private struct LiveWordsLine: View {
     let words: HeardWords
     private let maxChars = 160
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if !words.isEmpty {
@@ -1552,8 +1573,8 @@ private struct LiveWordsLine: View {
             let cut = max(full.count - maxChars, 0)
             let solid = max(committed.count - cut, 0)
             let visible = full.dropFirst(cut)
-            (Text(cut > 0 ? "…" : "") + Text(String(visible.prefix(solid))).foregroundStyle(c.onSurface) + Text(String(visible.dropFirst(solid))).foregroundStyle(c.onSurfaceVariant))
-                .textStyle(.bodyMedium)
+            (Text(cut > 0 ? "…" : "") + Text(String(visible.prefix(solid))).foregroundStyle(.primary) + Text(String(visible.dropFirst(solid))).foregroundStyle(.secondary))
+                .font(.subheadline)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel("Heard: \(full)")
@@ -1613,14 +1634,13 @@ private final class LevelBars {
 /// While the answer is read aloud: a slow flow strip that swells with each spoken piece.
 private struct SpeechStrip: View {
     let spoken: Int
-    @Environment(\.scheme) private var c
-    @State private var pulse: Date?
 
     var body: some View {
-        // App UI v4: a flat running bar, no halftone.
-        InkProgressBar(.indeterminate, height: 2)
+        // A running bar while the answer is read aloud.
+        ProgressView()
+            .progressViewStyle(.linear)
             .frame(maxHeight: .infinity)
-            .onChange(of: spoken, initial: true) { _, _ in self.pulse = Date() }
+            .accessibilityLabel("Reading aloud")
     }
 }
 
@@ -1642,25 +1662,26 @@ private struct AttachmentThumb: View {
     let model: ChatModel
     let onRemove: ((String) -> Void)?
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var image: UIImage?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            c.surfaceContainerHigh
+            Color(.secondarySystemBackground)
             if let image { Image(uiImage: image).resizable().scaledToFill().frame(width: 64, height: 64).clipped() }
             if let onRemove {
                 Button { onRemove(id) } label: {
-                    Text("×").textStyle(.code).foregroundStyle(c.onBackground)
-                        .padding(.horizontal, 6)
-                        .background(c.background.opacity(0.8))
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.6))
+                        .font(.body)
+                        .padding(4)
                 }
-                .buttonStyle(PressStyle())
+                .buttonStyle(.plain)
                 .accessibilityLabel("Remove image")
             }
         }
         .frame(width: 64, height: 64)
-        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityLabel("Attached image")
         .task(id: id) { image = await model.attachmentThumbnail(id, app: app) }
     }
@@ -1674,7 +1695,6 @@ private struct ModelSheet: View {
     let onDismiss: () -> Void
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var providerId: String?
     @State private var modelId = ""
     @State private var refreshing = false
@@ -1685,79 +1705,97 @@ private struct ModelSheet: View {
         let providers = app.providers.providers
         let selected = providers.first { $0.id == (providerId ?? routing.provider?.id) }
         let models: [RemoteModelItem] = selected.map(models) ?? []
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 8) {
-                SectionLabel("route")
-                if providers.isEmpty {
-                    TextAction("Add a provider", color: c.primary) {
-                        onDismiss()
-                        nav.push(.providers)
+        let trimmed = modelId.trimmingCharacters(in: .whitespaces)
+        NavigationStack {
+            List {
+                Section("Route") {
+                    if providers.isEmpty {
+                        Button("Add a provider") {
+                            onDismiss()
+                            nav.push(.providers)
+                        }
                     }
-                }
-                ForEach(providers) { option in
-                    Button {
-                        providerId = option.id
-                        modelId = option.defaultModel
-                        app.agent.setRoute(conversationId, providerId: option.id, model: option.defaultModel)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: option.id == selected?.id ? "largecircle.fill.circle" : "circle")
-                                .symbolSize(20)
-                                .foregroundStyle(option.id == selected?.id ? c.primary : c.onSurfaceVariant)
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(option.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                                Text(option.defaultModel).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
+                    ForEach(providers) { option in
+                        Button {
+                            providerId = option.id
+                            modelId = option.defaultModel
+                            app.agent.setRoute(conversationId, providerId: option.id, model: option.defaultModel)
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(option.displayName).foregroundStyle(.primary)
+                                    Text(option.defaultModel).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                if option.id == selected?.id {
+                                    Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                                }
                             }
-                            Spacer(minLength: 0)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.vertical, 4)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PressStyle())
-                }
-                Hairline().padding(.vertical, 4)
-                HStack(spacing: 8) {
-                    SectionLabel("model")
-                    Spacer(minLength: 0)
-                    if let selected { MicroLabel(refreshError ?? modelsLabel(selected), color: refreshError != nil ? c.error : nil) }
-                    if let selected, canRefresh(selected) {
-                        TextAction("Refresh", color: c.primary, busy: refreshing) { refresh(selected) }
+                        .accessibilityAddTraits(option.id == selected?.id ? .isSelected : [])
                     }
                 }
-                ConsoleTextField(text: $modelId, label: "Model id · type to search", kind: .mono)
-                // The field searches the list unless it already names one of its models.
-                let query = models.contains { $0.id == modelId } ? "" : modelId
-                ForEach(ModelLists.filter(models, query, limit: 30)) { m in
-                    let active = m.id == modelId
-                    Button { modelId = m.id } label: {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text((active ? "● " : "") + m.id).textStyle(.code).foregroundStyle(active ? c.primary : c.onSurface).lineLimit(1)
-                            if !m.caption.isEmpty { MicroLabel(m.caption) }
+                Section {
+                    TextField("Model id · type to search", text: $modelId)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    // The field searches the list unless it already names one of its models.
+                    let query = models.contains { $0.id == modelId } ? "" : modelId
+                    ForEach(ModelLists.filter(models, query, limit: 30)) { m in
+                        Button { modelId = m.id } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(m.id).font(.callout.monospaced()).foregroundStyle(.primary).lineLimit(1)
+                                    if !m.caption.isEmpty { Text(m.caption).font(.caption).foregroundStyle(.secondary) }
+                                }
+                                Spacer(minLength: 0)
+                                if m.id == modelId { Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint) }
+                            }
+                            .contentShape(Rectangle())
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 3)
-                        .contentShape(Rectangle())
+                        .accessibilityAddTraits(m.id == modelId ? .isSelected : [])
                     }
-                    .buttonStyle(PressStyle())
+                } header: {
+                    HStack(spacing: 8) {
+                        Text("Model")
+                        Spacer(minLength: 0)
+                        if let selected {
+                            Text(refreshError ?? modelsLabel(selected)).textCase(nil).foregroundStyle(refreshError != nil ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                        }
+                        if let selected, canRefresh(selected) {
+                            if refreshing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Button("Refresh") { refresh(selected) }.textCase(nil)
+                            }
+                        }
+                    }
                 }
-                PrimaryButton("Use model", enabled: !modelId.trimmingCharacters(in: .whitespaces).isEmpty && selected != nil) {
-                    let model = modelId.trimmingCharacters(in: .whitespaces)
-                    if let selected, ModelPrivacy.trains(presetId: ProviderPresets.resolve(selected).id, model: model) { confirmTrains = model; return }
-                    if let selected { app.agent.setRoute(conversationId, providerId: selected.id, model: model) }
-                    onDismiss()
-                }
-                .alert("Switch to \(confirmTrains ?? "this model")?", isPresented: Binding(get: { confirmTrains != nil }, set: { if !$0 { confirmTrains = nil } })) {
-                    Button("Switch anyway") { if let selected, let m = confirmTrains { app.agent.setRoute(conversationId, providerId: selected.id, model: m) }; onDismiss() }
-                    Button("Cancel", role: .cancel) {}
-                } message: { Text(ModelPrivacy.trainsWarning + " Anything you send in this chat from now on may end up in a future model.") }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 20)
-            .padding(.bottom, 24)
+            .navigationTitle("Model")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onDismiss)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use model") {
+                        if let selected, ModelPrivacy.trains(presetId: ProviderPresets.resolve(selected).id, model: trimmed) { confirmTrains = trimmed; return }
+                        if let selected { app.agent.setRoute(conversationId, providerId: selected.id, model: trimmed) }
+                        onDismiss()
+                    }
+                    .disabled(trimmed.isEmpty || selected == nil)
+                }
+            }
+            .alert("Switch to \(confirmTrains ?? "this model")?", isPresented: Binding(get: { confirmTrains != nil }, set: { if !$0 { confirmTrains = nil } })) {
+                Button("Switch anyway") { if let selected, let m = confirmTrains { app.agent.setRoute(conversationId, providerId: selected.id, model: m) }; onDismiss() }
+                Button("Cancel", role: .cancel) {}
+            } message: { Text(ModelPrivacy.trainsWarning + " Anything you send in this chat from now on may end up in a future model.") }
         }
         .onAppear { modelId = routing.selectedModel ?? "" }
         .presentationDetents([.medium, .large])
-        .presentationBackground(c.surfaceContainerLow)
         .presentationDragIndicator(.visible)
     }
 
@@ -1812,7 +1850,6 @@ private struct SessionSheet: View {
     var onChanges: () -> Void = {}
     let onDismiss: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var renaming = false
     @State private var name = ""
 
@@ -1820,79 +1857,68 @@ private struct SessionSheet: View {
         let settings = session?.settings ?? SessionSettings()
         let changes = session?.transcript.projection.changes ?? []
         let conversation = app.conversations.get(conversationId)
-        InkStack(alignment: .leading, spacing: 14) {
-            SectionLabel("chat")
-            HStack(spacing: 12) {
-                Text(conversation?.title ?? "").textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Rename", color: c.primary) {
-                    name = conversation?.title ?? ""
-                    renaming = true
-                }
-            }
-            HStack(spacing: 12) {
-                Text("Pin to top").textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                RisoToggle(isOn: Binding(get: { conversation?.pinned ?? false }, set: { app.conversations.setPinned([conversationId], $0) }))
-            }
-            HStack(spacing: 16) {
-                TextAction(conversation?.archived == true ? "Unarchive" : "Archive", color: c.primary) {
-                    app.conversations.setArchived([conversationId], !(conversation?.archived ?? false))
-                    onDismiss()
-                }
-                TextAction("Delete chat", color: c.error, action: onDelete)
-            }
-            SectionLabel("session")
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Agent tools").textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                    Text("Files in /workspace, web fetch, image generation, skills, plans. Off = plain chat.")
-                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                    if !app.agent.supportsTools {
-                        Text("This build runs plain chat: tools need the shared agent runtime.")
-                            .textStyle(.bodySmall).foregroundStyle(c.inks.amber).fixedSize(horizontal: false, vertical: true)
+        let files = changes.reduce(0) { $0 + $1.files.count }
+        let turns = changes.count
+        NavigationStack {
+            Form {
+                Section("Chat") {
+                    HStack {
+                        Text(conversation?.title ?? "").lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Rename") {
+                            name = conversation?.title ?? ""
+                            renaming = true
+                        }
                     }
+                    Toggle("Pin to top", isOn: Binding(get: { conversation?.pinned ?? false }, set: { app.conversations.setPinned([conversationId], $0) }))
+                    Button(conversation?.archived == true ? "Unarchive" : "Archive") {
+                        app.conversations.setArchived([conversationId], !(conversation?.archived ?? false))
+                        onDismiss()
+                    }
+                    Button("Delete chat", role: .destructive, action: onDelete)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                RisoToggle(isOn: Binding(get: { settings.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) }))
+                Section("Session") {
+                    Toggle(isOn: Binding(get: { settings.toolsEnabled }, set: { app.agent.setToolsEnabled(conversationId, $0) })) {
+                        Text("Agent tools")
+                        Text("Files in /workspace, web fetch, image generation, skills, plans. Off = plain chat.")
+                        if !app.agent.supportsTools {
+                            Text("This build runs plain chat: tools need the shared agent runtime.").foregroundStyle(.orange)
+                        }
+                    }
+                    Picker("Permission preset", selection: Binding(get: { settings.permissionPreset }, set: { app.agent.setPermission(conversationId, $0) })) {
+                        ForEach(PermissionPreset.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    Button {
+                        app.agent.compact(conversationId)
+                        onDismiss()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Compact context")
+                            Text("Summarize older turns now (also automatic near the limit).").font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(session?.running ?? false)
+                    Button(action: onChanges) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Files changed").foregroundStyle(.primary)
+                                Text(files == 0 ? "Nothing yet. Every file the agent changes can be undone."
+                                     : "\(files) file\(files == 1 ? "" : "s") across \(turns) turn\(turns == 1 ? "" : "s"); undo a step or a turn.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .accessibilityLabel("Files changed, view")
+                }
             }
-            VStack(alignment: .leading, spacing: 6) {
-                MicroLabel("permission preset")
-                Segmented(options: PermissionPreset.allCases, selected: settings.permissionPreset, label: \.label) {
-                    app.agent.setPermission(conversationId, $0)
-                }
+            .navigationTitle("Session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDismiss) }
             }
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Compact context").textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                    Text("Summarize older turns now (also automatic near the limit).")
-                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Compact", color: c.primary, enabled: !(session?.running ?? false)) {
-                    app.agent.compact(conversationId)
-                    onDismiss()
-                }
-            }
-            HStack(spacing: 12) {
-                let files = changes.reduce(0) { $0 + $1.files.count }
-                let turns = changes.count
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Files changed").textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                    Text(files == 0 ? "Nothing yet. Every file the agent changes can be undone."
-                         : "\(files) file\(files == 1 ? "" : "s") across \(turns) turn\(turns == 1 ? "" : "s"); undo a step or a turn.")
-                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("View", color: c.primary, action: onChanges)
-            }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 20)
-        .padding(.bottom, 24)
-        .presentationDetents([.height(560), .large])
-        .presentationBackground(c.surfaceContainerLow)
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .alert("Rename chat", isPresented: $renaming) {
             TextField("Name", text: $name)

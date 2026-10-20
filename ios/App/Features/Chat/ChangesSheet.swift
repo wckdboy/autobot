@@ -14,10 +14,11 @@ struct ChangeCounts: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if change.added > 0 { Text("+\(change.added)").textStyle(.micro).foregroundStyle(c.inks.cyan) }
-            if change.removed > 0 { Text("−\(change.removed)").textStyle(.micro).foregroundStyle(c.onSurfaceVariant) }
-            if change.added == 0 && change.removed == 0 { Text(change.op.rawValue).textStyle(.micro).foregroundStyle(c.onSurfaceVariant) }
+            if change.added > 0 { Text("+\(change.added)").foregroundStyle(c.inks.cyan) }
+            if change.removed > 0 { Text("−\(change.removed)").foregroundStyle(.secondary) }
+            if change.added == 0 && change.removed == 0 { Text(change.op.rawValue).foregroundStyle(.secondary) }
         }
+        .font(.caption.monospacedDigit())
     }
 }
 
@@ -30,7 +31,7 @@ struct DiffBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             if change.diff.isEmpty {
                 Text(change.note ?? (change.op == .deleted ? "folder removed" : "no text changes"))
-                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).padding(.horizontal, 10)
+                    .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 10)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -38,22 +39,22 @@ struct DiffBlock: View {
                             let ink = diffInk(line, c)
                             let changed = line.hasPrefix("+") || line.hasPrefix("-")
                             Text(line.isEmpty ? " " : line)
-                                .textStyle(.codeBlock)
+                                .font(.caption.monospaced())
                                 .foregroundStyle(ink)
                                 .lineLimit(1)
                                 .fixedSize()
                                 .padding(.horizontal, 10)
                                 .background(changed ? ink.opacity(0.12) : .clear)
                         }
-                        if change.truncated { MicroLabel("… diff shortened").padding(.horizontal, 10).padding(.vertical, 2) }
+                        if change.truncated { Text("… diff shortened").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.vertical, 2) }
                     }
                 }
-                if let note = change.note { MicroLabel(note, lines: 2).padding(.horizontal, 10).padding(.vertical, 2) }
+                if let note = change.note { Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(2).padding(.horizontal, 10).padding(.vertical, 2) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 6)
-        .background(c.surfaceContainerLow)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .textSelection(.enabled)
     }
 }
@@ -64,18 +65,19 @@ struct UndoTurnLine: View {
     let running: Bool
     let onUndo: (Int) -> Void
     let onRedo: (String) -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if let changes, changes.files > 0 {
             let files = "\(changes.files) file\(changes.files == 1 ? "" : "s")"
             ZStack(alignment: .leading) {
                 if changes.undone, let redo = changes.revertId {
-                    Tag("↷ redo turn · " + files, accent: c.primary) { if !running { onRedo(redo) } }
+                    Button { if !running { onRedo(redo) } } label: { Label("Redo turn · " + files, systemImage: "arrow.uturn.forward") }
+                        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 } else if changes.undone {
-                    Tag("undone · " + files)
+                    CapsuleTag("Undone · " + files, color: .secondary)
                 } else if changes.undoable {
-                    Tag("↶ undo turn · " + files, accent: c.primary) { if !running { onUndo(changes.turn) } }
+                    Button { if !running { onUndo(changes.turn) } } label: { Label("Undo turn · " + files, systemImage: "arrow.uturn.backward") }
+                        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }
             .stamp(changes.undone)
@@ -89,54 +91,55 @@ struct ChangesSheet: View {
     let running: Bool
     let onUndoStep: (String) -> Void
     let onUndoTurn: (Int) -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionLabel("changes · \(groups.reduce(0) { $0 + $1.files.count }) files")
+        NavigationStack {
+            List {
                 if groups.isEmpty {
-                    Text("The agent hasn't changed any files in this chat.").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant)
+                    Text("The agent hasn't changed any files in this chat.").foregroundStyle(.secondary)
                 }
                 ForEach(groups.reversed()) { group in
-                    Hairline().padding(.vertical, 2)
-                    HStack {
-                        MicroLabel("turn \(group.turn)").frame(maxWidth: .infinity, alignment: .leading)
-                        if group.files.contains(where: { !$0.undone }) {
-                            Tag("↶ undo turn", accent: c.primary) { if !running { onUndoTurn(group.turn) } }
-                        }
-                    }
-                    ForEach(group.files) { file in
-                        HStack(spacing: 8) {
-                            Text(file.path)
-                                .textStyle(.code)
-                                .strikethrough(file.undone)
-                                .foregroundStyle(file.undone ? c.onSurfaceVariant : c.onSurface)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            ChangeCounts(change: FileChange(path: file.path, op: file.op, added: file.added, removed: file.removed))
-                            ZStack {
-                                if file.undone {
-                                    MicroLabel("undone")
-                                } else {
-                                    Tag("undo") { if !running { onUndoStep(file.callId) } }
+                    Section {
+                        ForEach(group.files) { file in
+                            HStack(spacing: 8) {
+                                Text(file.path)
+                                    .font(.callout.monospaced())
+                                    .strikethrough(file.undone)
+                                    .foregroundStyle(file.undone ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                ChangeCounts(change: FileChange(path: file.path, op: file.op, added: file.added, removed: file.removed))
+                                ZStack {
+                                    if file.undone {
+                                        Text("undone").font(.caption).foregroundStyle(.secondary)
+                                    } else {
+                                        Button("Undo") { if !running { onUndoStep(file.callId) } }
+                                            .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                                    }
                                 }
+                                .stamp(file.undone)
                             }
-                            .stamp(file.undone)
+                        }
+                    } header: {
+                        HStack {
+                            Text("Turn \(group.turn)")
+                            Spacer()
+                            if group.files.contains(where: { !$0.undone }) {
+                                Button("Undo turn") { if !running { onUndoTurn(group.turn) } }.textCase(nil)
+                            }
                         }
                     }
                 }
-                Hairline().padding(.vertical, 2)
-                Text("Before the agent changes a file, Autobot keeps a copy on this phone (up to 50 MB per chat), so any step or turn can be undone.")
-                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                Section {
+                } footer: {
+                    Text("Before the agent changes a file, Autobot keeps a copy on this phone (up to 50 MB per chat), so any step or turn can be undone.")
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 20)
-            .padding(.bottom, 24)
+            .navigationTitle("Changes · \(groups.reduce(0) { $0 + $1.files.count }) files")
+            .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium, .large])
-        .presentationBackground(c.surfaceContainerLow)
         .presentationDragIndicator(.visible)
     }
 }

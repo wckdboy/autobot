@@ -90,12 +90,11 @@ struct AcceleratorChip: View {
 struct TokenRateLabel: View {
     var tokensPerSecond: Double? = nil
     var totalTokens: Int? = nil
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let parts = [tokensPerSecond.map { String(format: "%.1f tok/s", $0) }, totalTokens.map { "\($0) tokens" }].compactMap { $0 }
         if !parts.isEmpty {
-            Text(parts.joined(separator: " · ")).textStyle(.labelSmall).foregroundStyle(c.onSurfaceVariant)
+            Text(parts.joined(separator: " · ")).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
     }
 }

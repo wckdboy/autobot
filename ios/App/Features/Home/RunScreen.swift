@@ -104,25 +104,14 @@ struct RunState {
     }
 }
 
-/// The Run screen's card grid: two columns that line up across both rows, equal gutters.
-enum RunGrid {
-    static let gutter: CGFloat = 8
-    static let topHeight: CGFloat = 236
-    static let bottomHeight: CGFloat = 108
-
-    /// Column widths for [width]: left (Image, Code) : right (Chat/Agent, Studio) = 1.1 : 1,
-    /// rounded to whole points so both rows share the same edges.
-    static func columns(width: CGFloat) -> (left: CGFloat, right: CGFloat) {
-        let inner = max(width - gutter, 0)
-        let left = (inner * 1.1 / 2.1).rounded()
-        return (left, inner - left)
-    }
-}
-
+/**
+ Home (port of `RunScreen.kt`): the device's state, the paired node's digest, a tile per mode
+ (Image, Chat, Agent, Code, Studio) and the recent runs, as a system list. The tiles reflow from
+ two columns on a phone to as many as fit on a wide window.
+ */
 struct RunScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var device: DeviceProfile?
     @State private var lastImage: UIImage?
     @Environment(\.dynamicTypeSize) private var dynamicType
@@ -131,61 +120,76 @@ struct RunScreen: View {
     var body: some View {
         let _ = InkProbe.hit("body.run")
         let state = RunState(app: app, device: device)
-        VStack(spacing: 0) {
-            AutobotTopBar {
-                if state.live > 0 { CountBadge("\(state.live) live") }
-            }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    SectionLabel(state.status)
-                    Spacer().frame(height: 14)
-                    // What the paired node did meanwhile; nothing when there is no node or nothing new.
-                    if let card = digest.card {
-                        NodeDigestCard(
-                            state: card,
-                            onNeedsYou: {
-                                digest.markSeen()
-                                // Approvals hold a turn: the agent, in their conversation when they share one. Else the board's questions.
-                                if card.digest.opensBoard {
-                                    nav.push(.nodeAgent(providerId: card.providerId, open: .board))
-                                } else {
-                                    nav.push(.nodeAgent(providerId: card.providerId, session: card.digest.approvalSession))
-                                }
-                            },
-                            onDetails: {
-                                digest.markSeen()
-                                nav.push(.nodeAgent(providerId: card.providerId, open: .activity))
-                            },
-                            onDismiss: { digest.markSeen() },
-                        )
-                        Spacer().frame(height: 14)
-                    }
-                    cards(state)
-                    Spacer().frame(height: 22)
-                    if !state.hasAnything {
-                        PrimaryButton("Get a model") { nav.switchTo(.models) }
-                        Spacer().frame(height: 24)
-                    }
-                    // Always there: "All" is the way to every chat, archived ones too, even with nothing
-                    // recent. No empty paragraph under it (as on Android).
-                    HStack(alignment: .center) {
-                        SectionLabel("Recent runs").frame(maxWidth: .infinity, alignment: .leading)
-                        TextAction("All", color: c.onSurfaceVariant) { nav.push(.chatList) }
-                            .accessibilityLabel("All chats")
-                    }
-                    ForEach(state.recent) { run in
-                        RunRow(title: run.title, subtitle: run.subtitle, action: {
-                            if let id = run.conversationId { nav.push(.chat(conversationId: id)) }
-                            if let id = run.galleryId { nav.push(.gallery(openId: id)) }
-                        }) { RouteTag(route: run.route) }
-                    }
-                    Spacer().frame(height: 16)
+        List {
+            Section {
+                // What the paired node did meanwhile; nothing when there is no node or nothing new.
+                if let card = digest.card {
+                    NodeDigestCard(
+                        state: card,
+                        onNeedsYou: {
+                            digest.markSeen()
+                            // Approvals hold a turn: the agent, in their conversation when they share one. Else the board's questions.
+                            if card.digest.opensBoard {
+                                nav.push(.nodeAgent(providerId: card.providerId, open: .board))
+                            } else {
+                                nav.push(.nodeAgent(providerId: card.providerId, session: card.digest.approvalSession))
+                            }
+                        },
+                        onDetails: {
+                            digest.markSeen()
+                            nav.push(.nodeAgent(providerId: card.providerId, open: .activity))
+                        },
+                        onDismiss: { digest.markSeen() },
+                    )
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0))
+                    .listRowBackground(Color.clear)
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.vertical, 8)
+                tiles(state)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                if !state.hasAnything {
+                    Button("Get a model") { nav.switchTo(.models) }
+                        .glassProminentButton()
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity)
+                        .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 0, trailing: 0))
+                        .listRowBackground(Color.clear)
+                }
+            } header: {
+                Text(state.status).textCase(nil)
+            }
+            // Always there: "All" is the way to every chat, archived ones too, even with nothing
+            // recent. No empty paragraph under it (as on Android).
+            Section {
+                ForEach(state.recent) { run in
+                    Button {
+                        if let id = run.conversationId { nav.push(.chat(conversationId: id)) }
+                        if let id = run.galleryId { nav.push(.gallery(openId: id)) }
+                    } label: {
+                        RecentRunRow(run: run)
+                    }
+                    .foregroundStyle(.primary)
+                }
+            } header: {
+                HStack {
+                    Text("Recent runs").textCase(nil)
+                    Spacer()
+                    Button("All") { nav.push(.chatList) }
+                        .font(.subheadline)
+                        .textCase(nil)
+                        .accessibilityLabel("All chats")
+                }
             }
         }
-        .background(c.background)
+        .listStyle(.insetGrouped)
+        .toolbar {
+            ToolbarItem(placement: .principal) { Wordmark() }
+            if state.live > 0 {
+                ToolbarItem(placement: .topBarTrailing) { CapsuleTag("\(state.live) live") }
+            }
+        }
+        .navigationTitle("Autobot")
+        .navigationBarTitleDisplayMode(.inline)
         // Hardware facts once; thermal state and free space when they can have changed (no polling).
         .task { device = await Task.detached(priority: .userInitiated) { DeviceProfile.current() }.value }
         // Each time Run shows: what the node did since the owner last looked.
@@ -205,62 +209,19 @@ struct RunScreen: View {
         }
     }
 
-    @ViewBuilder private func cards(_ state: RunState) -> some View {
-        if dynamicType.isAccessibilitySize {
-            // At the accessibility sizes the fixed grid would overlap its own text: one column of
-            // cards that grow with their words.
-            VStack(spacing: RunGrid.gutter) {
-                ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute) { nav.push(.imagine()) }
-                ModeCard(index: "02", title: "Chat", subtitle: state.chat?.label ?? "add a model", route: state.chat?.route) { start(.chat, state) }
-                ModeCard(index: "03", title: "Agent", subtitle: state.agent?.label ?? "add a model", route: state.agent?.route) { start(.agent, state) }
-                ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route) { start(.code, state) }
-                ModeCard(index: "05", title: "Studio", subtitle: state.studioLabel, route: nil) { nav.enterStudio(.image) }
-                    .accessibilityHint("Image, audio and video generation, workflows and the library")
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        } else {
-            grid(state)
+    /// The mode tiles: two columns on a phone, more as the window widens, one at accessibility sizes.
+    private func tiles(_ state: RunState) -> some View {
+        let columns = dynamicType.isAccessibilitySize
+            ? [GridItem(.flexible())]
+            : [GridItem(.adaptive(minimum: 160), spacing: 12)]
+        return LazyVGrid(columns: columns, spacing: 12) {
+            ModeTile(title: "Image", subtitle: state.imageLabel, symbol: "photo", route: state.imageRoute, image: lastImage) { nav.push(.imagine()) }
+            ModeTile(title: "Chat", subtitle: state.chat?.label ?? "add a model", symbol: "bubble.left.and.bubble.right", route: state.chat?.route) { start(.chat, state) }
+            ModeTile(title: "Agent", subtitle: state.agent?.label ?? "add a model", symbol: "wand.and.sparkles", route: state.agent?.route) { start(.agent, state) }
+            ModeTile(title: "Code", subtitle: state.code?.label ?? "add a code model", symbol: "chevron.left.forwardslash.chevron.right", route: state.code?.route) { start(.code, state) }
+            ModeTile(title: "Studio", subtitle: state.studioLabel, symbol: "square.stack.3d.up", route: nil) { nav.enterStudio(.image) }
+                .accessibilityHint("Image, audio and video generation, workflows and the library")
         }
-    }
-
-    private func grid(_ state: RunState) -> some View {
-        // Taller cards as the text grows (up to xxxLarge), so titles and tags keep their room.
-        let k = min(max(AutobotFonts.scale(for: 15, dynamicType), 1), 1.35)
-        let top = (RunGrid.topHeight * k).rounded(), bottom = (RunGrid.bottomHeight * k).rounded()
-        return GeometryReader { geo in
-            // Two columns shared by both rows (Image : Chat/Agent = 1.1 : 1, as on Android), one
-            // gutter everywhere: Code sits under Image and Studio under Chat/Agent.
-            let columns = RunGrid.columns(width: geo.size.width)
-            VStack(spacing: RunGrid.gutter) {
-                HStack(spacing: RunGrid.gutter) {
-                    // The last image, as it is, above the words; nothing when there is none.
-                    if let lastImage {
-                        ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute, action: { nav.push(.imagine()) }) {
-                            Image(uiImage: lastImage).resizable().scaledToFill()
-                        }
-                        .frame(width: columns.left)
-                    } else {
-                        ModeCard(index: "01", title: "Image", subtitle: state.imageLabel, route: state.imageRoute) { nav.push(.imagine()) }
-                            .frame(width: columns.left)
-                    }
-                    VStack(spacing: RunGrid.gutter) {
-                        ModeCard(index: "02", title: "Chat", subtitle: state.chat?.label ?? "add a model", route: state.chat?.route, living: true) { start(.chat, state) }
-                        ModeCard(index: "03", title: "Agent", subtitle: state.agent?.label ?? "add a model", route: state.agent?.route, living: true, seed: 2.1) { start(.agent, state) }
-                    }
-                    .frame(width: columns.right)
-                }
-                .frame(height: top)
-                HStack(spacing: RunGrid.gutter) {
-                    ModeCard(index: "04", title: "Code", subtitle: state.code?.label ?? "add a code model", route: state.code?.route, living: true, seed: 4.2) { start(.code, state) }
-                        .frame(width: columns.left)
-                    ModeCard(index: "05", title: "Studio", subtitle: state.studioLabel, route: nil, living: true, seed: 5.3) { nav.enterStudio(.image) }
-                        .frame(width: columns.right)
-                        .accessibilityHint("Image, audio and video generation, workflows and the library")
-                }
-                .frame(height: bottom)
-            }
-        }
-        .frame(height: top + RunGrid.gutter + bottom)
     }
 
     /// Starts a session for [mode] on its target; tools on for agent and code.
@@ -277,5 +238,71 @@ struct RunScreen: View {
         let conversation = app.conversations.create(incognito: app.settings.settings.incognitoByDefault, providerId: target.providerId, model: target.model)
         app.agent.setToolsEnabled(conversation.id, mode != .chat)
         nav.push(.chat(conversationId: conversation.id))
+    }
+}
+
+/// A mode on the Run screen: its symbol (or the last image), where it runs, its name and model.
+private struct ModeTile: View {
+    let title: String
+    let subtitle: String
+    let symbol: String
+    let route: Route?
+    var image: UIImage? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    if let image {
+                        Image(uiImage: image).resizable().scaledToFill()
+                            .frame(width: 36, height: 36)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .accessibilityHidden(true)
+                    } else {
+                        Image(systemName: symbol)
+                            .font(.title3)
+                            .foregroundStyle(.tint)
+                            .frame(height: 36)
+                            .accessibilityHidden(true)
+                    }
+                    Spacer(minLength: 8)
+                    if let route { RouteBadge(route: route) }
+                }
+                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                    if subtitle.lowercased() != title.lowercased() {
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A recent chat or image: title, model or size, and where it ran.
+private struct RecentRunRow: View {
+    let run: RecentRun
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(run.title).font(.body).lineLimit(1)
+                if !run.subtitle.isEmpty {
+                    Text(run.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            RouteBadge(route: run.route)
+        }
+        .contentShape(Rectangle())
     }
 }

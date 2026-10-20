@@ -153,6 +153,14 @@ final class Navigator {
         withAnimation(.inkSlide) { studio = nil }
     }
 
+    /// Shows [destination] alone on [tab]'s stack (a chat chosen in the chat list beside it), without the slide.
+    func show(_ destination: Destination, in tab: Tab) {
+        guard paths[tab] != [destination] else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { paths[tab] = [destination] }
+    }
+
     func back() {
         if !path.isEmpty { path.removeLast() }
     }
@@ -178,11 +186,13 @@ final class Navigator {
 /**
  Navigation host, adaptive: the system's tab view, a tab bar on iPhone and a sidebar on iPad and
  the Mac (`sidebarAdaptable`), each tab with its own stack that it keeps when another is chosen,
- and the system navigation bar (screens fill it through [AutobotTopBar]).
+ and the system navigation bar (screens fill it through [AutobotTopBar]). On a wide window the
+ Run tab puts the chat list beside its stack (a split view), and a chat chosen there opens in it.
  */
 struct AutobotNavHost: View {
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         // The app stays underneath (its stack and screens keep their state) while the Studio is open.
@@ -206,14 +216,17 @@ struct AutobotNavHost: View {
         return TabView(selection: $nav.tab) {
             ForEach(Tab.allCases, id: \.self) { tab in
                 SwiftUI.Tab(tab.title, systemImage: tab.symbol, value: tab) {
-                    NavigationStack(path: nav.pathBinding(tab)) {
-                        root(tab)
-                            .inkArrive()
-                            .navigationDestination(for: Destination.self) { destination in
-                                screen(destination)
-                                    .inkArrive()
-                                    .background(c.background.ignoresSafeArea())
-                            }
+                    if tab == .run && sizeClass == .regular {
+                        // A wide window: the chats beside Run's own stack, where the chat opens.
+                        NavigationSplitView {
+                            ChatListScreen(sidebar: true)
+                                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 420)
+                        } detail: {
+                            stack(tab)
+                        }
+                        .navigationSplitViewStyle(.balanced)
+                    } else {
+                        stack(tab)
                     }
                 }
             }
@@ -221,6 +234,19 @@ struct AutobotNavHost: View {
         .tabViewStyle(.sidebarAdaptable)
         .tint(c.primary)
         .background(c.background.ignoresSafeArea())
+    }
+
+    /// [tab]'s own stack.
+    private func stack(_ tab: Tab) -> some View {
+        NavigationStack(path: nav.pathBinding(tab)) {
+            root(tab)
+                .inkArrive()
+                .navigationDestination(for: Destination.self) { destination in
+                    screen(destination)
+                        .inkArrive()
+                        .background(c.background.ignoresSafeArea())
+                }
+        }
     }
 
     @ViewBuilder private func root(_ tab: Tab) -> some View {

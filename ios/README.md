@@ -4,6 +4,12 @@ The iOS port of Autobot: the same privacy-first, on-device AI agent, the same ri
 signal red on ink or paper, Antonio display type, JetBrains Mono labels, halftone rendering), the
 same screens, copy and flows as Android — in SwiftUI, Swift 6, iOS 18+.
 
+Run, the chat list and the chat use the system's own components (navigation bar and toolbar,
+`List`, `.searchable`, `Form` sheets, `ProgressView`, `ContentUnavailableView`) with Liquid Glass
+on iOS 26 and later; the brand shows only as the purple tint, the pixel a and the dot after a
+title. On a wide window (iPad, Mac) the Run tab keeps the chat list beside its stack, and a chat
+chosen there opens next to it. The shared pieces are in `App/Design/NativeKit.swift`.
+
 ## Build and run
 
 Requirements: Xcode 26 or newer (tested with Xcode 27 / iOS 27 SDK), [XcodeGen](https://github.com/yonaskolb/XcodeGen)

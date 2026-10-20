@@ -352,17 +352,19 @@ enum LinkPrompt {
 struct CopyMessageButton: View {
     let markdown: String
     @State private var copied = false
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        IconAction(.copy, label: copied ? "Copied" : "Copy message", tint: copied ? c.primary : c.onSurfaceVariant, size: 18) {
+        Button {
             UIPasteboard.general.setItems([[UTType.plainText.identifier: markdown]], options: [.localOnly: true])
             copied = true
             Task {
                 try? await Task.sleep(for: .milliseconds(1500))
                 copied = false
             }
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
         }
-        .compactActionFrame()
+        .messageAction(active: copied)
+        .accessibilityLabel(copied ? "Copied" : "Copy message")
     }
 }
