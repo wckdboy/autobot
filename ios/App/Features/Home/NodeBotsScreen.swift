@@ -68,41 +68,40 @@ struct BotRow: View {
     let bot: NodeBot
     let now: Int64
     let action: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button(action: action) {
+        Button(action: action) {
+            HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text(bot.name).textStyle(.titleMedium).foregroundStyle(c.onSurface).textLines(1)
+                        Text(bot.name).font(.headline).lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        if !bot.model.isEmpty { Tag(bot.model) }
+                        if !bot.model.isEmpty { TintTag(bot.model, color: .secondary) }
                     }
                     if !bot.persona.isEmpty {
-                        Text(bot.persona).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).textLines(2)
+                        Text(bot.persona).font(.subheadline).foregroundStyle(Color.secondary).lineLimit(2)
                     }
                     HStack(spacing: 8) {
-                        Text(NodeBots.shared.status(bot: bot)).textStyle(.micro).foregroundStyle(c.onSurface)
+                        Text(NodeBots.shared.status(bot: bot)).font(.caption)
                         let kinds = NodeBots.shared.kinds(bot: bot)
-                        if !kinds.isEmpty { Tag(kinds.joined(separator: " · ")) }
+                        if !kinds.isEmpty { TintTag(kinds.joined(separator: " · "), color: .secondary) }
                     }
                     if let problem = NodeBots.shared.problem(bot: bot) {
-                        Text(problem).textStyle(.micro).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+                        Text(problem).font(.caption).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(NodeBots.shared.meta(bot: bot, now: now)).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
+                    Text(NodeBots.shared.meta(bot: bot, now: now)).font(.caption).foregroundStyle(Color.secondary)
                 }
-                .padding(.vertical, Tokens.Spacing.rowPaddingVertical)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .buttonStyle(PressStyle())
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(NodeBots.shared.spoken(bot: bot, now: now))
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("bot-\(bot.name)")
-            Hairline()
+            .foregroundStyle(Color.primary)
+            .contentShape(Rectangle())
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(NodeBots.shared.spoken(bot: bot, now: now))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("bot-\(bot.name)")
     }
 }
 
@@ -224,7 +223,6 @@ final class NodeBotModel {
 struct NodeBotScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var model: NodeBotModel
     @State private var confirmOff = false
 
@@ -235,17 +233,16 @@ struct NodeBotScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Bot · \(model.name)", onBack: { nav.back() }) {
-                IconAction(symbol: "arrow.clockwise", label: "Refresh") { Task { await model.refresh(app: app) } }
+                Button { Task { await model.refresh(app: app) } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
             }
-            ScrollView {
+            List {
                 NodeBotContent(model: model, confirmOff: $confirmOff) { session in
                     nav.push(.nodeAgent(providerId: model.providerId, session: session, bot: model.name))
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.vertical, 8)
             }
+            .listStyle(.insetGrouped)
+            .refreshable { await model.refresh(app: app) }
         }
-        .background(c.background)
         .task { await model.refresh(app: app) }
         .alert("Turn off \(model.name)?", isPresented: $confirmOff) {
             Button("Turn off", role: .destructive) { Task { await model.setEnabled(false) } }
@@ -262,152 +259,149 @@ struct NodeBotScreen: View {
     }
 }
 
-/// The detail's body, apart from its navigation, so tests and snapshots can render it.
+/// The detail's body (List sections), apart from its navigation, so tests and snapshots can render it.
 struct NodeBotContent: View {
     let model: NodeBotModel
     @Binding var confirmOff: Bool
     /// Opens a session (nil: a new chat with the bot).
     let open: (String?) -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let problem = model.problem {
-                Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
-            }
-            if let bot = model.bot {
-                content(bot)
-            } else if model.state.loading || (model.state.supported == nil && model.problem == nil) {
-                InkLoader(.inline)
-            } else {
-                EmptyState("There is no bot called \(model.name) on \(model.node).")
-            }
+        if let problem = model.problem {
+            Section { Text(problem).foregroundStyle(.red) }
+        }
+        if let bot = model.bot {
+            content(bot)
+        } else if model.state.loading || (model.state.supported == nil && model.problem == nil) {
+            Section { ProgressView().frame(maxWidth: .infinity) }
+        } else {
+            MarkUnavailableView("There is no bot called \(model.name) on \(model.node).")
+                .listRowBackground(Color.clear)
         }
     }
 
     @ViewBuilder private func content(_ bot: NodeBot) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // The name is in the bar; the head says who it is, after Invincible's pixel i (about the node), as on Android.
-            HStack(spacing: 8) {
-                NodeMark()
-                if !bot.persona.isEmpty {
-                    Text(bot.persona).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            SectionLabel("on \(model.node) · \(NodeBots.shared.meta(bot: bot, now: model.now))")
-        }
-        .padding(.bottom, 8)
-
         let failed = bot.status == "error"
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("On").textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                Text(NodeBots.shared.status(bot: bot) + (failed ? bot.error.map { ": \($0) ✗" } ?? "" : ""))
-                    .textStyle(.bodySmall).foregroundStyle(failed ? c.error : c.onSurfaceVariant)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            RisoToggle(isOn: Binding(get: { bot.enabled }, set: { on in
+        Section {
+            Toggle(isOn: Binding(get: { bot.enabled }, set: { on in
                 if on { Task { await model.setEnabled(true) } } else { confirmOff = true }
-            }))
-            .accessibilityLabel("On")
-        }
-        .frame(minHeight: SwitchRow.minHeight)
-        // What the node said it did ("ops is running.").
-        if let notice = model.state.notice {
-            Text(notice).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true).padding(.bottom, 8)
-        }
-        Hairline()
-
-        SectionLabel("channels").padding(.top, 16)
-        if bot.channels.isEmpty {
-            Text("Only through the API.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-        }
-        ForEach(Array(bot.channels.enumerated()), id: \.offset) { _, channel in
-            VStack(alignment: .leading, spacing: 2) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(channel.kind).textStyle(.bodyLarge).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-                        Text(NodeBots.shared.channelState(c: channel)).textStyle(.micro).foregroundStyle(channel.down ? c.error : c.onSurfaceVariant).fixedSize()
-                    }
-                    // Large text: the state under the name, where it has the row's width.
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(channel.kind).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                        Text(NodeBots.shared.channelState(c: channel)).textStyle(.micro).foregroundStyle(channel.down ? c.error : c.onSurfaceVariant)
-                    }
-                }
-                if !channel.account.isEmpty {
-                    Text(channel.account).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
-                }
+            })) {
+                Text("On")
+                Text(NodeBots.shared.status(bot: bot) + (failed ? bot.error.map { ": \($0) ✗" } ?? "" : ""))
+                    .foregroundStyle(failed ? Color.red : Color.secondary)
             }
-            .padding(.vertical, 8)
-            .accessibilityElement(children: .combine)
-            Hairline()
+            .accessibilityLabel("On")
+        } header: {
+            // The name is in the bar; the head says who it is, after Invincible's pixel i (about the node), as on Android.
+            VStack(alignment: .leading, spacing: 6) {
+                if !bot.persona.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        NodeMark()
+                        Text(bot.persona).font(.body).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    NodeMark()
+                }
+                Text("on \(model.node) · \(NodeBots.shared.meta(bot: bot, now: model.now))")
+            }
+            .textCase(nil)
+        } footer: {
+            // What the node said it did ("ops is running.").
+            if let notice = model.state.notice { Text(notice) }
         }
 
-        VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("model and approvals")
-            Readout(label: "model", value: bot.model.isEmpty ? "auto" : bot.model)
-            Readout(label: "approvals", value: bot.approvals)
-            Text(NodeBots.shared.approvals(mode: bot.approvals)).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+        Section("Channels") {
+            if bot.channels.isEmpty {
+                Text("Only through the API.").foregroundStyle(.secondary)
+            }
+            ForEach(Array(bot.channels.enumerated()), id: \.offset) { _, channel in
+                VStack(alignment: .leading, spacing: 2) {
+                    // Large text wraps the state under the name (LabeledContent does).
+                    LabeledContent(channel.kind) {
+                        Text(NodeBots.shared.channelState(c: channel)).foregroundStyle(channel.down ? Color.red : Color.secondary)
+                    }
+                    if !channel.account.isEmpty {
+                        Text(channel.account).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
         }
-        .padding(.top, 16)
+
+        Section {
+            LabeledContent("Model", value: bot.model.isEmpty ? "auto" : bot.model)
+            LabeledContent("Approvals", value: bot.approvals)
+        } header: {
+            Text("Model and approvals")
+        } footer: {
+            Text(NodeBots.shared.approvals(mode: bot.approvals))
+        }
 
         if let detail = model.detail {
             BotDetailSections(detail: detail, bot: bot.name, node: model.node, setting: model.settingPersonality) { name in
                 Task { await model.setPersonality(name) }
             }
         } else {
-            InkLoader(.inline).padding(.top, 16)
+            Section { ProgressView().frame(maxWidth: .infinity) }
         }
 
         if !model.approvals.isEmpty {
-            SectionLabel("waiting for you · \(model.approvals.count)").padding(.top, 16)
-            ForEach(model.approvals, id: \.id) { a in approval(a) }
-        }
-
-        SectionLabel("recent sessions").padding(.top, 16)
-        if let sessions = model.sessions {
-            if sessions.isEmpty { Text("No sessions yet.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant) }
-            ForEach(sessions.prefix(8), id: \.id) { s in
-                Button { open(s.id) } label: {
-                    HStack {
-                        Text(s.id).textStyle(.readout).foregroundStyle(c.onSurface).textLines(1).frame(maxWidth: .infinity, alignment: .leading)
-                        Text(NodeBots.shared.ago(at: s.modified, now: model.now)).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PressStyle())
-                Hairline()
+            Section("Waiting for you · \(model.approvals.count)") {
+                ForEach(model.approvals, id: \.id) { a in approval(a) }
             }
-        } else {
-            InkLoader(.inline)
         }
 
-        PrimaryButton("New chat with \(bot.name)", enabled: bot.enabled) { open(nil) }
-            .padding(.vertical, 16)
+        Section("Recent sessions") {
+            if let sessions = model.sessions {
+                if sessions.isEmpty { Text("No sessions yet.").foregroundStyle(.secondary) }
+                ForEach(sessions.prefix(8), id: \.id) { s in
+                    Button { open(s.id) } label: {
+                        HStack {
+                            // A session id: code.
+                            Text(s.id).font(.callout.monospaced()).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                            Text(NodeBots.shared.ago(at: s.modified, now: model.now)).font(.caption).foregroundStyle(Color.secondary)
+                            Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        .foregroundStyle(Color.primary)
+                        .contentShape(Rectangle())
+                    }
+                }
+            } else {
+                ProgressView().frame(maxWidth: .infinity)
+            }
+        }
+
+        Section {
+            Button { open(nil) } label: { Text("New chat with \(bot.name)").frame(maxWidth: .infinity) }
+                .primaryActionStyle()
+                .controlSize(.large)
+                .disabled(!bot.enabled)
+        }
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
     }
 
     private func approval(_ a: PendingApproval) -> some View {
         let (title, detail) = NodeAgentModel.describe(a.action, fallback: a.text)
         return VStack(alignment: .leading, spacing: 8) {
-            Text(a.agent.map { "\($0): \(title)" } ?? title).textStyle(.titleSmall).foregroundStyle(c.onSurface)
-            Text(detail).textStyle(.code).foregroundStyle(c.onSurface)
+            Text(a.agent.map { "\($0): \(title)" } ?? title).font(.headline)
+            Text(detail).font(.callout.monospaced())
             switch model.answered[a.id] {
             case nil:
                 HStack(spacing: 8) {
-                    PrimaryButton("Allow") { model.answer(a.id, .once) }
-                    GhostButton("Always") { model.answer(a.id, .always) }
-                    GhostButton("Deny") { model.answer(a.id, .deny) }
+                    Button { model.answer(a.id, .once) } label: { Text("Allow").frame(maxWidth: .infinity) }
+                        .primaryActionStyle()
+                    Button { model.answer(a.id, .always) } label: { Text("Always").frame(maxWidth: .infinity) }
+                        .secondaryActionStyle()
+                    Button(role: .destructive) { model.answer(a.id, .deny) } label: { Text("Deny").frame(maxWidth: .infinity) }
+                        .secondaryActionStyle()
                 }
-            case .deny?: MicroLabel("denied")
-            case .always?: MicroLabel("allowed for this conversation")
-            default: MicroLabel("allowed")
+            case .deny?: Text("denied").font(.footnote).foregroundStyle(.secondary)
+            case .always?: Text("allowed for this conversation").font(.footnote).foregroundStyle(.secondary)
+            default: Text("allowed").font(.footnote).foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.medium).stroke(c.outlineVariant))
+        .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Approval: \(title) \(detail)")
     }
