@@ -6,6 +6,7 @@ import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.shared.invincible.JvmNodeCrypto
 import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
+import dev.wckdboy.autobot.shared.invincible.NodeBotsRepository
 import dev.wckdboy.autobot.shared.invincible.NodeDigest
 import dev.wckdboy.autobot.shared.invincible.NodeDigestRecipe
 import dev.wckdboy.autobot.shared.invincible.NodeDigests
@@ -31,6 +32,9 @@ class NodeAgents @Inject constructor(
         val tag = "${provider.displayName} · agent"
         return NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag) to paired.deviceName
     }
+
+    /** The bots on [provider]'s node (bots mode); null when it is not a usable pairing. */
+    suspend fun bots(provider: Provider): NodeBotsRepository? = forProvider(provider)?.let { NodeBotsRepository(it.first) }
 
     /**
      * What [provider]'s node and its agent did and know (spec/audit.md): every receipt checked

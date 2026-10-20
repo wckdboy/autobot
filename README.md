@@ -265,6 +265,18 @@ failed, and whether every receipt verified (one that did not is the first line, 
 waiting for you are its main button, which opens the agent's board; Details opens the activity.
 Dismissing or opening it marks it seen, per node.
 
+**Bots.** A node in bots mode runs several named bots, each with its own persona, model, approvals
+mode and channels (Telegram, Discord, Slack, email, Signal, Matrix, the API). Remote › *Agents · my
+node* then lists them under the agent row: name, persona line and model, its state with the
+channels it listens on, a channel that is down in red with why (`slack down: token revoked ✗`),
+and what is queued and when it was last active. A bot's page shows its channels, model and
+approvals, the approvals waiting for it, its recent sessions, a switch to turn it off (it asks
+first) and *New chat with ops*, a conversation on the node with that bot. With more than one
+bot, the agent screen and its approval cards say which bot, and "While you were away" gives one
+short line per bot. An older node without bots answers 404 to `GET /v1/agent/bots` and the
+screens stay as they were. With the demo data (below) the paired node has three sample bots:
+`default`, `ops` on Telegram and Slack with Slack down, and `support` on email.
+
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and
@@ -606,7 +618,8 @@ only when `BuildConfig.DEBUG` is set, and the sample data is compiled into `src/
 reads them under `#if DEBUG`). Both apps seed an empty install with the same sample: providers
 (DeepSeek, Ollama, a paired node), a chat with reasoning and code, an agent run with tool steps and
 a plan, a "phone first" chat, a recipe run, four gallery images, an installed model, an image
-backend, audit entries and the node digest sample (`NodeDigests.sample`).
+backend, audit entries, three bots on the node (`NodeBots.sample`) and the node digest sample, one line per
+bot (`NodeDigests.sampleWithBots`).
 
 | | Android (intent extras) | iOS (launch arguments) |
 | --- | --- | --- |
@@ -619,7 +632,8 @@ backend, audit entries and the node digest sample (`NodeDigests.sample`).
 
 Screens: `run`, `sessions`, `chat`, `agent`, `phone-first`, `imagine`, `gallery`, `viewer`,
 `backends`, `models`, `compute`, `accounts`, `remote`, `providers`, `node`, `settings`, `privacy`,
-`about`, `licenses`, `memory`, `vault`, `usage`, `recipes`, `mcp`, `studio`, `studio-<room>`.
+`bot` (the node's ops bot), `about`, `licenses`, `memory`, `vault`, `usage`, `recipes`, `mcp`, `studio`,
+`studio-<room>`.
 
 ```sh
 adb shell pm clear ai.wckd.autobot.debug        # the sample only fills an empty install

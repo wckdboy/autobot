@@ -80,7 +80,8 @@ class DemoSeed @Inject constructor(
 
         providers.save(Provider(DEMO_DEEPSEEK, ProviderKind.DEEPSEEK, "DeepSeek", ProviderPresets.DEEPSEEK_BASE_URL, "deepseek-flash", presetId = "deepseek"))
         providers.save(Provider(DEMO_OLLAMA, ProviderKind.OLLAMA, "Ollama", ProviderPresets.OLLAMA_BASE_URL, "qwen3:8b", routing = ProviderRouting.DIRECT, presetId = "ollama"))
-        // A paired Invincible node, so Remote shows the node's agent row (its orange mark).
+        // A paired Invincible node, so Remote shows the node's agent row (its orange mark) and its
+        // three sample bots (BotsDemo: default, ops with Slack down, support on email).
         providers.save(Provider(DebugLaunch.DEMO_NODE, ProviderKind.INVINCIBLE_NODE, "studio-mac", "http://192.168.1.20:8787/v1", "qwen3:8b", routing = ProviderRouting.DIRECT))
 
         val plan = Catalog.chatModels.first { it.id == PHONE_MODEL }

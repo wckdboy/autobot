@@ -62,10 +62,16 @@ final class NodeAgentModel {
 
     /// A conversation to open instead of this device's own (the one approvals wait in).
     let openSession: String?
+    /// The bot of [openSession], or with no session, the bot to start a new conversation with (bots mode).
+    let bot: String?
 
-    init(providerId: String, session: String? = nil) {
+    /// The node has more than one bot: the screen says which one this is.
+    var severalBots: Bool { (info?.bots.count ?? 0) > 1 }
+
+    init(providerId: String, session: String? = nil, bot: String? = nil) {
         self.providerId = providerId
         openSession = session
+        self.bot = bot
     }
 
     func connect(app: AppContainer) async {
@@ -78,11 +84,18 @@ final class NodeAgentModel {
         guard let runtime else { return problem = "My node is not available here" }
         connected = true
         problem = nil
-        let (opened, error) = await runtime.nodeAgentOpen(providerId, session: openSession)
+        // A new chat with a bot: a conversation of its own, kept across reconnects.
+        var target = openSession
+        let fresh = openSession == nil && bot != nil
+        if fresh, let bot {
+            if session.isEmpty { session = await runtime.nodeAgentNewSession(providerId, bot: bot) ?? "" }
+            target = session.isEmpty ? nil : session
+        }
+        let (opened, error) = await runtime.nodeAgentOpen(providerId, session: target)
         guard let opened else { return problem = error ?? "The node did not answer" }
         session = opened.session
         info = opened.info
-        let history: [NodeAgentRow] = opened.history.map { line in
+        let history: [NodeAgentRow] = (fresh && rows.isEmpty ? [] : opened.history).map { line in
             switch line.role {
             case "user": .user(id: next(), text: line.text)
             case "tool": .note(id: next(), text: line.text, tone: .tool)
@@ -91,7 +104,7 @@ final class NodeAgentModel {
         }
         // Approvals waiting anywhere on the node, as cards (an older node cannot list them: none shown).
         let waiting = await runtime.nodeAgentApprovals(providerId)
-        rows = Self.waiting(history, waiting) { [self] in next() }
+        rows = Self.waiting(history, waiting, severalBots: severalBots) { [self] in next() }
     }
 
     func send(_ text: String) {
@@ -100,7 +113,7 @@ final class NodeAgentModel {
         rows.append(.user(id: next(), text: trimmed))
         running = true
         route = nil
-        turn = runtime.nodeAgentTurn(providerId, session: session, text: trimmed) { [weak self] event in self?.apply(event) }
+        turn = runtime.nodeAgentTurn(providerId, session: session, text: trimmed, bot: bot) { [weak self] event in self?.apply(event) }
     }
 
     private func apply(_ event: AgentEvent) {
@@ -149,11 +162,13 @@ final class NodeAgentModel {
     }
 
     /// [rows] and, after them, a card for each approval waiting that is not on screen yet.
-    static func waiting(_ rows: [NodeAgentRow], _ approvals: [PendingApproval], next: () -> Int) -> [NodeAgentRow] {
+    /// With [severalBots], each card says which bot asks ("ops · Run a command?").
+    static func waiting(_ rows: [NodeAgentRow], _ approvals: [PendingApproval], severalBots: Bool = false, next: () -> Int) -> [NodeAgentRow] {
         let shown = Set(rows.compactMap { row -> String? in if case .question(_, let approval, _, _, _) = row { approval } else { nil } })
         return rows + approvals.filter { !shown.contains($0.id) }.map { a in
             let (title, detail) = describe(a.action, fallback: a.text)
-            return .question(id: next(), approval: a.id, title: a.agent.map { "\($0): \(title)" } ?? title, detail: detail, answer: nil)
+            let asked = a.agent.map { "\($0): \(title)" } ?? title
+            return .question(id: next(), approval: a.id, title: severalBots ? "\(NodeBots.shared.of(bot: a.bot)) · \(asked)" : asked, detail: detail, answer: nil)
         }
     }
 
@@ -256,8 +271,8 @@ struct NodeAgentScreen: View {
     @State private var otherFor: String?
     @State private var otherText = ""
 
-    init(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil) {
-        _model = State(initialValue: NodeAgentModel(providerId: providerId, session: session))
+    init(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil, bot: String? = nil) {
+        _model = State(initialValue: NodeAgentModel(providerId: providerId, session: session, bot: bot))
         _showActivity = State(initialValue: open != nil)
         self.open = open
     }
@@ -318,7 +333,8 @@ struct NodeAgentScreen: View {
             }
         } else if let info = model.info {
             let folder = info.workdir.split(separator: "/").suffix(2).joined(separator: "/")
-            SectionLabel(["runs on \(model.node)", "approvals: \(info.approvals)", info.private_ ? "local models only" : nil, "…/\(folder)"].compactMap { $0 }.joined(separator: " · "))
+            // Several bots: which one this conversation is with.
+            SectionLabel([model.severalBots ? "bot \(NodeBots.shared.of(bot: model.bot))" : nil, "runs on \(model.node)", "approvals: \(info.approvals)", info.private_ ? "local models only" : nil, "…/\(folder)"].compactMap { $0 }.joined(separator: " · "))
         } else {
             InkLoader(.inline)
         }

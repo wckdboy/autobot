@@ -15,6 +15,10 @@ import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.NodeDigest
 import dev.wckdboy.autobot.shared.invincible.NodeDigests
 import dev.wckdboy.autobot.shared.invincible.PendingApproval
+import dev.wckdboy.autobot.shared.invincible.AgentSession
+import dev.wckdboy.autobot.shared.invincible.NodeBots
+import dev.wckdboy.autobot.shared.invincible.NodeBotsRepository
+import dev.wckdboy.autobot.shared.invincible.NodeBotsState
 import dev.wckdboy.autobot.shared.invincible.nodeCrypto
 import dev.wckdboy.autobot.shared.invincible.nodeConnector
 import dev.wckdboy.autobot.shared.invincible.fingerprint
@@ -651,7 +655,13 @@ class AgentBridge(
     ) {
         val (agent, own) = requireNodeAgent(providerId)
         val id = session ?: own
-        NodeAgentOpened(id, agent.info(), agent.history(id)) to null
+        // A conversation not started yet (a new chat with a bot) has no history: empty, not an error.
+        val history = try {
+            agent.history(id)
+        } catch (e: dev.wckdboy.autobot.shared.invincible.NodeAgentException) {
+            if (e.status == 404) emptyList() else throw e
+        }
+        NodeAgentOpened(id, agent.info(), history) to null
     }
 
     /** The approvals waiting now, oldest first; null with no error from a node too old to list them. */
@@ -666,12 +676,16 @@ class AgentBridge(
         failed = { false },
     ) { requireNodeAgent(providerId).first.answerInstead(id, text) }
 
-    /** Runs a turn; [listener] gets its events, the last being an answer or a failure. Cancelling stops listening, not the turn. */
-    fun nodeAgentTurn(providerId: String, session: String, text: String, listener: (AgentEvent) -> Unit): Cancellable {
+    /**
+     * Runs a turn; [listener] gets its events, the last being an answer or a failure. Cancelling
+     * stops listening, not the turn. [bot]: the bot a new session belongs to (bots mode); null for
+     * the default one.
+     */
+    fun nodeAgentTurn(providerId: String, session: String, text: String, bot: String?, listener: (AgentEvent) -> Unit): Cancellable {
         val job = scope.launch {
             try {
                 val (agent, _) = requireNodeAgent(providerId)
-                agent.turn(session, text).collect { listener(it) }
+                agent.turn(session, text, bot).collect { listener(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -695,6 +709,36 @@ class AgentBridge(
         requireNodeAgent(providerId).first.reset(session)
         null
     }
+
+    /**
+     * The node's bots (bots mode): [NodeBotsState.supported] false from a node too old to have
+     * them, [NodeBotsState.problem] when it did not answer.
+     */
+    fun nodeBots(providerId: String, callback: (NodeBotsState) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { NodeBotsState(problem = it) },
+    ) { NodeBotsRepository(requireNodeAgent(providerId).first).refresh() }
+
+    /** Switches bot [name] on or off; null, or why it did not work. */
+    fun nodeBotSetEnabled(providerId: String, name: String, enabled: Boolean, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { it },
+    ) {
+        requireNodeAgent(providerId).first.setBotEnabled(name, enabled)
+        null
+    }
+
+    /** The node's conversations, or only [bot]'s (bots mode), newest first. */
+    fun nodeAgentSessions(providerId: String, bot: String?, callback: (List<AgentSession>?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<List<AgentSession>?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) { requireNodeAgent(providerId).first.sessions(bot).sortedByDescending { it.modified } to null }
+
+    /** A new conversation id for a chat from this device with [bot]; null when the pairing is unreadable. */
+    fun nodeAgentNewSession(providerId: String, bot: String, now: Long, callback: (String?) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { null },
+    ) { nodeAgentAndPairing(providerId)?.let { (_, paired) -> NodeBots.newSession(paired.deviceName, bot, now) } }
 
     fun nodeAgentSchedules(providerId: String, callback: (List<AgentSchedule>?, String?) -> Unit) = launchAnswering(
         callback = { r: Pair<List<AgentSchedule>?, String?> -> callback(r.first, r.second) },

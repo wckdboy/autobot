@@ -35,7 +35,10 @@ enum Destination: Hashable {
     case recipes
     /// The Autobot Agent on a paired node ([providerId]: its "My node" provider); [open] is a sheet to
     /// open on arrival (the Run screen's "While you were away").
-    case nodeAgent(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil)
+    /// [bot]: the bot the conversation belongs to (bots mode); with no [session], a new chat with it.
+    case nodeAgent(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil, bot: String? = nil)
+    /// One bot on a paired node (bots mode): its state, channels, sessions and approvals.
+    case nodeBot(providerId: String, name: String)
 }
 
 /// The Creative Studio's rooms (its own bar while the Studio is open).
@@ -87,6 +90,8 @@ final class Navigator {
             case "run": tab = .run
             case "remote": tab = .remote
             case "node": tab = .remote; path = [.nodeAgent(providerId: "demo-node")]
+            // The demo node's ops bot (Bot detail).
+            case "bot": tab = .remote; path = [.nodeBot(providerId: BotsDemo.nodeId, name: "ops")]
 
             case "settings": tab = .settings
             case "sessions": path = [.chatList]
@@ -219,7 +224,9 @@ struct AutobotNavHost: View {
         case .vault: VaultScreen()
         case .usage: UsageScreen()
         case .recipes: RecipesScreen()
-        case .nodeAgent(let providerId, let open, let session): NodeAgentScreen(providerId: providerId, open: open, session: session).id("\(providerId)/\(session ?? "")")
+        case .nodeAgent(let providerId, let open, let session, let bot):
+            NodeAgentScreen(providerId: providerId, open: open, session: session, bot: bot).id("\(providerId)/\(session ?? "")/\(bot ?? "")")
+        case .nodeBot(let providerId, let name): NodeBotScreen(providerId: providerId, name: name).id("\(providerId)/bot/\(name)")
         }
     }
 }

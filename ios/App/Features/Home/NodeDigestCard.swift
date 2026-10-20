@@ -72,7 +72,9 @@ final class NodeDigestModel {
             if DebugFlags.demo {
                 let failed = ProcessInfo.processInfo.arguments.contains("-AutobotDemoDigest") &&
                     ProcessInfo.processInfo.arguments.contains("failed")
-                return NodeDigests.shared.sample(now: Int64(Date().timeIntervalSince1970), failedReceipt: failed)
+                let now = Int64(Date().timeIntervalSince1970)
+                // The demo node has three bots (BotsDemo): the card says which bot did what.
+                return failed ? NodeDigests.shared.sample(now: now, failedReceipt: true) : NodeDigests.shared.sampleWithBots(now: now)
             }
             #endif
             guard let runtime = app.agent as? SharedAgentRuntime else { return nil }

@@ -86,7 +86,7 @@ struct NodeDigestTests {
     }
 
     private func approval(_ id: String, agent: String? = nil) -> PendingApproval {
-        PendingApproval(id: id, session: "s", text: "run: ls", action: AgentActionCommand(command: "ls"), agent: agent, askedAt: 1, expiresAt: nil)
+        PendingApproval(id: id, session: "s", text: "run: ls", action: AgentActionCommand(command: "ls"), agent: agent, askedAt: 1, expiresAt: nil, bot: nil)
     }
 
     @Test func approvalsWaitingBecomeCardsOnce() {

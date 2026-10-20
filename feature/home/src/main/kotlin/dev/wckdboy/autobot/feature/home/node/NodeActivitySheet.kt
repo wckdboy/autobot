@@ -131,7 +131,7 @@ private fun Actions(activity: NodeActivity) {
         Column {
             Text(a.action, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, maxLines = 3)
             Text(
-                "${format.format(Date(a.at * 1000))} · ${NodeActivityWords.decided(a)} · ${a.session}",
+                "${format.format(Date(a.at * 1000))} · ${NodeActivityWords.decided(a)} · ${a.session}" + (a.bot?.let { " · bot $it" } ?: ""),
                 style = AutobotTheme.styles.micro,
                 color = if (a.ran) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             )
