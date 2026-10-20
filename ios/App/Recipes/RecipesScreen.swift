@@ -8,7 +8,6 @@ import SwiftUI
 struct RecipesScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var editing: RecipeDoc?
     @State private var summary = RecipeNotifier.showSummary
 
@@ -18,35 +17,39 @@ struct RecipesScreen: View {
         VStack(spacing: 0) {
             // How iOS schedules recipes sits behind the ⓘ, not in a paragraph under the list (as on Android).
             AutobotTopBar(title: copy.SCREEN_TITLE, onBack: { nav.back() }) {
-                InfoButton(title: copy.SCREEN_TITLE, text: copy.IOS_NOTE)
-                IconAction(symbol: "plus", label: copy.NEW_RECIPE, tint: c.primary) { editing = RecipeRules.blank() }
+                RowInfo(title: copy.SCREEN_TITLE, text: copy.IOS_NOTE)
+                Button { editing = RecipeRules.blank() } label: { Image(systemName: "plus") }
+                    .accessibilityLabel(copy.NEW_RECIPE)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if !hasLocalModel {
-                        Notice(copy.NO_MODEL, tone: .warning).padding(.vertical, 8)
+            List {
+                if !hasLocalModel || center.nodeNotice != nil {
+                    Section {
+                        if !hasLocalModel {
+                            Label(copy.NO_MODEL, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.subheadline)
+                        }
+                        if let notice = center.nodeNotice {
+                            Text(notice).font(.footnote).foregroundStyle(.red).lineLimit(3)
+                        }
                     }
-                    if let notice = center.nodeNotice {
-                        MicroLabel(notice, color: c.error, lines: 3).padding(.bottom, 8)
-                    }
-                    if center.recipes.isEmpty {
-                        Text(copy.EMPTY).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(.vertical, 12)
-                    }
-                    ForEach(center.recipes) { r in row(r).transition(.inkDissolve) }
-                    SwitchRow(
-                        title: copy.SUMMARY_SWITCH,
-                        isOn: Binding(get: { summary }, set: { summary = $0; RecipeNotifier.showSummary = $0 }),
-                        info: copy.SUMMARY_DETAIL,
-                    )
-                    .padding(.horizontal, -Tokens.Spacing.gutter)
-                    .padding(.top, 8)
                 }
-                .animation(.inkDissolve, value: center.recipes.map(\.id))
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.bottom, 24)
+                if center.recipes.isEmpty {
+                    MarkUnavailableView(copy.EMPTY)
+                } else {
+                    Section {
+                        ForEach(center.recipes) { r in row(r) }
+                    }
+                }
+                Section {
+                    InfoToggle(
+                        title: copy.SUMMARY_SWITCH,
+                        info: copy.SUMMARY_DETAIL,
+                        isOn: Binding(get: { summary }, set: { summary = $0; RecipeNotifier.showSummary = $0 }),
+                    )
+                }
             }
+            .listStyle(.insetGrouped)
+            .animation(.default, value: center.recipes.map(\.id))
         }
-        .background(c.background)
         .sheet(item: $editing) { recipe in
             RecipeEditorSheet(initial: recipe, isNew: center.recipe(recipe.id) == nil) { editing = nil }
         }
@@ -57,43 +60,52 @@ struct RecipesScreen: View {
     private func row(_ r: RecipeDoc) -> some View {
         let center = app.recipes
         let running = center.running == r.id
-        return VStack(spacing: 0) {
+        let canRun = !(running || (r.runsOn == nil && !hasLocalModel))
+        let session = r.state.lastRun?.sessionId.flatMap { app.conversations.get($0) != nil ? $0 : nil }
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 Button { editing = r } label: {
                     VStack(alignment: .leading, spacing: 3) {
-                        MicroLabel(RecipeRules.where_(r, node: r.runsOn.map { app.providers.get($0)?.displayName ?? "my node" }))
-                        Text(r.name).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(2)
+                        Text(RecipeRules.where_(r, node: r.runsOn.map { app.providers.get($0)?.displayName ?? "my node" }))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(r.name).font(.headline).foregroundStyle(Color.primary).lineLimit(2)
                         Text(running ? "Running…" : RecipeRules.status(r))
-                            .textStyle(.micro)
-                            .foregroundStyle(running ? c.primary : c.onSurfaceVariant)
+                            .font(.subheadline)
+                            .foregroundStyle(running ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                             .lineLimit(2)
                         if let last = r.state.lastRun, !last.summary.isEmpty {
-                            MicroLabel(last.summary, color: last.done ? nil : c.error, lines: 2)
+                            Text(last.summary).font(.footnote).foregroundStyle(last.done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red)).lineLimit(2)
                         }
-                        if let note = r.state.lastRun?.notes.first { MicroLabel(note, color: c.error, lines: 2) }
+                        if let note = r.state.lastRun?.notes.first { Text(note).font(.footnote).foregroundStyle(.red).lineLimit(2) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(PressStyle())
-                Toggle("", isOn: Binding(get: { r.enabled }, set: { center.setEnabled(r.id, $0) }))
+                .buttonStyle(.borderless)
+                Toggle("Enable \(r.name)", isOn: Binding(get: { r.enabled }, set: { center.setEnabled(r.id, $0) }))
                     .labelsHidden()
-                    .tint(c.primary)
-                    .accessibilityLabel("Enable \(r.name)")
             }
             HStack(spacing: 16) {
-                TextAction(RecipeRules.copy.RUN_NOW, color: c.primary) { center.runNow(r.id) }
-                    .disabled(running || (r.runsOn == nil && !hasLocalModel))
-                if let session = r.state.lastRun?.sessionId, app.conversations.get(session) != nil {
-                    TextAction(RecipeRules.copy.OPEN_RESULT, color: c.onSurface) { nav.push(.chat(conversationId: session)) }
+                Button(RecipeRules.copy.RUN_NOW) { center.runNow(r.id) }
+                    .disabled(!canRun)
+                if let session {
+                    Button(RecipeRules.copy.OPEN_RESULT) { nav.push(.chat(conversationId: session)) }
                 }
-                Spacer()
             }
-            .padding(.top, 6)
-            .padding(.bottom, 12)
-            Hairline()
+            .buttonStyle(.borderless)
+            .font(.subheadline)
         }
-        .padding(.top, 12)
+        .padding(.vertical, 4)
+        .swipeActions(edge: .leading) {
+            if canRun { Button(RecipeRules.copy.RUN_NOW) { center.runNow(r.id) }.tint(.accentColor) }
+        }
+        .contextMenu {
+            Button("Edit", systemImage: "pencil") { editing = r }
+            Button(RecipeRules.copy.RUN_NOW, systemImage: "play") { center.runNow(r.id) }.disabled(!canRun)
+            if let session {
+                Button(RecipeRules.copy.OPEN_RESULT, systemImage: "bubble.left") { nav.push(.chat(conversationId: session)) }
+            }
+        }
     }
 }
 
@@ -105,7 +117,6 @@ struct RecipeEditorSheet: View {
     @State private var problems: [String] = []
     @State private var confirmDelete = false
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     init(initial: RecipeDoc, isNew: Bool, onDismiss: @escaping () -> Void) {
         _draft = State(initialValue: initial)
@@ -115,77 +126,99 @@ struct RecipeEditorSheet: View {
 
     var body: some View {
         let copy = RecipeRules.copy
-        // The shared form: the focused field scrolls into view and Save stays above the keyboard.
-        KeyboardForm {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel(isNew ? "new recipe" : "edit recipe")
-                ConsoleTextField(text: $draft.name, placeholder: "Morning brief", label: "Name")
-                ConsoleTextField(text: $draft.prompt, placeholder: "What should the agent do?", label: "Prompt", minLines: 4, maxLines: 12)
-
-                MicroLabel("schedule")
-                ChipRow(items: RecipeScheduleDoc.Kind.allCases, selected: draft.schedule.kind, label: \.label) { kind in
-                    draft.schedule = draft.schedule.with(kind: kind)
+        NavigationStack {
+            Form {
+                Section {
+                    FormField("Name", text: $draft.name, prompt: "Morning brief")
+                    TextField("Prompt", text: $draft.prompt, prompt: Text("What should the agent do?"), axis: .vertical)
+                        .lineLimit(4 ... 12)
                 }
-                scheduleDetail
+
+                Section("Schedule") {
+                    Picker("Repeats", selection: Binding(get: { draft.schedule.kind }, set: { draft.schedule = draft.schedule.with(kind: $0) })) {
+                        ForEach(RecipeScheduleDoc.Kind.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    scheduleDetail
+                }
 
                 let nodes = app.providers.providers.filter { $0.kind == .invincibleNode }
                 if !nodes.isEmpty || draft.runsOn != nil {
-                    MicroLabel(copy.RUNS_ON_HEADER.lowercased())
-                    ChipRow(items: [""] + nodes.map(\.id), selected: draft.runsOn ?? "", label: { id in
-                        id.isEmpty ? copy.THIS_PHONE : (nodes.first { $0.id == id }?.displayName ?? "my node")
-                    }) { draft.runsOn = $0.isEmpty ? nil : $0 }
-                    if draft.runsOn != nil {
-                        Text(copy.NODE_DETAIL).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                        ForEach(RecipeRules.nodeLimits(draft), id: \.self) { MicroLabel($0, color: c.error, lines: 2) }
+                    Section {
+                        Picker(copy.RUNS_ON_HEADER, selection: Binding(get: { draft.runsOn ?? "" }, set: { draft.runsOn = $0.isEmpty ? nil : $0 })) {
+                            ForEach([""] + nodes.map(\.id), id: \.self) { id in
+                                Text(id.isEmpty ? copy.THIS_PHONE : (nodes.first { $0.id == id }?.displayName ?? "my node")).tag(id)
+                            }
+                        }
+                        if draft.runsOn != nil {
+                            ForEach(RecipeRules.nodeLimits(draft), id: \.self) { Text($0).font(.footnote).foregroundStyle(.red) }
+                        }
+                    } footer: {
+                        if draft.runsOn != nil { Text(copy.NODE_DETAIL) }
                     }
                 }
                 if draft.runsOn == nil {
-                    MicroLabel(copy.MODEL_HEADER.lowercased())
-                    ChipRow(items: [""] + app.recipeModels.map(\.id), selected: draft.model, label: { id in
-                        id.isEmpty ? copy.MODEL_DEFAULT : (app.recipeModels.first { $0.id == id }?.title ?? id)
-                    }) { draft.model = $0 }
+                    Section {
+                        Picker(copy.MODEL_HEADER, selection: $draft.model) {
+                            ForEach([""] + app.recipeModels.map(\.id), id: \.self) { id in
+                                Text(id.isEmpty ? copy.MODEL_DEFAULT : (app.recipeModels.first { $0.id == id }?.title ?? id)).tag(id)
+                            }
+                        }
+                    }
                 }
 
-                MicroLabel(copy.TOOLS_HEADER.lowercased())
-                ForEach(RecipeRules.toolGroups) { group in
-                    SwitchRow(
-                        title: group.label,
-                        subtitle: group.detail,
-                        isOn: Binding(get: { group.tools.allSatisfy(draft.tools.contains) }, set: { on in
+                Section {
+                    ForEach(RecipeRules.toolGroups) { group in
+                        Toggle(isOn: Binding(get: { group.tools.allSatisfy(draft.tools.contains) }, set: { on in
                             draft.tools = RecipeRules.toggleTools(draft.tools, group: group.id, on: on)
-                        }),
-                    )
-                    .padding(.horizontal, -Tokens.Spacing.gutter)
-                }
-                Text(copy.TOOLS_DETAIL).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                if draft.usesNetwork {
-                    Text(copy.NETWORK_NOTE).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                        })) {
+                            Text(group.label)
+                            Text(group.detail)
+                        }
+                    }
+                } header: {
+                    Text(copy.TOOLS_HEADER)
+                } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(copy.TOOLS_DETAIL)
+                        if draft.usesNetwork { Text(copy.NETWORK_NOTE) }
+                    }
                 }
 
-                Group {
-                    SwitchRow(title: copy.RECENT_CHATS, isOn: $draft.includeRecentChats, info: copy.RECENT_CHATS_DETAIL)
-                    SwitchRow(title: copy.CHARGING, isOn: $draft.requiresCharging)
-                    SwitchRow(title: copy.BATTERY, isOn: $draft.requiresBatteryNotLow)
-                    SwitchRow(title: "Enabled", isOn: $draft.enabled)
+                Section {
+                    InfoToggle(title: copy.RECENT_CHATS, info: copy.RECENT_CHATS_DETAIL, isOn: $draft.includeRecentChats)
+                    Toggle(copy.CHARGING, isOn: $draft.requiresCharging)
+                    Toggle(copy.BATTERY, isOn: $draft.requiresBatteryNotLow)
+                    Toggle("Enabled", isOn: $draft.enabled)
                 }
-                .padding(.horizontal, -Tokens.Spacing.gutter)
 
-                ForEach(problems, id: \.self) { MicroLabel($0, color: c.error, lines: 2) }
+                if !problems.isEmpty {
+                    Section {
+                        ForEach(problems, id: \.self) { Text($0).foregroundStyle(.red) }
+                    }
+                }
 
                 if !isNew {
-                    TextAction(copy.DELETE, color: c.error) { confirmDelete = true }.frame(maxWidth: .infinity)
+                    Section {
+                        Button(copy.DELETE, role: .destructive) { confirmDelete = true }
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
             }
-        } footer: {
-            HStack(spacing: 8) {
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss)
-                PrimaryButton("Save") {
-                    problems = app.recipes.save(draft)
-                    if problems.isEmpty { onDismiss() }
+            .formStyle(.grouped)
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle(isNew ? "New recipe" : "Edit recipe")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDismiss) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        problems = app.recipes.save(draft)
+                        if problems.isEmpty { onDismiss() }
+                    }
                 }
             }
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
         .alert("Delete \(draft.name)?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
@@ -202,11 +235,11 @@ struct RecipeEditorSheet: View {
         switch draft.schedule {
         case .hours(let h):
             Stepper(value: Binding(get: { h }, set: { draft.schedule = .hours($0) }), in: 1 ... 24) {
-                Text(h == 1 ? "Every hour" : "Every \(h) hours").textStyle(.bodyMedium).foregroundStyle(c.onSurface)
+                Text(h == 1 ? "Every hour" : "Every \(h) hours")
             }
         case .weekly(let day, let minute):
-            ChipRow(items: Array(1 ... 7), selected: day, label: { String(RecipeRules.dayNames[$0 - 1].prefix(3)) }) {
-                draft.schedule = .weekly(dayOfWeek: $0, minuteOfDay: minute)
+            Picker("Day", selection: Binding(get: { day }, set: { draft.schedule = .weekly(dayOfWeek: $0, minuteOfDay: minute) })) {
+                ForEach(Array(1 ... 7), id: \.self) { Text(RecipeRules.dayNames[$0 - 1]).tag($0) }
             }
             timePicker(minute)
         case .daily(let minute), .weekdays(let minute):
@@ -226,9 +259,6 @@ struct RecipeEditorSheet: View {
             ),
             displayedComponents: .hourAndMinute,
         )
-        .textStyle(.bodyMedium)
-        .foregroundStyle(c.onSurface)
-        .tint(c.primary)
     }
 }
 

@@ -36,30 +36,28 @@ struct FirstModelCard: View {
     let onPause: () -> Void
     let onResume: () -> Void
     let onStart: () -> Void
-    @Environment(\.scheme) private var c
     private let words = FirstModel.shared
 
     var body: some View {
         if state.step != .hidden {
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel(words.TITLE)
-                if let plan = state.plan {
-                    Text(plan.title).textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                    MicroLabel(words.sizeLine(sizeBytes: plan.totalBytes, ramBytes: ramBytes))
-                    Text(sentence(plan))
-                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-                        .fixedSize(horizontal: false, vertical: true)
-                    action(plan)
-                } else {
-                    Text(words.NONE_FITS).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-                        .fixedSize(horizontal: false, vertical: true)
+            Section(words.TITLE) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let plan = state.plan {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(plan.title).font(.headline)
+                            Text(words.sizeLine(sizeBytes: plan.totalBytes, ramBytes: ramBytes)).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Text(sentence(plan))
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        action(plan)
+                    } else {
+                        Text(words.NONE_FITS).font(.footnote).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .padding(.vertical, 4)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainer))
-            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.outlineVariant, lineWidth: 1))
-            .padding(.bottom, 14)
         }
     }
 
@@ -70,34 +68,45 @@ struct FirstModelCard: View {
         return blocked ? words.OFFLINE_FIRST : words.OFFLINE
     }
 
+    /// The card's one next action: a prominent Liquid Glass button across the row.
+    private func primary(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Text(label).frame(maxWidth: .infinity) }
+            .primaryActionStyle()
+            .controlSize(.large)
+    }
+
+    private func quiet(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(label, action: action).buttonStyle(.borderless).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+    }
+
     @ViewBuilder private func action(_ plan: ModelPlan) -> some View {
         let total = plan.totalBytes
         switch state.step {
         case .offer:
             if offline {
-                PrimaryButton(words.ALLOW_AND_DOWNLOAD) { onNetwork(true); onDownload() }
+                primary(words.ALLOW_AND_DOWNLOAD) { onNetwork(true); onDownload() }
             } else {
-                PrimaryButton(words.DOWNLOAD, action: onDownload)
+                primary(words.DOWNLOAD, action: onDownload)
             }
         case .queued, .downloading:
             progress(total)
-            TextAction(words.PAUSE, color: c.onSurfaceVariant, action: onPause)
+            quiet(words.PAUSE, action: onPause)
         case .paused:
             progress(total)
-            PrimaryButton(words.RESUME, action: onResume)
+            primary(words.RESUME, action: onResume)
         case .failed:
             if let error = state.error {
-                Text(error).textStyle(.bodySmall).foregroundStyle(c.error).lineLimit(2)
+                Text(error).font(.footnote).foregroundStyle(.red).lineLimit(2)
             }
             if offline {
-                PrimaryButton(words.ALLOW_AND_DOWNLOAD) { onNetwork(true); onResume() }
+                primary(words.ALLOW_AND_DOWNLOAD) { onNetwork(true); onResume() }
             } else {
-                PrimaryButton(words.RETRY, action: onResume)
+                primary(words.RETRY, action: onResume)
             }
         case .ready:
-            PrimaryButton(words.START_CHAT, action: onStart)
+            primary(words.START_CHAT, action: onStart)
             if !offline {
-                TextAction(words.BACK_OFFLINE, color: c.onSurfaceVariant) { onNetwork(false) }
+                quiet(words.BACK_OFFLINE) { onNetwork(false) }
             }
 
         default:
@@ -106,7 +115,8 @@ struct FirstModelCard: View {
     }
 
     @ViewBuilder private func progress(_ total: Int64) -> some View {
-        ProgressLine(fraction: total > 0 ? min(max(Double(state.downloaded) / Double(total), 0), 1) : 0, running: state.step == .downloading)
-        MicroLabel(words.progressLine(step: state.step, downloaded: state.downloaded, total: total))
+        ProgressView(value: total > 0 ? min(max(Double(state.downloaded) / Double(total), 0), 1) : 0)
+        Text(words.progressLine(step: state.step, downloaded: state.downloaded, total: total))
+            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
     }
 }

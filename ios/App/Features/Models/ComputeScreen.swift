@@ -6,7 +6,6 @@ import UIKit
 struct ComputeScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var devices: ComputeDevices?
     @State private var running: String?
     /// The model being benchmarked, and how far (backends done / to run).
@@ -20,54 +19,55 @@ struct ComputeScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Compute", onBack: { nav.back() }) {
                 if DiagnosticsReportBuilder.available {
-                    Tag("report") { report = DiagnosticsReportBuilder.render(app: app, devices: devices) }
-                        .padding(.trailing, 4)
+                    Button("Report") { report = DiagnosticsReportBuilder.render(app: app, devices: devices) }
                 }
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        let info = LocalDeviceInfo.current()
-                        SectionLabel("this phone" + ([info.name ?? device?.machine, info.chip ?? device?.chip].compactMap { $0 }.isEmpty ? "" : " · " + [info.name ?? device?.machine, info.chip ?? device?.chip].compactMap { $0 }.joined(separator: " · ")))
-                        HStack(alignment: .top, spacing: 10) {
-                            DeviceCard(label: "cpu", value: device.map { "\($0.cores) cores" }, present: true)
-                            DeviceCard(label: "gpu", value: devices?.gpu ?? "none", present: devices?.gpu != nil)
-                            DeviceCard(label: "npu", value: devices?.npu ?? "none", present: devices?.npu != nil)
-                        }
-                        if let error = devices?.npuError { MicroLabel("npu: \(error)", color: c.error, lines: 2) }
-                        if devices?.npu != nil {
-                            MicroLabel("chat runs on the gpu (metal) or cpu — llama.cpp has no neural engine backend · images run on the neural engine", lines: 3)
-                        }
+            List {
+                let info = LocalDeviceInfo.current()
+                let names = [info.name ?? device?.machine, info.chip ?? device?.chip].compactMap { $0 }
+                Section {
+                    DeviceRow(label: "CPU", value: device.map { "\($0.cores) cores" }, present: true)
+                    DeviceRow(label: "GPU", value: devices?.gpu ?? (devices == nil ? nil : "none"), present: devices?.gpu != nil)
+                    DeviceRow(label: "NPU", value: devices?.npu ?? (devices == nil ? nil : "none"), present: devices?.npu != nil)
+                    if let error = devices?.npuError { Text("npu: \(error)").font(.footnote).foregroundStyle(.red).lineLimit(2) }
+                } header: {
+                    Text("This phone" + (names.isEmpty ? "" : " · " + names.joined(separator: " · ")))
+                } footer: {
+                    if devices?.npu != nil {
+                        Text("chat runs on the gpu (metal) or cpu — llama.cpp has no neural engine backend · images run on the neural engine")
                     }
-                    let system = AppleIntelligence.unavailability
-                    Panel(title: "system model · \(AppleIntelligence.title)", accent: system == nil ? c.primary : nil) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(system.map { "unavailable · \($0.detail)" } ?? "available")
-                                .textStyle(.bodySmall)
-                                .foregroundStyle(system == nil ? c.onSurface : c.onSurfaceVariant)
-                            MicroLabel("fallback · ~4k tokens, no tools")
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let running {
-                        VStack(alignment: .leading, spacing: 6) {
-                            MicroLabel("benchmarking · \(running.hasSuffix("…") ? String(running.dropLast()) : running)", lines: 2)
-                            InkProgressBar(fraction: Double(benchStep.done) / Double(max(benchStep.total, 1)), height: 2, running: true)
-                        }
-                    }
-                    SectionLabel("models", color: c.onSurfaceVariant)
-                    if models.contains(where: { !SpeculativeDraftPicker.drafts(for: $0.id).isEmpty }) {
-                        SpeculativePanel()
-                    }
-                    ForEach(models) { m in
-                        ModelCompute(model: m, running: running != nil, benchmarking: benchModel == m.id) { benchmark(m) }
-                    }
-                    if models.isEmpty { MicroLabel("no runnable models yet — get one in the Models tab", lines: 2) }
                 }
-                .padding(16)
+                let system = AppleIntelligence.unavailability
+                Section {
+                    LabeledContent(AppleIntelligence.title) {
+                        Text(system.map { "unavailable · \($0.detail)" } ?? "available")
+                            .foregroundStyle(system == nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    }
+                } header: {
+                    Text("System model")
+                } footer: {
+                    Text("fallback · ~4k tokens, no tools")
+                }
+                if let running {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("benchmarking · \(running.hasSuffix("…") ? String(running.dropLast()) : running)").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                            ProgressView(value: Double(benchStep.done) / Double(max(benchStep.total, 1)))
+                        }
+                    }
+                }
+                if models.contains(where: { !SpeculativeDraftPicker.drafts(for: $0.id).isEmpty }) {
+                    SpeculativePanel()
+                }
+                ForEach(models) { m in
+                    ModelCompute(model: m, running: running != nil, benchmarking: benchModel == m.id) { benchmark(m) }
+                }
+                if models.isEmpty {
+                    MarkUnavailableView("No runnable models yet", message: "get one in the Models tab")
+                }
             }
+            .listStyle(.insetGrouped)
         }
-        .background(c.background)
         .sheet(item: Binding(get: { report.map(ReportText.init) }, set: { report = $0?.text })) { r in
             ReportSheet(text: r.text) { report = nil }
         }
@@ -106,28 +106,28 @@ struct ComputeScreen: View {
     }
 }
 
-private struct DeviceCard: View {
+/// One compute unit: its name, what it is (a spinner while it is read), the tint when present.
+private struct DeviceRow: View {
     let label: String
     /// Nil while it is being read.
     let value: String?
     let present: Bool
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        Panel(title: label, accent: present ? c.primary : nil) {
-            Group {
-                if let value {
-                    Text(value)
-                        .textStyle(.bodySmall)
-                        .foregroundStyle(present ? c.onSurface : c.onSurfaceVariant)
-                        .lineLimit(2)
-                } else {
-                    InkLoader()
-                }
+        LabeledContent {
+            if let value {
+                Text(value).lineLimit(2)
+            } else {
+                ProgressView()
             }
-            .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+        } label: {
+            Label {
+                Text(label)
+            } icon: {
+                Image(systemName: present ? "checkmark.circle.fill" : "circle.dashed")
+                    .foregroundStyle(present ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            }
         }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -138,7 +138,6 @@ private struct ModelCompute: View {
     let benchmarking: Bool
     let onBenchmark: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let mine = app.compute.benchmarks.filter { $0.modelId == model.id }
@@ -147,39 +146,55 @@ private struct ModelCompute: View {
         let lastError = mine.max { $0.createdAt < $1.createdAt }?.error
         let isText = model.engine == .llama
         let order: [Backend] = [.auto, .cpu, .gpu, .npu]
-        Panel(title: model.title) {
-            Tag("benchmark", accent: c.primary, busy: benchmarking, action: running ? nil : onBenchmark)
-        } content: {
-            Segmented(options: order, selected: model.backend, label: { b in
-                if b == .auto, let fastest { "auto · \(fastest.label)" } else { b.label }
-            }) { b in
+        Section {
+            Picker("Backend", selection: Binding(get: { model.backend }, set: { b in
                 app.compute.setBackend(model.id, b)
                 app.modelsChanged()
-            }
-            if !isText {
-                MicroLabel("core ml · npu = neural engine, gpu = metal · auto uses the model's build (\(model.subtitle.contains("original") ? "gpu" : "neural engine"))", lines: 2)
-            } else if model.backend == .npu {
-                MicroLabel("llama.cpp has no neural engine backend — npu falls back to the gpu or cpu", color: c.inks.amber, lines: 2)
+            })) {
+                ForEach(order, id: \.self) { b in
+                    Text(b == .auto ? (fastest.map { "auto · \($0.label)" } ?? b.label) : b.label).tag(b)
+                }
             }
             if !results.isEmpty {
-                HStack(alignment: .top, spacing: 18) {
-                    ForEach(order.filter { results[$0] != nil }, id: \.self) { backend in
-                        let r = results[backend]!
-                        let value = isText ? r.generationTps.map(fmt) ?? "–" : r.stepMs.map { fmt($0 / 1000) + "s" } ?? "–"
-                        BigReadout(label: backend.label + (isText ? " · tok/s" : " · step"), value: value)
+                ForEach(order.filter { results[$0] != nil }, id: \.self) { backend in
+                    let r = results[backend]!
+                    let value = isText ? r.generationTps.map(fmt) ?? "–" : r.stepMs.map { fmt($0 / 1000) + "s" } ?? "–"
+                    LabeledContent(backend.label + (isText ? " · tok/s" : " · step")) {
+                        Text(value).font(.title3.weight(.semibold)).monospacedDigit().foregroundStyle(.primary)
                     }
                 }
                 if results.values.contains(where: { $0.promptTps != nil }) {
-                    MicroLabel(order.compactMap { b in results[b].map { "\(b.label) prefill \($0.promptTps.map(fmt) ?? "–") tok/s" } }.joined(separator: "  "), lines: 2)
+                    Text(order.compactMap { b in results[b].map { "\(b.label) prefill \($0.promptTps.map(fmt) ?? "–") tok/s" } }.joined(separator: "  "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             } else {
-                MicroLabel("not measured yet")
+                Text("not measured yet").foregroundStyle(.secondary)
             }
-            if isText, let line = speculativeLine { MicroLabel(line.text, color: line.error ? c.error : c.onSurfaceVariant, lines: 2) }
-            if let lastError { MicroLabel("last run: \(lastError)", color: c.error, lines: 3) }
+            if isText, let line = speculativeLine {
+                Text(line.text).font(.footnote).foregroundStyle(line.error ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary)).lineLimit(2)
+            }
+            if let lastError { Text("last run: \(lastError)").font(.footnote).foregroundStyle(.red).lineLimit(3) }
+        } header: {
+            HStack {
+                Text(model.title)
+                Spacer()
+                Button {
+                    onBenchmark()
+                } label: {
+                    if benchmarking { ProgressView() } else { Text("Benchmark") }
+                }
+                .font(.subheadline)
+                .textCase(nil)
+                .disabled(running)
+            }
+        } footer: {
+            if !isText {
+                Text("core ml · npu = neural engine, gpu = metal · auto uses the model's build (\(model.subtitle.contains("original") ? "gpu" : "neural engine"))")
+            } else if model.backend == .npu {
+                Text("llama.cpp has no neural engine backend — npu falls back to the gpu or cpu").foregroundStyle(.orange)
+            }
         }
     }
-
     /// What speculative decoding does for this model: needs a draft, measure it, or the measured speedup.
     private var speculativeLine: (text: String, error: Bool)? {
         let drafts = SpeculativeDraftPicker.drafts(for: model.id)
@@ -200,17 +215,20 @@ private struct ModelCompute: View {
 /// Speculative decoding: auto / on / off (shown when an installed model has a draft in the catalog).
 private struct SpeculativePanel: View {
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     private static let modes = ["auto", "on", "off"]
 
     var body: some View {
         let mode = app.settings.settings.speculativeMode
-        Panel(title: "speculative decoding") {
-            Segmented(options: Self.modes, selected: mode, label: { $0 }) { m in
-                app.settings.setSpeculativeMode(m)
+        Section {
+            Picker("Speculative decoding", selection: Binding(get: { mode }, set: { app.settings.setSpeculativeMode($0) })) {
+                ForEach(Self.modes, id: \.self) { Text($0).tag($0) }
             }
-            MicroLabel(Self.detail(mode), lines: 3)
+            .pickerStyle(.segmented)
+        } header: {
+            Text("Speculative decoding")
+        } footer: {
+            Text(Self.detail(mode))
         }
     }
 
@@ -232,32 +250,39 @@ private struct ReportText: Identifiable {
 private struct ReportSheet: View {
     let text: String
     let onClose: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        InkStack(alignment: .leading, spacing: 12) {
-            Text("Diagnostics report").textStyle(.headlineSmall).foregroundStyle(c.onSurface)
-            MicroLabel("no prompts, file paths or identifiers · nothing is sent", lines: 2)
+        NavigationStack {
             ScrollView {
-                Text(text)
-                    .textStyle(.codeBlock)
-                    .foregroundStyle(c.onSurfaceVariant)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("no prompts, file paths or identifiers · nothing is sent").font(.footnote).foregroundStyle(.secondary)
+                    // The report is code-like text: monospaced.
+                    Text(text)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(16)
             }
-            .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(c.surfaceContainerLowest))
-            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
-            HStack(spacing: 8) {
-                GhostButton("Close", action: onClose)
-                PrimaryButton("Copy") {
+            .navigationTitle("Diagnostics report")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close", action: onClose) }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button {
                     UIPasteboard.general.string = text
                     onClose()
+                } label: {
+                    Text("Copy").frame(maxWidth: .infinity)
                 }
+                .primaryActionStyle()
+                .controlSize(.large)
+                .padding(16)
             }
         }
-        .padding(16)
-        .background(c.background.ignoresSafeArea())
         .presentationDetents([.large])
     }
 }
