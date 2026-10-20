@@ -1,9 +1,11 @@
 package dev.wckdboy.autobot.feature.home
 
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.Themed
 import org.junit.Assert.assertEquals
@@ -24,7 +26,9 @@ class RunScreenTest {
     fun allChatsIsThereWithNothingRecent() {
         var opened = 0
         compose.setContent { Themed { RunScreen(RunUiState(status = "ready"), LargeTextAudit.uncalled(), {}, {}, {}, { opened++ }, {}, {}) } }
-        compose.onNodeWithText("All").performScrollTo().performClick()
+        // A lazy list composes what is in view: scroll it to the row first.
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("All"))
+        compose.onNodeWithText("All").performClick()
         assertEquals(1, opened)
     }
 }
