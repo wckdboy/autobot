@@ -14,6 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.semantics.role
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.TextAutoSize
@@ -21,6 +27,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Card
@@ -36,6 +43,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +70,7 @@ import dev.wckdboy.autobot.core.designsystem.component.PrivateKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.ScreenTitle
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
 import dev.wckdboy.autobot.core.designsystem.component.rememberBufferedText
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 
@@ -350,3 +361,79 @@ internal fun Field(
 
 /** Default padding for the content of a scrolling screen. */
 internal val ScreenPadding = PaddingValues(bottom = 24.dp)
+
+/** A caption in sentence case ([labelCase]): a hint or a state under a field or a row. */
+@Composable
+internal fun Caption(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Text(labelCase(text), modifier, style = MaterialTheme.typography.bodySmall, color = color)
+}
+
+/** A bottom sheet's or a card's small heading, in sentence case, in the primary colour. */
+@Composable
+internal fun SheetLabel(text: String, modifier: Modifier = Modifier) {
+    Text(labelCase(text), modifier.semantics { heading() }, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+}
+
+/** List item colours on a sheet or a card: no container of its own. */
+@Composable
+internal fun clearListItem() = ListItemDefaults.colors(containerColor = Color.Transparent)
+
+/** A search field: Material's rounded outlined field with the search icon. The keyboard learns nothing from it. */
+@Composable
+internal fun SearchField(value: String, onValueChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, onSearch: (() -> Unit)? = null) {
+    NoPersonalizedLearning {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = modifier,
+            placeholder = { Text(placeholder) },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            singleLine = true,
+            shape = MaterialTheme.shapes.extraLarge,
+            keyboardOptions = if (onSearch == null) PromptKeyboardOptions else PromptKeyboardOptions.copy(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            keyboardActions = if (onSearch == null) KeyboardActions.Default else KeyboardActions(onSearch = { onSearch() }),
+        )
+    }
+}
+
+/**
+ * A single choice among a few short options: Material's segmented buttons. At a large font, where
+ * the segments would break their words, the options wrap as filter chips instead.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun <T> Choices(options: List<T>, selected: T, onSelect: (T) -> Unit, modifier: Modifier = Modifier, label: (T) -> String) {
+    if (isLargeText()) {
+        FlowRow(modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { option ->
+                FilterChip(
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
+                    label = { Text(label(option)) },
+                    modifier = Modifier.semantics { role = Role.RadioButton },
+                )
+            }
+        }
+        return
+    }
+    SingleChoiceSegmentedButtonRow(modifier) {
+        options.forEachIndexed { index, option ->
+            SegmentedButton(
+                selected = option == selected,
+                onClick = { onSelect(option) },
+                shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                icon = {},
+                label = { Text(label(option)) },
+            )
+        }
+    }
+}
+
+/** A figure with its label above it ("Tokens" / "1.2M"). */
+@Composable
+internal fun Stat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(labelCase(label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+    }
+}

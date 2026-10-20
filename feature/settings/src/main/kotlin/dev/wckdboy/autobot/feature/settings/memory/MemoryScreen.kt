@@ -1,16 +1,6 @@
 package dev.wckdboy.autobot.feature.settings.memory
 
-import dev.wckdboy.autobot.core.designsystem.component.AddButton
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BackButton
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +39,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ListItem
+import dev.wckdboy.autobot.feature.settings.ui.AppBar
+import dev.wckdboy.autobot.feature.settings.ui.Caption
+import dev.wckdboy.autobot.feature.settings.ui.Centered
+import dev.wckdboy.autobot.feature.settings.ui.EmptyMessage
+import dev.wckdboy.autobot.feature.settings.ui.SearchField
+import dev.wckdboy.autobot.feature.settings.ui.Subheader
+import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
 import dev.wckdboy.autobot.core.data.MemoryRepository
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
@@ -162,34 +163,35 @@ fun MemoryScreen(
     val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
-            AutobotTopBar(title = "Memory", navigation = { BackButton(onBack) }) {
+            AppBar("Memory", onBack) {
                 if (state.total > 0) {
                     IconButton(onClick = { confirmDeleteAll = true }) {
-                        Icon(Icons.Filled.Delete, contentDescription = MemoryWords.DELETE_ALL, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Filled.Delete, contentDescription = MemoryWords.DELETE_ALL)
                     }
                 }
-                AddButton(MemoryWords.ADD) { draft = Draft(null, "", "") }
             }
         },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { draft = Draft(null, "", "") }) { Icon(Icons.Filled.Add, contentDescription = MemoryWords.ADD) }
+        },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            SwitchRow(MemoryWords.USE_IN_CHATS, state.enabled, onEnabled, info = MemoryWords.USE_INFO)
+        Centered(Modifier.padding(padding)) { width ->
+        Column(width.fillMaxSize()) {
+            SwitchItem(MemoryWords.USE_IN_CHATS, state.enabled, onEnabled, info = MemoryWords.USE_INFO)
             val query = rememberLocalText(state.query, onQuery)
-            ConsoleTextField(
+            SearchField(
                 value = query.text,
                 onValueChange = query::edit,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 placeholder = MemoryWords.SEARCH,
-                singleLine = true,
-                mono = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            SectionLabel(MemoryWords.count(state.total), Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            Subheader(MemoryWords.count(state.total))
             if (state.notes.isEmpty()) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    EmptyState(MemoryWords.empty(state.total))
+                    EmptyMessage(MemoryWords.empty(state.total))
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                     items(state.notes, key = { it.id }, contentType = { "note" }) { note ->
                         NoteRow(
                             note = note,
@@ -201,6 +203,7 @@ fun MemoryScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -228,9 +231,9 @@ fun MemoryScreen(
                 TextButton(enabled = text.isNotBlank(), onClick = {
                     onSave(d.id, text, tags)
                     draft = null
-                }) { ActionText("Save") }
+                }) { Text("Save") }
             },
-            dismissButton = { TextButton(onClick = { draft = null }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { draft = null }) { Text("Cancel") } },
         )
     }
 
@@ -240,12 +243,15 @@ fun MemoryScreen(
             title = { Text("Delete all notes?") },
             text = { Text("${if (state.total == 1) "The memory note is" else "All ${state.total} memory notes are"} deleted from this phone. This cannot be undone.") },
             confirmButton = {
-                TextButton(onClick = {
-                    onDeleteAll()
-                    confirmDeleteAll = false
-                }) { ActionText("Delete all", color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        onDeleteAll()
+                        confirmDeleteAll = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete all") }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } },
         )
     }
 
@@ -253,7 +259,7 @@ fun MemoryScreen(
         AlertDialog(
             onDismissRequest = onDismissMessage,
             text = { Text(message) },
-            confirmButton = { TextButton(onClick = onDismissMessage) { ActionText("OK") } },
+            confirmButton = { TextButton(onClick = onDismissMessage) { Text("OK") } },
         )
     }
 }
@@ -261,20 +267,13 @@ fun MemoryScreen(
 /** A note: its id and date, the text, its tags; tap to edit, the bin deletes (as on iOS). */
 @Composable
 private fun NoteRow(note: MemoryNote, date: String, modifier: Modifier, onEdit: () -> Unit, onDelete: () -> Unit) {
-    Column(modifier) {
-        Row(
-            Modifier.fillMaxWidth().clickable(onClick = onEdit).padding(start = 16.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                MicroLabel("${note.id} · $date")
-                Text(note.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                if (note.tags.isNotEmpty()) {
-                    Text(note.tags.joinToString(" ") { "#$it" }, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete note ${note.id}", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        Hairline(Modifier.padding(start = 16.dp))
-    }
+    ListItem(
+        modifier = modifier.clickable(onClick = onEdit),
+        overlineContent = { Text("${note.id} · $date") },
+        headlineContent = { Text(note.text, maxLines = 4, overflow = TextOverflow.Ellipsis) },
+        supportingContent = if (note.tags.isNotEmpty()) {
+            { Text(note.tags.joinToString(" ") { "#$it" }) }
+        } else null,
+        trailingContent = { IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete note ${note.id}") } },
+    )
 }

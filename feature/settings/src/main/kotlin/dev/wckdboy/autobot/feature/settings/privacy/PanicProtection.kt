@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.settings.privacy
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -9,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -25,9 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.NavRow
+import dev.wckdboy.autobot.feature.settings.ui.NavItem
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
+import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
 import dev.wckdboy.autobot.shared.panic.LockRecord
 import dev.wckdboy.autobot.shared.panic.PanicCopy
 import dev.wckdboy.autobot.shared.panic.PinRules
@@ -72,23 +72,23 @@ interface PanicActions {
  */
 @Composable
 fun PanicRows(state: PanicUiState, onOpen: (PanicDialog) -> Unit, onBiometrics: (Boolean) -> Unit, onWipeModels: (Boolean) -> Unit) {
-    NavRow(PanicCopy.PIN_TITLE, { onOpen(PanicDialog.PIN) }, value = PanicCopy.onOff(state.hasPin), info = PanicCopy.PIN_INFO)
+    NavItem(PanicCopy.PIN_TITLE, { onOpen(PanicDialog.PIN) }, value = PanicCopy.onOff(state.hasPin), info = PanicCopy.PIN_INFO)
     if (!state.hasPin) return
-    SwitchRow(PanicCopy.BIOMETRICS_TITLE, state.biometrics, onBiometrics, info = PanicCopy.BIOMETRICS_INFO)
-    NavRow(
+    SwitchItem(PanicCopy.BIOMETRICS_TITLE, state.biometrics, onBiometrics, info = PanicCopy.BIOMETRICS_INFO)
+    NavItem(
         PanicCopy.WIPE_TITLE,
         { onOpen(PanicDialog.WIPE) },
         value = PanicCopy.wipeValue(state.wipeAfter),
         info = "${PanicCopy.WIPE_INFO} ${PanicCopy.CANNOT_UNDO}",
     )
-    NavRow(
+    NavItem(
         PanicCopy.DURESS_TITLE,
         { onOpen(PanicDialog.DURESS) },
         value = PanicCopy.onOff(state.duress),
         info = "${PanicCopy.DURESS_INFO} ${PanicCopy.CANNOT_UNDO}",
     )
     if (state.wipeAfter > 0 || state.duress) {
-        SwitchRow(PanicCopy.MODELS_TITLE, state.wipeModels, onWipeModels, info = PanicCopy.MODELS_INFO)
+        SwitchItem(PanicCopy.MODELS_TITLE, state.wipeModels, onWipeModels, info = PanicCopy.MODELS_INFO)
     }
 }
 
@@ -140,10 +140,13 @@ private fun PinDialog(hasPin: Boolean, actions: PanicActions, onDismiss: () -> U
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         if (hasPin && !removing) {
-            TextButton(onClick = {
-                removing = true
-                error = null
-            }) { ActionText(PanicCopy.REMOVE_PIN, color = MaterialTheme.colorScheme.error) }
+            TextButton(
+                onClick = {
+                    removing = true
+                    error = null
+                },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text(PanicCopy.REMOVE_PIN) }
         }
     }
 }
@@ -246,18 +249,13 @@ private fun PanicAlert(
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = enabled) {
-                ActionText(
-                    confirm,
-                    color = when {
-                        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
-                        destructive -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.primary
-                    },
-                )
-            }
+            TextButton(
+                onClick = onConfirm,
+                enabled = enabled,
+                colors = if (destructive) ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error) else ButtonDefaults.textButtonColors(),
+            ) { Text(confirm) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText(PanicCopy.CANCEL) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(PanicCopy.CANCEL) } },
     )
 }
 
