@@ -53,7 +53,7 @@ struct AboutScreen: View {
             HStack {
                 Text(title).foregroundStyle(.primary)
                 Spacer()
-                Image(systemName: "arrow.up.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                Image(systemName: "arrow.up.right").font(.footnote.weight(.semibold)).foregroundStyle(Color(uiColor: .tertiaryLabel))
                     .accessibilityHidden(true)
             }
             .contentShape(Rectangle())

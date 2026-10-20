@@ -665,61 +665,6 @@ func saveFailure(_ error: Error) -> String {
     error is KeychainError ? "Couldn't store the key in the Keychain: \(error.localizedDescription)" : "Could not save: \(error.localizedDescription)"
 }
 
-/// Wrapping row of selectable tags (Material FilterChips in riso type).
-struct ChipRow<T: Hashable>: View {
-    let items: [T]
-    let selected: T
-    let label: (T) -> String
-    let onSelect: (T) -> Void
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        ChipFlowLayout(spacing: 6) {
-            ForEach(items, id: \.self) { item in
-                let active = item == selected
-                Tag(label(item), accent: active ? c.primary : c.onSurfaceVariant, filled: active) { onSelect(item) }
-            }
-        }
-    }
-}
-
-/// Simple flow layout: places subviews left to right, wrapping to new lines.
-struct ChipFlowLayout: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, row: CGFloat = 0, maxX: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > 0 && x + size.width > width {
-                x = 0
-                y += row + spacing
-                row = 0
-            }
-            x += size.width + spacing
-            maxX = max(maxX, x - spacing)
-            row = max(row, size.height)
-        }
-        return CGSize(width: proposal.width ?? maxX, height: y + row)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, row: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > bounds.minX && x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += row + spacing
-                row = 0
-            }
-            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            row = max(row, size.height)
-        }
-    }
-}
-
 /// A pairing sheet to show, with its code (empty: the user pastes it).
 struct PairingItem: Identifiable {
     let id = UUID()

@@ -196,7 +196,7 @@ struct PushRow: View {
             if let value { Text(value).foregroundStyle(.secondary).lineLimit(1) }
             Image(systemName: "chevron.forward")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color(uiColor: .tertiaryLabel))
                 .accessibilityHidden(true)
         }
     }

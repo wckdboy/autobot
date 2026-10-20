@@ -36,7 +36,8 @@ struct RowInfo: View {
         Button { shown = true } label: {
             Image(systemName: "info.circle")
                 .imageScale(.medium)
-                .foregroundStyle(.secondary)
+                // A concrete colour: a borderless button would tint a hierarchical style.
+                .foregroundStyle(Color(uiColor: .secondaryLabel))
         }
         .buttonStyle(.borderless)
         .accessibilityLabel("About \(title)")

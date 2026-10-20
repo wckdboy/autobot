@@ -41,10 +41,7 @@ struct NodePairingSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 if offline {
-                    Section {
-                        Text("Offline mode is on, so this can't reach the network.").foregroundStyle(.orange)
-                        Button("Allow network") { app.settings.setNetworkMode(.direct) }
-                    }
+                    Section { OfflineNotice() }
                 }
                 Section {
                     TextField("Pairing code", text: $code, axis: .vertical)

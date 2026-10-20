@@ -15,13 +15,13 @@ struct RemoteScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Remote") {
                 // The Privacy Center, with its state: one way in.
+                // An HStack, not a Label: the bar would show a Label's icon only.
                 Button { nav.push(.privacyCenter) } label: {
-                    Label {
-                        Text(status.label)
-                    } icon: {
+                    HStack(spacing: 6) {
                         Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Self.statusColor(status))
+                        Text(status.label)
                     }
-                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 6)
                 }
                 .accessibilityLabel("Network: \(status.description)")
             }
@@ -130,7 +130,7 @@ private struct RemoteRow<Leading: View>: View {
                 if let tag { TintTag(tag, color: .secondary) }
                 Image(systemName: "chevron.forward")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color(uiColor: .tertiaryLabel))
                     .accessibilityHidden(true)
             }
             .contentShape(Rectangle())

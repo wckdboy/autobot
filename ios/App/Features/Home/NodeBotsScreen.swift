@@ -93,7 +93,7 @@ struct BotRow: View {
                 }
                 Image(systemName: "chevron.forward")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color(uiColor: .tertiaryLabel))
             }
             .foregroundStyle(Color.primary)
             .contentShape(Rectangle())
@@ -360,7 +360,7 @@ struct NodeBotContent: View {
                             // A session id: code.
                             Text(s.id).font(.callout.monospaced()).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                             Text(NodeBots.shared.ago(at: s.modified, now: model.now)).font(.caption).foregroundStyle(Color.secondary)
-                            Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(Color(uiColor: .tertiaryLabel))
                         }
                         .foregroundStyle(Color.primary)
                         .contentShape(Rectangle())

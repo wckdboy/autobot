@@ -427,7 +427,7 @@ struct ModelsScreen: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         if m.gated { TintTag("gated", color: .orange) }
-                        Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                        Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(Color(uiColor: .tertiaryLabel))
                             .accessibilityHidden(true)
                     }
                     .contentShape(Rectangle())
