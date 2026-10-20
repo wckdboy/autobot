@@ -599,6 +599,38 @@ rules through the Kotlin framework, and decrypts `shared/backup/testvector.autob
 JVM) with CryptoKit to prove both platforms read the same format. CI (`.github/workflows/ci.yml`)
 runs the Android/shared suites on Linux and the iOS suites on macOS for every push and pull request.
 
+### Demo data and screenshots
+
+Debug builds take launch switches for UI work; release builds ignore them (Android parses them
+only when `BuildConfig.DEBUG` is set, and the sample data is compiled into `src/debug` alone; iOS
+reads them under `#if DEBUG`). Both apps seed an empty install with the same sample: providers
+(DeepSeek, Ollama, a paired node), a chat with reasoning and code, an agent run with tool steps and
+a plan, a "phone first" chat, a recipe run, four gallery images, an installed model, an image
+backend, audit entries and the node digest sample (`NodeDigests.sample`).
+
+| | Android (intent extras) | iOS (launch arguments) |
+| --- | --- | --- |
+| Allow screenshots | `--ez allow_screenshots true` | `-AutobotScreenshots` (also skips the app lock) |
+| Sample data | `--ez demo true` | `-AutobotDemo` |
+| Digest with a failed receipt | `--es demo_digest failed` | `-AutobotDemoDigest failed` |
+| Start screen | `--es open <screen>` | `-AutobotOpen <screen>` |
+| Theme for this launch | `--es theme light\|dark\|system` | `-AutobotTheme light\|dark\|system` |
+| Past the welcome | `--ez skip_welcome true` | `-AutobotSkipWelcome` |
+
+Screens: `run`, `sessions`, `chat`, `agent`, `phone-first`, `imagine`, `gallery`, `viewer`,
+`backends`, `models`, `compute`, `accounts`, `remote`, `providers`, `node`, `settings`, `privacy`,
+`about`, `licenses`, `memory`, `vault`, `usage`, `recipes`, `mcp`, `studio`, `studio-<room>`.
+
+```sh
+adb shell pm clear ai.wckd.autobot.debug        # the sample only fills an empty install
+adb shell am start -n ai.wckd.autobot.debug/dev.wckdboy.autobot.MainActivity \
+  --ez allow_screenshots true --ez demo true --es open models --es theme light
+xcrun simctl launch booted ai.wckd.autobot -AutobotScreenshots -AutobotDemo -AutobotOpen models -AutobotTheme light
+```
+
+Every main screen in dark and light, from the sample: `app/screenshots/` (Android) and
+`ios/screenshots/` (iOS), with the same file names.
+
 ### Releasing
 
 `scripts/release.sh X.Y.Z [notes.md]` bumps both apps, runs every suite, builds the signed APK,

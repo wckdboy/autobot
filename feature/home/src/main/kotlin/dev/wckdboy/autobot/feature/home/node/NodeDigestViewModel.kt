@@ -12,6 +12,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.RecipeRepository
+import dev.wckdboy.autobot.core.data.debug.DemoMode
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.NodeAgents
 import dev.wckdboy.autobot.shared.invincible.NodeDigest
@@ -103,6 +104,8 @@ class RepositoryNodeDigestSource @Inject constructor(
         providers.observeProviders().first().firstOrNull { it.kind == ProviderKind.INVINCIBLE_NODE }?.let { it.id to it.displayName }
 
     override suspend fun digest(providerId: String, since: Long): NodeDigest? {
+        // Debug builds' demo (`--ez demo true`): the shared sample, as iOS's `-AutobotDemo` shows it.
+        if (DemoMode.on) return NodeDigests.sample(now = System.currentTimeMillis() / 1000, failedReceipt = DemoMode.digestFailed)
         val provider = providers.observeProviders().first().firstOrNull { it.id == providerId } ?: return null
         return agents.digest(provider, since, recipes.all().map(NodeDigests::recipe))
     }
