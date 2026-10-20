@@ -31,7 +31,8 @@ struct AutobotNavBar<K: Hashable>: View {
                         Text(item.label.sentenceCased)
                             .textStyle(.labelSmall, weight: active ? 500 : 400)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.6)
+                            // Full size: a scale factor here shrank the labels to 60 % and pushed them off centre.
+                            .fixedSize()
                             .foregroundStyle(active ? c.onBackground : c.onSurfaceVariant)
                         Spacer().frame(height: Self.barGap)
                         ZStack {
