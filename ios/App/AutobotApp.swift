@@ -21,6 +21,8 @@ struct AutobotApp: App {
                 .id(holder.generation)
                 .environment(holder.container)
                 .environment(holder.navigator)
+                // `\.keyboardUp` for every screen with a field (Keyboard.swift).
+                .tracksKeyboard()
                 // Widgets, the Control Center control and the share extension (see EntryRouter).
                 .onOpenURL { EntryRouter.shared.receive(url: $0) }
         }

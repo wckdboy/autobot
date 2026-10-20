@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -17,6 +18,11 @@ import androidx.compose.ui.test.performScrollTo
 import dev.wckdboy.autobot.core.designsystem.motion.InkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.component.LocalKeyboardUp
+import dev.wckdboy.autobot.agent.core.session.TodoItem
+import dev.wckdboy.autobot.agent.core.session.TodoStatus
+import dev.wckdboy.autobot.agent.core.tools.UserQuestion
+import dev.wckdboy.autobot.shared.ChatBannerWords
 import dev.wckdboy.autobot.agent.core.session.ReceiptHost
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.shared.session.NoticeKind
@@ -52,11 +58,13 @@ class ChatScreenTest {
 
     private val provider = ProviderOption("p1", "DeepSeek", "deepseek-chat", emptyList(), "", canRefresh = false)
 
+    private var keyboard by mutableStateOf(false)
+
     private fun show(initial: ChatUiState): (ChatUiState) -> Unit {
         var state by mutableStateOf(initial)
         compose.setContent {
             AutobotTheme {
-                CompositionLocalProvider(LocalInkMotion provides InkMotion(reduced = true)) {
+                CompositionLocalProvider(LocalInkMotion provides InkMotion(reduced = true), LocalKeyboardUp provides keyboard) {
                     ChatScreen(state, actions, onBack = {}, onOpenPrivacyCenter = { openedPrivacy++ }, onOpenProviders = { openedProviders++ }, onOpenGallery = {})
                 }
             }
@@ -67,9 +75,52 @@ class ChatScreenTest {
     @Test
     fun withoutAProviderItSaysWhatToDo() {
         show(ChatUiState(loaded = true))
-        compose.onNodeWithText("No model yet.").assertIsDisplayed()
+        compose.onNodeWithText(ChatBannerWords.NO_MODEL).assertIsDisplayed()
         compose.onNodeWithText("Add").performClick()
         assertEquals(1, openedProviders)
+    }
+
+    @Test
+    fun oneBannerAtATimeTheMostPressingFirst() {
+        show(ChatUiState(loaded = true, providers = listOf(provider), showOfflineBanner = true, missingKeyProvider = "DeepSeek"))
+        compose.onNodeWithText(ChatBannerWords.OFFLINE).assertIsDisplayed()
+        compose.onNodeWithText(ChatBannerWords.missingKey("DeepSeek")).assertDoesNotExist()
+    }
+
+    @Test
+    fun whileTypingOnlyTheFieldTheTranscriptAndTheQuestionStay() {
+        val state = ChatUiState(
+            loaded = true,
+            providers = listOf(provider),
+            toolsEnabled = true,
+            missingKeyProvider = "DeepSeek",
+            running = true,
+            items = listOf(SessionItem.User("u1", "Plan my week")),
+            todos = listOf(TodoItem("Draft the plan", TodoStatus.IN_PROGRESS)),
+            question = QuestionUi("q1", UserQuestion("Which days?", listOf("Mon", "Tue"))),
+        )
+        keyboard = true
+        show(state)
+        compose.onNodeWithText("Plan my week").assertIsDisplayed()
+        compose.onNodeWithText("Which days?").assertIsDisplayed()
+        compose.onNodeWithTag("composer").assertIsDisplayed()
+        compose.onNodeWithText(ChatBannerWords.missingKey("DeepSeek")).assertDoesNotExist()
+        compose.onNodeWithText("Draft the plan").assertDoesNotExist()
+        compose.onNodeWithText("policy", substring = true, ignoreCase = true).assertDoesNotExist()
+        // The keyboard goes down: everything comes back.
+        keyboard = false
+        compose.onNodeWithText(ChatBannerWords.missingKey("DeepSeek")).assertIsDisplayed()
+        compose.onNodeWithText("Draft the plan").assertIsDisplayed()
+        compose.onNodeWithText("policy", substring = true, ignoreCase = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun anEmptyChatDropsItsArtWhileTyping() {
+        keyboard = true
+        show(ChatUiState(loaded = true, providers = listOf(provider)))
+        compose.onNodeWithText("What should it do?").assertDoesNotExist()
+        keyboard = false
+        compose.onNodeWithText("What should it do?").assertIsDisplayed()
     }
 
     @Test
@@ -126,11 +177,11 @@ class ChatScreenTest {
     @Test
     fun stopShowsWhileAReplyStreamsAndStopsIt() {
         val update = show(ChatUiState(loaded = true, providers = listOf(provider), running = true, items = listOf(SessionItem.User("u1", "Write a poem"))))
-        compose.onNodeWithContentDescription("Stop the reply").performClick()
+        compose.onNodeWithContentDescription("Stop").performClick()
         assertTrue(calls.toString(), "stop()" in calls)
         // The turn ends: the stop button gives way to an (empty, so disabled) send button.
         update(ChatUiState(loaded = true, providers = listOf(provider), running = false, items = listOf(SessionItem.User("u1", "Write a poem"))))
-        compose.onNodeWithContentDescription("Stop the reply").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Stop").assertDoesNotExist()
         compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
     }
 

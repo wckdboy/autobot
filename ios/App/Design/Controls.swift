@@ -114,12 +114,15 @@ struct ConsoleTextField: View {
     var maxLines = 1
     var enabled = true
     var onSubmit: (() -> Void)? = nil
+    /// The caller's focus, when it moves focus itself (the composer); the field's own otherwise.
+    var focus: FocusState<Bool>.Binding? = nil
     @FocusState private var focused: Bool
     @Environment(\.scheme) private var c
     @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
         let mono = kind != .prose
+        let focused = focus?.wrappedValue ?? self.focused
         VStack(alignment: .leading, spacing: 4) {
             if let label { MicroLabel(label) }
             Group {
@@ -146,7 +149,7 @@ struct ConsoleTextField: View {
                     TextField(text: $text, prompt: prompt(mono: mono)) { Text(label ?? "") }
                 }
             }
-            .focused($focused)
+            .focused(focus ?? $focused)
             .textStyle(mono ? .code : .bodyMedium)
             .foregroundStyle(c.onSurface)
             .tint(c.primary)

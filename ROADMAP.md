@@ -42,6 +42,7 @@ Get 1.2 into hands, prove the accelerator paths on real hardware, and close the 
 | ✅ | Compute benchmark: image step time excludes model load | iOS |
 | ✅ | Tool card → open the exact gallery image | iOS |
 | ✅ | dSYMs for the engine frameworks (symbolicated TestFlight crash logs) | iOS |
+| ✅ | Chat polish: one composer for every chat, one keyboard pattern (field, last message and the question stay while typing; 5-line composer; one banner) | both |
 
 **Exit:** TestFlight and GitHub builds of the same version. A diagnostics report from an 8 Elite
 Gen 5 shows chat and images on the NPU.
