@@ -57,11 +57,11 @@ enum ChatBanners {
     static func list(loaded: Bool, noProviders: Bool, showOffline: Bool, provider: Provider?, needsKey: Bool, local: LocalModel) -> [ChatBanner] {
         guard loaded else { return [] }
         if noProviders {
-            return [ChatBanner(id: "none", text: "No model yet — download one or add a provider.", action: "Add", target: .providers)]
+            return [ChatBanner(id: "none", text: ChatBannerWords.shared.NO_MODEL, action: "Add", target: .providers)]
         }
         var out: [ChatBanner] = []
         if showOffline {
-            out.append(ChatBanner(id: "offline", text: "Offline mode: this provider is remote, so the kill switch blocks it.", action: "Privacy", target: .privacyCenter))
+            out.append(ChatBanner(id: "offline", text: ChatBannerWords.shared.OFFLINE, action: "Privacy", target: .privacyCenter))
         }
         if let provider, needsKey, provider.kind != .local, provider.kind != .invincibleNode, (provider.apiKeyRef ?? "").isEmpty {
             // The words Android shows (shared `ChatBannerWords`), before anything is sent.
@@ -132,6 +132,8 @@ struct ChatScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
+    /// While typing only the field, the transcript and what is being answered stay (Keyboard.swift).
+    @Environment(\.keyboardUp) private var keyboardUp
     @State private var model = ChatModel()
     /// The open session, set in .task (opening must not happen while the view renders). Held in
     /// state so setting it re-renders the screen: a chat opened from the list never stays blank.
@@ -177,7 +179,10 @@ struct ChatScreen: View {
                 Button { showModels = true } label: { RouteTag(route: routing.route) }.buttonStyle(PressStyle())
                 IconAction(symbol: "ellipsis", label: "Session settings") { showSession = true }
             }
-            ForEach(banners(routing)) { b in
+            // One banner at a time: a notice answers what was just done, else the most pressing one.
+            if let notice = model.notice {
+                Banner(text: notice, action: "OK") { model.notice = nil }
+            } else if Composer.shared.shows(part: .banner, keyboardUp: keyboardUp), let b = banners(routing).first {
                 Banner(text: b.text, action: b.action) {
                     switch b.target {
                     case .providers: nav.push(.providers)
@@ -186,14 +191,11 @@ struct ChatScreen: View {
                     }
                 }
             }
-            if let notice = model.notice {
-                Banner(text: notice, action: "OK") { model.notice = nil }
-            }
 
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        if app.dataLoaded && transcript.items.isEmpty && !isLive {
+                        if app.dataLoaded && transcript.items.isEmpty && !isLive && Composer.shared.shows(part: .decor, keyboardUp: keyboardUp) {
                             EmptySession(toolsEnabled: settings.toolsEnabled)
                         }
                         let retry = AnswerRetry.target(transcript.items, running: running || isLive)
@@ -235,12 +237,15 @@ struct ChatScreen: View {
                 // go: the end of the answer stays in view instead of sliding under them.
                 .defaultScrollAnchor(.bottom, for: .sizeChanges)
                 .scrollDismissesKeyboard(.interactively)
+                // The bottom stack rides on the keyboard; the transcript's end stays right above it.
+                .safeAreaInset(edge: .bottom, spacing: 0) { bottomStack(session: session, transcript: transcript, settings: settings, running: running, planShown: planShown) }
                 // One ground per screen: with the voice panel up, its own paper is the ground (two fields
                 // with their own grids would meet at the panel's edge).
                 .inkGround(app.dataLoaded && transcript.items.isEmpty && !isLive && model.voice == nil, fade: UnitPoint(x: 0.3, y: 0.15))
                 .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isLive) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: planShown) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: keyboardUp) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 // A chat opened with its transcript already there: its end once laid out (images and
                 // the lazy rows' real heights arrive after the first pass, where the anchor was set).
                 .task(id: conversationId) {
@@ -248,25 +253,6 @@ struct ChatScreen: View {
                     proxy.scrollTo("bottom", anchor: .bottom)
                 }
                 .onChange(of: session?.question?.callId) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
-            }
-
-            if planShown {
-                TodoPanel(todos: transcript.projection.todos)
-            }
-            if let question = session?.question {
-                QuestionCard(question: question) { app.agent.answerQuestion(conversationId, callId: question.callId, answers: $0) }
-            }
-            PolicyLine(
-                settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow,
-                onThink: { app.agent.setThinking(conversationId, settings.thinking.next) },
-                onThinkSheet: { showThink = true },
-                onRedact: { app.agent.setRedaction(conversationId, settings.redaction != "ON") },
-                onCascade: { showCascade = true },
-            )
-            if let voice = model.voice {
-                VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
-            } else {
-                InputBar(model: model, running: running, onSend: send, onStop: { app.agent.cancel(conversationId) }).equatable()
             }
         }
         .background(c.background)
@@ -327,6 +313,36 @@ struct ChatScreen: View {
         }
     }
 
+
+    /// Plan, question, chips and the composer, under the transcript. While typing only the
+    /// question being answered and the composer stay.
+    @ViewBuilder
+    private func bottomStack(session: AgentSession?, transcript: SessionTranscript, settings: SessionSettings, running: Bool, planShown: Bool) -> some View {
+        VStack(spacing: 0) {
+            if planShown && Composer.shared.shows(part: .plan, keyboardUp: keyboardUp) {
+                TodoPanel(todos: transcript.projection.todos)
+            }
+            if let question = session?.question {
+                QuestionCard(question: question) { app.agent.answerQuestion(conversationId, callId: question.callId, answers: $0) }
+            }
+            if Composer.shared.shows(part: .chips, keyboardUp: keyboardUp) {
+                PolicyLine(
+                    settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow,
+                    onThink: { app.agent.setThinking(conversationId, settings.thinking.next) },
+                    onThinkSheet: { showThink = true },
+                    onRedact: { app.agent.setRedaction(conversationId, settings.redaction != "ON") },
+                    onCascade: { showCascade = true },
+                )
+            }
+            if let voice = model.voice {
+                VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
+            } else {
+                InputBar(model: model, running: running, onSend: send, onStop: { app.agent.cancel(conversationId) }).equatable()
+            }
+        }
+        .background(c.background)
+    }
+
     private static let emptyTranscript = SessionTranscript(SessionProjection())
 
     /// Deletes this chat (undoable from the list for a few seconds); a running turn is cancelled first.
@@ -360,6 +376,9 @@ struct ChatScreen: View {
         if input.hasPrefix("/") && runCommand(input) { return }
         let images = model.pendingImages
         model.pendingImages = []
+        // A follow-up queued behind a running turn is not timed: the running answer's next render would take its mark.
+        let session = app.agent.existingSession(conversationId)
+        if !(session?.running ?? false) && !(session?.isLive ?? false) { ChatTiming.sent() }
         Task { await app.agent.send(conversationId, text: input, images: images) }
     }
 
@@ -580,6 +599,7 @@ private struct LiveMessage: View {
 
     var body: some View {
         let _ = InkProbe.hit("body.liveMessage")
+        let _ = ChatTiming.shown(live.text)
         VStack(alignment: .leading, spacing: 6) {
             if !live.reasoning.isEmpty {
                 ThinkingDisclosure(
@@ -1331,9 +1351,40 @@ private struct InputBar: View, Equatable {
     @Environment(\.scheme) private var c
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
+    @FocusState private var focused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    private var large: Bool { dynamicType.isAccessibilitySize }
+
+    /// Attach and dictate.
+    @ViewBuilder private var tools: some View {
+        let attached = model.pendingImages.count
+        PhotosPicker(selection: $picks, maxSelectionCount: max(1, ChatModel.maxAttachments - attached), matching: .images) {
+            AutobotIconView(icon: .image, size: 24, color: attached < ChatModel.maxAttachments ? c.onSurface : c.onSurface.opacity(0.38))
+                .frame(width: 44, height: composerButtonSize)
+        }
+        .disabled(attached >= ChatModel.maxAttachments)
+        .accessibilityLabel("Attach image")
+        Button { model.toggleDictation(app: app) } label: {
+            Group {
+                switch model.dictation {
+                case .idle: AutobotIconView(icon: .mic, size: 24, color: c.onSurface)
+                case .recording: Rectangle().fill(c.primary).frame(width: 14, height: 14)
+                case .transcribing: InkLoader(.button)
+                }
+            }
+            .frame(width: 44, height: composerButtonSize)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .disabled(model.dictation == .transcribing)
+        .accessibilityLabel(model.dictation == .recording ? "Stop dictation" : "Dictate")
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
+        let attached = model.pendingImages.count
+        let action = Composer.shared.action(text: text, attachments: Int32(attached), running: running)
+        ComposerBar(text: $text, placeholder: Composer.shared.placeholder(running: running, node: false), focused: $focused) {
             if !model.pendingImages.isEmpty {
                 AttachmentStrip(ids: model.pendingImages, model: model) { model.removeAttachment($0, app: app) }
                     .padding(.horizontal, 12)
@@ -1364,61 +1415,26 @@ private struct InputBar: View, Equatable {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                PhotosPicker(selection: $picks, maxSelectionCount: max(1, ChatModel.maxAttachments - model.pendingImages.count), matching: .images) {
-                    AutobotIconView(icon: .image, size: 24, color: model.pendingImages.count < ChatModel.maxAttachments ? c.onSurface : c.onSurface.opacity(0.38))
-                        .frame(width: 44, height: 52)
-                }
-                .disabled(model.pendingImages.count >= ChatModel.maxAttachments)
-                .accessibilityLabel("Attach image")
-                Button { model.toggleDictation(app: app) } label: {
-                    Group {
-                        switch model.dictation {
-                        case .idle: AutobotIconView(icon: .mic, size: 24, color: c.onSurface)
-                        case .recording: Rectangle().fill(c.primary).frame(width: 14, height: 14)
-                        case .transcribing: InkLoader(.button)
-                        }
-                    }
-                    .frame(width: 44, height: 52)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PressStyle())
-                .disabled(model.dictation == .transcribing)
-                .accessibilityLabel(model.dictation == .recording ? "Stop dictation" : "Dictate")
-                ConsoleTextField(text: $text, placeholder: running ? "Queue a follow-up…" : "Message · / for commands", maxLines: 8)
-                if running && text.trimmingCharacters(in: .whitespaces).isEmpty && model.pendingImages.isEmpty {
-                    Button(action: onStop) {
-                        Rectangle().fill(c.primary).frame(width: 14, height: 14)
-                            .frame(width: 52, height: 52)
-                            .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh))
-                    }
-                    .buttonStyle(PressStyle())
-                    .accessibilityLabel("Stop")
-                } else {
-                    let enabled = !text.trimmingCharacters(in: .whitespaces).isEmpty || !model.pendingImages.isEmpty
-                    Button {
-                        onSend(text)
-                        text = ""
-                    } label: {
-                        // Pointing right, as Android's Material "Send".
-                        Image(systemName: "paperplane.fill")
-                            .symbolSize(18, weight: .semibold)
-                            .rotationEffect(.degrees(45))
-
-                            .foregroundStyle(enabled ? c.onPrimary : c.onSurface.opacity(0.38))
-                            .frame(width: 52, height: 52)
-                            .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(enabled ? c.primary : c.onSurface.opacity(0.12)))
-                    }
-                    .buttonStyle(PressStyle())
-                    .disabled(!enabled)
-                    .accessibilityLabel(running ? "Queue" : "Send")
+            // A large font leaves the field too narrow beside attach and dictate: they take a row above it (as on Android).
+            if large {
+                HStack(spacing: 8) { tools }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } leading: {
+            if !large { tools }
+        } trailing: {
+            if action == .stop {
+                StopButton(action: onStop)
+            } else {
+                SendButton(enabled: Composer.shared.enabled(action: action, text: text, attachments: Int32(attached), ready: true), label: Composer.shared.label(action: action)) {
+                    onSend(text)
+                    text = ""
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
         }
-        .background(c.background)
-        .hairlineEdge(top: true, bottom: false)
+        .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(600)); focused = true } }
         .onChange(of: model.dictated) { _, spoken in
             guard let spoken else { return }
             text = text.trimmingCharacters(in: .whitespaces).isEmpty ? spoken : text.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) + " " + spoken

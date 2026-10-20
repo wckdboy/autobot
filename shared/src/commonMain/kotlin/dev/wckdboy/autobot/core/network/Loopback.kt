@@ -7,7 +7,8 @@ package dev.wckdboy.autobot.core.network
  * leaves the developer's machine.
  */
 object Loopback {
-    private val ipv4Loopback = Regex("^127(\\.(25[0-5]|2[0-4]\\d|1?\\d?\\d)){3}$")
+    // Each part 0–255 without leading zeros (spec/egress.md): `127.0.0.01` is not loopback.
+    private val ipv4Loopback = Regex("^127(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$")
 
     fun isLoopback(host: String?): Boolean {
         if (host.isNullOrBlank()) return false

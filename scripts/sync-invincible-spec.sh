@@ -11,7 +11,7 @@ src="${1:-$(dirname "$0")/../../invincible}"
 dest="$(dirname "$0")/../shared/src/jvmTest/resources/invincible"
 # The same files for the Android device test (Conscrypt instead of the desktop JDK).
 device_dest="$(dirname "$0")/../providers/remote/src/androidTest/assets/invincible"
-files=(pairing-code noise receipts redaction)
+files=(pairing-code noise receipts redaction egress)
 
 [ -d "$src/spec/vectors" ] || { echo "no spec/vectors in $src" >&2; exit 1; }
 mkdir -p "$dest"

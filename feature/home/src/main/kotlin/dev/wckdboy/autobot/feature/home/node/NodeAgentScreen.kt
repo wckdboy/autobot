@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
@@ -50,7 +48,14 @@ import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import androidx.compose.material3.TextButton
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
+import dev.wckdboy.autobot.core.designsystem.component.ComposerBar
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
+import dev.wckdboy.autobot.core.designsystem.component.SendButton
+import dev.wckdboy.autobot.core.designsystem.component.ComposerButtonSize
+import dev.wckdboy.autobot.core.designsystem.component.keyboardUp
+import dev.wckdboy.autobot.shared.composer.Composer
+import dev.wckdboy.autobot.shared.composer.Composer.Part
+import androidx.compose.foundation.layout.consumeWindowInsets
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.Notice
@@ -152,7 +157,9 @@ fun NodeAgentScreen(
     }
     val retryKey = AgentTranscript.retryTarget(state.rows, state.running)
     val list = rememberLazyListState()
-    LaunchedEffect(state.rows.size) { if (state.rows.isNotEmpty()) list.animateScrollToItem(state.rows.size - 1) }
+    // The list is reversed (first item lowest): the newest row sits on the composer, also as the keyboard opens.
+    LaunchedEffect(state.rows.size) { if (state.rows.isNotEmpty()) list.animateScrollToItem(0) }
+    val keyboard = keyboardUp()
     Scaffold(
         topBar = {
             AutobotTopBar(
@@ -177,17 +184,23 @@ fun NodeAgentScreen(
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+        // The scaffold already pads for the navigation bar: consumed, so the keyboard's padding does not add it twice.
+        Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
             LazyColumn(
                 state = list,
                 modifier = Modifier.weight(1f).fillMaxWidth().testTag("node-agent"),
+                reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
             ) {
+                if (state.running) item(key = "busy") { InkLoader() }
+                items(state.rows.asReversed(), key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
                 item(key = "head") {
                     when {
                         state.problem != null -> Notice(state.problem, tone = NoticeTone.WARNING, action = "Retry", onAction = onRetry)
                         state.info == null -> InkLoader()
+                        // What the conversation runs with: it steps aside while typing.
+                        !Composer.shows(Part.DECOR, keyboard) -> Unit
                         else -> Text(style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, text = labelCase(
                             listOfNotNull(
                                 // Several bots: which one this conversation is with.
@@ -201,35 +214,30 @@ fun NodeAgentScreen(
                         ))
                     }
                 }
-                items(state.rows, key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
-                if (state.running) item(key = "busy") { InkLoader() }
             }
-            if (state.photos.isNotEmpty() || state.photoProblem != null || state.encoding > 0) {
-                PendingPhotos(state.photos, state.photoProblem, state.encoding, onRemovePhoto)
-            }
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                PhotoButton(enabled = state.info != null && !state.running && state.photos.size + state.encoding < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
-                Spacer(Modifier.width(4.dp))
-                ConsoleTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = "A task for your machine",
-                    maxLines = 5,
-                    enabled = state.info != null,
-                )
-                Spacer(Modifier.width(8.dp))
-                // Filled purple when it can send, as in chat.
-                FilledIconButton(
+            ComposerBar(
+                value = draft,
+                onValueChange = { draft = it },
+                placeholder = Composer.placeholder(state.running, node = true),
+                enabled = state.info != null,
+                maxLines = Composer.MAX_LINES,
+                above = {
+                    if (state.photos.isNotEmpty() || state.photoProblem != null || state.encoding > 0) {
+                        PendingPhotos(state.photos, state.photoProblem, state.encoding, onRemovePhoto)
+                    }
+                },
+                leading = {
+                    PhotoButton(enabled = state.info != null && !state.running && state.photos.size + state.encoding < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
+                },
+            ) {
+                // The node's agent neither queues nor stops a turn: Send waits for it, and for a photo still being downscaled.
+                SendButton(
                     onClick = {
                         onSend(draft)
                         draft = ""
                     },
-                    // A photo still being downscaled goes with this message: it waits for it.
-                    enabled = draft.isNotBlank() && !state.running && state.info != null && state.encoding == 0,
-                    shape = MaterialTheme.shapes.extraSmall,
-                    modifier = Modifier.size(52.dp),
-                ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
+                    enabled = Composer.enabled(Composer.Action.SEND, draft, 0, ready = !state.running && state.info != null && state.encoding == 0),
+                )
             }
         }
     }
@@ -338,7 +346,7 @@ private fun PhotoButton(enabled: Boolean, onAttach: (Uri, Boolean) -> Unit, onPr
         shot = null
     }
     Box {
-        IconButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.size(48.dp)) {
+        IconButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.size(ComposerButtonSize)) {
             Icon(AutobotIcons.Image, contentDescription = "Attach a photo")
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

@@ -57,6 +57,13 @@ data and draw the riso UI from the same design tokens (`shared/design/tokens.jso
 `TokensParityTest` on Android and `TokensTests` on iOS). The parity table is in
 [ios/README.md](ios/README.md).
 
+Every chat (the phone's, an agent run, the node's agent) has the same composer on both platforms,
+and every screen with a field follows one keyboard pattern (`shared/composer/Composer.kt`,
+`Keyboard.kt` on Android, `Keyboard.swift` on iOS): the field grows to five lines, then scrolls;
+the last message stays right above it; while the keyboard is up only the field, the transcript and
+the question being answered stay, and banners, chips, the plan and empty-state art step aside. A
+chat shows one banner at a time.
+
 ## Privacy stance
 
 Both apps make the same guarantees; the rules below are shared code (`:shared`
@@ -207,8 +214,9 @@ The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
 - **Same rules as the node.** `scripts/sync-invincible-spec.sh` copies Invincible's conformance
   vectors into `shared/src/jvmTest/resources/invincible`. `InvincibleSpecTest` checks Noise
   byte for byte against the node's snow transcripts, receipts against OpenSSL-made signatures,
-  pairing codes, and runs `RedactionVault` on the node's redaction vectors: the phone and the node
-  hide the same things. `InvincibleLiveTest` pairs with a real `invincible serve` when
+  pairing codes, runs `RedactionVault` on the node's redaction vectors (the phone and the node
+  hide the same things), and the kill switch and network modes on the egress vectors (the same
+  request is blocked, sent direct or proxied on both). `InvincibleLiveTest` pairs with a real `invincible serve` when
   `INVINCIBLE_BIN` is set. On iOS, `InvincibleNodeTests` runs the same Noise and receipt vectors
   on CryptoKit (passing on the iOS 26.1 simulator).
 
@@ -646,6 +654,7 @@ bot (`NodeDigests.sampleWithBots`).
 | Start screen | `--es open <screen>` | `-AutobotOpen <screen>` |
 | Theme for this launch | `--es theme light\|dark\|system` | `-AutobotTheme light\|dark\|system` |
 | Past the welcome | `--ez skip_welcome true` | `-AutobotSkipWelcome` |
+| Chat opens with the keyboard up | (tap the field) | `-AutobotKeyboard` |
 
 Screens: `run`, `sessions`, `chat`, `agent`, `phone-first`, `imagine`, `gallery`, `viewer`,
 `backends`, `models`, `compute`, `accounts`, `remote`, `providers`, `node` (a chat with its agent), `settings`, `privacy`,

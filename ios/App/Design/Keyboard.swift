@@ -21,7 +21,7 @@ extension EnvironmentValues {
 }
 
 /// Publishes `\.keyboardUp` to everything under it. Applied once, at the app's root.
-private struct KeyboardTracker: ViewModifier {
+struct KeyboardTracker: ViewModifier {
     @State private var up = false
 
     func body(content: Content) -> some View {
@@ -31,7 +31,7 @@ private struct KeyboardTracker: ViewModifier {
                 // A hardware keyboard leaves only the shortcut bar on screen: that is not "up".
                 guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
                 let screen = (note.object as? UIScreen)?.bounds ?? UIScreen.main.bounds
-                let shown = frame.minY < screen.maxY && frame.height > KeyboardTracker.minimumHeight
+                let shown = Self.isUp(frame: frame, screen: screen)
                 if shown != up { up = shown }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
@@ -41,6 +41,11 @@ private struct KeyboardTracker: ViewModifier {
 
     /// Taller than the hardware keyboard's shortcut bar, shorter than any software keyboard.
     static let minimumHeight: CGFloat = 120
+
+    /// Whether a keyboard ending at [frame] is up: on screen and taller than the shortcut bar.
+    static func isUp(frame: CGRect, screen: CGRect) -> Bool {
+        frame.minY < screen.maxY && frame.height > minimumHeight
+    }
 }
 
 extension View {

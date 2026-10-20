@@ -1,11 +1,16 @@
 package dev.wckdboy.autobot.shared.invincible
 
+import dev.wckdboy.autobot.core.network.KillSwitch
+import dev.wckdboy.autobot.core.network.NetworkMode
+import dev.wckdboy.autobot.core.network.Route
+import dev.wckdboy.autobot.core.network.RouteResolver
 import dev.wckdboy.autobot.shared.redaction.RedactionVault
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -96,5 +101,46 @@ class InvincibleSpecTest {
             else "${case.str("name")}\n  expected ${expect.str("text")} $wantFound\n  got      ${redacted.text} $found"
         }
         check(failures, cases.size, "redaction")
+    }
+
+    /**
+     * The kill switch and the route of one request (spec/egress.md): the node's egress client
+     * decides the same, so a mode string or a host means the same on both.
+     */
+    @Test
+    fun egressMatchesTheNode() {
+        val cases = cases("egress")
+        val failures = cases.mapNotNull { case ->
+            val input = case.getValue("input").jsonObject
+            val mode = NetworkMode.decode(input.str("network"))
+            val host = input.str("host")
+            val blocked = KillSwitch.blockReason(
+                global = mode,
+                effective = mode,
+                allowLoopbackWhenOffline = input.getValue("loopback_when_offline").jsonPrimitive.boolean,
+                host = host,
+                https = input.str("scheme") == "https",
+            )
+            val got = buildMap {
+                put("mode", NetworkMode.encode(mode))
+                when {
+                    blocked != null -> {
+                        put("action", "block")
+                        put("reason", if (blocked.startsWith("Offline")) "offline" else if (blocked.startsWith("Cleartext")) "cleartext" else blocked)
+                    }
+                    else -> when (val route = RouteResolver.routeForHost(mode, host)) {
+                        Route.Blocked -> put("action", "block")
+                        Route.Direct -> put("action", "direct")
+                        is Route.Socks -> {
+                            put("action", "socks")
+                            put("proxy", "${route.host}:${route.port}")
+                        }
+                    }
+                }
+            }
+            val want = case.getValue("expect").jsonObject.mapValues { it.value.jsonPrimitive.content }
+            if (got == want) null else "${case.str("name")}\n  expected $want\n  got      $got"
+        }
+        check(failures, cases.size, "egress")
     }
 }

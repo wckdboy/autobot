@@ -445,14 +445,13 @@ struct AutobotTopBar<Actions: View>: View {
     var onBack: (() -> Void)? = nil
     @ViewBuilder var actions: () -> Actions
     @Environment(\.scheme) private var c
-
     @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
-        // At the accessibility sizes there is no room for the actions beside the title: they take a
-        // line of their own under it, at the trailing edge (as Android's top bar at a large font).
+        // An accessibility size leaves no room for the actions beside the title (the chat's title
+        // broke one letter a line): they take a row of their own under it, as on Android.
         let large = dynamicType.isAccessibilitySize
-        VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: 0) {
             HStack(spacing: Tokens.Spacing.topBarGap) {
                 if let onBack {
                     IconAction(symbol: "arrow.left", label: "Back", action: onBack)
@@ -465,15 +464,16 @@ struct AutobotTopBar<Actions: View>: View {
                 }
                 if !large { actions() }
             }
-            if large {
+            .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
+            .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
+            .frame(minHeight: Tokens.Spacing.topBarMinHeight)
+            if large && Actions.self != EmptyView.self {
                 HStack(spacing: Tokens.Spacing.topBarGap) { actions() }
+                    .padding(.horizontal, Tokens.Spacing.topBarPaddingEnd)
+                    .padding(.bottom, 4)
             }
         }
-        .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
-        .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
-        .frame(minHeight: Tokens.Spacing.topBarMinHeight)
-        // Chrome stops growing at AX1 (the content below keeps growing), so the title keeps its
-        // room beside the actions instead of breaking mid-word.
+        // Chrome stops growing at AX1 (the content below keeps growing).
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(c.background)
     }
