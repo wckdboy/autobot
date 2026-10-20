@@ -373,12 +373,47 @@ final class SharedAgentRuntime: AgentRuntime {
     }
 
     /// A turn on the node's agent; [onEvent] runs on the main actor for each event. Cancel to stop listening.
-    func nodeAgentTurn(_ providerId: String, session: String, text: String, onEvent: @escaping @MainActor (AgentEvent) -> Void) -> AutobotShared.Cancellable {
+    /// [bot]: the bot a new session belongs to (bots mode); nil for the default one.
+    func nodeAgentTurn(_ providerId: String, session: String, text: String, bot: String? = nil, onEvent: @escaping @MainActor (AgentEvent) -> Void) -> AutobotShared.Cancellable {
         // Kotlin calls this from its own queue: hop to the main actor with the event.
-        bridge.nodeAgentTurn(providerId: providerId, session: session, text: text) { @Sendable event in
+        bridge.nodeAgentTurn(providerId: providerId, session: session, text: text, bot: bot) { @Sendable event in
             let box = Unchecked(event)
             Task { @MainActor in onEvent(box.value) }
         }
+    }
+
+    private struct Bots: @unchecked Sendable { let state: NodeBotsState }
+    private struct Sessions: @unchecked Sendable { var list: [AutobotShared.AgentSession]? = nil, error: String? = nil }
+    private struct NewSession: Sendable { let id: String? }
+
+    /// The node's bots (bots mode): `supported` false from a node too old to have them; `problem` when it did not answer.
+    func nodeBots(_ providerId: String) async -> NodeBotsState {
+        await call(stopped: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: Self.stoppedMessage)),
+                   late: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: "The node did not answer"))) { done in
+            bridge.nodeBots(providerId: providerId) { @Sendable state in done(Bots(state: state)) }
+        }.state
+    }
+
+    /// Switches a bot on or off; nil, or why it did not work.
+    func nodeBotSetEnabled(_ providerId: String, name: String, enabled: Bool) async -> String? {
+        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
+            bridge.nodeBotSetEnabled(providerId: providerId, name: name, enabled: enabled) { @Sendable error in done(Problem(message: error)) }
+        }.message
+    }
+
+    /// The node's conversations, or only [bot]'s, newest first.
+    func nodeAgentSessions(_ providerId: String, bot: String?) async -> (list: [AutobotShared.AgentSession]?, error: String?) {
+        let r = await call(stopped: Sessions(error: Self.stoppedMessage), late: Sessions(error: "The node did not answer")) { done in
+            bridge.nodeAgentSessions(providerId: providerId, bot: bot) { @Sendable list, error in done(Sessions(list: list, error: error)) }
+        }
+        return (r.list, r.error)
+    }
+
+    /// A new conversation id for a chat from this device with [bot].
+    func nodeAgentNewSession(_ providerId: String, bot: String) async -> String? {
+        await call(stopped: NewSession(id: nil), late: NewSession(id: nil)) { done in
+            bridge.nodeAgentNewSession(providerId: providerId, bot: bot, now: Int64(Date().timeIntervalSince1970)) { @Sendable id in done(NewSession(id: id)) }
+        }.id
     }
 
     func nodeAgentAnswer(_ providerId: String, id: String, answer: ApprovalAnswer) async -> Bool {

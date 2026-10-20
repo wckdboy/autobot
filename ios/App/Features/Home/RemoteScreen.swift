@@ -5,6 +5,8 @@ struct RemoteScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
     @Environment(\.scheme) private var c
+    /// Each paired node's bots (bots mode).
+    @State private var bots = NodeBotsModel()
 
     var body: some View {
         let providers = app.providers.providers.filter { $0.kind != .local }
@@ -32,6 +34,14 @@ struct RemoteScreen: View {
                                 leading: { NodeMark() },
                             ) {
                                 RouteTag(route: routeOf(n))
+                            }
+                            // Bots mode: the node's bots, one row each (an older node has no list).
+                            if let state = bots.states[n.id], state.showList {
+                                SectionLabel(nodes.count > 1 ? "bots · \(n.displayName)" : "bots").padding(.top, 12)
+                                let now = Int64(Date().timeIntervalSince1970)
+                                ForEach(state.bots, id: \.name) { bot in
+                                    BotRow(bot: bot, now: now) { nav.push(.nodeBot(providerId: n.id, name: bot.name)) }
+                                }
                             }
                         }
                         Spacer().frame(height: 24)
@@ -76,6 +86,10 @@ struct RemoteScreen: View {
             }
         }
         .background(c.background)
+        // Each time the tab shows: a bot's state changes on the node, not here.
+        .task(id: app.providers.providers.filter { $0.kind == .invincibleNode }.map(\.id)) {
+            await bots.refresh(app: app, nodes: app.providers.providers.filter { $0.kind == .invincibleNode }.map(\.id))
+        }
     }
 
     private func afterScheme(_ url: String) -> String { url.range(of: "://").map { String(url[$0.upperBound...]) } ?? url }
