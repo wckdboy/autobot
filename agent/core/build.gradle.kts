@@ -11,6 +11,8 @@ kotlin {
     jvm()
     iosArm64()
     iosSimulatorArm64()
+    // The Mac app (appleMain is shared with iOS).
+    macosArm64()
 
     jvmToolchain(17)
 
