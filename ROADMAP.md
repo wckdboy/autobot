@@ -161,8 +161,11 @@ models, shared core). Ordered by value.
    own cloud"; sessions and the vault sync without a server.
    *(in progress: the computer side is [Invincible](https://github.com/wckdboy/invincible); the
    protocol layer (Noise pairing and sessions, signed receipts, shared conformance vectors) is in
-   `:shared`, checked against the node byte for byte and live. Not yet: the provider and QR scanner
-   in both apps, routing node connections through the kill switch and Tor/SOCKS5. The node's
+   `:shared`, checked against the node byte for byte and live. "My node" is a provider in both
+   apps, paired from Remote › Pair a node with the node's QR code (the camera opens its
+   `invincible://pair` link) or a pasted code; its connections go through the kill switch, Tor and
+   SOCKS5. Pairing again replaces the pairing, handshakes give up after 15 s, Cancel stops one, and
+   failures are said in plain words, an unreachable node once rather than retried. The node's
    agent and its bots are in both apps: chats with approvals, the Bots view and Bot detail with
    each bot's personality, what it knows about you (`USER.md`) and its usage over the last week;
    photos in node chats (downscaled to 1568 px, JPEG), retry on the node and the agent's `kept`
