@@ -17,19 +17,16 @@ struct SettingsScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Settings", onBack: nav.path.isEmpty ? nil : { nav.back() })
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(SettingsSection.allCases) { section in
-                        if section != SettingsSection.allCases.first { Hairline().padding(.vertical, 8) }
-                        header(section.title)
+            Form {
+                ForEach(SettingsSection.allCases) { section in
+                    Section(section.title) {
                         ForEach(section.rows) { row($0) }
                     }
-                    // The privacy statement is on About, as on Android.
-                    Spacer().frame(height: 24)
                 }
+                // The privacy statement is on About, as on Android.
             }
+            .formStyle(.grouped)
         }
-        .background(c.background)
         .sheet(isPresented: $showBackup) { BackupSheet() }
         .sheet(isPresented: $showSearch) { WebSearchSheet { showSearch = false } }
         .risoAlert(
@@ -52,19 +49,22 @@ struct SettingsScreen: View {
         let title = row.title()
         switch row {
         case .privacyCenter:
-            NavigationRow(title: title, value: Self.modeLabel(settings.mode)) { nav.push(.privacyCenter) }
+            PushRow(title: title, value: Self.modeLabel(settings.mode)) { nav.push(.privacyCenter) }
         case .appLock:
             let lockAvailable = app.lock.canAuthenticate()
             // An app PIN always locks: the wipe and the duress PIN depend on it.
             let pinLocks = panic.hasPin
-            SwitchRow(
-                title: title,
-                subtitle: lockAvailable || pinLocks ? nil : "Needs a device passcode",
-                isOn: Binding(get: { pinLocks || (settings.appLockEnabled && lockAvailable) }, set: { app.settings.setAppLockEnabled($0) }),
-                enabled: lockAvailable && !pinLocks,
-                info: lockAvailable || pinLocks ? "Require \(app.lock.biometryLabel()) or the device passcode." : nil,
-            )
-            if pinLocks || (settings.appLockEnabled && lockAvailable) { lockTimeouts(settings.lockTimeoutMillis) }
+            Toggle(isOn: Binding(get: { pinLocks || (settings.appLockEnabled && lockAvailable) }, set: { app.settings.setAppLockEnabled($0) })) {
+                InfoTitle(title, info: lockAvailable || pinLocks ? "Require \(app.lock.biometryLabel()) or the device passcode." : nil)
+                if !(lockAvailable || pinLocks) { Text("Needs a device passcode") }
+            }
+            .disabled(!(lockAvailable && !pinLocks))
+            .accessibilityLabel(title)
+            if pinLocks || (settings.appLockEnabled && lockAvailable) {
+                Picker("Lock after", selection: Binding(get: { settings.lockTimeoutMillis }, set: { app.settings.setLockTimeoutMillis($0) })) {
+                    ForEach(lockTimeoutOptions, id: \.millis) { Text($0.label).tag($0.millis) }
+                }
+            }
         case .appPin:
             PanicRows(
                 state: panic,
@@ -80,106 +80,52 @@ struct SettingsScreen: View {
                 },
             )
         case .incognito:
-            SwitchRow(
-                title: title,
-                isOn: Binding(get: { settings.incognitoByDefault }, set: { app.settings.setIncognitoByDefault($0) }),
-                info: SettingsWords.shared.INCOGNITO,
-            )
+            InfoToggle(title: title, info: SettingsWords.shared.INCOGNITO, isOn: Binding(get: { settings.incognitoByDefault }, set: { app.settings.setIncognitoByDefault($0) }))
         case .redactCloud:
-            SwitchRow(
-                title: title,
-                isOn: Binding(get: { settings.redactCloud }, set: { app.settings.setRedactCloud($0) }),
-                info: SettingsWords.shared.REDACT,
-            )
+            InfoToggle(title: title, info: SettingsWords.shared.REDACT, isOn: Binding(get: { settings.redactCloud }, set: { app.settings.setRedactCloud($0) }))
         case .cascade:
             CascadeSettingRow(title: title, policy: settings.cascade) { app.settings.setCascade($0) }
         case .panicWipe:
-            DestructiveRow(title: title, info: SettingsWords.shared.PANIC_WIPE) { showWipe = true }
+            HStack {
+                Button(title, role: .destructive) { showWipe = true }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                RowInfo(title: title, text: SettingsWords.shared.PANIC_WIPE)
+            }
         case .memory:
-            SwitchRow(
-                title: title,
-                isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
-                info: SettingsWords.shared.MEMORY,
-            )
+            InfoToggle(title: title, info: SettingsWords.shared.MEMORY, isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }))
         case .memoryNotes:
-            NavigationRow(title: title) { nav.push(.memory) }
+            PushRow(title: title) { nav.push(.memory) }
         case .vault:
-            NavigationRow(title: title, value: settings.vaultEnabled ? "On" : "Off") { nav.push(.vault) }
+            PushRow(title: title, value: settings.vaultEnabled ? "On" : "Off") { nav.push(.vault) }
         case .webSearch:
-            NavigationRow(title: title, value: settings.webSearchOn ? WebSearchDraft.label(settings.searchProvider) : "Off", info: SettingsWords.shared.WEB_SEARCH) { showSearch = true }
+            PushRow(title: title, value: settings.webSearchOn ? WebSearchDraft.label(settings.searchProvider) : "Off", info: SettingsWords.shared.WEB_SEARCH) { showSearch = true }
             if settings.webSearchOn && settings.mode == .offline {
-                note(SettingsWords.shared.OFFLINE_BLOCKS_SEARCH, color: c.error)
+                Text(SettingsWords.shared.OFFLINE_BLOCKS_SEARCH).font(.footnote).foregroundStyle(.red)
             }
         case .quotaFallback:
-            SwitchRow(
-                title: title,
-                isOn: Binding(get: { settings.quotaFallback }, set: { app.settings.setQuotaFallback($0) }),
-                info: SettingsWords.shared.QUOTA_FALLBACK,
-            )
+            InfoToggle(title: title, info: SettingsWords.shared.QUOTA_FALLBACK, isOn: Binding(get: { settings.quotaFallback }, set: { app.settings.setQuotaFallback($0) }))
         case .usage:
-            NavigationRow(title: title) { nav.push(.usage) }
+            PushRow(title: title) { nav.push(.usage) }
         case .mcpServers:
-            NavigationRow(title: title) { nav.push(.mcpServers) }
+            PushRow(title: title) { nav.push(.mcpServers) }
         case .recipes:
-            NavigationRow(title: title) { nav.push(.recipes) }
+            PushRow(title: title) { nav.push(.recipes) }
         case .theme:
-            VStack(alignment: .leading, spacing: 8) {
-                ChoiceTitle(title)
-                Segmented(options: ThemeMode.allCases, selected: settings.themeMode, label: { $0.rawValue.capitalized }) {
-                    app.settings.setThemeMode($0)
-                }
-                .accessibilityLabel(title)
+            Picker(title, selection: Binding(get: { settings.themeMode }, set: { app.settings.setThemeMode($0) })) {
+                ForEach(ThemeMode.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
             }
-            .padding(.horizontal, Tokens.Spacing.gutter)
-            .padding(.vertical, 8)
         case .amoled:
-            SwitchRow(
-                title: title,
-                isOn: Binding(get: { settings.amoled }, set: { app.settings.setAmoled($0) }),
-                enabled: settings.themeMode != .light,
-            )
+            Toggle(title, isOn: Binding(get: { settings.amoled }, set: { app.settings.setAmoled($0) }))
+                .disabled(settings.themeMode == .light)
         case .exportImport:
-            NavigationRow(title: title) { showBackup = true }
+            PushRow(title: title) { showBackup = true }
         case .deleteAll:
-            DestructiveRow(title: title) { confirmDeleteChats = true }
+            Button(title, role: .destructive) { confirmDeleteChats = true }
+                .foregroundStyle(.red)
         case .about:
-            NavigationRow(title: title) { nav.push(.about) }
+            PushRow(title: title) { nav.push(.about) }
         }
-    }
-
-    private func lockTimeouts(_ selected: Int64) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ChoiceTitle("Lock after")
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.top, 4)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(lockTimeoutOptions, id: \.millis) { option in
-                        let active = selected == option.millis
-                        // The shared v4 selection (onSurface over the purple bar).
-                        Tag(option.label, accent: active ? c.onSurface : c.onSurfaceVariant, filled: active) {
-                            app.settings.setLockTimeoutMillis(option.millis)
-                        }
-                        .accessibilityAddTraits(active ? .isSelected : [])
-                    }
-                }
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.vertical, 8)
-            }
-        }
-    }
-
-    private func note(_ text: String, color: Color? = nil) -> some View {
-        Text(text)
-            .textStyle(.bodySmall)
-            .foregroundStyle(color ?? c.onSurfaceVariant)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Tokens.Spacing.gutter)
-            .padding(.vertical, 4)
-    }
-
-    private func header(_ text: String) -> some View {
-        SectionLabel(text).padding(.horizontal, Tokens.Spacing.gutter).padding(.top, 12).padding(.bottom, 4)
     }
 
     /// The network mode in one word (the Privacy Center row's value).
@@ -203,31 +149,71 @@ private struct CascadeSettingRow: View {
     var body: some View {
         let options = CascadePolicy.entries.map(\.name)
         let chosen = CascadePolicy.companion.parse(value: policy) ?? CascadePolicy.off
-        VStack(alignment: .leading, spacing: 8) {
-            ChoiceTitle(title, info: SettingsWords.shared.cascade)
-            Segmented(options: options, selected: chosen.name, label: { CascadePolicy.companion.parse(value: $0)?.title ?? $0 }) { onSelect($0) }
-                .accessibilityLabel(title)
+        Picker(selection: Binding(get: { chosen.name }, set: { onSelect($0) })) {
+            ForEach(options, id: \.self) { Text(CascadePolicy.companion.parse(value: $0)?.title ?? $0).tag($0) }
+        } label: {
+            InfoTitle(title, info: SettingsWords.shared.cascade)
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .padding(.vertical, 8)
+        .accessibilityLabel(title)
     }
 }
 
-/// The title over a choice row (Lock after, Phone first, Theme): a row title without a row, its ⓘ after it.
-private struct ChoiceTitle: View {
-    let text: String
+/// A Form row that pushes a screen (or opens a sheet): the title, an optional ⓘ, the state value
+/// trailing like iOS Settings, and the system's disclosure chevron.
+struct PushRow: View {
+    let title: String
+    var value: String? = nil
     var info: String? = nil
-    @Environment(\.scheme) private var c
-
-    init(_ text: String, info: String? = nil) {
-        self.text = text
-        self.info = info
-    }
+    let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            Text(text).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-            if let info { InfoButton(title: text, text: info).padding(.vertical, -12).padding(.leading, -6) }
+        // A NavigationLink look without a destination: the app's Navigator owns the stack. With an
+        // ⓘ the row is split so the ⓘ keeps its own tap (a Form row button would swallow it).
+        if let info {
+            HStack(spacing: 6) {
+                Button(action: action) { Text(title) }.buttonStyle(.borderless)
+                RowInfo(title: title, text: info)
+                Button(action: action) { trailing.frame(maxWidth: .infinity, alignment: .trailing).contentShape(Rectangle()) }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(title)
+            }
+            .foregroundStyle(.primary)
+        } else {
+            Button(action: action) {
+                HStack {
+                    Text(title)
+                    Spacer(minLength: 8)
+                    trailing
+                }
+                .contentShape(Rectangle())
+            }
+            .foregroundStyle(.primary)
         }
+    }
+
+    private var trailing: some View {
+        HStack(spacing: 8) {
+            if let value { Text(value).foregroundStyle(.secondary).lineLimit(1) }
+            Image(systemName: "chevron.forward")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// A Form toggle whose title carries an ⓘ.
+struct InfoToggle: View {
+    let title: String
+    var info: String? = nil
+    var subtitle: String? = nil
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            InfoTitle(title, info: info)
+            if let subtitle { Text(subtitle) }
+        }
+        .accessibilityLabel(title)
     }
 }
