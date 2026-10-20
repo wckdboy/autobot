@@ -258,6 +258,13 @@ web group: the node fetches through its gateway, under its network rules.
 question there, with a field to answer, and the tab counts what is waiting. The answer sends the
 task on, as `/board answer` does in Telegram.
 
+**While you were away.** With a node paired, the Run screen shows a short card when it did
+something since you last looked: how many requests it answered (on the node or in the cloud,
+tokens), the agent's actions (by the rules or approved by you), the recipes that ran, what
+failed, and whether every receipt verified (one that did not is the first line, in red). Questions
+waiting for you are its main button, which opens the agent's board; Details opens the activity.
+Dismissing or opening it marks it seen, per node.
+
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and
