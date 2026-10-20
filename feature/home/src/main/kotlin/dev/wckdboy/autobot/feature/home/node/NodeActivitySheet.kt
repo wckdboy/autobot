@@ -1,7 +1,16 @@
 package dev.wckdboy.autobot.feature.home.node
 
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.feature.home.remoteui.Field
+import dev.wckdboy.autobot.feature.home.remoteui.Loading
+import dev.wckdboy.autobot.feature.home.remoteui.NoticeCard
+import dev.wckdboy.autobot.feature.home.remoteui.Tone
+import androidx.compose.material3.Button
+import androidx.compose.material3.SecondaryScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
@@ -36,13 +45,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.mutableStateOf
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.shared.invincible.AgentFact
 import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.NodeActivityWords
@@ -73,19 +75,19 @@ fun NodeActivitySheet(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NodeMark()
-                SectionLabel("activity on ${state.node}", Modifier.weight(1f))
+                Text(labelCase("activity on ${state.node}"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh") }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
                 TABS.forEachIndexed { i, name ->
                     val waiting = state.activity?.waiting?.size ?: 0
-                    ChoiceChip(if (name == "Board" && waiting > 0) "Board · $waiting" else name, selected = tab == i, onClick = { tab = i })
+                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(if (name == "Board" && waiting > 0) "Board · $waiting" else name) })
                 }
             }
-            state.activityProblem?.let { Notice(it, tone = NoticeTone.WARNING) }
+            state.activityProblem?.let { NoticeCard(it, tone = Tone.WARNING) }
             val activity = state.activity
             when {
-                activity == null && state.activityProblem == null -> InkLoader()
+                activity == null && state.activityProblem == null -> Loading()
                 activity == null -> Unit
                 tab == 0 -> Requests(activity)
                 tab == 1 -> Actions(activity)
@@ -112,8 +114,7 @@ private fun Requests(activity: NodeActivity) {
                     r.receipt.let { if (it.verified) "signed ✓" else "not verified" },
                     NodeActivityWords.left(r),
                 ).joinToString(" · "),
-                style = AutobotTheme.styles.micro,
-                fontFamily = FontFamily.Monospace,
+                style = AutobotTheme.styles.code,
                 color = if (r.receipt.egress.isEmpty() && r.receipt.verified) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             )
         }
@@ -123,7 +124,7 @@ private fun Requests(activity: NodeActivity) {
 @Composable
 private fun Actions(activity: NodeActivity) {
     activity.agentProblem?.let {
-        Notice(it, tone = NoticeTone.WARNING)
+        NoticeCard(it, tone = Tone.WARNING)
         return
     }
     if (activity.actions.isEmpty()) Text("The agent has not asked to do anything yet.", style = MaterialTheme.typography.bodySmall)
@@ -132,7 +133,7 @@ private fun Actions(activity: NodeActivity) {
             Text(a.action, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, maxLines = 3)
             Text(
                 "${format.format(Date(a.at * 1000))} · ${NodeActivityWords.decided(a)} · ${a.session}" + (a.bot?.let { " · bot $it" } ?: ""),
-                style = AutobotTheme.styles.micro,
+                style = MaterialTheme.typography.bodySmall,
                 color = if (a.ran) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             )
         }
@@ -142,7 +143,7 @@ private fun Actions(activity: NodeActivity) {
 @Composable
 private fun Board(activity: NodeActivity, onAnswer: (String, String, () -> Unit) -> Unit) {
     activity.agentProblem?.let {
-        Notice(it, tone = NoticeTone.WARNING)
+        NoticeCard(it, tone = Tone.WARNING)
         return
     }
     if (activity.board.isEmpty()) {
@@ -152,7 +153,7 @@ private fun Board(activity: NodeActivity, onAnswer: (String, String, () -> Unit)
     activity.board.forEach { task ->
         if (task.plan != plan) {
             plan = task.plan
-            SectionLabel("plan ${task.plan}")
+            SheetLabel("plan ${task.plan}")
         }
         Column(Modifier.fillMaxWidth()) {
             Text(NodeActivityWords.task(task), style = MaterialTheme.typography.bodyMedium)
@@ -162,8 +163,8 @@ private fun Board(activity: NodeActivity, onAnswer: (String, String, () -> Unit)
             if (task.waiting) {
                 var answer by rememberSaveable(task.id) { mutableStateOf("") }
                 Text("${task.agent} asks: ${task.question.orEmpty()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                ConsoleTextField(answer, { answer = it }, Modifier.fillMaxWidth(), placeholder = "Your answer", minLines = 1, maxLines = 4)
-                PrimaryButton("Answer", { onAnswer(task.id, answer) { answer = "" } }, Modifier.fillMaxWidth(), enabled = answer.isNotBlank())
+                Field(answer, { answer = it }, Modifier.fillMaxWidth(), placeholder = "Your answer", minLines = 1, maxLines = 4)
+                Button(onClick = { onAnswer(task.id, answer) { answer = "" } }, Modifier.fillMaxWidth(), enabled = answer.isNotBlank()) { Text("Answer") }
             }
         }
     }
@@ -172,13 +173,13 @@ private fun Board(activity: NodeActivity, onAnswer: (String, String, () -> Unit)
 @Composable
 private fun Memory(activity: NodeActivity, onForget: (Long) -> Unit) {
     activity.agentProblem?.let {
-        Notice(it, tone = NoticeTone.WARNING)
+        NoticeCard(it, tone = Tone.WARNING)
         return
     }
-    SectionLabel("remembered")
+    SheetLabel("remembered")
     if (activity.facts.isEmpty()) Text("Nothing yet. The agent keeps short facts when they will help later.", style = MaterialTheme.typography.bodySmall)
     activity.facts.forEach { fact -> FactRow(fact, onForget) }
-    SectionLabel("skills")
+    SheetLabel("skills")
     if (activity.skills.isEmpty()) {
         Text("None yet: put Markdown how-to notes in ~/.autobot/skills on the machine.", style = MaterialTheme.typography.bodySmall)
     }
@@ -196,4 +197,10 @@ private fun FactRow(fact: AgentFact, onForget: (Long) -> Unit) {
         Text(fact.text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         IconButton(onClick = { onForget(fact.id) }) { Icon(Icons.Filled.Delete, contentDescription = "Forget: ${fact.text}") }
     }
+}
+
+/** A group's label inside the sheet (a plan, remembered, skills): labelLarge in the primary colour. */
+@Composable
+internal fun SheetLabel(text: String) {
+    Text(labelCase(text), Modifier.padding(top = 8.dp).semantics { heading() }, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 }
