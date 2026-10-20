@@ -41,4 +41,13 @@ enum DebugFlags {
         false
         #endif
     }
+
+    /// `-AutobotKeyboard`: a chat opens with its composer focused, the keyboard up (UI work).
+    static var keyboard: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-AutobotKeyboard")
+        #else
+        false
+        #endif
+    }
 }
