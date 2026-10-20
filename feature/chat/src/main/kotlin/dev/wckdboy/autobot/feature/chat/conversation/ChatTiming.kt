@@ -6,7 +6,8 @@ import android.util.Log
 /**
  * Time to first token shown: from the tap on Send to the first frame that draws reply text,
  * logged once per turn as `AutobotPerf: ttft <ms> ms` (`adb logcat -s AutobotPerf`). No content,
- * only the time.
+ * only the time. A follow-up queued behind a running turn is not timed (the running answer would
+ * take its mark).
  */
 internal object ChatTiming {
     @Volatile private var sentAt = 0L

@@ -376,7 +376,9 @@ struct ChatScreen: View {
         if input.hasPrefix("/") && runCommand(input) { return }
         let images = model.pendingImages
         model.pendingImages = []
-        ChatTiming.sent()
+        // A follow-up queued behind a running turn is not timed: the running answer's next render would take its mark.
+        let session = app.agent.existingSession(conversationId)
+        if !(session?.running ?? false) && !(session?.isLive ?? false) { ChatTiming.sent() }
         Task { await app.agent.send(conversationId, text: input, images: images) }
     }
 
