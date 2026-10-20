@@ -8,6 +8,13 @@ import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
 import androidx.compose.ui.draw.drawBehind
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.shared.ChatBannerWords
+import dev.wckdboy.autobot.shared.composer.Composer
+import dev.wckdboy.autobot.shared.composer.Composer.Part
+import dev.wckdboy.autobot.core.designsystem.component.ComposerBar
+import dev.wckdboy.autobot.core.designsystem.component.ComposerButtonSize
+import dev.wckdboy.autobot.core.designsystem.component.SendButton
+import dev.wckdboy.autobot.core.designsystem.component.StopButton
+import dev.wckdboy.autobot.core.designsystem.component.keyboardUp
 import dev.wckdboy.autobot.shared.cascade.CascadeLabels
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import dev.wckdboy.autobot.shared.session.CascadeOffer
@@ -89,6 +96,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -284,11 +292,18 @@ fun ChatScreen(
             )
         },
     ) { padding ->
+        // While typing only the field, the transcript and what is being answered stay (Keyboard.kt).
+        val keyboard = keyboardUp()
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            if (state.showOfflineBanner) Banner("Offline mode: this provider is remote, so the kill switch blocks it.", "Privacy", onOpenPrivacyCenter)
-            state.missingKeyProvider?.let { Banner(ChatBannerWords.missingKey(it), "Add key", onOpenProviders) }
-            if (state.loaded && state.providers.isEmpty()) Banner("No model yet.", "Add", onOpenProviders)
-            state.notice?.let { Banner(it, "OK", actions::dismissNotice) }
+            // One banner at a time: a notice answers what was just done, else the most pressing one.
+            val notice = state.notice
+            when {
+                notice != null -> Banner(notice, "OK", actions::dismissNotice)
+                !Composer.shows(Part.BANNER, keyboard) -> Unit
+                state.loaded && state.providers.isEmpty() -> Banner(ChatBannerWords.NO_MODEL, "Add", onOpenProviders)
+                state.showOfflineBanner -> Banner(ChatBannerWords.OFFLINE, "Privacy", onOpenPrivacyCenter)
+                state.missingKeyProvider != null -> Banner(ChatBannerWords.missingKey(state.missingKeyProvider), "Add key", onOpenProviders)
+            }
 
             val empty = state.loaded && state.items.isEmpty() && !hasLive
             LazyColumn(
@@ -296,7 +311,8 @@ fun ChatScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                // Bottom: a short transcript sits on the composer, not under the top bar.
+                verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
             ) {
                 // The cascade's offer sits under the phone's answer (the list is reversed: first is lowest).
                 val offer = state.cascadeOffer
@@ -334,20 +350,22 @@ fun ChatScreen(
                         onOpenImage = onOpenImage,
                     )
                 }
-                if (empty) {
+                if (empty && Composer.shows(Part.DECOR, keyboard)) {
                     item(key = "empty") { EmptySession(state) }
                 }
             }
 
-            if (state.todos.isNotEmpty() && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
+            if (Composer.shows(Part.PLAN, keyboard) && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
             state.question?.let { QuestionCard(it, actions::answer) }
-            PolicyLine(
-                state,
-                onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) },
-                onThinkMore = { showThink = true },
-                onRedact = { actions.setRedaction(state.redaction != RedactionUi.ON) },
-                onCascade = { showCascade = true },
-            )
+            if (Composer.shows(Part.CHIPS, keyboard)) {
+                PolicyLine(
+                    state,
+                    onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) },
+                    onThinkMore = { showThink = true },
+                    onRedact = { actions.setRedaction(state.redaction != RedactionUi.ON) },
+                    onCascade = { showCascade = true },
+                )
+            }
             val voice = state.voice
             if (voice != null) {
                 VoicePanel(voice, micLevels, liveDictation, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
@@ -546,6 +564,7 @@ private fun AssistantMessage(
 
 @Composable
 private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
+    SideEffect { ChatTiming.shown(live.text) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (live.reasoning.isNotEmpty()) {
             ThinkingDisclosure(
@@ -965,8 +984,38 @@ private fun InputBar(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) { uris ->
         uris.take(MAX_ATTACHMENTS - state.pendingImages.size).forEach(onAttach)
     }
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.hairlineEdge(top = true, bottom = false)) {
+    val large = isLargeText()
+    val tools = @Composable {
+        IconButton(
+            onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            enabled = state.pendingImages.size < MAX_ATTACHMENTS,
+            modifier = Modifier.size(ComposerButtonSize),
+        ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
+        IconButton(
+            onClick = {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    onDictate()
+                } else {
+                    microphone.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            },
+            enabled = state.dictation != Dictation.TRANSCRIBING,
+            modifier = Modifier.size(ComposerButtonSize),
+        ) {
+            when (state.dictation) {
+                Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
+                Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary).semantics { contentDescription = "Stop dictating" })
+                Dictation.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, contentDescription = "Transcribing")
+            }
+        }
+    }
+    ComposerBar(
+        value = text,
+        onValueChange = { text = it },
+        placeholder = Composer.placeholder(state.running),
+        fieldModifier = Modifier.focusRequester(focus).testTag("composer"),
+        maxLines = Composer.MAX_LINES,
+        above = {
             if (state.pendingImages.isNotEmpty()) {
                 AttachmentStrip(state.pendingImages, thumbnail, Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp), onRemove = onRemoveAttachment)
             }
@@ -984,65 +1033,23 @@ private fun InputBar(
             if (state.dictation != Dictation.IDLE) {
                 LiveWords(liveDictation, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp))
             }
-            val large = isLargeText()
-            val tools = @Composable {
-                IconButton(
-                    onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    enabled = state.pendingImages.size < MAX_ATTACHMENTS,
-                    modifier = Modifier.size(52.dp),
-                ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
-                IconButton(
-                    onClick = {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                            onDictate()
-                        } else {
-                            microphone.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    },
-                    enabled = state.dictation != Dictation.TRANSCRIBING,
-                    modifier = Modifier.size(52.dp),
-                ) {
-                    when (state.dictation) {
-                        Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
-                        Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary).semantics { contentDescription = "Stop dictating" })
-                        Dictation.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, contentDescription = "Transcribing")
-                    }
-                }
-            }
             // A large font leaves the field too narrow beside the attach and dictate buttons: they take a row above it.
             if (large) Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { tools() }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (!large) tools()
-                ConsoleTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.weight(1f).focusRequester(focus),
-                    placeholder = if (state.running) "Queue a follow-up…" else "Message · / for commands",
-                    maxLines = 8,
-                )
-                if (state.running && text.isBlank() && state.pendingImages.isEmpty()) {
-                    FilledIconButton(
-                        onClick = onStop,
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = MaterialTheme.colorScheme.primary),
-                        shape = MaterialTheme.shapes.extraSmall,
-                        modifier = Modifier.size(52.dp),
-                    ) { Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary).semantics { contentDescription = "Stop the reply" }) }
-                } else {
-                    FilledIconButton(
-                        onClick = {
-                            onSend(text)
-                            text = ""
-                        },
-                        enabled = text.isNotBlank() || state.pendingImages.isNotEmpty(),
-                        shape = MaterialTheme.shapes.extraSmall,
-                        modifier = Modifier.size(52.dp),
-                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (state.running) "Queue" else "Send") }
-                }
-            }
+        },
+        leading = { if (!large) tools() },
+    ) {
+        val action = Composer.action(text, state.pendingImages.size, state.running)
+        if (action == Composer.Action.STOP) {
+            StopButton(onStop, label = Composer.label(action))
+        } else {
+            SendButton(
+                onClick = {
+                    onSend(text)
+                    text = ""
+                },
+                enabled = Composer.enabled(action, text, state.pendingImages.size),
+                label = Composer.label(action),
+            )
         }
     }
 }

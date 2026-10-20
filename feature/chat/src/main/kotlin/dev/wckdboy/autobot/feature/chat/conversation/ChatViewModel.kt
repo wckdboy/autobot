@@ -587,6 +587,7 @@ class ChatViewModel @AssistedInject constructor(
         if (input.startsWith("/") && runCommand(input)) return
         val images = pending.value
         pending.value = emptyList()
+        ChatTiming.sent()
         viewModelScope.launchSafely(::failed) { host.send(conversationId, input, images) }
     }
 

@@ -126,11 +126,11 @@ class ChatScreenTest {
     @Test
     fun stopShowsWhileAReplyStreamsAndStopsIt() {
         val update = show(ChatUiState(loaded = true, providers = listOf(provider), running = true, items = listOf(SessionItem.User("u1", "Write a poem"))))
-        compose.onNodeWithContentDescription("Stop the reply").performClick()
+        compose.onNodeWithContentDescription("Stop").performClick()
         assertTrue(calls.toString(), "stop()" in calls)
         // The turn ends: the stop button gives way to an (empty, so disabled) send button.
         update(ChatUiState(loaded = true, providers = listOf(provider), running = false, items = listOf(SessionItem.User("u1", "Write a poem"))))
-        compose.onNodeWithContentDescription("Stop the reply").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Stop").assertDoesNotExist()
         compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
     }
 
