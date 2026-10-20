@@ -4,6 +4,7 @@ import kotlin.concurrent.atomics.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 /** The node refused the handshake: a pairing code it would not take, or a device it no longer knows. */
@@ -83,23 +84,35 @@ object NodeErrors {
 /**
  * Runs a handshake on [link] within [millis]; past it the link is closed (that unblocks a read
  * blocked in a socket, which cancellation alone does not) and [NodeTimeoutException] is thrown.
- * Any other failure of the exchange means the node closed it: [NodeRefusedException].
+ * Cancelled while it runs (Cancel while pairing), the link is closed at once for the same reason,
+ * so no socket or thread stays stuck on a node that never answers. Any other failure of the
+ * exchange means the node closed it: [NodeRefusedException].
  */
 internal suspend fun <T> NodeLink.handshake(millis: Long, block: suspend () -> T): T = coroutineScope {
     val late = AtomicBoolean(false)
+    val finished = AtomicBoolean(false)
+    // A child of this scope: cancelling the caller cancels it at once, even while [block] is stuck
+    // in a blocking read that ignores cancellation.
     val timer = launch {
-        delay(millis)
-        late.store(true)
-        close()
+        try {
+            delay(millis)
+            late.store(true)
+            close()
+        } finally {
+            if (!finished.load() && !late.load()) close()
+        }
     }
     try {
         block()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
+        // The link closed because the caller was cancelled: that is the cancellation, not a refusal.
+        ensureActive()
         if (late.load()) throw NodeTimeoutException("no handshake within ${millis / 1000} s")
         throw NodeRefusedException(e.message ?: "the node closed the connection")
     } finally {
+        finished.store(true)
         timer.cancel()
     }
 }

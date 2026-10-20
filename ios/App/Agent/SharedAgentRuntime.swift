@@ -328,12 +328,21 @@ final class SharedAgentRuntime: AgentRuntime {
     /// Pairs with the node in [code] as [deviceName]: the pairing to store as the provider's
     /// secret, the node's name and key fingerprint, or an error.
     /// [previous]: this phone's pairing with the same node, when it has one (its key is kept).
+    /// Cancelling the calling task cancels the pairing in Kotlin too: its connection closes, so a
+    /// cancelled pairing does not go on to use up the one-time code.
     func pairNode(code: String, deviceName: String, previous: String? = nil) async -> (secret: String?, node: String?, fingerprint: String?, error: String?) {
-        let result = await call(stopped: PairReply(error: Self.stoppedMessage), late: PairReply(error: NodeErrors.shared.timeout(node: "The node"))) { done in
-            bridge.pairNode(code: code, deviceName: deviceName, previous: previous) { @Sendable secret, node, fingerprint, error in
-                done(PairReply(secret: secret, node: node, fingerprint: fingerprint, error: error))
+        let running = KotlinCancelOnce()
+        let result = await withTaskCancellationHandler {
+            await call(stopped: PairReply(error: Self.stoppedMessage), late: PairReply(error: NodeErrors.shared.timeout(node: "The node"))) { done in
+                running.hold(bridge.pairNode(code: code, deviceName: deviceName, previous: previous) { @Sendable secret, node, fingerprint, error in
+                    done(PairReply(secret: secret, node: node, fingerprint: fingerprint, error: error))
+                })
             }
+        } onCancel: {
+            running.cancel()
         }
+        // Given up on (past the deadline): stop the handshake as well. A no-op once it has ended.
+        running.cancel()
         return (result.secret, result.node, result.fingerprint, result.error)
     }
 
@@ -934,6 +943,31 @@ private final class RunningListenerBox: NSObject, RunningListener, @unchecked Se
     func onRunning(sessionIds: [String]) {
         let deliver = deliver
         DispatchQueue.main.async { MainActor.assumeIsolated { deliver(sessionIds) } }
+    }
+}
+
+/// A Kotlin operation to cancel from any thread (a task's cancellation handler), once; one
+/// cancelled before it was handed over is cancelled as it arrives.
+final class KotlinCancelOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handle: (any AutobotShared.Cancellable)?
+    private var cancelled = false
+
+    func hold(_ handle: any AutobotShared.Cancellable) {
+        lock.lock()
+        let late = cancelled
+        if !late { self.handle = handle }
+        lock.unlock()
+        if late { handle.cancel() }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let held = handle
+        handle = nil
+        lock.unlock()
+        held?.cancel()
     }
 }
 #endif

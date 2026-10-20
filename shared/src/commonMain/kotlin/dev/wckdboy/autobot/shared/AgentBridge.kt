@@ -603,17 +603,19 @@ class AgentBridge(
     /**
      * Pairs with the node in [code] (an `invincible://pair?…` link) as [deviceName], over the
      * connector (route `INHERIT`). [callback] gets the pairing to store as the provider's secret,
-     * the node's name and key fingerprint, or an error.
+     * the node's name and key fingerprint, or an error. Cancelling the returned handle (the sheet's
+     * Cancel) stops the handshake and closes its connection, so a cancelled pairing does not go on
+     * to use up the one-time code; [callback] then gets "Cancelled".
      */
-    fun pairNode(code: String, deviceName: String, previous: String?, callback: (secret: String?, node: String?, fingerprint: String?, error: String?) -> Unit) {
+    fun pairNode(code: String, deviceName: String, previous: String?, callback: (secret: String?, node: String?, fingerprint: String?, error: String?) -> Unit): Cancellable {
         val connector = nodeConnector
         val crypto = nodeCrypto
         val parsed = PairingCode.parse(code.trim())
         when {
-            connector == null || crypto == null -> return callback(null, null, null, "My node is not available on this device yet")
-            parsed == null -> return callback(null, null, null, dev.wckdboy.autobot.shared.invincible.NodePairingWords.NOT_A_CODE)
+            connector == null || crypto == null -> return Cancellable {}.also { callback(null, null, null, "My node is not available on this device yet") }
+            parsed == null -> return Cancellable {}.also { callback(null, null, null, dev.wckdboy.autobot.shared.invincible.NodePairingWords.NOT_A_CODE) }
         }
-        launchAnswering(
+        val job = launchAnsweringJob(
             callback = { r: List<String?> -> callback(r[0], r[1], r[2], r[3]) },
             failed = { listOf(null, null, null, it) },
         ) {
@@ -627,6 +629,7 @@ class AgentBridge(
                 listOf(null, null, null, dev.wckdboy.autobot.shared.invincible.NodeErrors.pairing(e, parsed!!.addresses))
             }
         }
+        return Cancellable { job.cancel() }
     }
 
     /** Which of [secrets] (stored pairings) is with the node in [code]: pairing again replaces it; -1 for none. */
@@ -987,17 +990,24 @@ class AgentBridge(
      * resumes.
      */
     private fun <R> launchAnswering(callback: (R) -> Unit, failed: (String) -> R, block: suspend () -> R) {
+        launchAnsweringJob(callback, failed, block)
+    }
+
+    /** [launchAnswering], with its job to cancel (the callback then gets `failed("Cancelled")`). */
+    private fun <R> launchAnsweringJob(callback: (R) -> Unit, failed: (String) -> R, block: suspend () -> R): kotlinx.coroutines.Job {
         val answered = AtomicBoolean(false)
         fun answer(result: R) {
             if (answered.compareAndSet(expectedValue = false, newValue = true)) callback(result)
         }
-        scope.launch { answer(block()) }.invokeOnCompletion { cause ->
+        val job = scope.launch { answer(block()) }
+        job.invokeOnCompletion { cause ->
             when (cause) {
                 null -> Unit
                 is CancellationException -> answer(failed("Cancelled"))
                 else -> answer(failed(cause.message ?: (cause::class.simpleName ?: "error")))
             }
         }
+        return job
     }
 
     @OptIn(ExperimentalTime::class)

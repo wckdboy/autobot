@@ -160,4 +160,37 @@ class AgentBridgeTest {
 
         bridge.answerApproval("none", ApprovalOutcome.REJECTED) // no-op for unknown call ids
     }
+
+    /** Cancel on the pairing sheet (iOS cancels the handle) stops the handshake and closes its connection. */
+    @Test
+    fun cancellingAPairingStopsTheHandshake() = runBlocking {
+        val dir = Files.createTempDirectory("bridge-pair").toFile()
+        val providers = object : ProviderDirectory {
+            override fun provider(id: String): ProviderSpec? = null
+        }
+        val bridge = AgentBridge(dir.path, providers, FakeTransport(ArrayDeque()), NoLocal, MemoryStore(), null, { null })
+        val loopback = java.net.InetAddress.getLoopbackAddress()
+        java.net.ServerSocket(0, 1, loopback).use { server ->
+            bridge.nodeCrypto = dev.wckdboy.autobot.shared.invincible.JvmNodeCrypto
+            bridge.nodeConnector = { _, _ -> dev.wckdboy.autobot.shared.invincible.SocketNodeLink(java.net.Socket(loopback, server.localPort)) }
+            val key = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32) { 7 })
+            val answer = kotlinx.coroutines.CompletableDeferred<String?>()
+            val handle = bridge.pairNode("invincible://pair?v=0&k=$key&s=$key&a=127.0.0.1:${server.localPort}", "phone", null) { secret, _, _, error ->
+                answer.complete(secret ?: error)
+            }
+            server.accept().use { node ->
+                node.soTimeout = 3_000
+                // The phone's first message arrived (mode byte, one frame); it now waits on the node.
+                val input = java.io.DataInputStream(node.getInputStream())
+                input.readByte()
+                input.readFully(ByteArray(input.readUnsignedShort()))
+                kotlinx.coroutines.delay(300)
+                handle.cancel()
+                assertEquals("Cancelled", withTimeout(3_000) { answer.await() })
+                // The connection is closed, so the node does not go on to pair (and use up the code).
+                assertEquals(-1, input.read())
+            }
+        }
+        bridge.shutdown { }
+    }
 }
