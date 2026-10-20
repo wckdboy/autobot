@@ -7,9 +7,9 @@ struct NavItem<K: Hashable>: Hashable {
 }
 
 /**
- Bottom navigation: sentence-case mono labels (11 pt), a small purple square above the active one
- (the title mark's square), a hairline on top. Active = onSurface, inactive = onSurfaceVariant.
- The square slides to a new tab with ease-out and leaves a one-frame registration ghost.
+ Bottom navigation: sentence-case mono labels (11 pt), a 2 pt purple bar 6 pt under the active one
+ (as Android's `AutobotNavBar`), a hairline on top. Active = onSurface medium, inactive =
+ onSurfaceVariant. The bar slides to a new tab with ease-out and leaves a one-frame registration ghost.
  */
 struct AutobotNavBar<K: Hashable>: View {
     let items: [NavItem<K>]
@@ -26,19 +26,21 @@ struct AutobotNavBar<K: Hashable>: View {
                 let active = item.key == selected
                 Button { onSelect(item.key) } label: {
                     VStack(spacing: 0) {
+                        // Balances the bar below, so the label sits on the bar's centre line.
+                        Spacer().frame(height: Self.barHeight + Self.barGap)
+                        Text(item.label.sentenceCased)
+                            .textStyle(.labelSmall, weight: active ? 500 : 400)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .foregroundStyle(active ? c.onBackground : c.onSurfaceVariant)
+                        Spacer().frame(height: Self.barGap)
                         ZStack {
                             if ghost.key == AnyHashable(item.key) {
                                 Rectangle().fill(AutobotColors.purple.opacity(0.4)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
                             }
-                            if active { Rectangle().fill(AutobotColors.purple).matchedGeometryEffect(id: "dot", in: marker) }
+                            if active { Rectangle().fill(AutobotColors.purple).matchedGeometryEffect(id: "bar", in: marker) }
                         }
-                        .frame(width: Tokens.Spacing.navDot, height: Tokens.Spacing.navDot)
-                        Spacer().frame(height: Tokens.Spacing.navDotGap)
-                        Text(item.label.sentenceCased)
-                            .textStyle(.labelSmall, weight: active ? 600 : nil)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                            .foregroundStyle(active ? c.onBackground : c.onSurfaceVariant)
+                        .frame(width: Self.barWidth, height: Self.barHeight)
                     }
                     .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.navBarHeight)
                     .contentShape(Rectangle())
@@ -56,4 +58,10 @@ struct AutobotNavBar<K: Hashable>: View {
         .background(c.background)
         .hairlineEdge(top: true, bottom: false)
     }
+
+    /// Android's `TabBarWidth` and `SelectionBarHeight`, and the 6 dp between label and bar.
+    static var barWidth: CGFloat { 20 }
+    static var barHeight: CGFloat { 2 }
+    static var barGap: CGFloat { 6 }
 }
+
