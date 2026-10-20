@@ -346,6 +346,7 @@ final class SharedAgentRuntime: AgentRuntime {
     private struct Problem: Sendable { let message: String? }
     private struct Schedules: @unchecked Sendable { var list: [AgentSchedule]? = nil, error: String? = nil }
     private struct Activity: @unchecked Sendable { var value: NodeActivity? = nil, error: String? = nil }
+    private struct Digest: @unchecked Sendable { var value: NodeDigest? = nil, error: String? = nil }
 
     /// This device's conversation with the node's agent, the agent's settings and the conversation so far.
     func nodeAgentOpen(_ providerId: String) async -> (opened: NodeAgentOpened?, error: String?) {
@@ -399,6 +400,14 @@ final class SharedAgentRuntime: AgentRuntime {
     func nodeActivity(_ providerId: String) async -> (activity: NodeActivity?, error: String?) {
         let r = await call(stopped: Activity(error: Self.stoppedMessage), late: Activity(error: "The node did not answer")) { done in
             bridge.nodeActivity(providerId: providerId) { @Sendable activity, error in done(Activity(value: activity, error: error)) }
+        }
+        return (r.value, r.error)
+    }
+
+    /// "While you were away": what the node did after [since] (Unix seconds), with [recipes] (their JSON) for the result chats.
+    func nodeDigest(_ providerId: String, since: Int64, recipes: [String]) async -> (digest: NodeDigest?, error: String?) {
+        let r = await call(stopped: Digest(error: Self.stoppedMessage), late: Digest(error: "The node did not answer")) { done in
+            bridge.nodeDigest(providerId: providerId, since: since, recipesJson: recipes) { @Sendable digest, error in done(Digest(value: digest, error: error)) }
         }
         return (r.value, r.error)
     }

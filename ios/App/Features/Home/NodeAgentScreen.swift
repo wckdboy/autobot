@@ -190,6 +190,9 @@ final class NodeAgentModel {
     }
 }
 
+/// A sheet the agent screen opens on arrival: the activity, or straight to its board.
+enum NodeAgentSheet: Hashable { case activity, board }
+
 struct NodeAgentScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
@@ -199,7 +202,13 @@ struct NodeAgentScreen: View {
     @State private var showSchedules = false
     @State private var showActivity = false
 
-    init(providerId: String) { _model = State(initialValue: NodeAgentModel(providerId: providerId)) }
+    private let open: NodeAgentSheet?
+
+    init(providerId: String, open: NodeAgentSheet? = nil) {
+        _model = State(initialValue: NodeAgentModel(providerId: providerId))
+        _showActivity = State(initialValue: open != nil)
+        self.open = open
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -240,10 +249,13 @@ struct NodeAgentScreen: View {
             .padding(Tokens.Spacing.gutter)
         }
         .background(c.background)
-        .task { await model.connect(app: app) }
+        .task {
+            await model.connect(app: app)
+            if open != nil { await model.loadActivity() }
+        }
         .onDisappear { model.stopListening() }
         .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
-        .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model) }
+        .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
     }
 
     @ViewBuilder private var header: some View {
@@ -361,8 +373,15 @@ struct NodeSchedulesSheet: View {
 struct NodeActivitySheet: View {
     let model: NodeAgentModel
     @Environment(\.scheme) private var c
-    @State private var tab = 0
+    @State private var tab: Int
     private static let tabs = ["requests", "actions", "board", "memory"]
+    /// The board's tab, to open the sheet on it.
+    static let boardTab = 2
+
+    init(model: NodeAgentModel, initialTab: Int = 0) {
+        self.model = model
+        _tab = State(initialValue: initialTab)
+    }
     @State private var answers: [String: String] = [:]
     private let words = NodeActivityWords.shared
 

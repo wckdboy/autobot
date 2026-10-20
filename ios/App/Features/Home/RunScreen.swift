@@ -126,6 +126,7 @@ struct RunScreen: View {
     @State private var device: DeviceProfile?
     @State private var lastImage: UIImage?
     @Environment(\.dynamicTypeSize) private var dynamicType
+    @State private var digest = NodeDigestModel()
 
     var body: some View {
         let _ = InkProbe.hit("body.run")
@@ -138,6 +139,22 @@ struct RunScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     SectionLabel(state.status)
                     Spacer().frame(height: 14)
+                    // What the paired node did meanwhile; nothing when there is no node or nothing new.
+                    if let card = digest.card {
+                        NodeDigestCard(
+                            state: card,
+                            onNeedsYou: {
+                                digest.markSeen()
+                                nav.push(.nodeAgent(providerId: card.providerId, open: .board))
+                            },
+                            onDetails: {
+                                digest.markSeen()
+                                nav.push(.nodeAgent(providerId: card.providerId, open: .activity))
+                            },
+                            onDismiss: { digest.markSeen() },
+                        )
+                        Spacer().frame(height: 14)
+                    }
                     cards(state)
                     Spacer().frame(height: 22)
                     if !state.hasAnything {
@@ -165,6 +182,9 @@ struct RunScreen: View {
         .background(c.background)
         // Hardware facts once; thermal state and free space when they can have changed (no polling).
         .task { device = await Task.detached(priority: .userInitiated) { DeviceProfile.current() }.value }
+        // Each time Run shows: what the node did since the owner last looked.
+        // (again when a node is paired or unpaired).
+        .task(id: NodeDigestModel.pairedNode(app)?.id) { await digest.refresh(node: NodeDigestModel.pairedNode(app), fetch: NodeDigestModel.fetch(app)) }
         .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification).receive(on: RunLoop.main)) { _ in
             device = device?.refreshed()
         }
