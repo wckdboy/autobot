@@ -130,8 +130,11 @@ class RemoteViewModel @Inject constructor(
             if (BotsDemo.on(providerId)) return@launch bots.update { it + (providerId to BotsDemo.state().copy(notice = "Nothing to change.")) }
             val provider = providers.observeProviders().first().firstOrNull { it.id == providerId } ?: return@launch
             bots.update { m -> m + (providerId to (m[providerId] ?: NodeBotsState()).copy(loading = true, notice = null)) }
-            val state = runCatching { agents.bots(provider)?.reload() }.getOrNull() ?: return@launch
-            bots.update { it + (providerId to state) }
+            val before = bots.value[providerId]
+            val state = runCatching { agents.bots(provider)?.reload() }.getOrElse { e -> NodeBotsState(problem = e.message ?: "The node did not answer.") } ?: return@launch
+            // A node that did not answer keeps the list it showed, with why.
+            val shown = if (state.bots.isEmpty() && state.problem != null && before != null) before.copy(loading = false, problem = state.problem, notice = null) else state
+            bots.update { it + (providerId to shown) }
         }
     }
 }
@@ -206,6 +209,7 @@ fun RemoteScreen(
                                 Tag("Reload", onClick = { onReloadBots(n.id) })
                             }
                         }
+                        bots.problem?.let { problem -> item(key = "bp-${n.id}") { Text("$problem ✗", Modifier.padding(bottom = 4.dp), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error) } }
                         bots.notice?.let { notice -> item(key = "bn-${n.id}") { Text(notice, Modifier.padding(bottom = 4.dp), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
                         items(bots.bots, key = { "bot-${n.id}-${it.name}" }) { bot -> BotRow(bot, state.now, onClick = { onOpenBot(n.id, bot.name) }) }
                     }

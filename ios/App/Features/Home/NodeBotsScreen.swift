@@ -41,6 +41,7 @@ final class NodeBotsModel {
         }
         guard let runtime = app.agent as? SharedAgentRuntime else { return }
         let state = await runtime.nodeBotsReload(id)
+        // A node that did not answer keeps the list it showed, with why.
         if state.problem == nil || states[id] == nil { states[id] = state } else if let old = states[id] {
             states[id] = old.doCopy(bots: old.bots, supported: old.supported, loading: false, problem: state.problem, notice: state.notice)
         }
@@ -151,12 +152,23 @@ final class NodeBotModel {
         sessions = list ?? []
         if let error { problem = error }
         approvals = await runtime.nodeAgentApprovals(providerId).filter { NodeBots.shared.of(bot: $0.bot) == name }
-        detail = await runtime.nodeBotDetail(providerId, bot: name)
+        let edits = personalityEdits
+        let fetched = await runtime.nodeBotDetail(providerId, bot: name)
+        // A personality chosen while this was asked for wins over what the node said before it.
+        if edits != personalityEdits, let current = detail?.personalities {
+            detail = Self.with(fetched, current)
+        } else {
+            detail = fetched
+        }
     }
+
+    /// Personalities set here, so a refresh that started before one does not undo it on screen.
+    @ObservationIgnored private var personalityEdits = 0
 
     /// Sets the bot's personality ([personality] nil for none): shown at once, put back when the node says no.
     func setPersonality(_ personality: String?) async {
         guard let detail, let before = detail.personalities else { return }
+        personalityEdits += 1
         let wanted = personality == NodeBotDetails.shared.NONE ? nil : personality
         self.detail = Self.with(detail, NodePersonalities(active: wanted, soul: before.soul, list: before.list))
         settingPersonality = wanted ?? NodeBotDetails.shared.NONE

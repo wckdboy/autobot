@@ -94,6 +94,8 @@ data class NodeAgentUiState(
     val returned: String? = null,
     /** Why the last photo could not be attached. */
     val photoProblem: String? = null,
+    /** Photos still being downscaled: the message waits for them. */
+    val encoding: Int = 0,
 ) {
     /** The node has more than one bot: the screen says which one this is. */
     val severalBots: Boolean get() = (info?.bots?.size ?: 0) > 1
@@ -225,42 +227,69 @@ class NodeAgentViewModel @AssistedInject constructor(
         }
     }
 
+    /**
+     * The last message when it never reached the node (the connection failed, or the node said no
+     * before running it): Retry sends it again instead of re-running the turn before it.
+     */
+    private var unsent: AgentRow.User? = null
+
     fun send(text: String) {
         val trimmed = text.trim()
         val photos = _state.value.photos
-        if (trimmed.isEmpty() || _state.value.running) return
-        val key = nextKey()
-        _state.update { it.copy(rows = it.rows + AgentRow.User(key, trimmed, photos), running = true, photos = emptyList(), photoProblem = null) }
+        if (trimmed.isEmpty() || _state.value.running || _state.value.encoding > 0) return
+        val row = AgentRow.User(nextKey(), trimmed, photos)
+        _state.update { it.copy(rows = it.rows + row, running = true, photos = emptyList(), photoProblem = null) }
         if (BotsDemo.on(providerId)) return demoAnswer()
         val agent = agent ?: return _state.update { it.copy(running = false) }
-        follow(agent.turn(session, trimmed, bot, photos.map(NodePhotos::base64)), sent = key, text = trimmed)
+        follow(agent.turn(session, trimmed, bot, photos.map(NodePhotos::base64)), sent = row, restore = null)
     }
 
-    /** Runs the last turn again on the node (`POST …/retry`): its rows go, its message stays. */
+    /**
+     * Retry on the last answer or failure: the node runs that turn again (`POST …/retry`), or,
+     * when the message never reached it, the message goes again. Its rows go, its message stays;
+     * a retry the node does not take puts them back.
+     */
     fun retry() {
         if (_state.value.running) return
+        val before = _state.value.rows
         _state.update { it.copy(rows = AgentTranscript.retrying(it.rows), running = true) }
         if (BotsDemo.on(providerId)) return demoAnswer()
-        val agent = agent ?: return _state.update { it.copy(running = false) }
-        follow(agent.retry(session), sent = null, text = null)
+        val agent = agent ?: return _state.update { it.copy(rows = before, running = false) }
+        val again = unsent?.takeIf { u -> before.lastOrNull { it is AgentRow.User }?.key == u.key }
+        if (again != null) {
+            follow(agent.turn(session, again.text, bot, again.photos.map(NodePhotos::base64)), sent = again, restore = null)
+        } else {
+            follow(agent.retry(session), sent = null, restore = before)
+        }
     }
 
     /**
      * Folds a turn's events in. The turn ends at its answer (the conversation is free then); the
      * stream stays open a little longer for what the agent kept.
      */
-    private fun follow(events: kotlinx.coroutines.flow.Flow<AgentEvent>, sent: String?, text: String?) {
+    private fun follow(events: kotlinx.coroutines.flow.Flow<AgentEvent>, sent: AgentRow.User?, restore: List<AgentRow>?) {
         val job = viewModelScope.launch {
             var route: String? = null
             var current = true
+            // Whether the node took the turn: anything it streamed but a failure.
+            var accepted = false
             try {
                 events.collect { event ->
                     if (event is AgentEvent.Receipt) route = AgentTranscript.route(event)
+                    if (event !is AgentEvent.Failed) accepted = true
                     if (event is AgentEvent.Failed && event.code == NodeImages.CANNOT_SEE && sent != null) {
                         // Said plainly; the text goes back to the composer, the photo does not.
-                        _state.update { it.copy(rows = AgentTranscript.unsent(it.rows, sent) + AgentRow.Note(nextKey(), event.text, AgentRow.Tone.ERROR), returned = text, running = false) }
+                        unsent = null
+                        _state.update { it.copy(rows = AgentTranscript.unsent(it.rows, sent.key) + AgentRow.Note(nextKey(), event.text, AgentRow.Tone.ERROR), returned = sent.text, running = false) }
                         current = false
                         return@collect
+                    }
+                    if (event is AgentEvent.Failed && !accepted) {
+                        if (sent != null) unsent = sent
+                        // A retry the node did not take: the answer it was to replace comes back.
+                        if (restore != null) _state.update { it.copy(rows = restore) }
+                    } else if (sent != null && accepted) {
+                        unsent = null
                     }
                     _state.update { it.copy(rows = AgentTranscript.apply(it.rows, event, route, nextKey())) }
                     if (current && (event is AgentEvent.Answer || event is AgentEvent.Failed)) {
@@ -284,12 +313,13 @@ class NodeAgentViewModel @AssistedInject constructor(
 
     /** Attaches a photo from the library or the camera: downscaled to [NodeImages.MAX_SIDE], JPEG. */
     fun attach(uri: Uri, fromCamera: Boolean = false) {
-        if (_state.value.photos.size >= NodeImages.MAX_PHOTOS) return
+        if (_state.value.photos.size + _state.value.encoding >= NodeImages.MAX_PHOTOS) return
+        _state.update { it.copy(encoding = it.encoding + 1) }
         viewModelScope.launch {
             val jpeg = withContext(Dispatchers.Default) { runCatching { NodePhotos.encode(context, uri) }.getOrNull() }
             if (fromCamera) NodePhotos.clearCamera(context)
-            if (jpeg == null) return@launch _state.update { it.copy(photoProblem = "Could not read that photo.") }
-            _state.update { it.copy(photos = it.photos + jpeg, photoProblem = null) }
+            if (jpeg == null) return@launch _state.update { it.copy(encoding = it.encoding - 1, photoProblem = "Could not read that photo.") }
+            _state.update { it.copy(photos = it.photos + jpeg, encoding = it.encoding - 1, photoProblem = null) }
         }
     }
 

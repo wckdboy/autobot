@@ -204,11 +204,11 @@ fun NodeAgentScreen(
                 items(state.rows, key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
                 if (state.running) item(key = "busy") { InkLoader() }
             }
-            if (state.photos.isNotEmpty() || state.photoProblem != null) {
-                PendingPhotos(state.photos, state.photoProblem, onRemovePhoto)
+            if (state.photos.isNotEmpty() || state.photoProblem != null || state.encoding > 0) {
+                PendingPhotos(state.photos, state.photoProblem, state.encoding, onRemovePhoto)
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                PhotoButton(enabled = state.info != null && !state.running && state.photos.size < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
+                PhotoButton(enabled = state.info != null && !state.running && state.photos.size + state.encoding < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
                 Spacer(Modifier.width(4.dp))
                 ConsoleTextField(
                     value = draft,
@@ -225,7 +225,8 @@ fun NodeAgentScreen(
                         onSend(draft)
                         draft = ""
                     },
-                    enabled = draft.isNotBlank() && !state.running && state.info != null,
+                    // A photo still being downscaled goes with this message: it waits for it.
+                    enabled = draft.isNotBlank() && !state.running && state.info != null && state.encoding == 0,
                     shape = MaterialTheme.shapes.extraSmall,
                     modifier = Modifier.size(52.dp),
                 ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
@@ -304,7 +305,7 @@ private fun SentPhotos(photos: List<ByteArray>) {
 }
 
 @Composable
-private fun PendingPhotos(photos: List<ByteArray>, problem: String?, onRemove: (Int) -> Unit) {
+private fun PendingPhotos(photos: List<ByteArray>, problem: String?, encoding: Int, onRemove: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             photos.forEachIndexed { i, p ->
@@ -316,8 +317,11 @@ private fun PendingPhotos(photos: List<ByteArray>, problem: String?, onRemove: (
                 }
             }
         }
-        if (problem != null) MicroLabel(problem, color = MaterialTheme.colorScheme.error, maxLines = 2)
-        else MicroLabel("sent to the node at up to ${NodeImages.MAX_SIDE} px, without location")
+        when {
+            problem != null -> MicroLabel(problem, color = MaterialTheme.colorScheme.error, maxLines = 2)
+            encoding > 0 -> MicroLabel("preparing ${NodeImages.label(encoding)}…")
+            else -> MicroLabel("sent to the node at up to ${NodeImages.MAX_SIDE} px, without location")
+        }
     }
 }
 

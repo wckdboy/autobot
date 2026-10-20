@@ -125,9 +125,26 @@ final class NodeAgentModel {
         rows = Self.waiting(history, waiting, severalBots: severalBots) { [self] in next() }
     }
 
+    /// One turn as it streams: what was sent, whether the node took it, and what a retry would put back.
+    private final class Following {
+        let sent: (id: Int, text: String, photos: [Data])?
+        let restore: [NodeAgentRow]?
+        var accepted = false
+        init(sent: (id: Int, text: String, photos: [Data])?, restore: [NodeAgentRow]?) {
+            self.sent = sent
+            self.restore = restore
+        }
+    }
+
+    /// The last message when it never reached the node: Retry sends it again instead of re-running the turn before it.
+    @ObservationIgnored private var unsent: (id: Int, text: String, photos: [Data])?
+
+    /// Photos still being read and downscaled: the message waits for them.
+    var encoding = 0
+
     func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !running, info != nil else { return }
+        guard !trimmed.isEmpty, !running, encoding == 0, info != nil else { return }
         let id = next()
         let sent = photos
         rows.append(.user(id: id, text: trimmed, photos: sent, count: sent.count))
@@ -137,9 +154,15 @@ final class NodeAgentModel {
         route = nil
         if BotsDemo.on(providerId) { return demoAnswer() }
         guard let runtime else { running = false; return }
-        let text = trimmed
-        turn = runtime.nodeAgentTurn(providerId, session: session, text: trimmed, bot: bot, images: sent.map { $0.base64EncodedString() }) { [weak self] event in
-            self?.apply(event, sent: id, text: text)
+        follow(runtime, Following(sent: (id, trimmed, sent), restore: nil))
+    }
+
+    private func follow(_ runtime: SharedAgentRuntime, _ f: Following) {
+        let handler: @MainActor (AgentEvent) -> Void = { [weak self] event in self?.apply(event, f) }
+        if let sent = f.sent {
+            turn = runtime.nodeAgentTurn(providerId, session: session, text: sent.text, bot: bot, images: sent.photos.map { $0.base64EncodedString() }, onEvent: handler)
+        } else {
+            turn = runtime.nodeAgentRetry(providerId, session: session, onEvent: handler)
         }
     }
 
@@ -163,15 +186,25 @@ final class NodeAgentModel {
         return Array(rows[...user])
     }
 
-    /// Runs the last turn again on the node (`POST …/retry`).
+    /**
+     Retry on the last answer or failure: the node runs that turn again (`POST …/retry`), or, when
+     the message never reached it, the message goes again. Its rows go, its message stays; a retry
+     the node does not take puts them back.
+     */
     func retry() {
         guard !running else { return }
+        let before = rows
         rows = Self.retrying(rows)
         running = true
         route = nil
         if BotsDemo.on(providerId) { return demoAnswer() }
-        guard let runtime else { running = false; return }
-        turn = runtime.nodeAgentRetry(providerId, session: session) { [weak self] event in self?.apply(event, sent: nil, text: nil) }
+        guard let runtime else { rows = before; running = false; return }
+        let lastUser = before.last { if case .user = $0 { true } else { false } }?.id
+        if let again = unsent, again.id == lastUser {
+            follow(runtime, Following(sent: again, restore: nil))
+        } else {
+            follow(runtime, Following(sent: nil, restore: before))
+        }
     }
 
     private func demoAnswer() {
@@ -195,14 +228,24 @@ final class NodeAgentModel {
         photos.remove(at: index)
     }
 
-    private func apply(_ event: AgentEvent, sent: Int?, text: String?) {
+    private func apply(_ event: AgentEvent, _ f: Following) {
+        let failed = event as? AgentEventFailed
+        if failed == nil { f.accepted = true }
         // The model cannot see images: said plainly; the text goes back to the composer, the photo does not.
-        if let e = event as? AgentEventFailed, e.code == NodeImages.shared.CANNOT_SEE, let sent {
-            rows.removeAll { $0.id == sent }
+        if let e = failed, e.code == NodeImages.shared.CANNOT_SEE, let sent = f.sent {
+            unsent = nil
+            rows.removeAll { $0.id == sent.id }
             rows.append(.note(id: next(), text: e.text, tone: .error))
-            returned = text
+            returned = sent.text
             running = false
             return
+        }
+        if failed != nil && !f.accepted {
+            if let sent = f.sent { unsent = sent }
+            // A retry the node did not take: the answer it was to replace comes back.
+            if let restore = f.restore { rows = restore }
+        } else if f.sent != nil && f.accepted {
+            unsent = nil
         }
         apply(event)
     }
@@ -402,11 +445,11 @@ struct NodeAgentScreen: View {
                     if let last = model.rows.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
             }
-            if !model.photos.isEmpty || model.photoProblem != nil { pendingPhotos }
+            if !model.photos.isEmpty || model.photoProblem != nil || model.encoding > 0 { pendingPhotos }
             HStack(alignment: .bottom, spacing: 8) {
                 photoMenu
                 ConsoleTextField(text: $draft, placeholder: "A task for your machine", minLines: 1, maxLines: 5, enabled: model.info != nil)
-                IconAction(symbol: "paperplane.fill", label: "Send", tint: c.primary, enabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty && !model.running && model.info != nil) {
+                IconAction(symbol: "paperplane.fill", label: "Send", tint: c.primary, enabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty && !model.running && model.encoding == 0 && model.info != nil) {
                     model.send(draft)
                     draft = ""
                 }
@@ -429,9 +472,12 @@ struct NodeAgentScreen: View {
         .onChange(of: picks) { _, items in
             guard !items.isEmpty else { return }
             picks = []
+            model.encoding += items.count
             Task {
                 for item in items {
-                    if let data = try? await item.loadTransferable(type: Data.self) { model.attach(data) } else { model.photoProblem = "Could not read that photo." }
+                    let data = try? await item.loadTransferable(type: Data.self)
+                    model.encoding -= 1
+                    if let data { model.attach(data) } else { model.photoProblem = "Could not read that photo." }
                 }
             }
         }
@@ -494,6 +540,7 @@ struct NodeAgentScreen: View {
                 }
             }
             if let problem = model.photoProblem { MicroLabel(problem, color: c.error, lines: 2) }
+            else if model.encoding > 0 { MicroLabel("preparing \(NodeImages.shared.label(count: Int32(model.encoding)))…") }
             else { MicroLabel("sent to the node at up to \(NodeImages.shared.MAX_SIDE) px, without location", lines: 2) }
         }
         .padding(.horizontal, Tokens.Spacing.gutter)

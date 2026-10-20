@@ -215,14 +215,20 @@ class NodeBotViewModel @AssistedInject constructor(
                 .onFailure { e -> _state.update { it.copy(sessions = emptyList(), problem = e.message ?: "The node did not answer.") } }
             val waiting = runCatching { found.first.approvals() }.getOrNull().orEmpty()
             _state.update { it.copy(approvals = waiting.filter { a -> NodeBots.of(a.bot) == name }.sortedBy { a -> a.askedAt }) }
+            val edits = personalityEdits
             val detail = NodeBotDetails.fetch(found.first, name)
-            _state.update { it.copy(detail = detail) }
+            // A personality chosen while this was asked for wins over what the node said before it.
+            _state.update { it.copy(detail = if (edits != personalityEdits) detail.copy(personalities = it.detail?.personalities ?: detail.personalities) else detail) }
         }
     }
 
     /** Sets the bot's personality ([personality] null for none), shown at once and put back when the node says no. */
+    /** Personalities set here, so a refresh that started before one does not undo it on screen. */
+    private var personalityEdits = 0
+
     fun setPersonality(personality: String?) {
         val before = _state.value.detail?.personalities ?: return
+        personalityEdits++
         val wanted = personality?.takeUnless { it == NodeBotDetails.NONE }
         _state.update { s -> s.copy(detail = s.detail?.copy(personalities = before.copy(active = wanted)), settingPersonality = wanted ?: NodeBotDetails.NONE, problem = null) }
         if (demo) return _state.update { it.copy(settingPersonality = null) }

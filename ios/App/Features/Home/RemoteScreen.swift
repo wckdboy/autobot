@@ -43,6 +43,9 @@ struct RemoteScreen: View {
                                     Tag("Reload") { Task { await bots.reload(app: app, node: n.id) } }
                                 }
                                 .padding(.top, 12)
+                                if let problem = state.problem {
+                                    Text("\(problem) ✗").textStyle(.micro).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true).padding(.bottom, 4)
+                                }
                                 if let notice = state.notice {
                                     Text(notice).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true).padding(.bottom, 4)
                                 }
