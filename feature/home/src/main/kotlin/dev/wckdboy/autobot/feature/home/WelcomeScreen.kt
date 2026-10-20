@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.home
 
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,7 +59,7 @@ fun WelcomeScreen(onSetUp: () -> Unit, onPairPc: () -> Unit = {}, onAddApiKey: (
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 PrimaryButton("Set up this phone", onSetUp, Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onPairPc) { ActionText("Pair a PC", MaterialTheme.colorScheme.onSurfaceVariant) }
+                    TextButton(onClick = onPairPc) { ActionText(NodePairingWords.REMOTE_ROW, MaterialTheme.colorScheme.onSurfaceVariant) }
                     TextButton(onClick = onAddApiKey) { ActionText("Add an API key", MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }

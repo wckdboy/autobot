@@ -327,13 +327,20 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// Pairs with the node in [code] as [deviceName]: the pairing to store as the provider's
     /// secret, the node's name and key fingerprint, or an error.
-    func pairNode(code: String, deviceName: String) async -> (secret: String?, node: String?, fingerprint: String?, error: String?) {
-        let result = await call(stopped: PairReply(error: Self.stoppedMessage), late: PairReply(error: "The node did not answer within \(Self.testTimeout.components.seconds) seconds")) { done in
-            bridge.pairNode(code: code, deviceName: deviceName) { @Sendable secret, node, fingerprint, error in
+    /// [previous]: this phone's pairing with the same node, when it has one (its key is kept).
+    func pairNode(code: String, deviceName: String, previous: String? = nil) async -> (secret: String?, node: String?, fingerprint: String?, error: String?) {
+        let result = await call(stopped: PairReply(error: Self.stoppedMessage), late: PairReply(error: NodeErrors.shared.timeout(node: "The node"))) { done in
+            bridge.pairNode(code: code, deviceName: deviceName, previous: previous) { @Sendable secret, node, fingerprint, error in
                 done(PairReply(secret: secret, node: node, fingerprint: fingerprint, error: error))
             }
         }
         return (result.secret, result.node, result.fingerprint, result.error)
+    }
+
+    /// Which of [secrets] (stored pairings) is with the node in [code]; nil for none.
+    func pairedNodeIndex(_ code: String, secrets: [String]) -> Int? {
+        let i = Int(bridge.pairedNodeIndex(code: code, secrets: secrets))
+        return i >= 0 ? i : nil
     }
 
     /// The node key fingerprint in a pairing code, to compare with what `invincible pair` printed.

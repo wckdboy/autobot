@@ -179,6 +179,62 @@ struct NodeConnectorTests {
         #expect(activity.agentProblem == nil)
     }
 
+    /// A runtime with the app's real node connector, for the pairing tests below.
+    @MainActor private func pairingRuntime() throws -> SharedAgentRuntime {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("node-pair-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let keys = KeyManager()
+        let store = EncryptedStore(url: dir.appendingPathComponent("db.sqlite"), keys: keys)
+        let secrets = SecretStore()
+        let policy = NetworkPolicy()
+        policy.setMode(.direct)
+        return SharedAgentRuntime(
+            conversations: ConversationRepository(store: store), providers: ProviderRepository(store: store, secrets: secrets),
+            store: Autobot.SessionStore(store: store), clients: HttpClientFactory(policy: policy, auditLog: AuditLog()), llm: LocalLlm(),
+            attachments: AttachmentRepository(keys: keys), secrets: secrets, snapshots: HostSnapshots(),
+        )
+    }
+
+    private static let key = String(repeating: "A", count: 42) + "E"
+
+    /// A pairing code for a "node" at [address].
+    private static func code(_ address: String) -> String { "invincible://pair?v=0&k=\(key)&s=\(key)&a=\(address)" }
+
+    /// Pairing with a node that is not running says where it looked and what to check, in the same words as Android.
+    @MainActor @Test func pairingWithANodeThatIsDownSaysSo() async throws {
+        let runtime = try pairingRuntime()
+        let paired = await runtime.pairNode(code: Self.code("127.0.0.1:9"), deviceName: "iPhone test")
+        #expect(paired.secret == nil)
+        #expect(paired.error == NodeErrors.shared.unreachable(node: "the node", addresses: ["127.0.0.1:9"]), "\(paired.error ?? "")")
+    }
+
+    /// A node that closes the connection without a reply (a used, expired or wrong code): the code is refused, in words.
+    @MainActor @Test func aRefusedCodeIsSaidAsOne() async throws {
+        let listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            // Read the mode byte and the first handshake message, then close, as the node does.
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { _, _, _, _ in connection.cancel() }
+        }
+        let ready = AsyncStream<UInt16> { continuation in
+            listener.stateUpdateHandler = { state in if case .ready = state { continuation.yield(listener.port?.rawValue ?? 0); continuation.finish() } }
+        }
+        listener.start(queue: .global())
+        defer { listener.cancel() }
+        var port: UInt16 = 0
+        for await p in ready { port = p }
+        let runtime = try pairingRuntime()
+        let paired = await runtime.pairNode(code: Self.code("127.0.0.1:\(port)"), deviceName: "iPhone test")
+        #expect(paired.error == NodeErrors.shared.CODE_REFUSED, "\(paired.error ?? "")")
+    }
+
+    /// Pairing again with a node already here finds that pairing (its provider is updated, not duplicated).
+    @MainActor @Test func pairingAgainFindsTheNodeAlreadyHere() throws {
+        let runtime = try pairingRuntime()
+        #expect(runtime.pairedNodeIndex(Self.code("127.0.0.1:9"), secrets: ["sk-not-a-pairing", ""]) == nil)
+        #expect(NodePairingWords.shared.row(addresses: ["127.0.0.1:7802", "10.0.2.2:7802"]) == "127.0.0.1:7802 · 10.0.2.2:7802 · paired")
+    }
+
     @Test func approvalCardsSayWhatIsAsked() {
         #expect(NodeAgentModel.describe(AgentActionCommand(command: "ls -la"), fallback: "") == ("Run a command?", "ls -la"))
         #expect(NodeAgentModel.describe(AgentActionWrite(path: "/w/x", bytes: 5, inside: false), fallback: "") == ("Write outside the working directory?", "/w/x · 5 bytes"))

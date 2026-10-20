@@ -168,6 +168,11 @@ struct ProvidersScreen: View {
         return text
     }
 
+    private func nodeRow(_ p: Provider) -> String {
+        let addresses = app.providers.apiKey(p).flatMap { PairedNode.companion.fromSecret(secret: $0.reveal()) }?.addresses ?? []
+        return NodePairingWords.shared.row(addresses: addresses)
+    }
+
     private func row(_ p: Provider) -> some View {
         let preset = ProviderPresets.resolve(p)
         let models = app.providers.modelLists[p.id]
@@ -175,7 +180,8 @@ struct ProvidersScreen: View {
             HStack(spacing: 12) {
                 Button { startEdit(p) } label: {
                     VStack(alignment: .leading, spacing: 3) {
-                        MicroLabel(p.baseUrl)
+                        // A node's base URL is a placeholder: its addresses say where it is.
+                        MicroLabel(p.kind == .invincibleNode ? nodeRow(p) : p.baseUrl)
                         Text(p.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
                         HStack(spacing: 0) {
                             Text(p.defaultModel.isEmpty ? "—" : ChatListModel.modelLabel(p.defaultModel))
@@ -299,8 +305,8 @@ private struct ProviderEditorSheet: View {
 
     var body: some View {
         let preset = draft.preset
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
+        // Save stays above the keyboard while a field (the API key) is being typed.
+        KeyboardForm {
                 SectionLabel(draft.isNew ? "add provider" : "edit provider")
                 HStack(spacing: 8) {
                     Text(preset.displayName).textStyle(.titleLarge).foregroundStyle(c.onSurface)
@@ -360,6 +366,7 @@ private struct ProviderEditorSheet: View {
                     }
                 }
 
+        } footer: {
                 testResult
                 if let error { MicroLabel(error, color: c.error, lines: 3) }
 
@@ -370,9 +377,6 @@ private struct ProviderEditorSheet: View {
                     }
                 }
                 TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
         }
         .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])

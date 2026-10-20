@@ -420,7 +420,7 @@ struct AgentBridgeTests {
         let handle = open("s-401", recorder)
         bridge.send(sessionId: "s-401", text: "hello", images: [])
         #expect(await waitFor { !recorder.notices.isEmpty && !recorder.running })
-        #expect(recorder.notices.contains { $0.contains("API key") && $0.contains("Model providers") })
+        #expect(recorder.notices.contains { $0.contains("API key") && $0.contains("Remote › Providers") })
         handle.cancel()
         finish()
     }

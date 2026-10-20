@@ -605,21 +605,34 @@ class AgentBridge(
      * connector (route `INHERIT`). [callback] gets the pairing to store as the provider's secret,
      * the node's name and key fingerprint, or an error.
      */
-    fun pairNode(code: String, deviceName: String, callback: (secret: String?, node: String?, fingerprint: String?, error: String?) -> Unit) {
+    fun pairNode(code: String, deviceName: String, previous: String?, callback: (secret: String?, node: String?, fingerprint: String?, error: String?) -> Unit) {
         val connector = nodeConnector
         val crypto = nodeCrypto
         val parsed = PairingCode.parse(code.trim())
         when {
             connector == null || crypto == null -> return callback(null, null, null, "My node is not available on this device yet")
-            parsed == null -> return callback(null, null, null, "That is not an Invincible pairing code (invincible://pair?…)")
+            parsed == null -> return callback(null, null, null, dev.wckdboy.autobot.shared.invincible.NodePairingWords.NOT_A_CODE)
         }
         launchAnswering(
             callback = { r: List<String?> -> callback(r[0], r[1], r[2], r[3]) },
             failed = { listOf(null, null, null, it) },
         ) {
-            val paired = PairedNode.pair(crypto!!, parsed!!, deviceName) { addresses -> connector!!(addresses, "INHERIT") }
-            listOf(paired.toSecret(), paired.name, paired.fingerprint, null)
+            try {
+                // [previous]: this device's pairing with the same node, whose key it keeps.
+                val paired = PairedNode.pair(crypto!!, parsed!!, deviceName, previous?.let(PairedNode::fromSecret)) { addresses -> connector!!(addresses, "INHERIT") }
+                listOf(paired.toSecret(), paired.name, paired.fingerprint, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                listOf(null, null, null, dev.wckdboy.autobot.shared.invincible.NodeErrors.pairing(e, parsed!!.addresses))
+            }
         }
+    }
+
+    /** Which of [secrets] (stored pairings) is with the node in [code]: pairing again replaces it; -1 for none. */
+    fun pairedNodeIndex(code: String, secrets: List<String>): Int {
+        val parsed = PairingCode.parse(code.trim()) ?: return -1
+        return secrets.indexOfFirst { PairedNode.sameNode(it, parsed) }
     }
 
     /** The key fingerprint of a pairing code, to compare with what `invincible pair` printed; null when it is not one. */

@@ -84,14 +84,14 @@ class ChatScreenTest {
     fun aCloudProviderWithoutAKeySaysSoBeforeSending() {
         show(ChatUiState(loaded = true, providers = listOf(provider), missingKeyProvider = "DeepSeek"))
         // The words iOS shows, from the shared ChatBannerWords.
-        compose.onNodeWithText("DeepSeek has no API key, so messages will fail. Add it in Model providers.").assertIsDisplayed()
+        compose.onNodeWithText("DeepSeek has no API key, so messages will fail. Add it in Remote › Providers.").assertIsDisplayed()
         compose.onNodeWithText("Add key").performClick()
         assertEquals(1, openedProviders)
     }
 
     @Test
     fun aFailedTurnExplainsTheRejectedKey() {
-        val error = "The provider rejected the API key. Check it under Settings › Model providers (HTTP 401: invalid key)"
+        val error = "The provider rejected the API key. Check it in Remote › Providers (HTTP 401: invalid key)"
         show(ChatUiState(loaded = true, providers = listOf(provider), items = listOf(SessionItem.User("u1", "hi"), SessionItem.Notice("n1", error, NoticeKind.ERROR))))
         compose.onNodeWithText("✗ $error").assertIsDisplayed()
         // The failed turn can be asked again in one tap.

@@ -3,7 +3,8 @@ package dev.wckdboy.autobot.feature.settings.providers
 import dev.wckdboy.autobot.providers.remote.NodeConnections
 import dev.wckdboy.autobot.providers.remote.NodePairingLinks
 import dev.wckdboy.autobot.shared.invincible.JvmNodeCrypto
-import dev.wckdboy.autobot.shared.invincible.NodeBlockedException
+import dev.wckdboy.autobot.shared.invincible.NodeErrors
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import dev.wckdboy.autobot.shared.invincible.PairedNode
 import dev.wckdboy.autobot.shared.invincible.PairingCode
 import dev.wckdboy.autobot.shared.invincible.fingerprint
@@ -41,6 +42,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.network.NetworkMode
@@ -67,6 +69,8 @@ data class ProviderRow(
     val chats: Int = 0,
     /** Why its model list could not be fetched after the last save (a rejected key, the kill switch). */
     val problem: String? = null,
+    /** A paired node: where it is (from the pairing), shown instead of a base URL and a key. */
+    val nodeAddresses: List<String>? = null,
 )
 
 /** Editor state. [apiKeyInput] is only held in memory and is redacted from [toString]. */
@@ -162,9 +166,9 @@ data class PairingDraft(
     /** The node's key as `invincible pair` prints it, to compare before pairing. */
     val fingerprint: String? get() = parsed?.let { fingerprint(it.nodeKey) }
     val problem: String? get() = when {
-        code.isBlank() -> "Scan the node's QR code with the camera app, or paste its code"
-        parsed == null -> "Not an Invincible pairing code"
-        deviceName.isBlank() -> "Name this phone"
+        code.isBlank() -> NodePairingWords.HOW
+        parsed == null -> NodePairingWords.NOT_A_CODE
+        deviceName.isBlank() -> NodePairingWords.NAME_MISSING
         else -> null
     }
 
@@ -210,6 +214,7 @@ class ProvidersViewModel @Inject constructor(
     private val error = MutableStateFlow<String?>(null)
     private val problems = MutableStateFlow<Map<String, String>>(emptyMap())
     private var testJob: Job? = null
+    private var pairJob: Job? = null
     private var modelsJob: Job? = null
 
     private val rows = combine(repository.observeProviders(), repository.observeModelCaches(), conversations.observeConversations(), problems) { list, caches, chats, issues ->
@@ -229,6 +234,9 @@ class ProvidersViewModel @Inject constructor(
                 requiresKey = p.preset().requiresApiKey,
                 chats = usage[p.id] ?: 0,
                 problem = issues[p.id],
+                nodeAddresses = if (p.kind == ProviderKind.INVINCIBLE_NODE) {
+                    runCatching { repository.apiKey(p)?.reveal()?.let(PairedNode::fromSecret)?.addresses }.getOrNull().orEmpty()
+                } else null,
             )
         }
     }
@@ -469,7 +477,18 @@ class ProvidersViewModel @Inject constructor(
     }
 
     fun dismissPairing() {
+        // Cancel means cancel: a pairing still running is not saved after the sheet closed.
+        pairJob?.cancel()
+        pairJob = null
         pairing.value = null
+    }
+
+    /**
+     * The welcome's "Pair a PC": the pairing sheet, unless one is open already (a pairing link
+     * got here first and filled it in; an empty sheet must not replace its code).
+     */
+    fun startPairing() {
+        if (pairing.value == null) openPairing("")
     }
 
     /**
@@ -482,10 +501,16 @@ class ProvidersViewModel @Inject constructor(
         val code = draft.parsed
         if (draft.problem != null || code == null || draft.running) return
         pairing.value = draft.copy(running = true, error = null)
-        viewModelScope.launch {
+        pairJob = viewModelScope.launch {
             try {
-                val paired = PairedNode.pair(JvmNodeCrypto, code, draft.deviceName.trim(), nodes.connector(ProviderRouting.INHERIT, "pairing"))
-                val provider = Provider(
+                // Pairing again with a node already here (after an unpair there, or a new address):
+                // that provider gets the new pairing, with its name, model and chats.
+                val existing = repository.observeProviders().first()
+                    .filter { it.kind == ProviderKind.INVINCIBLE_NODE }
+                    .firstOrNull { PairedNode.sameNode(repository.apiKey(it)?.reveal(), code) }
+                val previous = existing?.let { repository.apiKey(it)?.reveal()?.let(PairedNode::fromSecret) }
+                val paired = PairedNode.pair(JvmNodeCrypto, code, draft.deviceName.trim(), previous, nodes.connector(ProviderRouting.INHERIT, "pairing"))
+                val provider = existing ?: Provider(
                     id = repository.newProviderId(),
                     kind = ProviderKind.INVINCIBLE_NODE,
                     displayName = paired.name,
@@ -509,10 +534,8 @@ class ProvidersViewModel @Inject constructor(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: NodeBlockedException) {
-                pairing.update { it?.copy(running = false, error = "Blocked by the network settings: ${e.message}") }
             } catch (e: Exception) {
-                pairing.update { it?.copy(running = false, error = "Pairing failed: ${userMessage(e)} (the code works once, for 10 minutes)") }
+                pairing.update { it?.copy(running = false, error = NodeErrors.pairing(e, code.addresses)) }
             }
         }
     }
