@@ -50,6 +50,18 @@ class LargeTextTest {
 
     @Test fun largestTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), audit(411, 2f))
 
+    /** Run with the paired node's "While you were away" card under the status line. */
+    private fun withDigest(width: Int, scale: Float, dark: Boolean) = LargeTextAudit.render(compose, "run-digest-${if (dark) "dark" else "light"}", width, scale) {
+        val digest = dev.wckdboy.autobot.feature.home.node.NodeDigestCardState("n1", "studio-mac", dev.wckdboy.autobot.shared.invincible.NodeDigests.sample(1_000_000))
+        Themed(dark) { RunScreen(state, LargeTextAudit.uncalled(), {}, {}, {}, {}, {}, {}, digest = digest) }
+    }
+
+    @Test fun withTheNodeDigestOnInk() = assertEquals(emptyList<LargeTextAudit.Finding>(), withDigest(411, 1f, dark = true))
+
+    @Test fun withTheNodeDigestOnPaper() = assertEquals(emptyList<LargeTextAudit.Finding>(), withDigest(411, 1f, dark = false))
+
+    @Test fun withTheNodeDigestAtTheLargestText() = assertEquals(emptyList<LargeTextAudit.Finding>(), withDigest(360, 2f, dark = true))
+
     private val remote = RemoteUiState(
         providers = listOf(
             Provider("p1", ProviderKind.ANTHROPIC, "Anthropic", "https://api.anthropic.com/v1", "claude-opus-5-5"),

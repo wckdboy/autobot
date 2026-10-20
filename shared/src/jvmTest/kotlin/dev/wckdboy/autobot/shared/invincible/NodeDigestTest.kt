@@ -99,13 +99,19 @@ class NodeDigestTest {
     }
 
     @Test
-    fun aQuestionWaitingIsNewsHoweverOldItIs() {
+    fun aQuestionWaitingCountsHoweverOldItIs() {
         val d = NodeDigests.compute(activity(board = listOf(task("b1", "blocked", 5), task("b2", "failed", 5), task("b3", "failed", 150))), emptyList(), since = 100)
         assertTrue(d.hasNews)
         assertEquals(listOf("b1"), d.waiting.map { it.id })
         assertEquals(listOf("b3"), d.failedTasks.map { it.id })
         assertEquals("1 question waiting", NodeDigestWords.needsYou(d))
         assertEquals(1, d.failures)
+
+        // Seen already and nothing else new: no card. A new question brings it back.
+        val seen = NodeDigests.compute(activity(board = listOf(task("b1", "blocked", 5))), emptyList(), since = 100)
+        assertFalse(seen.hasNews)
+        assertEquals(1, seen.waiting.size)
+        assertTrue(NodeDigests.compute(activity(board = listOf(task("b1", "blocked", 120))), emptyList(), since = 100).hasNews)
     }
 
     @Test

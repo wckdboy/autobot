@@ -60,11 +60,17 @@ import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 
 /** The Autobot Agent on a paired node: tasks run on that machine; questions come here. */
 @Composable
-fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
+fun NodeAgentRoute(providerId: String, onBack: () -> Unit, open: String? = null) {
     val viewModel = hiltViewModel<NodeAgentViewModel, NodeAgentViewModel.Factory>(key = providerId) { it.create(providerId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showSchedules by rememberSaveable { mutableStateOf(false) }
-    var showActivity by rememberSaveable { mutableStateOf(false) }
+    // Opened from the Run screen's "While you were away": straight to the activity (or its board).
+    var showActivity by rememberSaveable { mutableStateOf(open != null) }
+    var arrived by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (open != null && !arrived) viewModel.loadActivity()
+        arrived = true
+    }
     NodeAgentScreen(
         state,
         onBack,
@@ -82,7 +88,7 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
         },
     )
     if (showActivity) {
-        NodeActivitySheet(state, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget, onAnswer = viewModel::answerBoard)
+        NodeActivitySheet(state, initialTab = if (open == "board") BOARD_TAB else 0, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget, onAnswer = viewModel::answerBoard)
     }
     if (showSchedules) {
         NodeSchedulesSheet(state, onDismiss = { showSchedules = false }, onAdd = viewModel::addSchedule, onRemove = viewModel::removeSchedule)

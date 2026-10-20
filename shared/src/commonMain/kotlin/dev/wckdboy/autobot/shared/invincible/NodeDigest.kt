@@ -75,8 +75,11 @@ data class NodeDigest(
 
     val tokens: Long get() = tokensIn + tokensOut
 
-    /** Something happened since [since], or something waits for the owner: the card shows. */
-    val hasNews: Boolean get() = requests > 0 || actions > 0 || runs.isNotEmpty() || waiting.isNotEmpty() || failedTasks.isNotEmpty()
+    /**
+     * Something happened since [since] (a question that started waiting counts; one the owner saw
+     * already does not bring the card back on its own, though the card counts it when it shows).
+     */
+    val hasNews: Boolean get() = requests > 0 || actions > 0 || runs.isNotEmpty() || waiting.any { it.updated > since } || failedTasks.isNotEmpty()
 
     /** The newest result chat of a recipe that ran, to open from the card. */
     val newestChat: String? get() = runs.firstOrNull { it.chat != null }?.chat
@@ -317,9 +320,12 @@ object NodeDigestWords {
     /** The whole card for a screen reader: "While you were away on studio-mac. 12 requests, …". */
     fun spoken(d: NodeDigest, node: String): String = buildString {
         append("$TITLE on $node.")
-        lines(d).forEach { append(' ').append(it.text.removeSuffix(" ✓").removeSuffix(" ✗").removeSuffix(" !")).append('.') }
+        lines(d).forEach { append(' ').append(unmarked(it.text)).append('.') }
         needsYou(d)?.let { append(' ').append(it).append('.') }
     }
+
+    /** A line without its state glyph, for a screen reader: the words say it. */
+    fun unmarked(text: String): String = text.removeSuffix(" ✓").removeSuffix(" ✗").removeSuffix(" !")
 
     /** 812, 18.2k, 1.4M. */
     fun tokens(n: Long): String = when {
