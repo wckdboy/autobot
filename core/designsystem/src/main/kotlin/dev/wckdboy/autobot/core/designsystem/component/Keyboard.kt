@@ -62,6 +62,9 @@ val LocalKeyboardUp = staticCompositionLocalOf<Boolean?> { null }
  * [above] sits between the hairline and the field (attachments, slash commands, words heard).
  * It draws its own ground and hairline; the caller places it under the transcript and pads the
  * pair for the keyboard.
+ *
+ * The chat no longer uses it (its composer is a Material `TextField` with icon buttons); the node
+ * agent screen still does.
  */
 @Composable
 fun ComposerBar(
@@ -113,7 +116,12 @@ fun SendButton(onClick: () -> Unit, enabled: Boolean, label: String = "Send") {
     ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = label) }
 }
 
-/** Stops the running turn: a primary square on a raised ground. */
+/**
+ * Stops the running turn: a primary square on a raised ground.
+ *
+ * Not used by any screen since the chat's Material 3 composer (a `FilledTonalIconButton` there);
+ * kept until the riso kit is retired.
+ */
 @Composable
 fun StopButton(onClick: () -> Unit, label: String = "Stop") {
     FilledIconButton(

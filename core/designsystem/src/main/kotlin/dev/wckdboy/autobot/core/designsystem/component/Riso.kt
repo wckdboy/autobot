@@ -417,7 +417,12 @@ const val WORDMARK = "autobot"
 /** The smallest the top bar's title steps down to before it truncates. */
 private val TOP_BAR_TITLE_MIN = 14.sp
 
-/** Small boxed counter (e.g. `16+` / running jobs). */
+/**
+ * Small boxed counter (e.g. `16+` / running jobs).
+ *
+ * Not used by any screen since the Material 3 pass of Run (a [TonalLabel] there now); kept until
+ * the riso kit is retired.
+ */
 @Composable
 fun CountBadge(text: String, modifier: Modifier = Modifier) {
     Text(
@@ -432,6 +437,9 @@ fun CountBadge(text: String, modifier: Modifier = Modifier) {
  * A mode tile on the Run screen: title, model, and where it runs. Flat: a hairline-free panel,
  * no art behind the words. [index] and [living] are kept for callers and no longer drawn;
  * [background] art (a recent image) sits above the text, never behind it.
+ *
+ * Not used by any screen since the Material 3 pass of Run (a filled `Card` there now); kept until
+ * the riso kit is retired.
  */
 @Composable
 fun ModeCard(
