@@ -28,7 +28,7 @@ settings:
     DEVELOPMENT_TEAM: XKA8CGC2AB
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "1.13.0"
-    CURRENT_PROJECT_VERSION: "42"
+    CURRENT_PROJECT_VERSION: "43"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     ENABLE_BITCODE: NO
     DEAD_CODE_STRIPPING: YES
@@ -126,6 +126,11 @@ targets:
         NSMicrophoneUsageDescription: Dictation is transcribed on this phone. Audio is never stored or sent anywhere.
         NSCameraUsageDescription: Take a photo for the agent on your node. It is downscaled on this phone and sent without its location.
         NSPhotoLibraryAddUsageDescription: Export saves an unencrypted copy of an image you choose to your photo library.
+        NSPhotoLibraryUsageDescription: The harness can read a photo you choose, and only after you approve that request.
+        NSCalendarsUsageDescription: The harness can add calendar events when you approve each request.
+        NSRemindersUsageDescription: The harness can add reminders when you approve each request.
+        NSContactsUsageDescription: The harness can look up contacts you ask about, one request at a time, with your approval.
+        NSLocationWhenInUseUsageDescription: The harness can answer where you are when you ask, and only when you approve.
         NSLocalNetworkUsageDescription: Reach image backends and model servers you configure on your own network.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
