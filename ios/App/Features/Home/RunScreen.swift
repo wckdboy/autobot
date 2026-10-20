@@ -145,7 +145,12 @@ struct RunScreen: View {
                             state: card,
                             onNeedsYou: {
                                 digest.markSeen()
-                                nav.push(.nodeAgent(providerId: card.providerId, open: .board))
+                                // Approvals hold a turn: the agent, in their conversation when they share one. Else the board's questions.
+                                if card.digest.opensBoard {
+                                    nav.push(.nodeAgent(providerId: card.providerId, open: .board))
+                                } else {
+                                    nav.push(.nodeAgent(providerId: card.providerId, session: card.digest.approvalSession))
+                                }
                             },
                             onDetails: {
                                 digest.markSeen()

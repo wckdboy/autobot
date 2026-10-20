@@ -349,11 +349,27 @@ final class SharedAgentRuntime: AgentRuntime {
     private struct Digest: @unchecked Sendable { var value: NodeDigest? = nil, error: String? = nil }
 
     /// This device's conversation with the node's agent, the agent's settings and the conversation so far.
-    func nodeAgentOpen(_ providerId: String) async -> (opened: NodeAgentOpened?, error: String?) {
+    func nodeAgentOpen(_ providerId: String, session: String? = nil) async -> (opened: NodeAgentOpened?, error: String?) {
         let r = await call(stopped: Opened(error: Self.stoppedMessage), late: Opened(error: "The node did not answer")) { done in
-            bridge.nodeAgentOpen(providerId: providerId) { @Sendable opened, error in done(Opened(value: opened, error: error)) }
+            bridge.nodeAgentOpen(providerId: providerId, session: session) { @Sendable opened, error in done(Opened(value: opened, error: error)) }
         }
         return (r.value, r.error)
+    }
+
+    private struct Approvals: @unchecked Sendable { var list: [PendingApproval] = [] }
+
+    /// The approvals waiting on the node now, oldest first; empty when there are none, or the node cannot list them.
+    func nodeAgentApprovals(_ providerId: String) async -> [PendingApproval] {
+        await call(stopped: Approvals(), late: Approvals()) { done in
+            bridge.nodeAgentApprovals(providerId: providerId) { @Sendable list, _ in done(Approvals(list: list ?? [])) }
+        }.list
+    }
+
+    /// "No, and do this instead"; false when the question was no longer waiting.
+    func nodeAgentInstead(_ providerId: String, id: String, text: String) async -> Bool {
+        await call(stopped: Answered(ok: false), late: Answered(ok: false)) { done in
+            bridge.nodeAgentInstead(providerId: providerId, id: id, text: text) { @Sendable ok in done(Answered(ok: ok.boolValue)) }
+        }.ok
     }
 
     /// A turn on the node's agent; [onEvent] runs on the main actor for each event. Cancel to stop listening.

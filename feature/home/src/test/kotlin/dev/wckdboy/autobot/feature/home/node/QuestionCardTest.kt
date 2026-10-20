@@ -45,4 +45,18 @@ class QuestionCardTest {
         compose.setContent { Themed { QuestionCard(row.copy(instead = "Only clean build/tmp"), { _, _ -> }) } }
         compose.onNodeWithText("Asked instead: Only clean build/tmp").assertExists()
     }
+
+    private fun render(dark: Boolean) {
+        val findings = dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.render(compose, "question-card-${if (dark) "dark" else "light"}", 411, 1f, heightDp = 400) {
+            Themed(dark) { QuestionCard(row, { _, _ -> }) }
+        }
+        assertEquals(emptyList<dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.Finding>(), findings)
+        compose.onNodeWithText("Something else…").performClick()
+        compose.onNodeWithText("What to do instead").performTextInput("Only clean build/tmp")
+        dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.save(compose, "question-card-instead-${if (dark) "dark" else "light"}")
+    }
+
+    @Test fun onInk() = render(dark = true)
+
+    @Test fun onPaper() = render(dark = false)
 }

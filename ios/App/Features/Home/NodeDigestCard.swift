@@ -130,8 +130,8 @@ struct NodeDigestCard: View {
 
     @ViewBuilder private func actions(_ needsYou: String?) -> some View {
         let details = TextAction("Details", color: c.onSurfaceVariant, action: onDetails).accessibilityLabel("Details: the node's activity")
-        if dynamicType.isAccessibilitySize {
-            // Large text: the action gets the whole width, Details goes under it.
+        if dynamicType.isAccessibilitySize || (needsYou?.count ?? 0) > 20 {
+            // Large text, or a long action ("2 approvals, 1 question waiting"): it gets the whole width, Details goes under it.
             VStack(alignment: .leading, spacing: 4) {
                 if let needsYou { PaperButton(needsYou, action: onNeedsYou) }
                 details
