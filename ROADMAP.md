@@ -161,7 +161,12 @@ models, shared core). Ordered by value.
    *(in progress: the computer side is [Invincible](https://github.com/wckdboy/invincible); the
    protocol layer (Noise pairing and sessions, signed receipts, shared conformance vectors) is in
    `:shared`, checked against the node byte for byte and live. Not yet: the provider and QR scanner
-   in both apps, routing node connections through the kill switch and Tor/SOCKS5.)*
+   in both apps, routing node connections through the kill switch and Tor/SOCKS5. The node's
+   agent and its bots are in both apps: chats with approvals, the Bots view and Bot detail with
+   each bot's personality, what it knows about you (`USER.md`) and its usage over the last week;
+   photos in node chats (downscaled to 1568 px, JPEG), retry on the node and the agent's `kept`
+   notes. Not yet: the node's agent API takes no images in a turn (0.0.14), so photos reach the
+   model only once it does.)*
 7. ✅ **On-device agents on a schedule.** Recipes ("every morning: summarise these feeds over Tor") run
    with BGTaskScheduler / WorkManager on local models, with results as notifications and receipts.
    *(done, both apps: Settings › Recipes with three disabled templates (morning brief from feeds,
