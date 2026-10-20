@@ -1,5 +1,15 @@
 package dev.wckdboy.autobot.shared.invincible
 
+import dev.wckdboy.autobot.agent.core.Harness
+import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
+import dev.wckdboy.autobot.agent.core.loop.AgentConfig
+import dev.wckdboy.autobot.agent.core.loop.AgentStatus
+import dev.wckdboy.autobot.agent.core.session.InMemorySessionStore
+import dev.wckdboy.autobot.agent.core.session.SessionEvent
+import dev.wckdboy.autobot.agent.core.session.TurnEndReason
+import dev.wckdboy.autobot.agent.runtime.ProviderLlmAdapter
+import dev.wckdboy.autobot.agent.runtime.ProviderLlmAdapter.Companion.toFailure
+import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.providers.remote.ChatEvent
 import dev.wckdboy.autobot.providers.remote.ChatMessage
 import dev.wckdboy.autobot.providers.remote.ChatRequest
@@ -8,8 +18,18 @@ import dev.wckdboy.autobot.providers.remote.ErrorKind
 import dev.wckdboy.autobot.shared.TransportChatProvider
 import dev.wckdboy.autobot.shared.session.explainFailure
 import java.io.IOException
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -126,6 +146,72 @@ class NodeConnectingTest {
         assertFalse(e.message, "ECONNREFUSED" in e.message)
         // The chat shows it once, not inside "Couldn't reach the provider (…)".
         assertEquals(e.message, explainFailure("TRANSPORT: ${e.message}"))
+        // Final: retrying a node that is not there only makes the user wait.
+        assertFalse(e.retryable)
+        assertFalse(e.toFailure().retryable)
+        // Any other provider's network error is still retried.
+        assertTrue(ChatEvent.Error(ErrorKind.NETWORK, "connection reset").toFailure().retryable)
+    }
+
+    @Test
+    fun aChatWithAStoppedNodeTriesOnceThroughTheRetryPolicy() = runBlocking {
+        val tries = AtomicInteger()
+        val down = provider({
+            tries.incrementAndGet()
+            throw IOException("failed to connect to /127.0.0.1 (port 7802): ECONNREFUSED (Connection refused)")
+        })
+        val harness = Harness()
+        harness.llm.register(ProviderLlmAdapter("node", down, ProviderKind.INVINCIBLE_NODE))
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val agent = harness.openAgent("s", InMemorySessionStore(), AgentConfig(LlmCallConfig("node", "auto"), toolsEnabled = false), scope)
+        agent.followup("hi")
+        // Five retries would back off for 15 s and more.
+        withTimeout(5_000) {
+            while (agent.log.entries.value.none { it.event is SessionEvent.TurnEnd } || agent.status.value != AgentStatus.IDLE) delay(10)
+        }
+        scope.cancel()
+        val events = agent.log.entries.value.map { it.event }
+        assertEquals(1, tries.get())
+        assertTrue(events.filterIsInstance<SessionEvent.LlmRetry>().isEmpty())
+        val end = events.filterIsInstance<SessionEvent.TurnEnd>().single()
+        assertEquals(TurnEndReason.ERROR, end.reason)
+        assertEquals(NodeErrors.unreachable("node-a", addresses), explainFailure(end.detail))
+    }
+
+    @Test
+    fun cancellingAPairingClosesItsSocketAtOnce() = runBlocking {
+        // A port that takes the connection and never answers: the handshake's read blocks in the socket.
+        ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { server ->
+            val accepted = async(Dispatchers.IO) { server.accept() }
+            val code = PairingCode(node.publicKey, ByteArray(32) { 2 }, listOf("127.0.0.1:${server.localPort}"))
+            val pairing = launch(Dispatchers.Default) {
+                PairedNode.pair(crypto, code, "phone") { SocketNodeLink(Socket(InetAddress.getLoopbackAddress(), server.localPort)) }
+            }
+            val nodeSide = withTimeout(5_000) { accepted.await() }
+            nodeSide.use {
+                it.soTimeout = 3_000
+                // The phone's whole first message (mode byte, then one length-prefixed frame) arrived:
+                // after a moment it is blocked in the socket, waiting on the node's reply.
+                val input = java.io.DataInputStream(it.getInputStream())
+                input.readByte()
+                input.readFully(ByteArray(input.readUnsignedShort()))
+                delay(300)
+                pairing.cancel()
+                // Cancel ends the pairing well before the 15 s handshake limit, and the node sees the
+                // connection close: no socket or thread is left stuck in the read.
+                withTimeout(3_000) { pairing.join() }
+                assertEquals(-1, input.read())
+            }
+        }
+    }
+
+    @Test
+    fun aNodeRowSaysWhetherItIsPaired() {
+        assertEquals("127.0.0.1:7802 · 10.0.2.2:7802 · paired", NodePairingWords.row(addresses))
+        assertTrue(NodePairingWords.paired(addresses))
+        // A restored backup has the provider but not its pairing: not "paired".
+        assertEquals(NodePairingWords.NOT_PAIRED, NodePairingWords.row(emptyList()))
+        assertFalse(NodePairingWords.paired(emptyList()))
     }
 
     @Test

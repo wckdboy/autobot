@@ -174,6 +174,7 @@ struct McpTransportTests {
         func onLine(line: String) { state.withLock { $0.lines.append(line) } }
         func onComplete() { state.withLock { $0.done = true }; finish() }
         func onFailure(blocked: Bool, message: String) { state.withLock { $0.blocked = blocked }; finish() }
+        func onFinalFailure(message: String) { onFailure(blocked: false, message: message) }
     }
 
     /// Sends [spec] and waits for the response to finish (the transport always answers asynchronously).

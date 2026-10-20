@@ -89,7 +89,17 @@ enum class LlmErrorCode(val retryable: Boolean) {
     UNKNOWN(false),
 }
 
-data class LlmFailure(val code: LlmErrorCode, val message: String, val status: Int? = null, val retryAfterMs: Long? = null)
+/**
+ * [retryable]: whether trying the call again may help; [code]'s own answer unless the provider
+ * knows better (a paired node that is down: five more tries only make the user wait).
+ */
+data class LlmFailure(
+    val code: LlmErrorCode,
+    val message: String,
+    val status: Int? = null,
+    val retryAfterMs: Long? = null,
+    val retryable: Boolean = code.retryable,
+)
 
 class LlmException(val failure: LlmFailure) : Exception(failure.message)
 

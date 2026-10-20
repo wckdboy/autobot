@@ -72,7 +72,9 @@ class NodeHttpTransport(
             } catch (e: NodeBlockedException) {
                 sink.onFailure(blocked = true, message = e.message ?: "Blocked by network policy")
             } catch (e: Exception) {
-                sink.onFailure(blocked = false, message = failure(e))
+                // Down, silent or cut off: said once, not retried (each try can wait a connect
+                // timeout per address, and a cut-off agent turn may already have acted).
+                sink.onFinalFailure(failure(e))
             } finally {
                 link?.close()
             }
