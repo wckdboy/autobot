@@ -1350,6 +1350,34 @@ private struct InputBar: View, Equatable {
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
     @FocusState private var focused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    private var large: Bool { dynamicType.isAccessibilitySize }
+
+    /// Attach and dictate.
+    @ViewBuilder private var tools: some View {
+        let attached = model.pendingImages.count
+        PhotosPicker(selection: $picks, maxSelectionCount: max(1, ChatModel.maxAttachments - attached), matching: .images) {
+            AutobotIconView(icon: .image, size: 24, color: attached < ChatModel.maxAttachments ? c.onSurface : c.onSurface.opacity(0.38))
+                .frame(width: 44, height: composerButtonSize)
+        }
+        .disabled(attached >= ChatModel.maxAttachments)
+        .accessibilityLabel("Attach image")
+        Button { model.toggleDictation(app: app) } label: {
+            Group {
+                switch model.dictation {
+                case .idle: AutobotIconView(icon: .mic, size: 24, color: c.onSurface)
+                case .recording: Rectangle().fill(c.primary).frame(width: 14, height: 14)
+                case .transcribing: InkLoader(.button)
+                }
+            }
+            .frame(width: 44, height: composerButtonSize)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .disabled(model.dictation == .transcribing)
+        .accessibilityLabel(model.dictation == .recording ? "Stop dictation" : "Dictate")
+    }
 
     var body: some View {
         let attached = model.pendingImages.count
@@ -1385,27 +1413,15 @@ private struct InputBar: View, Equatable {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
             }
+            // A large font leaves the field too narrow beside attach and dictate: they take a row above it (as on Android).
+            if large {
+                HStack(spacing: 8) { tools }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         } leading: {
-            PhotosPicker(selection: $picks, maxSelectionCount: max(1, ChatModel.maxAttachments - attached), matching: .images) {
-                AutobotIconView(icon: .image, size: 24, color: attached < ChatModel.maxAttachments ? c.onSurface : c.onSurface.opacity(0.38))
-                    .frame(width: 44, height: composerButtonSize)
-            }
-            .disabled(attached >= ChatModel.maxAttachments)
-            .accessibilityLabel("Attach image")
-            Button { model.toggleDictation(app: app) } label: {
-                Group {
-                    switch model.dictation {
-                    case .idle: AutobotIconView(icon: .mic, size: 24, color: c.onSurface)
-                    case .recording: Rectangle().fill(c.primary).frame(width: 14, height: 14)
-                    case .transcribing: InkLoader(.button)
-                    }
-                }
-                .frame(width: 44, height: composerButtonSize)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PressStyle())
-            .disabled(model.dictation == .transcribing)
-            .accessibilityLabel(model.dictation == .recording ? "Stop dictation" : "Dictate")
+            if !large { tools }
         } trailing: {
             if action == .stop {
                 StopButton(action: onStop)
