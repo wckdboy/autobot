@@ -87,7 +87,6 @@ enum ProviderTestState: Equatable {
 struct ProvidersScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var editor: ProviderDraft?
     @State private var picking = false
     @State private var deleting: Provider?
@@ -98,32 +97,26 @@ struct ProvidersScreen: View {
         let providers = app.providers.providers
         VStack(spacing: 0) {
             AutobotTopBar(title: "Providers", onBack: { nav.back() }) {
-                IconAction(symbol: "plus", label: "Add provider", tint: c.primary) { picking = true }
+                Button { picking = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Add provider")
             }
             if providers.isEmpty {
-                VStack(spacing: 10) {
-                    Spacer()
-                    Text("No providers yet. Tap + to pick a cloud API, an open-model host or a server on your network.\nAPI keys are kept in the Keychain on this device.")
-                        .textStyle(.bodyMedium)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .multilineTextAlignment(.center)
-                    PrimaryButton("Add provider") { picking = true }.frame(maxWidth: 260)
-                    Spacer()
+                MarkUnavailableView(
+                    title: "No providers yet",
+                    message: "Tap + to pick a cloud API, an open-model host or a server on your network.\nAPI keys are kept in the Keychain on this device.",
+                ) {
+                    Button("Add provider") { picking = true }.primaryActionStyle()
                 }
-                .padding(32)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        SectionLabel(counted(providers.count, "provider")).padding(.vertical, 8)
-                        ForEach(providers) { p in row(p).transition(.inkDissolve) }
+                List {
+                    Section(counted(providers.count, "provider")) {
+                        ForEach(providers) { row($0) }
                     }
-                    .animation(.inkDissolve, value: providers.map(\.id))
-                    .padding(.horizontal, Tokens.Spacing.gutter)
-                    .padding(.bottom, 96)
                 }
+                .listStyle(.insetGrouped)
+                .animation(.default, value: providers.map(\.id))
             }
         }
-        .background(c.background)
         .sheet(isPresented: $picking) {
             PresetPickerSheet { preset in
                 picking = false
@@ -168,40 +161,48 @@ struct ProvidersScreen: View {
         return text
     }
 
-    private func row(_ p: Provider) -> some View {
+    @ViewBuilder private func row(_ p: Provider) -> some View {
         let preset = ProviderPresets.resolve(p)
         let models = app.providers.modelLists[p.id]
-        return VStack(spacing: 0) {
+        let content = Button { startEdit(p) } label: {
             HStack(spacing: 12) {
-                Button { startEdit(p) } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        MicroLabel(p.baseUrl)
-                        Text(p.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                        HStack(spacing: 0) {
-                            Text(p.defaultModel.isEmpty ? "—" : ChatListModel.modelLabel(p.defaultModel))
-                                .foregroundStyle(c.onSurfaceVariant)
-                                .lineLimit(1)
-                            if preset.requiresApiKey && p.apiKeyRef == nil {
-                                Text(" · no key").foregroundStyle(c.error).fixedSize()
-                            }
-                        }
-                        .textStyle(.micro)
-                        if let models, let list = ModelLists.models(models.json) {
-                            MicroLabel("\(counted(list.count, "model")) · \(ModelLists.age(fetchedAt: models.fetchedAt))")
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(p.displayName).font(.headline).lineLimit(1)
+                    Text(p.baseUrl).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 0) {
+                        Text(p.defaultModel.isEmpty ? "—" : ChatListModel.modelLabel(p.defaultModel))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        if preset.requiresApiKey && p.apiKeyRef == nil {
+                            Text(" · no key").foregroundStyle(.red).fixedSize()
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .font(.subheadline)
+                    if let models, let list = ModelLists.models(models.json) {
+                        Text("\(counted(list.count, "model")) · \(ModelLists.age(fetchedAt: models.fetchedAt))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                .buttonStyle(PressStyle())
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if p.kind == .local {
-                    RouteTag(route: .localGpu)
-                } else {
-                    IconAction(symbol: "trash", label: "Delete \(p.displayName)", tint: c.onSurfaceVariant, size: 16) { deleting = p }
+                    TintTag("\(Route.localGpu.glyph) \(Route.localGpu.label)", color: .secondary)
                 }
             }
-            .padding(.vertical, 12)
-            Hairline()
+            .contentShape(Rectangle())
+        }
+        .foregroundStyle(.primary)
+        if p.kind == .local {
+            content
+        } else {
+            content
+                .swipeActions {
+                    Button("Delete", systemImage: "trash", role: .destructive) { deleting = p }
+                }
+                .contextMenu {
+                    Button("Edit", systemImage: "pencil") { startEdit(p) }
+                    Button("Delete \(p.displayName)", systemImage: "trash", role: .destructive) { deleting = p }
+                }
+                .accessibilityAction(named: "Delete \(p.displayName)") { deleting = p }
         }
     }
 
@@ -223,57 +224,60 @@ struct ProvidersScreen: View {
 private struct PresetPickerSheet: View {
     let onPick: (ProviderPreset) -> Void
     @State private var query = ""
-    @Environment(\.scheme) private var c
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let groups = ProviderPresets.search(query)
-        InkStack(alignment: .leading, spacing: 8) {
-            SectionLabel("add provider")
-            ConsoleTextField(text: $query, placeholder: "Search providers or hosts")
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if groups.isEmpty { MicroLabel("no match · try “Other OpenAI-compatible”").padding(.vertical, 16) }
-                    ForEach(groups, id: \.group) { group in
-                        MicroLabel("\(group.group) · \(group.presets.count)").padding(.top, 14).padding(.bottom, 4)
+        NavigationStack {
+            List {
+                if groups.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                    Text("no match · try “Other OpenAI-compatible”").font(.footnote).foregroundStyle(.secondary)
+                }
+                ForEach(groups, id: \.group) { group in
+                    Section {
+                        ForEach(group.presets) { preset in presetRow(preset) }
+                    } header: {
+                        Text("\(group.group) · \(group.presets.count)")
+                    } footer: {
                         if group.group == AutobotShared.PresetGroup.localServers.label {
                             Text("127.0.0.1 is this iPhone: these presets only reach a server running on the phone. For a server on your PC or network use its https address (Tailscale or a reverse proxy) — plain http only works on the phone itself.")
-                                .textStyle(.bodySmall)
-                                .foregroundStyle(c.onSurfaceVariant)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.bottom, 4)
-                        }
-                        ForEach(group.presets) { preset in
-                            let unavailable = preset.isThisPhone
-                            Button { if !unavailable { onPick(preset) } } label: {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    HStack(spacing: 8) {
-                                        Text(preset.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface)
-                                        if preset.kind == .anthropic { Tag("native") }
-                                        if !preset.requiresApiKey && !unavailable { Tag("no key") }
-                                    }
-                                    MicroLabel(preset.isThisPhone ? "added automatically" : preset.kind == .invincibleNode ? "pair with a code" : preset.host)
-                                    if let note = preset.note {
-                                        Text(note).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 10)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(PressStyle())
-                            .disabled(unavailable)
-                            .accessibilityIdentifier("preset-\(preset.id)")
-                            Hairline()
                         }
                     }
                 }
-                .padding(.bottom, 24)
+            }
+            .listStyle(.insetGrouped)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search providers or hosts")
+            .navigationTitle("Add provider")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 20)
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
+    }
+
+    private func presetRow(_ preset: ProviderPreset) -> some View {
+        let unavailable = preset.isThisPhone
+        return Button { if !unavailable { onPick(preset) } } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text(preset.displayName).font(.headline)
+                    if preset.kind == .anthropic { TintTag("native") }
+                    if !preset.requiresApiKey && !unavailable { TintTag("no key") }
+                }
+                Text(preset.isThisPhone ? "added automatically" : preset.kind == .invincibleNode ? "pair with a code" : preset.host)
+                    .font(.caption).foregroundStyle(.secondary)
+                if let note = preset.note {
+                    Text(note).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .foregroundStyle(.primary)
+        .disabled(unavailable)
+        .accessibilityIdentifier("preset-\(preset.id)")
     }
 }
 
@@ -290,7 +294,6 @@ private struct ProviderEditorSheet: View {
     @State private var testTask: Task<Void, Never>?
     @State private var modelsTask: Task<Void, Never>?
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     init(initial: ProviderDraft, onDismiss: @escaping () -> Void) {
         _draft = State(initialValue: initial)
@@ -299,82 +302,103 @@ private struct ProviderEditorSheet: View {
 
     var body: some View {
         let preset = draft.preset
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel(draft.isNew ? "add provider" : "edit provider")
-                HStack(spacing: 8) {
-                    Text(preset.displayName).textStyle(.titleLarge).foregroundStyle(c.onSurface)
-                    Spacer(minLength: 0)
-                    Tag(preset.group)
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent(preset.displayName) { TintTag(preset.group) }
+                        .font(.headline)
+                    if ProviderDraft.loopbackNote(draft.baseUrl) == nil { OfflineNotice() }
+                } footer: {
+                    if let note = preset.note { Text(note) }
                 }
-                if let note = preset.note {
-                    Text(note).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                }
-                if ProviderDraft.loopbackNote(draft.baseUrl) == nil { OfflineNotice() }
 
-                ConsoleTextField(text: field(\.displayName), label: "Name")
-                VStack(alignment: .leading, spacing: 4) {
-                    ConsoleTextField(text: field(\.baseUrl), label: "Base URL", kind: .url)
+                Section {
+                    FormField("Name", text: field(\.displayName), prompt: "Name")
+                    FormField("Base URL", text: field(\.baseUrl), prompt: "https://", kind: .url)
+                } footer: {
                     if !draft.baseUrl.isEmpty && !draft.baseUrlValid {
-                        MicroLabel("invalid url", color: c.error, lines: 2)
+                        Text("invalid url").foregroundStyle(.red)
                     } else if let problem = draft.cleartextProblem {
-                        MicroLabel(problem, color: c.error, lines: 3)
+                        Text(problem).foregroundStyle(.red)
                     } else if let note = ProviderDraft.loopbackNote(draft.baseUrl) {
-                        MicroLabel(note, lines: 3)
+                        Text(note)
                     } else {
-                        MicroLabel("cleartext http only for 127.0.0.1 / localhost", lines: 2)
+                        Text("cleartext http only for 127.0.0.1 / localhost")
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    ConsoleTextField(
+                Section {
+                    FormField(
+                        preset.requiresApiKey ? "API key" : "API key (optional)",
                         text: Binding(get: { draft.apiKeyInput }, set: { v in update { $0.apiKeyInput = v; $0.clearStoredKey = false } }),
-                        placeholder: draft.hasStoredKey && !draft.clearStoredKey ? "•••••••• saved — type to replace" : nil,
-                        label: preset.requiresApiKey ? "API key" : "API key (optional)",
+                        prompt: draft.hasStoredKey && !draft.clearStoredKey ? "•••••••• saved — type to replace" : (preset.requiresApiKey ? "Required" : "Optional"),
                         kind: .secret,
                     )
-                    if draft.missingKey { MicroLabel("This provider needs an API key", color: c.error, lines: 2) }
-                    MicroLabel("kept in the keychain on this device · sent only to \(preset.host.isEmpty ? "this host" : preset.host)", lines: 2)
                     if draft.hasStoredKey && draft.apiKeyInput.isEmpty {
-                        TextAction(draft.clearStoredKey ? "Keep saved key" : "Remove saved key", color: draft.clearStoredKey ? c.primary : c.error) {
+                        Button(draft.clearStoredKey ? "Keep saved key" : "Remove saved key", role: draft.clearStoredKey ? nil : .destructive) {
                             update { $0.clearStoredKey.toggle() }
                         }
+                        .foregroundStyle(draft.clearStoredKey ? Color.accentColor : .red)
+                    }
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if draft.missingKey { Text("This provider needs an API key").foregroundStyle(.red) }
+                        Text("kept in the keychain on this device · sent only to \(preset.host.isEmpty ? "this host" : preset.host)")
                     }
                 }
 
                 modelPicker(preset)
                 helperField
 
-
-                MicroLabel("routing")
-                ChipRow(items: ProviderRouting.allCases, selected: draft.routing, label: { $0.label }) { r in update { $0.routing = r } }
-                Text("Offline mode always blocks remote requests. Direct cannot bypass a global Tor/SOCKS5 mode.")
-                    .textStyle(.bodySmall)
-                    .foregroundStyle(c.onSurfaceVariant)
-                    .fixedSize(horizontal: false, vertical: true)
+                Section {
+                    Picker("Routing", selection: Binding(get: { draft.routing }, set: { r in update { $0.routing = r } })) {
+                        ForEach(ProviderRouting.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                } footer: {
+                    Text("Offline mode always blocks remote requests. Direct cannot bypass a global Tor/SOCKS5 mode.")
+                }
                 if let privacy = preset.privacyNote {
-                    VStack(alignment: .leading, spacing: 2) {
-                        MicroLabel("privacy")
-                        Text(privacy).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                        if let url = preset.privacyUrl { MicroLabel(url, lines: 2) }
+                    Section("Privacy") {
+                        Text(privacy).font(.subheadline).foregroundStyle(.secondary)
+                        if let url = preset.privacyUrl {
+                            if let link = URL(string: url) {
+                                Link(url, destination: link).font(.footnote)
+                            } else {
+                                Text(url).font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
 
-                testResult
-                if let error { MicroLabel(error, color: c.error, lines: 3) }
-
-                HStack(spacing: 8) {
-                    GhostButton("Test connection", accent: c.onSurface, enabled: draft.baseUrlValid && test != .running, busy: test == .running, action: testConnection)
-                    PrimaryButton("Save", enabled: draft.canSave && !saving) {
+                Section {
+                    Button(action: testConnection) {
+                        HStack {
+                            Text("Test connection")
+                            if test == .running { ProgressView().padding(.leading, 4) }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .secondaryActionStyle()
+                    .disabled(!draft.baseUrlValid || test == .running)
+                    testResult
+                    if let error { Text(error).foregroundStyle(.red) }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            }
+            .formStyle(.grouped)
+            .navigationTitle(draft.isNew ? "Add provider" : "Edit provider")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDismiss) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
                         if draft.missingKey { confirmNoKey = true } else { save() }
                     }
+                    .disabled(!draft.canSave || saving)
                 }
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
         .onAppear(perform: loadModels)
         .onDisappear {
@@ -401,34 +425,38 @@ private struct ProviderEditorSheet: View {
 
     /// Helper model: optional; typing searches the same list (a few matches), picking fills it in.
     @ViewBuilder private var helperField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ConsoleTextField(text: field(\.helperModel), label: "Helper model (optional)", kind: .mono)
-            let helper = draft.helperModel.trimmingCharacters(in: .whitespaces)
-            let chosen = models.models.first { $0.id == helper }
-            if let chosen, !chosen.caption.isEmpty { MicroLabel(chosen.caption, color: chosen.trains ? c.error : nil, lines: 2) }
-            Text("Used for subagents and context summaries, to save quota. Empty: the chat's model.")
-                .textStyle(.bodySmall)
-                .foregroundStyle(c.onSurfaceVariant)
-                .fixedSize(horizontal: false, vertical: true)
+        let helper = draft.helperModel.trimmingCharacters(in: .whitespaces)
+        let chosen = models.models.first { $0.id == helper }
+        Section {
+            FormField("Helper model (optional)", text: field(\.helperModel), prompt: "Model id", kind: .mono)
+            if let chosen, !chosen.caption.isEmpty {
+                Text(chosen.caption).font(.caption).foregroundStyle(chosen.trains ? Color.red : .secondary)
+            }
             if !helper.isEmpty && chosen == nil {
                 ForEach(ModelLists.filter(models.models, helper, limit: 5)) { m in
                     modelRow(m, active: false) { pick(m, helper: true) }
                 }
             }
+        } footer: {
+            Text("Used for subagents and context summaries, to save quota. Empty: the chat's model.")
         }
     }
 
     private func modelRow(_ m: RemoteModelItem, active: Bool, onTap: @escaping () -> Void) -> some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text((active ? "● " : "") + m.id).textStyle(.code).foregroundStyle(active ? c.primary : c.onSurface).lineLimit(1)
-                if !m.caption.isEmpty { MicroLabel(m.caption, color: m.trains ? c.error : nil) }
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    // A model id is code: monospaced.
+                    Text(m.id).font(.callout.monospaced()).lineLimit(1)
+                    if !m.caption.isEmpty { Text(m.caption).font(.caption).foregroundStyle(m.trains ? Color.red : .secondary) }
+                }
+                Spacer(minLength: 8)
+                if active { Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityHidden(true) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
-        .buttonStyle(PressStyle())
+        .foregroundStyle(.primary)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// Fills in a tapped model, asking first when its provider trains on prompts.
@@ -442,32 +470,40 @@ private struct ProviderEditorSheet: View {
 
     /// Default model: a field that also searches the fetched (or offline) list below it.
     @ViewBuilder private func modelPicker(_ preset: ProviderPreset) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ConsoleTextField(text: field(\.defaultModel), label: "Default model", kind: .mono)
-            HStack(spacing: 8) {
-                let status: String = if models.loading {
-                    "fetching models"
-                } else if let e = models.error {
-                    e
-                } else if let at = models.fetchedAt {
-                    "\(counted(models.models.count, "model")) · \(ModelLists.age(fetchedAt: at))"
-                } else if preset.hasModelsEndpoint {
-                    "offline list · refresh to fetch"
-                } else {
-                    "no models endpoint · documented list"
-                }
-                MicroLabel(status, color: models.error != nil ? c.error : nil, lines: 2)
-                Spacer(minLength: 0)
-                if preset.hasModelsEndpoint {
-                    TextAction("Refresh", color: c.primary, enabled: draft.baseUrlValid && !models.loading, busy: models.loading, action: refreshModels)
-                }
-            }
-            let query = models.models.contains { $0.id == draft.defaultModel } ? "" : draft.defaultModel
-            let all = ModelLists.filter(models.models, query, limit: .max)
+        let status: String = if models.loading {
+            "fetching models"
+        } else if let e = models.error {
+            e
+        } else if let at = models.fetchedAt {
+            "\(counted(models.models.count, "model")) · \(ModelLists.age(fetchedAt: at))"
+        } else if preset.hasModelsEndpoint {
+            "offline list · refresh to fetch"
+        } else {
+            "no models endpoint · documented list"
+        }
+        let query = models.models.contains { $0.id == draft.defaultModel } ? "" : draft.defaultModel
+        let all = ModelLists.filter(models.models, query, limit: .max)
+        Section {
+            FormField("Default model", text: field(\.defaultModel), prompt: "Model id", kind: .mono)
             ForEach(all.prefix(24)) { m in
                 modelRow(m, active: m.id == draft.defaultModel) { pick(m, helper: false) }
             }
-            if all.count > 24 { MicroLabel("+\(all.count - 24) more · type to search") }
+            if all.count > 24 { Text("+\(all.count - 24) more · type to search").font(.footnote).foregroundStyle(.secondary) }
+        } header: {
+            HStack {
+                Text(status).foregroundStyle(models.error != nil ? Color.red : .secondary).lineLimit(2)
+                Spacer(minLength: 8)
+                if preset.hasModelsEndpoint {
+                    if models.loading {
+                        ProgressView()
+                    } else {
+                        Button("Refresh", action: refreshModels)
+                            .font(.subheadline)
+                            .textCase(nil)
+                            .disabled(!draft.baseUrlValid)
+                    }
+                }
+            }
         }
     }
 
@@ -476,8 +512,8 @@ private struct ProviderEditorSheet: View {
         case .idle: EmptyView()
         // The Test button carries the loader.
         case .running: EmptyView()
-        case .success(let m): Text("✓ \(m)").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-        case .failure(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.error)
+        case .success(let m): Text("✓ \(m)").font(.footnote).foregroundStyle(.secondary)
+        case .failure(let m): Text(m).font(.footnote).foregroundStyle(.red)
         }
     }
 

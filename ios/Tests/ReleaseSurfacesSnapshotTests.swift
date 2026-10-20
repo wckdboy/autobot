@@ -31,7 +31,7 @@ struct ReleaseSurfacesSnapshotTests {
             let suffix = mode == .dark ? "dark" : "light"
             try await snapshot(ChatScreen(conversationId: chat.id), app, nav, mode, "chat-redact-\(suffix)")
             try await snapshot(ReceiptSheet(receipt: receipt) {}, app, nav, mode, "receipt-redacted-\(suffix)")
-            try await snapshot(ScrollView { board.padding(16) }, app, nav, mode, "usage-board-\(suffix)")
+            try await snapshot(List { board }.listStyle(.insetGrouped), app, nav, mode, "usage-board-\(suffix)")
         }
     }
 

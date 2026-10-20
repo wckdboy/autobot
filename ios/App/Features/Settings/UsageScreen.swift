@@ -1,4 +1,5 @@
 import AutobotShared
+import Charts
 import SwiftUI
 
 /**
@@ -9,7 +10,6 @@ import SwiftUI
 struct UsageScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var periodKey = "day"
     @State private var seriesKey = "day"
     @State private var byModel = false
@@ -20,10 +20,10 @@ struct UsageScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Usage", onBack: { nav.back() }) {
-                InfoButton(title: "Usage", text: UsageWords.shared.ABOUT)
+                RowInfo(title: "Usage", text: UsageWords.shared.ABOUT)
             }
-            ScrollView {
-                if let report = app.usage.report {
+            if let report = app.usage.report {
+                List {
                     UsageBoardView(
                         report: report,
                         providers: app.providers.providers.filter { $0.kind != .local },
@@ -35,13 +35,12 @@ struct UsageScreen: View {
                         onAddOpenCodeGo: { app.usage.addOpenCodeGoWindows(provider: $0) },
                         onClear: { confirmClear = true },
                     )
-                    .padding(16)
-                } else {
-                    MicroLabel("counting…").padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .listStyle(.insetGrouped)
+            } else {
+                ProgressView("counting…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(c.background)
         .onAppear { app.usage.start() }
         .onDisappear { app.usage.stop() }
         .sheet(item: $editingPrice) { row in
@@ -72,7 +71,7 @@ struct WindowDraft: Identifiable, Equatable {
     var id: String { window.id }
 }
 
-/// The board itself, from a report (testable without a runtime).
+/// The board itself, from a report (testable without a runtime): the sections of a `List`.
 struct UsageBoardView: View {
     let report: UsageReportModel
     let providers: [Provider]
@@ -83,98 +82,136 @@ struct UsageBoardView: View {
     var onEditWindow: (WindowDraft) -> Void = { _ in }
     var onAddOpenCodeGo: (String) -> Void = { _ in }
     var onClear: () -> Void = {}
-    @Environment(\.scheme) private var c
 
     private func tokens(_ n: Int64) -> String { UsageFormat.shared.tokens(n: n) }
 
     var body: some View {
         let period = report.periods.first { $0.key == periodKey } ?? report.periods[0]
         let s = period.sums
-        VStack(alignment: .leading, spacing: 12) {
-            Segmented(options: report.periods.map(\.key), selected: period.key, label: { key in report.periods.first { $0.key == key }?.label ?? key }) { periodKey = $0 }
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top, spacing: 18) {
-                    BigReadout(label: "tokens", value: tokens(s.tokens))
-                    BigReadout(label: UsageWords.shared.COST, value: s.costLine)
-                    BigReadout(label: "requests", value: "\(s.requests)")
-                }
-                MicroLabel("\(tokens(s.input)) in · \(tokens(s.output)) out · \(tokens(s.cacheRead)) cached")
-                if s.onDeviceTokens > 0 { MicroLabel("on this phone · \(tokens(s.onDeviceTokens)) tokens · $0") }
-                if s.unpricedTokens > 0 { MicroLabel("\(tokens(s.unpricedTokens)) tokens without a price", color: c.inks.amber) }
+        Section {
+            Picker("Period", selection: $periodKey) {
+                ForEach(report.periods, id: \.key) { Text($0.label).tag($0.key) }
             }
-
-            let series = report.series.first { $0.key == seriesKey } ?? report.series[0]
-            Panel(title: "per \(series.key)", trailing: {
-                HStack(spacing: 6) {
-                    ForEach(report.series, id: \.key) { item in
-                        Tag(item.label, accent: item.key == series.key ? c.primary : c.onSurfaceVariant, filled: item.key == series.key) { seriesKey = item.key }
-                    }
-                }
-            }) {
-                UsageBars(series: series)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 18) { readouts(s) }
+                VStack(alignment: .leading, spacing: 8) { readouts(s) }
             }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(tokens(s.input)) in · \(tokens(s.output)) out · \(tokens(s.cacheRead)) cached")
+                if s.onDeviceTokens > 0 { Text("on this phone · \(tokens(s.onDeviceTokens)) tokens · $0") }
+                if s.unpricedTokens > 0 { Text("\(tokens(s.unpricedTokens)) tokens without a price").foregroundStyle(.orange) }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
 
+        let series = report.series.first { $0.key == seriesKey } ?? report.series[0]
+        Section {
+            UsageBars(series: series)
+        } header: {
             HStack {
-                SectionLabel("by \(byModel ? "model" : "provider") · \(period.label)").frame(maxWidth: .infinity, alignment: .leading)
-                Tag(byModel ? "providers" : "models") { byModel.toggle() }
+                Text("Per \(series.key)")
+                Spacer()
+                Picker("Series", selection: $seriesKey) {
+                    ForEach(report.series, id: \.key) { Text($0.label).tag($0.key) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .textCase(nil)
             }
-            let groups = byModel ? period.models : period.providers
-            if groups.isEmpty { MicroLabel("nothing counted \(period.label)") }
-            ForEach(groups) { groupRow($0) }
+        }
 
-            SectionLabel("subscription windows").padding(.top, 8)
+        let groups = byModel ? period.models : period.providers
+        Section {
+            if groups.isEmpty { Text("nothing counted \(period.label)").foregroundStyle(.secondary) }
+            ForEach(groups) { groupRow($0) }
+        } header: {
+            HStack {
+                Text("By \(byModel ? "model" : "provider") · \(period.label)")
+                Spacer()
+                Button(byModel ? "providers" : "models") { byModel.toggle() }
+                    .font(.subheadline)
+                    .textCase(nil)
+            }
+        }
+
+        Section("Subscription windows") {
             ForEach(report.windows) { w in windowRow(w) }
             if let first = providers.first {
-                ChatFlow(spacing: 8) {
-                    Tag("+ window", accent: c.primary) {
-                        onEditWindow(WindowDraft(window: .init(id: UUID().uuidString, provider: first.id, period: "FIVE_HOURS", anchor: nowMillis()), isNew: true))
-                    }
-                    ForEach(providers.filter { p in p.presetId == AutobotShared.ProviderPresets.shared.OPENCODE_GO && !report.plan.windows.contains { $0.provider == p.id } }) { p in
-                        Tag("+ \(p.displayName) 5 h / week / month", accent: c.primary) { onAddOpenCodeGo(p.id) }
-                    }
+                Button("+ window", systemImage: "plus") {
+                    onEditWindow(WindowDraft(window: .init(id: UUID().uuidString, provider: first.id, period: "FIVE_HOURS", anchor: nowMillis()), isNew: true))
+                }
+                ForEach(providers.filter { p in p.presetId == AutobotShared.ProviderPresets.shared.OPENCODE_GO && !report.plan.windows.contains { $0.provider == p.id } }) { p in
+                    Button("+ \(p.displayName) 5 h / week / month", systemImage: "plus") { onAddOpenCodeGo(p.id) }
                 }
             } else {
-                // An empty flow would still take a row of spacing above this line.
-                MicroLabel("add a cloud provider to track its plan")
+                Text("add a cloud provider to track its plan").foregroundStyle(.secondary)
             }
-
-            SectionLabel(UsageWords.shared.PRICES).padding(.top, 8)
-            if report.prices.isEmpty { MicroLabel("models show up here once they have answered") }
-            ForEach(report.prices) { priceRow($0) }
-
-            Hairline().padding(.vertical, 4)
-            if !report.empty { TextAction("Clear history", color: c.error, action: onClear) }
         }
+
+        Section(UsageWords.shared.PRICES.sentenceCased) {
+            if report.prices.isEmpty { Text("models show up here once they have answered").foregroundStyle(.secondary) }
+            ForEach(report.prices) { priceRow($0) }
+        }
+
+        if !report.empty {
+            Section {
+                Button("Clear history", role: .destructive, action: onClear).foregroundStyle(.red)
+            }
+        }
+    }
+
+    @ViewBuilder private func readouts(_ s: UsageReportModel.Sums) -> some View {
+        readout("tokens", tokens(s.tokens))
+        readout(UsageWords.shared.COST, s.costLine)
+        readout("requests", "\(s.requests)")
+    }
+
+    private func readout(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value).font(.title2.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func groupRow(_ g: UsageReportModel.Group) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
-                Text(g.model ?? g.name).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).truncationMode(.middle)
+                Text(g.model ?? g.name).font(g.model != nil ? .callout.monospaced() : .body).lineLimit(1).truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if g.onDevice { Tag("on device", accent: c.primary) }
-                Text(g.onDevice ? "$0" : g.sums.costLine).textStyle(.readout).foregroundStyle(c.onSurface)
+                if g.onDevice { TintTag("on device") }
+                Text(g.onDevice ? "$0" : g.sums.costLine).monospacedDigit()
             }
-            MicroLabel([
+            Text([
                 g.model != nil ? g.name : nil,
                 "\(tokens(g.sums.tokens)) tokens",
                 "\(g.sums.requests) req",
                 g.sums.cacheRead > 0 ? "\(tokens(g.sums.cacheRead)) cached" : nil,
                 g.sums.unreported > 0 ? "\(g.sums.unreported) without usage report" : nil,
-            ].compactMap { $0 }.joined(separator: " · "), lines: 2)
+            ].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
     }
 
     private func windowRow(_ w: UsageReportModel.Window) -> some View {
-        let accent = w.over ? c.inks.amber : c.primary
         let label = report.plan.windows.first { $0.id == w.id }
-        return Panel(title: "\(w.providerName) · \(windowLabel(w.period))\(w.rolling ? " · rolling" : "")", accent: accent, trailing: {
-            Tag("edit") { if let label { onEditWindow(WindowDraft(window: label, isNew: false)) } }
-        }) {
-            if let f = w.fraction { InkProgressBar(fraction: min(max(f, 0), 1), height: 2, ink: accent) }
-            Text(w.line).textStyle(.bodySmall).foregroundStyle(w.over ? c.inks.amber : c.onSurface).fixedSize(horizontal: false, vertical: true)
-            if w.limit == nil { MicroLabel("no limit set · tap edit to enter your plan's limit", lines: 2) }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("\(w.providerName) · \(windowLabel(w.period))\(w.rolling ? " · rolling" : "")").font(.subheadline.weight(.semibold))
+                Spacer()
+                Button("Edit") { if let label { onEditWindow(WindowDraft(window: label, isNew: false)) } }
+                    .buttonStyle(.borderless)
+            }
+            if let f = w.fraction {
+                ProgressView(value: min(max(f, 0), 1)).tint(w.over ? .orange : nil)
+            }
+            Text(w.line).font(.subheadline).foregroundStyle(w.over ? Color.orange : .primary).fixedSize(horizontal: false, vertical: true)
+            if w.limit == nil { Text("no limit set · tap edit to enter your plan's limit").font(.caption).foregroundStyle(.secondary) }
         }
     }
 
@@ -182,20 +219,19 @@ struct UsageBoardView: View {
         Button { onEditPrice(row) } label: {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
-                    Text(row.model).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).truncationMode(.middle)
+                    Text(row.model).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     switch row.source {
-                    case "DEFAULT": Tag("published")
-                    case "YOURS": Tag("yours", accent: c.primary)
-                    default: Tag("unknown", accent: c.inks.amber)
+                    case "DEFAULT": TintTag("published", color: .secondary)
+                    case "YOURS": TintTag("yours")
+                    default: TintTag("unknown", color: .orange)
                     }
                 }
-                MicroLabel(Self.priceLine(row), lines: 2)
+                Text(Self.priceLine(row)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
-            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
-        .buttonStyle(PressStyle())
+        .foregroundStyle(.primary)
     }
 
     static func priceLine(_ row: UsageReportModel.PriceRow) -> String {
@@ -213,37 +249,37 @@ struct UsageBoardView: View {
     private func windowLabel(_ period: String) -> String { WindowPeriod.entries.first { $0.name == period }?.label ?? period.lowercased() }
 }
 
-/// One bar per day (week, month): ink for the cloud, an outline for what ran on this phone.
+/// One bar per day (week, month), a Swift Charts bar chart: the tint for the cloud, grey for what
+/// ran on this phone.
 struct UsageBars: View {
     let series: UsageReportModel.Series
-    @Environment(\.scheme) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Canvas { context, size in
-                let n = max(series.bars.count, 1)
-                let gap: CGFloat = 3
-                let w = (size.width - gap * CGFloat(n - 1)) / CGFloat(n)
-                for (i, bar) in series.bars.enumerated() {
-                    let x = CGFloat(i) * (w + gap)
-                    context.fill(Path(CGRect(x: x, y: size.height - 1, width: w, height: 1)), with: .color(c.outlineVariant))
-                    let h = CGFloat(bar.fraction) * size.height
-                    guard h > 0 else { continue }
-                    let localH = bar.tokens > 0 ? h * CGFloat(bar.onDeviceTokens) / CGFloat(bar.tokens) : 0
-                    context.fill(Path(CGRect(x: x, y: size.height - h, width: w, height: h - localH)), with: .color(c.primary))
-                    if localH > 0 {
-                        context.stroke(Path(CGRect(x: x + 0.5, y: size.height - localH + 0.5, width: w - 1, height: localH - 1)), with: .color(c.onSurfaceVariant), lineWidth: 1)
+            Chart {
+                ForEach(Array(series.bars.enumerated()), id: \.offset) { i, bar in
+                    BarMark(x: .value("Bar", i), y: .value("Tokens", bar.tokens - bar.onDeviceTokens))
+                        .foregroundStyle(by: .value("Where", "cloud"))
+                    if bar.onDeviceTokens > 0 {
+                        BarMark(x: .value("Bar", i), y: .value("Tokens", bar.onDeviceTokens))
+                            .foregroundStyle(by: .value("Where", "this phone"))
                     }
                 }
             }
+            .chartForegroundStyleScale(["cloud": Color.accentColor, "this phone": Color.secondary])
+            .chartLegend(.hidden)
+            .chartXAxis(.hidden)
+            .chartYAxis(.hidden)
             .frame(height: 72)
             .accessibilityElement()
             .accessibilityLabel(series.bars.map { "\($0.label): \(UsageFormat.shared.tokens(n: $0.tokens))" }.joined(separator: ", "))
             HStack {
-                MicroLabel(series.bars.first?.label ?? "").frame(maxWidth: .infinity, alignment: .leading)
-                MicroLabel("peak \(UsageFormat.shared.tokens(n: series.bars.map(\.tokens).max() ?? 0))").frame(maxWidth: .infinity, alignment: .leading)
-                MicroLabel(series.bars.last?.label ?? "")
+                Text(series.bars.first?.label ?? "").frame(maxWidth: .infinity, alignment: .leading)
+                Text("peak \(UsageFormat.shared.tokens(n: series.bars.map(\.tokens).max() ?? 0))").frame(maxWidth: .infinity, alignment: .center)
+                Text(series.bars.last?.label ?? "").frame(maxWidth: .infinity, alignment: .trailing)
             }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 }
@@ -258,7 +294,6 @@ private struct PriceEditorSheet: View {
     @State private var cacheWrite: String
     /// Saved once: a quick second tap while the sheet closes does nothing.
     @State private var saved = false
-    @Environment(\.scheme) private var c
 
     init(row: UsageReportModel.PriceRow, onSave: @escaping (String, String, String, String) -> Void, onCancel: @escaping () -> Void) {
         self.row = row
@@ -272,29 +307,36 @@ private struct PriceEditorSheet: View {
     }
 
     var body: some View {
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel(row.model)
-                MicroLabel("\(row.providerName) · \(UsageWords.shared.PRICE_UNIT)")
-                ConsoleTextField(text: $input, placeholder: "unknown", label: "Input", kind: .decimal)
-                ConsoleTextField(text: $output, placeholder: "unknown", label: "Output", kind: .decimal)
-                ConsoleTextField(text: $cacheRead, placeholder: "= input", label: "Cached input", kind: .decimal)
-                ConsoleTextField(text: $cacheWrite, placeholder: "= input", label: "Cache write", kind: .decimal)
-                Text("From the provider's pricing page. Blank stays unknown; blank cache prices count at the input price.")
-                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                // A mistyped price is not saved as unknown.
-                let valid = [input, output, cacheRead, cacheWrite].allSatisfy { Self.isPrice($0) }
-                PrimaryButton("Save", enabled: valid && !saved) {
-                    guard valid, !saved else { return }
-                    saved = true
-                    onSave(input, output, cacheRead, cacheWrite)
+        // A mistyped price is not saved as unknown.
+        let valid = [input, output, cacheRead, cacheWrite].allSatisfy { Self.isPrice($0) }
+        NavigationStack {
+            Form {
+                Section {
+                    FormField("Input", text: $input, prompt: "unknown", kind: .decimal)
+                    FormField("Output", text: $output, prompt: "unknown", kind: .decimal)
+                    FormField("Cached input", text: $cacheRead, prompt: "= input", kind: .decimal)
+                    FormField("Cache write", text: $cacheWrite, prompt: "= input", kind: .decimal)
+                } header: {
+                    Text("\(row.providerName) · \(UsageWords.shared.PRICE_UNIT)")
+                } footer: {
+                    Text("From the provider's pricing page. Blank stays unknown; blank cache prices count at the input price.")
                 }
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onCancel).frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+            .formStyle(.grouped)
+            .navigationTitle(row.model)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard valid, !saved else { return }
+                        saved = true
+                        onSave(input, output, cacheRead, cacheWrite)
+                    }
+                    .disabled(!valid || saved)
+                }
+            }
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
     }
 
@@ -313,7 +355,6 @@ private struct WindowEditorSheet: View {
     @State private var window: UsageReportModel.Plan.Window
     @State private var limit: String
     @State private var saved = false
-    @Environment(\.scheme) private var c
 
     init(initial: WindowDraft, providers: [Provider], onSave: @escaping (UsageReportModel.Plan.Window) -> Void, onDelete: @escaping () -> Void, onCancel: @escaping () -> Void) {
         self.providers = providers
@@ -340,55 +381,73 @@ private struct WindowEditorSheet: View {
 
     var body: some View {
         let short = Self.short(window.period)
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel(isNew ? "new window" : "window")
-                MicroLabel("provider")
-                ChatFlow(spacing: 6) {
-                    ForEach(providers) { p in
-                        Tag(p.displayName, accent: p.id == window.provider ? c.primary : c.onSurfaceVariant, filled: p.id == window.provider) { window.provider = p.id }
+        // Blank is no limit; a mistyped limit is not (Android's `parseLimit`).
+        let blank = limit.trimmingCharacters(in: .whitespaces).isEmpty
+        let parsed = UsageLimit.parse(limit, unit: window.unit)
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Provider", selection: $window.provider) {
+                        ForEach(providers) { Text($0.displayName).tag($0.id) }
+                    }
+                    Picker("Length", selection: $window.period) {
+                        ForEach(Self.periods, id: \.self) { Text(Self.short($0)).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Counts", selection: Binding(get: { window.rolling }, set: {
+                        window.rolling = $0
+                        if window.anchor == nil { window.anchor = nowMillis() }
+                    })) {
+                        Text("rolling").tag(true)
+                        Text("fixed").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    if !window.rolling {
+                        Text("resets every \(short) from \(Date(timeIntervalSince1970: Double(window.anchor ?? nowMillis()) / 1000).formatted(date: .abbreviated, time: .shortened))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Button("it reset just now") { window.anchor = nowMillis() }
                     }
                 }
-                MicroLabel("length")
-                Segmented(options: Self.periods, selected: window.period, label: { Self.short($0) }) { window.period = $0 }
-                MicroLabel("counts")
-                Segmented(options: [true, false], selected: window.rolling, label: { $0 ? "rolling" : "fixed" }) {
-                    window.rolling = $0
-                    if window.anchor == nil { window.anchor = nowMillis() }
-                }
-                if !window.rolling {
-                    MicroLabel("resets every \(short) from \(Date(timeIntervalSince1970: Double(window.anchor ?? nowMillis()) / 1000).formatted(date: .abbreviated, time: .shortened))", lines: 2)
-                    Tag("it reset just now", accent: c.primary) { window.anchor = nowMillis() }
-                }
-                MicroLabel("limit")
-                Segmented(options: Self.units, selected: window.unit, label: { $0.lowercased() }) { window.unit = $0 }
-                ConsoleTextField(text: $limit, placeholder: "none", label: "Limit", kind: .decimal)
-                Text("Enter the limit from your plan's page. Rolling counts the last \(short); fixed starts over at the same time each \(short).")
-                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                // Blank is no limit; a mistyped limit is not (Android's `parseLimit`).
-                let blank = limit.trimmingCharacters(in: .whitespaces).isEmpty
-                let parsed = UsageLimit.parse(limit, unit: window.unit)
-                PrimaryButton("Save", enabled: (blank || parsed != nil) && !saved) {
-                    guard blank || parsed != nil, !saved else { return }
-                    saved = true
-                    var w = window
-                    w.limit = parsed
-                    onSave(w)
+                Section {
+                    Picker("Unit", selection: $window.unit) {
+                        ForEach(Self.units, id: \.self) { Text($0.lowercased()).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    FormField("Limit", text: $limit, prompt: "none", kind: .decimal)
+                } header: {
+                    Text("Limit")
+                } footer: {
+                    Text("Enter the limit from your plan's page. Rolling counts the last \(short); fixed starts over at the same time each \(short).")
                 }
                 if !isNew {
-                    TextAction("Delete window", color: c.error) {
-                        guard !saved else { return }
-                        saved = true
-                        onDelete()
+                    Section {
+                        Button("Delete window", role: .destructive) {
+                            guard !saved else { return }
+                            saved = true
+                            onDelete()
+                        }
+                        .foregroundStyle(.red)
                     }
-                    .frame(maxWidth: .infinity)
                 }
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onCancel).frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+            .formStyle(.grouped)
+            .navigationTitle(isNew ? "New window" : "Window")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard blank || parsed != nil, !saved else { return }
+                        saved = true
+                        var w = window
+                        w.limit = parsed
+                        onSave(w)
+                    }
+                    .disabled(!(blank || parsed != nil) || saved)
+                }
+            }
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
     }
 }
