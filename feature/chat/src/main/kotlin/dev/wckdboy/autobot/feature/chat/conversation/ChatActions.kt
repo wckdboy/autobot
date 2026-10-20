@@ -6,6 +6,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
 import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
+import dev.wckdboy.autobot.core.a2ui.A2uiChatState
+import dev.wckdboy.autobot.shared.a2ui.A2uiActionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -67,4 +69,10 @@ interface ChatActions {
     fun undoTurn(turn: Int)
     fun redo(revertId: String)
     fun dismissNotice()
+
+    /** This chat's generative UI (`show_ui` surfaces); null where a screen has none. */
+    val a2ui: A2uiChatState? get() = null
+
+    /** A tap on a generated UI: a [A2uiActionResult.SendEvent] goes to the agent as the next turn. */
+    fun a2uiAction(action: A2uiActionResult) {}
 }

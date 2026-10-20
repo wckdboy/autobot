@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import dev.wckdboy.autobot.core.a2ui.A2uiToolSurfaces
 import dev.wckdboy.autobot.core.designsystem.component.selectionBar
 import androidx.compose.ui.text.font.FontWeight
 import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
@@ -494,6 +495,9 @@ private fun TranscriptRow(
             }
             is SessionItem.Tool -> if (approval != null) {
                 ApprovalCard(stepNumber, item, approval, actions, ghost)
+            } else if (item.a2ui != null && actions.a2ui != null) {
+                // Generative UI (A2UI): a `show_ui` call draws its surfaces in place of its step row.
+                A2uiToolSurfaces(actions.a2ui!!, item.key, actions::a2uiAction)
             } else {
                 StepRow(stepNumber, item, actions, onOpenImage, running)
             }

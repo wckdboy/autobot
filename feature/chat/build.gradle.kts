@@ -23,6 +23,7 @@ androidComponents {
 
 dependencies {
     implementation(projects.core.designsystem)
+    implementation(projects.core.a2ui)
     implementation(projects.core.data)
     implementation(projects.core.network)
     implementation(projects.providers.remote)
