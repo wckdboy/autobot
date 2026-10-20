@@ -58,7 +58,7 @@ class SettingsSchemaTest {
         assertEquals(false, decoded.memoryEnabled)
         assertEquals(SearchProvider.NONE, decoded.searchProvider)
         assertEquals(RouteOverride.INHERIT, decoded.searchRoute)
-        assertEquals(ThemeMode.DARK, decoded.themeMode)
+        assertEquals(ThemeMode.SYSTEM, decoded.themeMode)
         assertEquals(NetworkMode.Offline, decoded.networkMode)
         assertEquals(true, decoded.appLockEnabled)
         assertEquals(900_000L, decoded.lockTimeoutMillis)

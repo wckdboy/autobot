@@ -43,6 +43,8 @@ import dev.wckdboy.autobot.feature.home.WelcomeScreen
 import dev.wckdboy.autobot.navigation.AutobotNavDisplay
 import dev.wckdboy.autobot.shared.panic.PanicCopy
 import dev.wckdboy.autobot.navigation.Models
+import dev.wckdboy.autobot.navigation.Providers
+import dev.wckdboy.autobot.navigation.Remote
 import dev.wckdboy.autobot.navigation.Run
 import dev.wckdboy.autobot.ui.DatabaseErrorScreen
 import dev.wckdboy.autobot.ui.LockScreen
@@ -204,6 +206,17 @@ class MainActivity : FragmentActivity() {
                             onSetUp = {
                                 backStack.clear()
                                 backStack.add(Models)
+                                onboarded()
+                            },
+                            onPairPc = {
+                                backStack.clear()
+                                backStack.add(Remote)
+                                onboarded()
+                            },
+                            onAddApiKey = {
+                                backStack.clear()
+                                backStack.add(Remote)
+                                backStack.add(Providers)
                                 onboarded()
                             },
                         )

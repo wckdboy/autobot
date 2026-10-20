@@ -104,7 +104,7 @@ struct BackupTests {
 
     @Test func settingsUseTheSharedSchema() {
         var s = AppSettings(values: [:])
-        #expect(s.themeMode == .dark)
+        #expect(s.themeMode == .system)
         #expect(s.mode == .offline)
         s.themeMode = .light
         s.lockTimeoutMillis = 300_000

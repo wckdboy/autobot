@@ -74,7 +74,7 @@ import kotlinx.coroutines.launch
 
 @Immutable
 data class SettingsUiState(
-    val themeMode: ThemeMode = ThemeMode.DARK,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val amoled: Boolean = false,
     val dynamicColor: Boolean = false,
     val appLockEnabled: Boolean = true,
