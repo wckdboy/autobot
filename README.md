@@ -13,7 +13,7 @@ works on a machine you own too.
 
 ## Status
 
-Version 1.10. What runs, and what is not yet verified:
+Version 1.11. What runs, and what is not yet verified:
 
 | Part | State |
 | --- | --- |
