@@ -373,10 +373,19 @@ final class SharedAgentRuntime: AgentRuntime {
     }
 
     /// A turn on the node's agent; [onEvent] runs on the main actor for each event. Cancel to stop listening.
-    /// [bot]: the bot a new session belongs to (bots mode); nil for the default one.
-    func nodeAgentTurn(_ providerId: String, session: String, text: String, bot: String? = nil, onEvent: @escaping @MainActor (AgentEvent) -> Void) -> AutobotShared.Cancellable {
+    /// [bot]: the bot a new session belongs to (bots mode); nil for the default one. [images]: JPEG
+    /// photos, base64, downscaled here (`NodePhotos`). `kept` events may follow the answer.
+    func nodeAgentTurn(_ providerId: String, session: String, text: String, bot: String? = nil, images: [String] = [], onEvent: @escaping @MainActor (AgentEvent) -> Void) -> AutobotShared.Cancellable {
         // Kotlin calls this from its own queue: hop to the main actor with the event.
-        bridge.nodeAgentTurn(providerId: providerId, session: session, text: text, bot: bot) { @Sendable event in
+        bridge.nodeAgentTurn(providerId: providerId, session: session, text: text, bot: bot, images: images) { @Sendable event in
+            let box = Unchecked(event)
+            Task { @MainActor in onEvent(box.value) }
+        }
+    }
+
+    /// Runs the last turn of [session] again on the node (`POST …/retry`); events as for a turn.
+    func nodeAgentRetry(_ providerId: String, session: String, onEvent: @escaping @MainActor (AgentEvent) -> Void) -> AutobotShared.Cancellable {
+        bridge.nodeAgentRetry(providerId: providerId, session: session) { @Sendable event in
             let box = Unchecked(event)
             Task { @MainActor in onEvent(box.value) }
         }
@@ -388,17 +397,48 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// The node's bots (bots mode): `supported` false from a node too old to have them; `problem` when it did not answer.
     func nodeBots(_ providerId: String) async -> NodeBotsState {
-        await call(stopped: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: Self.stoppedMessage)),
-                   late: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: "The node did not answer"))) { done in
+        await call(stopped: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: Self.stoppedMessage, notice: nil)),
+                   late: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: "The node did not answer", notice: nil))) { done in
             bridge.nodeBots(providerId: providerId) { @Sendable state in done(Bots(state: state)) }
         }.state
     }
 
-    /// Switches a bot on or off; nil, or why it did not work.
-    func nodeBotSetEnabled(_ providerId: String, name: String, enabled: Bool) async -> String? {
-        await call(stopped: Problem(message: Self.stoppedMessage), late: Problem(message: "The node did not answer")) { done in
-            bridge.nodeBotSetEnabled(providerId: providerId, name: name, enabled: enabled) { @Sendable error in done(Problem(message: error)) }
-        }.message
+    /// Asks the node to bring its bots in line with their configuration now, then lists them; what it did is the state's notice.
+    func nodeBotsReload(_ providerId: String) async -> NodeBotsState {
+        await call(stopped: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: Self.stoppedMessage, notice: nil)),
+                   late: Bots(state: NodeBotsState(bots: [], supported: nil, loading: false, problem: "The node did not answer", notice: nil))) { done in
+            bridge.nodeBotsReload(providerId: providerId) { @Sendable state in done(Bots(state: state)) }
+        }.state
+    }
+
+    private struct Switched: @unchecked Sendable { var value: BotSwitch? = nil, error: String? = nil }
+
+    /// Switches a bot on or off: what the node did, or why it did not work.
+    func nodeBotSetEnabled(_ providerId: String, name: String, enabled: Bool) async -> (answer: BotSwitch?, error: String?) {
+        let r = await call(stopped: Switched(error: Self.stoppedMessage), late: Switched(error: "The node did not answer")) { done in
+            bridge.nodeBotSetEnabled(providerId: providerId, name: name, enabled: enabled) { @Sendable answer, error in done(Switched(value: answer, error: error)) }
+        }
+        return (r.value, r.error)
+    }
+
+    private struct Detail: @unchecked Sendable { let value: NodeBotDetail }
+
+    /// A bot's personality, profile, usage today and the last week's insights (each nil on an older node).
+    func nodeBotDetail(_ providerId: String, bot: String) async -> NodeBotDetail {
+        await call(stopped: Detail(value: NodeBotDetail(personalities: nil, profile: nil, usage: nil, insights: nil, problem: Self.stoppedMessage)),
+                   late: Detail(value: NodeBotDetail(personalities: nil, profile: nil, usage: nil, insights: nil, problem: "The node did not answer"))) { done in
+            bridge.nodeBotDetail(providerId: providerId, bot: bot) { @Sendable detail in done(Detail(value: detail)) }
+        }.value
+    }
+
+    private struct Personality: Sendable { var active: String? = nil, error: String? = nil }
+
+    /// Sets a bot's personality ([name] nil for none): the one in use now, or why not.
+    func nodeBotSetPersonality(_ providerId: String, bot: String, name: String?) async -> (active: String?, error: String?) {
+        let r = await call(stopped: Personality(error: Self.stoppedMessage), late: Personality(error: "The node did not answer")) { done in
+            bridge.nodeBotSetPersonality(providerId: providerId, bot: bot, name: name) { @Sendable active, error in done(Personality(active: active, error: error)) }
+        }
+        return (r.active, r.error)
     }
 
     /// The node's conversations, or only [bot]'s, newest first.

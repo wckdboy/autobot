@@ -55,6 +55,8 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo for the agent on your node. It is downscaled on this phone and sent without its location.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unlock Autobot with Face ID. Your conversations are encrypted on this device.</string>
 	<key>NSLocalNetworkUsageDescription</key>

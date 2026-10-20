@@ -1,14 +1,18 @@
 import AutobotShared
 import Observation
+import PhotosUI
 import SwiftUI
 
 /// One line of the agent transcript on screen.
 enum NodeAgentRow: Identifiable, Equatable {
-    case user(id: Int, text: String)
+    /// [photos]: the JPEGs sent with it from here; [count]: how many it has (from the node's history: their bytes stay there).
+    case user(id: Int, text: String, photos: [Data] = [], count: Int = 0)
     case reply(id: Int, text: String, route: String?)
     /// A tool run, a refusal or a failure: one short line.
     case note(id: Int, text: String, tone: Tone)
     case question(id: Int, approval: String, title: String, detail: String, answer: Answer?)
+    /// What the agent kept on its own after an answer (`kept · profile: …`): a quiet line.
+    case kept(id: Int, text: String)
 
     enum Tone { case tool, refused, error }
 
@@ -28,7 +32,7 @@ enum NodeAgentRow: Identifiable, Equatable {
 
     var id: Int {
         switch self {
-        case .user(let id, _), .reply(let id, _, _), .note(let id, _, _), .question(let id, _, _, _, _): id
+        case .user(let id, _, _, _), .reply(let id, _, _), .note(let id, _, _), .question(let id, _, _, _, _), .kept(let id, _): id
         }
     }
 }
@@ -54,6 +58,12 @@ final class NodeAgentModel {
     private(set) var activityProblem: String?
     /// The runtime is there to ask (the node may still be unreachable).
     private(set) var connected = false
+    /// Photos attached to the message being written (JPEG, downscaled).
+    private(set) var photos: [Data] = []
+    /// Why the last photo could not be attached.
+    var photoProblem: String?
+    /// Text handed back to the composer (the model could not see the photo); the screen takes it once.
+    var returned: String?
     @ObservationIgnored private var session = ""
     @ObservationIgnored private var counter = 0
     @ObservationIgnored private var turn: AutobotShared.Cancellable?
@@ -81,6 +91,14 @@ final class NodeAgentModel {
     func connect(runtime: SharedAgentRuntime?, node: String) async {
         self.runtime = runtime
         self.node = node
+        // Debug builds' demo node: a chat with a photo, an answer and what the agent kept.
+        if BotsDemo.on(providerId) {
+            self.node = BotsDemo.nodeName
+            connected = true
+            info = NodeChatSample.shared.info
+            rows = NodeChatDemo.rows(photo: NodeChatDemo.photo()) { [self] in next() }
+            return
+        }
         guard let runtime else { return problem = "My node is not available here" }
         connected = true
         problem = nil
@@ -97,7 +115,7 @@ final class NodeAgentModel {
         info = opened.info
         let history: [NodeAgentRow] = (fresh && rows.isEmpty ? [] : opened.history).map { line in
             switch line.role {
-            case "user": .user(id: next(), text: line.text)
+            case "user": .user(id: next(), text: line.text, count: line.images.count)
             case "tool": .note(id: next(), text: line.text, tone: .tool)
             default: .reply(id: next(), text: line.text, route: nil)
             }
@@ -109,11 +127,84 @@ final class NodeAgentModel {
 
     func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let runtime, !trimmed.isEmpty, !running, info != nil else { return }
-        rows.append(.user(id: next(), text: trimmed))
+        guard !trimmed.isEmpty, !running, info != nil else { return }
+        let id = next()
+        let sent = photos
+        rows.append(.user(id: id, text: trimmed, photos: sent, count: sent.count))
+        photos = []
+        photoProblem = nil
         running = true
         route = nil
-        turn = runtime.nodeAgentTurn(providerId, session: session, text: trimmed, bot: bot) { [weak self] event in self?.apply(event) }
+        if BotsDemo.on(providerId) { return demoAnswer() }
+        guard let runtime else { running = false; return }
+        let text = trimmed
+        turn = runtime.nodeAgentTurn(providerId, session: session, text: trimmed, bot: bot, images: sent.map { $0.base64EncodedString() }) { [weak self] event in
+            self?.apply(event, sent: id, text: text)
+        }
+    }
+
+    /// The row whose retry runs the last turn again: the last answer or failure after the last message, when nothing runs.
+    nonisolated static func retryTarget(_ rows: [NodeAgentRow], running: Bool) -> Int? {
+        guard !running, let user = rows.lastIndex(where: { if case .user = $0 { true } else { false } }) else { return nil }
+        let after = rows[(user + 1)...]
+        if after.contains(where: { if case .question(_, _, _, _, nil) = $0 { true } else { false } }) { return nil }
+        return after.last(where: { row in
+            switch row {
+            case .reply: true
+            case .note(_, _, let tone): tone == .error
+            default: false
+            }
+        })?.id
+    }
+
+    /// [rows] as a retry starts: the last turn's rows go, its message stays.
+    nonisolated static func retrying(_ rows: [NodeAgentRow]) -> [NodeAgentRow] {
+        guard let user = rows.lastIndex(where: { if case .user = $0 { true } else { false } }) else { return rows }
+        return Array(rows[...user])
+    }
+
+    /// Runs the last turn again on the node (`POST …/retry`).
+    func retry() {
+        guard !running else { return }
+        rows = Self.retrying(rows)
+        running = true
+        route = nil
+        if BotsDemo.on(providerId) { return demoAnswer() }
+        guard let runtime else { running = false; return }
+        turn = runtime.nodeAgentRetry(providerId, session: session) { [weak self] event in self?.apply(event, sent: nil, text: nil) }
+    }
+
+    private func demoAnswer() {
+        Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            rows.append(.reply(id: next(), text: NodeChatSample.shared.FOLLOW_ANSWER, route: NodeChatSample.shared.ROUTE))
+            running = false
+        }
+    }
+
+    /// Attaches a photo (library or camera): downscaled to 1568 px on its longest side, JPEG, no EXIF.
+    func attach(_ data: Data) {
+        guard photos.count < Int(NodeImages.shared.MAX_PHOTOS) else { return }
+        guard let jpeg = NodePhotos.encode(data) else { return photoProblem = "Could not read that photo." }
+        photos.append(jpeg)
+        photoProblem = nil
+    }
+
+    func removePhoto(at index: Int) {
+        guard photos.indices.contains(index) else { return }
+        photos.remove(at: index)
+    }
+
+    private func apply(_ event: AgentEvent, sent: Int?, text: String?) {
+        // The model cannot see images: said plainly; the text goes back to the composer, the photo does not.
+        if let e = event as? AgentEventFailed, e.code == NodeImages.shared.CANNOT_SEE, let sent {
+            rows.removeAll { $0.id == sent }
+            rows.append(.note(id: next(), text: e.text, tone: .error))
+            returned = text
+            running = false
+            return
+        }
+        apply(event)
     }
 
     private func apply(_ event: AgentEvent) {
@@ -136,6 +227,8 @@ final class NodeAgentModel {
         case let e as AgentEventFailed:
             rows.append(.note(id: next(), text: e.text, tone: .error))
             running = false
+        case let e as AgentEventKept:
+            rows.append(.kept(id: next(), text: NodeBotDetails.shared.kept(text: e.text)))
         default:
             break
         }
@@ -270,6 +363,8 @@ struct NodeAgentScreen: View {
 
     @State private var otherFor: String?
     @State private var otherText = ""
+    @State private var picks: [PhotosPickerItem] = []
+    @State private var showCamera = false
 
     init(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil, bot: String? = nil) {
         _model = State(initialValue: NodeAgentModel(providerId: providerId, session: session, bot: bot))
@@ -294,9 +389,10 @@ struct NodeAgentScreen: View {
             }
             ScrollViewReader { proxy in
                 ScrollView {
+                    let retry = NodeAgentModel.retryTarget(model.rows, running: model.running)
                     LazyVStack(alignment: .leading, spacing: 10) {
                         header
-                        ForEach(model.rows) { row in rowView(row).id(row.id) }
+                        ForEach(model.rows) { row in rowView(row, retry: retry == row.id).id(row.id) }
                         if model.running { InkLoader(.inline) }
                     }
                     .padding(.horizontal, Tokens.Spacing.gutter)
@@ -306,7 +402,9 @@ struct NodeAgentScreen: View {
                     if let last = model.rows.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
             }
+            if !model.photos.isEmpty || model.photoProblem != nil { pendingPhotos }
             HStack(alignment: .bottom, spacing: 8) {
+                photoMenu
                 ConsoleTextField(text: $draft, placeholder: "A task for your machine", minLines: 1, maxLines: 5, enabled: model.info != nil)
                 IconAction(symbol: "paperplane.fill", label: "Send", tint: c.primary, enabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty && !model.running && model.info != nil) {
                     model.send(draft)
@@ -321,6 +419,29 @@ struct NodeAgentScreen: View {
             if open != nil { await model.loadActivity() }
         }
         .onDisappear { model.stopListening() }
+        // The model could not see the photo: the text comes back to the box.
+        .onChange(of: model.returned) { _, text in
+            if let text {
+                draft = text
+                model.returned = nil
+            }
+        }
+        .onChange(of: picks) { _, items in
+            guard !items.isEmpty else { return }
+            picks = []
+            Task {
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self) { model.attach(data) } else { model.photoProblem = "Could not read that photo." }
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { data in
+                showCamera = false
+                if let data { model.attach(data) }
+            }
+            .ignoresSafeArea()
+        }
         .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
         .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
     }
@@ -340,18 +461,86 @@ struct NodeAgentScreen: View {
         }
     }
 
-    @ViewBuilder private func rowView(_ row: NodeAgentRow) -> some View {
-        switch row {
-        case .user(_, let text):
-            ChatBubble(role: .user, text: text, hasFooter: false) { EmptyView() }
-        case .reply(_, let text, let route):
-            ChatBubble(role: .assistant, text: text, hasFooter: route != nil) {
-                if let route { MicroLabel(route) }
+    /// Attach a photo: the camera (when there is one), or the library (the system picker, no permission needed).
+    private var photoMenu: some View {
+        let enabled = model.info != nil && !model.running && model.photos.count < Int(NodeImages.shared.MAX_PHOTOS)
+        return Menu {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button { showCamera = true } label: { Label("Take a photo", systemImage: "camera") }
             }
+            PhotosPicker(selection: $picks, maxSelectionCount: max(1, Int(NodeImages.shared.MAX_PHOTOS) - model.photos.count), matching: .images) {
+                Label("Choose from library", systemImage: "photo.on.rectangle")
+            }
+        } label: {
+            Image(systemName: "photo").font(.system(size: 20)).foregroundStyle(enabled ? c.onSurface : c.outline).frame(width: 44, height: 44)
+        }
+        .disabled(!enabled)
+        .accessibilityLabel("Attach a photo")
+    }
+
+    private var pendingPhotos: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                ForEach(Array(model.photos.enumerated()), id: \.offset) { i, data in
+                    ZStack(alignment: .topTrailing) {
+                        PhotoThumb(data: data, side: 64).accessibilityLabel("Photo \(i + 1)")
+                        Button { model.removePhoto(at: i) } label: {
+                            Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(c.onSurface)
+                                .frame(width: 24, height: 24).background(c.surfaceContainerHigh, in: RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+                        }
+                        .frame(width: 44, height: 44, alignment: .topTrailing)
+                        .accessibilityLabel("Remove photo \(i + 1)")
+                    }
+                }
+            }
+            if let problem = model.photoProblem { MicroLabel(problem, color: c.error, lines: 2) }
+            else { MicroLabel("sent to the node at up to \(NodeImages.shared.MAX_SIDE) px, without location", lines: 2) }
+        }
+        .padding(.horizontal, Tokens.Spacing.gutter)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func retryButton() -> some View {
+        IconAction(symbol: "arrow.clockwise", label: "Retry on the node", tint: c.onSurfaceVariant, size: 18) { model.retry() }
+    }
+
+    @ViewBuilder private func rowView(_ row: NodeAgentRow, retry: Bool = false) -> some View {
+        switch row {
+        case .user(_, let text, let photos, let count):
+            VStack(alignment: .trailing, spacing: 6) {
+                if !photos.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(photos.enumerated()), id: \.offset) { i, data in
+                            PhotoThumb(data: data, side: photos.count == 1 ? 160 : 96).accessibilityLabel("Photo \(i + 1) sent")
+                        }
+                    }
+                }
+                ChatBubble(role: .user, text: text, hasFooter: false) { EmptyView() }
+                // From the node's history: the photos stay there; how many.
+                if photos.isEmpty && count > 0 { MicroLabel(NodeImages.shared.label(count: Int32(count))) }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        case .reply(_, let text, let route):
+            ChatBubble(role: .assistant, text: text, hasFooter: route != nil || retry) {
+                HStack {
+                    if let route { Text(route).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).textLines(1) }
+                    Spacer(minLength: 0)
+                    if retry { retryButton() }
+                }
+            }
+        case .kept(_, let text):
+            // Quiet: what the agent kept about the owner or the work, on its own.
+            Text(text).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("kept")
         case .note(_, let text, let tone):
-            Text((tone == .tool ? "› " : "✗ ") + text)
-                .textStyle(.code)
-                .foregroundStyle(tone == .tool ? c.onSurfaceVariant : c.error)
+            HStack(alignment: .firstTextBaseline) {
+                Text((tone == .tool ? "› " : "✗ ") + text)
+                    .textStyle(.code)
+                    .foregroundStyle(tone == .tool ? c.onSurfaceVariant : c.error)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if retry { retryButton() }
+            }
         case .question(_, let approval, let title, let detail, let answer):
             VStack(alignment: .leading, spacing: 8) {
                 Text(title).textStyle(.titleSmall).foregroundStyle(c.onSurface)

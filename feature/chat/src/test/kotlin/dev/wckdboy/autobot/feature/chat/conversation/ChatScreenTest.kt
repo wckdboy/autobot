@@ -83,7 +83,7 @@ class ChatScreenTest {
     @Test
     fun aCloudProviderWithoutAKeySaysSoBeforeSending() {
         show(ChatUiState(loaded = true, providers = listOf(provider), missingKeyProvider = "DeepSeek"))
-        // The words iOS shows, from the shared ChatBanners.
+        // The words iOS shows, from the shared ChatBannerWords.
         compose.onNodeWithText("DeepSeek has no API key, so messages will fail. Add it in Model providers.").assertIsDisplayed()
         compose.onNodeWithText("Add key").performClick()
         assertEquals(1, openedProviders)

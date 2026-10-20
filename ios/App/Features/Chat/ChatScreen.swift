@@ -63,8 +63,9 @@ enum ChatBanners {
         if showOffline {
             out.append(ChatBanner(id: "offline", text: "Offline mode: this provider is remote, so the kill switch blocks it.", action: "Privacy", target: .privacyCenter))
         }
-        if let provider, needsKey, provider.kind != .local, (provider.apiKeyRef ?? "").isEmpty {
-            out.append(ChatBanner(id: "key", text: "\(provider.displayName) has no API key, so messages will fail. Add it in Model providers.", action: "Add key", target: .providers))
+        if let provider, needsKey, provider.kind != .local, provider.kind != .invincibleNode, (provider.apiKeyRef ?? "").isEmpty {
+            // The words Android shows (shared `ChatBannerWords`), before anything is sent.
+            out.append(ChatBanner(id: "key", text: ChatBannerWords.shared.missingKey(provider: provider.displayName), action: "Add key", target: .providers))
         }
         if case .missing(let name) = local {
             out.append(ChatBanner(id: "local", text: "“\(name)” is not on this phone any more. Download it again, or pick another model.", action: "Models", target: .models))
@@ -166,6 +167,7 @@ struct ChatScreen: View {
         let _ = ledger.observe(transcript.keys + approvals.map { "approval:" + $0.callId })
         let header = ["run", routing.modelLabel ?? routing.selectedModel, transcript.contextUsed.map { "\(compactCount($0)) tok" }].compactMap { $0 }.joined(separator: " · ")
         let speakingKey = model.speakingKey
+        let planShown = transcript.projection.todos.contains(where: { $0.status != .completed })
 
         VStack(spacing: 0) {
             AutobotTopBar(title: settings.toolsEnabled ? "Agent run" : "Chat", onBack: { nav.back() }) {
@@ -229,15 +231,26 @@ struct ChatScreen: View {
                     .padding(.vertical, 12)
                 }
                 .defaultScrollAnchor(.bottom)
+                // The plan panel and a question card take room from the transcript as they come and
+                // go: the end of the answer stays in view instead of sliding under them.
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
                 .scrollDismissesKeyboard(.interactively)
                 // One ground per screen: with the voice panel up, its own paper is the ground (two fields
                 // with their own grids would meet at the panel's edge).
                 .inkGround(app.dataLoaded && transcript.items.isEmpty && !isLive && model.voice == nil, fade: UnitPoint(x: 0.3, y: 0.15))
                 .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isLive) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: planShown) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                // A chat opened with its transcript already there: its end once laid out (images and
+                // the lazy rows' real heights arrive after the first pass, where the anchor was set).
+                .task(id: conversationId) {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+                .onChange(of: session?.question?.callId) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
             }
 
-            if transcript.projection.todos.contains(where: { $0.status != .completed }) {
+            if planShown {
                 TodoPanel(todos: transcript.projection.todos)
             }
             if let question = session?.question {

@@ -37,7 +37,15 @@ struct RemoteScreen: View {
                             }
                             // Bots mode: the node's bots, one row each (an older node has no list).
                             if let state = bots.states[n.id], state.showList {
-                                SectionLabel(nodes.count > 1 ? "bots · \(n.displayName)" : "bots").padding(.top, 12)
+                                HStack {
+                                    SectionLabel(nodes.count > 1 ? "bots · \(n.displayName)" : "bots").frame(maxWidth: .infinity, alignment: .leading)
+                                    // The node picks up a changed bot.toml or SOUL.md on its own within seconds; this is now.
+                                    Tag("Reload") { Task { await bots.reload(app: app, node: n.id) } }
+                                }
+                                .padding(.top, 12)
+                                if let notice = state.notice {
+                                    Text(notice).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true).padding(.bottom, 4)
+                                }
                                 let now = Int64(Date().timeIntervalSince1970)
                                 ForEach(state.bots, id: \.name) { bot in
                                     BotRow(bot: bot, now: now) { nav.push(.nodeBot(providerId: n.id, name: bot.name)) }
