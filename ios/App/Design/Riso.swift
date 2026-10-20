@@ -435,8 +435,10 @@ struct ScreenTitle: View {
 let wordmarkTitle = "autobot"
 
 /**
- Top bar: the `■ autobot` wordmark on Home, a sentence-case title elsewhere, and trailing actions.
- A top-level screen (no back button) ends its title in the purple [TitleMark]; [titleMark] overrides.
+ The screen's title and actions, in the system navigation bar (Liquid Glass where the system
+ draws it): the `■ autobot` wordmark on Home, a sentence-case title with the purple [TitleMark]
+ elsewhere, actions at the trailing edge. The system's back button pops the stack, as [onBack]
+ did; it is kept for the screens that pass it.
  */
 struct AutobotTopBar<Actions: View>: View {
     var title: String = wordmarkTitle
@@ -444,38 +446,24 @@ struct AutobotTopBar<Actions: View>: View {
     var titleMark: Bool? = nil
     var onBack: (() -> Void)? = nil
     @ViewBuilder var actions: () -> Actions
-    @Environment(\.scheme) private var c
-    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
-        // An accessibility size leaves no room for the actions beside the title (the chat's title
-        // broke one letter a line): they take a row of their own under it, as on Android.
-        let large = dynamicType.isAccessibilitySize
-        VStack(alignment: .trailing, spacing: 0) {
-            HStack(spacing: Tokens.Spacing.topBarGap) {
-                if let onBack {
-                    IconAction(symbol: "arrow.left", label: "Back", action: onBack)
+        Color.clear
+            .frame(height: 0)
+            .navigationTitle(title == wordmarkTitle ? "Autobot" : title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if title == wordmarkTitle {
+                        Wordmark()
+                    } else {
+                        ScreenTitle(title, style: .titleMedium, mark: titleMark ?? true)
+                    }
                 }
-                if title == wordmarkTitle {
-                    Wordmark().frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ScreenTitle(title, mark: titleMark ?? (onBack == nil))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if Actions.self != EmptyView.self {
+                    ToolbarItemGroup(placement: .topBarTrailing) { actions() }
                 }
-                if !large { actions() }
             }
-            .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
-            .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
-            .frame(minHeight: Tokens.Spacing.topBarMinHeight)
-            if large && Actions.self != EmptyView.self {
-                HStack(spacing: Tokens.Spacing.topBarGap) { actions() }
-                    .padding(.horizontal, Tokens.Spacing.topBarPaddingEnd)
-                    .padding(.bottom, 4)
-            }
-        }
-        // Chrome stops growing at AX1 (the content below keeps growing).
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .background(c.background)
     }
 }
 
