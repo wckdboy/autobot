@@ -159,6 +159,17 @@ struct A2uiRendererTests {
         #expect(A2uiIcons.label("calendarToday") == "calendar today")
     }
 
+    @Test func brandPurpleResolvesPerAppearance() {
+        let ui = UIColor(Color.a2uiBrand)
+        func hex(_ style: UIUserInterfaceStyle) -> String {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            ui.resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
+            return String(format: "%02X%02X%02X", Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()))
+        }
+        #expect(hex(.light) == "6A4BEB")
+        #expect(hex(.dark) == "9C85FF")
+    }
+
     @Test func markdownBlocksAndLinks() {
         #expect(A2uiMarkdown.blocks("# Contact Us") == [.heading(level: 1, text: "Contact Us")])
         #expect(A2uiMarkdown.blocks("a\nb\n\n- c\n2. d") == [.paragraph("a\nb"), .bullet(marker: "•", text: "c"), .bullet(marker: "2.", text: "d")])
@@ -188,7 +199,7 @@ struct A2uiRendererTests {
         let dir = ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_DIR"]
         for (name, model) in [("contact", try contact()), ("gallery", try gallery())] {
             for style in [UIUserInterfaceStyle.light, .dark] {
-                let view = ScrollView { A2uiSurfaceView(model: model).padding(16) }
+                let view = ScrollView { A2uiSurfaceView(model: model, tint: .a2uiBrand).padding(16) }
                     .background(Color(uiColor: .systemBackground))
                 let host = UIHostingController(rootView: view)
                 let fit = host.sizeThatFits(in: CGSize(width: 440, height: CGFloat.greatestFiniteMagnitude))

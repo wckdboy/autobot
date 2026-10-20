@@ -4,7 +4,8 @@ import UIKit
 
 /**
  Renders one A2UI v1.0 surface (basic catalog) with standard SwiftUI controls: Liquid Glass
- buttons on iOS 26 (bordered ones before), system text styles (Dynamic Type), the brand tint.
+ buttons on iOS 26 (bordered ones before), system text styles (Dynamic Type). Accents follow the
+ environment's tint (the app shell's `.tint`); pass [tint] (e.g. `.a2uiBrand`) to force one.
  The tree comes from [A2uiSurfaceModel]; inputs write back through the shared host and a tap
  runs the host's dispatch.
 
@@ -18,13 +19,14 @@ import UIKit
  */
 struct A2uiSurfaceView: View {
     let model: A2uiSurfaceModel
-    var tint: Color = .a2uiBrand
+    /// Nil: inherit the environment's tint (the app shell's); otherwise this tint.
+    var tint: Color?
     var onAction: (A2uiAction) -> Void = { _ in }
 
     @State private var pendingURL: URL?
     @Environment(\.openURL) private var openURL
 
-    init(model: A2uiSurfaceModel, tint: Color = .a2uiBrand, onAction: @escaping (A2uiAction) -> Void = { _ in }) {
+    init(model: A2uiSurfaceModel, tint: Color? = nil, onAction: @escaping (A2uiAction) -> Void = { _ in }) {
         self.model = model
         self.tint = tint
         self.onAction = onAction
@@ -40,7 +42,7 @@ struct A2uiSurfaceView: View {
             }
         }
         .environment(\.a2uiContext, context)
-        .tint(tint)
+        .modifier(A2uiOptionalTint(tint: tint))
         .alert(
             "Open this link?",
             isPresented: Binding(get: { pendingURL != nil }, set: { if !$0 { pendingURL = nil } }),
@@ -59,11 +61,17 @@ struct A2uiSurfaceView: View {
 }
 
 extension Color {
-    /// The brand's signal colour as a tint (the ink tones: legible on light and dark grounds).
-    static let a2uiBrand = Color(uiColor: UIColor { traits in
-        let rgb = traits.userInterfaceStyle == .dark ? Tokens.darkInks.signal : Tokens.lightInks.signal
-        return UIColor(red: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255, blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
-    })
+    /// The brand purple (#7C5CFF family): `BrandPurple` in the asset catalog, #6A4BEB on light
+    /// grounds and #9C85FF on dark ones so text and glyphs keep >= 4.5:1 contrast.
+    static let a2uiBrand = Color("BrandPurple")
+}
+
+/// Applies [tint] only when set, so the environment's tint (the app's) otherwise wins.
+private struct A2uiOptionalTint: ViewModifier {
+    let tint: Color?
+    func body(content: Content) -> some View {
+        if let tint { content.tint(tint) } else { content }
+    }
 }
 
 /// Loads image bytes for A2UI `Image`s (and Video posters); nil means "not allowed / failed".
