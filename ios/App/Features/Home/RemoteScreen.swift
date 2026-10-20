@@ -38,7 +38,7 @@ struct RemoteScreen: View {
                     }
                     SectionLabel("providers")
                     ForEach(providers) { p in
-                        RunRow(title: p.displayName, subtitle: p.defaultModel, action: { nav.push(.providers) }) {
+                        RunRow(title: p.displayName, subtitle: ChatListModel.modelLabel(p.defaultModel), action: { nav.push(.providers) }) {
                             RouteTag(route: routeOf(p))
                         }
                     }

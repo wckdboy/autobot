@@ -737,7 +737,14 @@ final class ChatListModel {
         return ("no sessions", "everything stays encrypted on this device")
     }
 
+    /// Titles of the catalog's models by id ("catalog:qwen3-4b-2507-q4_0" → "Qwen3 4B Instruct 2507").
+    private static let catalogTitles = Dictionary(Catalog.all.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
+
+    /// A chat's model as a person reads it: an on-device catalog model by its title, anything else as named.
+    static func modelLabel(_ id: String) -> String { catalogTitles[id] ?? id }
+
     /// The undo toast after deleting [count] chats ([title]: the only one's).
+
     static func deletedLabel(count: Int, title: String?) -> String {
         count == 1 ? (title.map { "Deleted “\($0)”" } ?? "Chat deleted") : "Deleted \(counted(count, "chat"))"
     }
@@ -764,7 +771,7 @@ final class ChatListModel {
                 return ConversationItem(
                     id: conv.id,
                     title: conv.title,
-                    subtitle: [conv.providerId.flatMap { names[$0] }, conv.model].compactMap { $0 }.joined(separator: " · "),
+                    subtitle: [conv.providerId.flatMap { names[$0] }, conv.model.map(modelLabel)].compactMap { $0 }.joined(separator: " · "),
                     updatedAt: conv.updatedAt,
                     incognito: e.incognito,
                     pinned: conv.pinned,

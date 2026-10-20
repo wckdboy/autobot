@@ -10,7 +10,10 @@ import UIKit
 @MainActor
 enum DemoSeed {
     static func seedIfEmpty(_ app: AppContainer) {
-        guard DebugFlags.demo, app.conversations.conversations.isEmpty, app.providers.providers.isEmpty else { return }
+        guard DebugFlags.demo else { return }
+        // The audit log lives in memory only: every demo launch gets its entries.
+        recordAudit(app)
+        guard app.conversations.conversations.isEmpty, app.providers.providers.isEmpty else { return }
         let now = nowMillis()
         app.settings.setOnboarded()
 
@@ -122,7 +125,11 @@ enum DemoSeed {
             }
         }
 
+    }
+
+    private static func recordAudit(_ app: AppContainer) {
         app.auditLog.record(method: "POST", host: "api.deepseek.com", path: "/chat/completions", tag: "DeepSeek", route: "offline", blocked: true, error: "Offline mode: network access is disabled")
+
         app.auditLog.record(method: "GET", host: "127.0.0.1", path: "/v1/models", bytesReceived: 1_204, status: 200, tag: "Ollama (local)", route: "loopback", blocked: false)
         app.auditLog.record(method: "GET", host: "huggingface.co", path: "/api/models", bytesReceived: 18_330, status: 200, tag: "models:huggingface", route: "tor", blocked: false)
     }

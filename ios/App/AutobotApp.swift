@@ -128,14 +128,18 @@ struct RootView: View {
                             nav.reset(.models)
                             app.settings.setOnboarded()
                         },
+                        // Straight to what they came for: the pairing sheet, or the provider picker.
                         onPairPc: {
-                            nav.reset(.remote)
+                            nav.reset(.remote, [.providers])
+                            nav.pendingPairing = ""
                             app.settings.setOnboarded()
                         },
                         onAddApiKey: {
                             nav.reset(.remote, [.providers])
+                            nav.pendingAddProvider = true
                             app.settings.setOnboarded()
                         },
+
                     )
                 } else {
                     AutobotNavHost()

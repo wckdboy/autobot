@@ -139,6 +139,8 @@ struct ProvidersScreen: View {
         }
         .onAppear(perform: takePendingPairing)
         .onChange(of: nav.pendingPairing) { takePendingPairing() }
+        .onAppear(perform: takePendingAdd)
+        .onChange(of: nav.pendingAddProvider) { takePendingAdd() }
         .sheet(item: Binding(get: { editor.map(EditorItem.init) }, set: { if $0 == nil { editor = nil } })) { item in
             ProviderEditorSheet(initial: item.draft) { editor = nil }
         }
@@ -176,7 +178,7 @@ struct ProvidersScreen: View {
                         MicroLabel(p.baseUrl)
                         Text(p.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
                         HStack(spacing: 0) {
-                            Text(p.defaultModel.isEmpty ? "—" : p.defaultModel)
+                            Text(p.defaultModel.isEmpty ? "—" : ChatListModel.modelLabel(p.defaultModel))
                                 .foregroundStyle(c.onSurfaceVariant)
                                 .lineLimit(1)
                             if preset.requiresApiKey && p.apiKeyRef == nil {
@@ -308,6 +310,7 @@ private struct ProviderEditorSheet: View {
                 if let note = preset.note {
                     Text(note).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
                 }
+                if ProviderDraft.loopbackNote(draft.baseUrl) == nil { OfflineNotice() }
 
                 ConsoleTextField(text: field(\.displayName), label: "Name")
                 VStack(alignment: .leading, spacing: 4) {
@@ -694,4 +697,12 @@ extension ProvidersScreen {
         nav.pendingPairing = nil
         pairingCode = PairingItem(code: code)
     }
+
+    /// "Add an API key" on the welcome screen: the preset picker opens at once.
+    fileprivate func takePendingAdd() {
+        guard nav.pendingAddProvider else { return }
+        nav.pendingAddProvider = false
+        picking = true
+    }
+
 }
