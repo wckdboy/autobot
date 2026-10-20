@@ -55,7 +55,10 @@ enum AutobotColors {
     static let redDeep = Color(rgb: Tokens.Palette.redDeep)
     static let redDim = Color(rgb: Tokens.Palette.redDim)
 
-    /// Autobot's signal: lilac on ink, a deeper lilac on paper (6:1), and a dim fill.
+    /// Autobot's mark: the pixel a and the icon, never text.
+    static let purple = Color(rgb: Tokens.Palette.purple)
+
+    /// Autobot's signal as text: lilac on ink, a deeper lilac on paper (5:1), and a dim fill.
     static let lilac = Color(rgb: Tokens.Palette.lilac)
     static let lilacDeep = Color(rgb: Tokens.Palette.lilacDeep)
     static let lilacDim = Color(rgb: Tokens.Palette.lilacDim)

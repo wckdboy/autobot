@@ -19,16 +19,17 @@ enum Tokens {
         static let ink850: UInt32 = 0x1A1A1A
         static let ink900: UInt32 = 0x141414
         static let ink950: UInt32 = 0x0E0E0E
-        static let lilac: UInt32 = 0xA99BF5
-        static let lilacDeep: UInt32 = 0x5444BA
-        static let lilacDim: UInt32 = 0x221D3D
+        static let lilac: UInt32 = 0x9373FF
+        static let lilacDeep: UInt32 = 0x5A36E6
+        static let lilacDim: UInt32 = 0x241A4D
         static let line: UInt32 = 0x2F2F2E
-        static let orange: UInt32 = 0xFF9A3D
-        static let orangeLight: UInt32 = 0xFF9A3D
+        static let orange: UInt32 = 0xFF8A1E
+        static let orangeLight: UInt32 = 0xFF8A1E
         static let paper: UInt32 = 0xEFEAE2
         static let paperInk: UInt32 = 0x141414
         static let paperLine: UInt32 = 0xCFC8BC
         static let paperMuted: UInt32 = 0x615C56
+        static let purple: UInt32 = 0x7C5CFF
         static let red: UInt32 = 0xE8401C
         static let redDeep: UInt32 = 0xB8300F
         static let redDim: UInt32 = 0x3A140A
@@ -75,7 +76,7 @@ enum Tokens {
         error: 0xFF6A47,
         errorContainer: 0x3D130B,
         inverseOnSurface: 0x141414,
-        inversePrimary: 0x5444BA,
+        inversePrimary: 0x5A36E6,
         inverseSurface: 0xF1ECE4,
         onBackground: 0xF1ECE4,
         onError: 0x0E0E0E,
@@ -89,8 +90,8 @@ enum Tokens {
         onTertiary: 0x0E0E0E,
         outline: 0x4B4945,
         outlineVariant: 0x2F2F2E,
-        primary: 0xA99BF5,
-        primaryContainer: 0x221D3D,
+        primary: 0x9373FF,
+        primaryContainer: 0x241A4D,
         scrim: 0x000000,
         secondary: 0xC9C3BA,
         secondaryContainer: 0x292929,
@@ -125,7 +126,7 @@ enum Tokens {
         onTertiary: 0xFFFFFF,
         outline: 0xA8A096,
         outlineVariant: 0xCFC8BC,
-        primary: 0x5444BA,
+        primary: 0x5A36E6,
         primaryContainer: 0xE4DEFF,
         scrim: 0x000000,
         secondary: 0x3A3632,

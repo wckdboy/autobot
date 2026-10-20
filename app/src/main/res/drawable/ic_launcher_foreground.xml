@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Autobot's symbol: a lowercase a in pixels (6 × 6, two-pixel strokes), lilac on ink. -->
+<!-- Autobot's symbol: a lowercase a in pixels (6 × 6, two-pixel strokes), lilac on white,
+     centred like every WCKD icon (brand/kit.json in autobot-www). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#FFA99BF5"
-        android:pathData="M42,37h24v6h-24zM60,43h12v6h-12zM42,49h30v6h-30zM36,55h12v6h-12zM60,55h12v6h-12zM36,61h12v6h-12zM60,61h12v6h-12zM42,67h30v6h-30z" />
+        android:fillColor="#FF7C5CFF"
+        android:pathData="M42,36h24v6h-24zM60,42h12v6h-12zM42,48h30v6h-30zM36,54h12v6h-12zM60,54h12v6h-12zM36,60h12v6h-12zM60,60h12v6h-12zM42,66h30v6h-30z" />
 </vector>

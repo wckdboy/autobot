@@ -255,13 +255,13 @@ struct PixelSymbol: View {
     }
 }
 
-/// Autobot's symbol, the pixel a, in the scheme's primary (lilac).
+/// Autobot's symbol, the pixel a, in its purple.
 struct AutobotMark: View {
     var size: CGFloat = 12
     var color: Color? = nil
     @Environment(\.scheme) private var c
 
-    var body: some View { PixelSymbol(rows: Glyph.a, color: color ?? c.primary, size: size) }
+    var body: some View { PixelSymbol(rows: Glyph.a, color: color ?? AutobotColors.purple, size: size) }
 }
 
 /// Invincible's symbol, the pixel i, in its orange: on anything about the node.
@@ -296,14 +296,14 @@ struct Wordmark: View {
     }
 }
 
-/// The app icon (the pixel a on ink), for the places that show the icon itself.
+/// The app icon (the pixel a in purple on white), for the places that show the icon itself.
 struct AppIconImage: View {
     var size: CGFloat = Tokens.Spacing.markSize
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(Color(rgb: Tokens.Palette.ink950))
-            PixelSymbol(rows: Glyph.a, color: AutobotColors.lilac, size: size * 0.5)
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(Color.white)
+            PixelSymbol(rows: Glyph.a, color: AutobotColors.purple, size: size * 0.5)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)

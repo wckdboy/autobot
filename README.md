@@ -24,7 +24,8 @@ Version 1.10. What runs, and what is not yet verified:
 | Protection | A PIN with a duress code and wipe after failed unlocks; recipes run scheduled agents on the phone |
 | Your node | Pairs with Invincible over Noise: the node's agent, approvals, schedules, receipts and audit log in the app |
 | Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
-| **Not yet verified** | The Snapdragon accelerator paths were built for the 8 Elite Gen 5 (Hexagon V81, Adreno 840) but have not yet run on one; Models → Compute → `report` produces the diagnostics that would confirm it |
+| Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
+| **Not yet verified** | No independent security review yet |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).
 

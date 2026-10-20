@@ -60,13 +60,15 @@ object AutobotColors {
     val RedDim = Color(0xFF3A140A)
 
     /** Autobot's signal: lilac on ink, a deeper lilac on paper (6:1), and a dim fill. */
-    val Lilac = Color(0xFFA99BF5)
-    val LilacDeep = Color(0xFF5444BA)
-    val LilacDim = Color(0xFF221D3D)
+    /** The mark: Autobot's pixel a and its icon, never text. */
+    val Purple = Color(0xFF7C5CFF)
+    val Lilac = Color(0xFF9373FF)
+    val LilacDeep = Color(0xFF5A36E6)
+    val LilacDim = Color(0xFF241A4D)
 
     /** Invincible's signal (the node), on paper and on ink: screens about the node mark it in this. */
-    val Orange = Color(0xFFFF9A3D)
-    val OrangeLight = Color(0xFFFF9A3D)
+    val Orange = Color(0xFFFF8A1E)
+    val OrangeLight = Color(0xFFFF8A1E)
 
     val Amber = Color(0xFFE3A33B)
     val Cyan = Color(0xFF9DB4B0)
@@ -81,7 +83,7 @@ object AutobotColors {
 }
 
 val GraphiteDarkColorScheme: ColorScheme = darkColorScheme(
-    // Lilac reads on every ink panel (6.7:1 and up); ink on lilac blocks (8:1).
+    // Lilac reads on ink (5:1); ink on lilac blocks (5:1).
     primary = AutobotColors.Lilac,
     onPrimary = AutobotColors.Ink950,
     primaryContainer = AutobotColors.LilacDim,

@@ -38,7 +38,7 @@ class TokensParityTest {
             "paperMuted" to PaperMuted, "paperInk" to PaperInk, "red" to Red, "redDeep" to RedDeep,
             "redDim" to RedDim, "amber" to Amber, "cyan" to Cyan, "error" to Error,
             "orange" to Orange, "orangeLight" to OrangeLight,
-            "lilac" to Lilac, "lilacDeep" to LilacDeep, "lilacDim" to LilacDim,
+            "purple" to Purple, "lilac" to Lilac, "lilacDeep" to LilacDeep, "lilacDim" to LilacDim,
         )
     }
 

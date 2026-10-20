@@ -210,9 +210,9 @@ fun PixelSymbol(rows: List<String>, color: Color, modifier: Modifier = Modifier,
     }
 }
 
-/** Autobot's symbol, the pixel a, in the scheme's primary (lilac). */
+/** Autobot's symbol, the pixel a, in its purple. */
 @Composable
-fun AutobotMark(modifier: Modifier = Modifier, size: Dp = 12.dp, color: Color = MaterialTheme.colorScheme.primary) {
+fun AutobotMark(modifier: Modifier = Modifier, size: Dp = 12.dp, color: Color = AutobotColors.Purple) {
     PixelSymbol(GlyphA, color, modifier, size)
 }
 
@@ -224,7 +224,7 @@ fun NodeMark(modifier: Modifier = Modifier, size: Dp = 12.dp) {
 
 /** The pixel a and the lowercase mono name: Autobot's wordmark. */
 @Composable
-fun Wordmark(name: String = "autobot", modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+fun Wordmark(name: String = "autobot", modifier: Modifier = Modifier, color: Color = AutobotColors.Purple) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         AutobotMark(color = color, size = 14.dp)
         Text(name, style = WordmarkStyle, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
