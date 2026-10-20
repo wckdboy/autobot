@@ -44,7 +44,8 @@ sealed interface NetworkMode {
             }
             return when (kind) {
                 "offline" -> Offline
-                "direct" -> Direct
+                // Nothing may follow (spec/egress.md): `direct:typo` is a mistake, and fails closed.
+                "direct" -> if (value.contains(':')) Offline else Direct
                 "tor" -> endpoint()?.let { Tor(it.first, it.second) } ?: Offline
                 "socks5" -> endpoint()?.let { Socks5(it.first, it.second) } ?: Offline
                 else -> Offline
