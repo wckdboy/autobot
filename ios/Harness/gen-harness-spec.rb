@@ -81,9 +81,7 @@ spec = {
         { 'path' => 'Harness/HarnessKernel.m' },
         { 'path' => 'Harness/mach_excServer.c' },
         { 'path' => 'Harness/mach_excServer.h' },
-      ] + ish_sources.map { |p| { 'path' => "Harness/dsh-ios/ish-arm64/#{p}" } },
-      'resources' =>
-        ish_resources.map { |p| { 'path' => "Harness/dsh-ios/ish-arm64/#{p}" } },
+      ] + ish_sources.map { |p| { 'path' => "Harness/dsh-ios/ish-arm64/#{p}" } } + ish_resources.map { |p| { 'path' => "Harness/dsh-ios/ish-arm64/#{p}", 'buildPhase' => 'resources' } },
       'dependencies' => [
         { 'target' => 'iSHLibarchive/libarchive', 'link' => true, 'embed' => false },
         { 'sdk' => 'WebKit.framework' },
