@@ -10,7 +10,6 @@ import UIKit
 struct AboutScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @Environment(\.openURL) private var openURL
     @State private var copied = false
     @State private var allNotes = false
@@ -25,49 +24,59 @@ struct AboutScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "About", onBack: { nav.back() })
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    identity
-                    Hairline().padding(.vertical, 8)
-                    header("What's new in \(info.version)")
+            List {
+                Section { identity }
+                Section("What's new in \(info.version)") {
                     whatsNew
-                    NavigationRow(title: "All releases", trailingSymbol: "arrow.up.right") { openURL(AboutInfo.releasesURL) }
-                        .accessibilityHint("Opens github.com in Safari")
-                    Hairline().padding(.vertical, 8)
-                    header("Autobot")
-                    NavigationRow(title: "Source code", trailingSymbol: "arrow.up.right") { openURL(AboutInfo.sourceURL) }
-                        .accessibilityHint("Opens github.com in Safari")
-                    NavigationRow(title: "Licenses") { nav.push(.licenses) }
-                    NavigationRow(title: copied ? "Diagnostics copied" : "Copy diagnostics", trailingSymbol: copied ? "checkmark" : "doc.on.doc") {
-                        copyDiagnostics()
+                    external("All releases", AboutInfo.releasesURL)
+                }
+                Section {
+                    external("Source code", AboutInfo.sourceURL)
+                    PushRow(title: "Licenses") { nav.push(.licenses) }
+                    Button(action: copyDiagnostics) {
+                        Label(copied ? "Diagnostics copied" : "Copy diagnostics", systemImage: copied ? "checkmark" : "doc.on.doc")
                     }
                     .disabled(!DiagnosticsReportBuilder.available)
-                    MicroLabel(AboutInfo.privacyStatement.lowercased(), lines: 2)
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.top, 12)
-                        .padding(.bottom, 24)
+                } header: {
+                    Text("Autobot")
+                } footer: {
+                    Text(AboutInfo.privacyStatement)
                 }
             }
+            .listStyle(.insetGrouped)
         }
-        .background(c.background)
+    }
+
+    /// A link that leaves the app (Safari), with the system's outward arrow.
+    private func external(_ title: String, _ url: URL) -> some View {
+        Button { openURL(url) } label: {
+            HStack {
+                Text(title).foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "arrow.up.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint("Opens github.com in Safari")
     }
 
     private var identity: some View {
         HStack(alignment: .center, spacing: 16) {
             AppIconImage(size: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
             VStack(alignment: .leading, spacing: 4) {
-                Text(info.name).textStyle(.headlineMedium).foregroundStyle(c.onSurface)
-                Text("Version \(info.version) · build \(info.build)").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant)
+                Text(info.name).font(.title2.weight(.semibold))
+                Text("Version \(info.version) · build \(info.build)").font(.subheadline).foregroundStyle(.secondary)
                 if let date = info.buildDate {
-                    MicroLabel("built \(date.formatted(date: .abbreviated, time: .omitted))")
+                    Text("built \(date.formatted(date: .abbreviated, time: .omitted))").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .accessibilityElement(children: .combine)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .padding(.vertical, 16)
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder private var whatsNew: some View {
@@ -77,38 +86,30 @@ struct AboutScreen: View {
                 ForEach(Array(shown.enumerated()), id: \.offset) { _, block in
                     switch block {
                     case .heading(_, let text):
-                        Text(text).textStyle(.titleSmall).foregroundStyle(c.onSurface).padding(.top, 6)
+                        Text(text).font(.headline).padding(.top, 4)
                     case .bullet(let text):
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("•").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).accessibilityHidden(true)
-                            Text(text).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant)
+                            Text("•").foregroundStyle(.secondary).accessibilityHidden(true)
+                            Text(text).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        .font(.subheadline)
                     case .paragraph(let text):
-                        Text(text).textStyle(.bodyMedium).foregroundStyle(c.onSurface)
+                        Text(text).font(.subheadline)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                if notes.count > Self.notesPreview {
-                    TextAction(allNotes ? "Show less" : "Show all", color: c.primary) {
-                        withAnimation(.easeInOut(duration: 0.2)) { allNotes.toggle() }
-                    }
-                    .frame(minHeight: 44)
-                    .padding(.leading, -12) // the label lines up with the notes (TextAction pads its target)
+            }
+            .textSelection(.enabled)
+            .padding(.vertical, 4)
+            if notes.count > Self.notesPreview {
+                Button(allNotes ? "Show less" : "Show all") {
+                    withAnimation(.easeInOut(duration: 0.2)) { allNotes.toggle() }
                 }
             }
-            .tint(c.primary)
-            .textSelection(.enabled)
-            .padding(.horizontal, Tokens.Spacing.gutter)
-            .padding(.top, 4)
-            .padding(.bottom, 4)
         } else {
-            MicroLabel("release notes are missing from this build").padding(.horizontal, Tokens.Spacing.gutter).padding(.bottom, 8)
+            Text("release notes are missing from this build").font(.footnote).foregroundStyle(.secondary)
         }
-    }
-
-    private func header(_ text: String) -> some View {
-        SectionLabel(text).padding(.horizontal, Tokens.Spacing.gutter).padding(.top, 12).padding(.bottom, 4)
     }
 
     private func copyDiagnostics() {

@@ -24,7 +24,6 @@ struct BackupSheet: View {
 
     @Environment(AppContainer.self) private var app
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scheme) private var c
     @State private var passphrase = ""
     @State private var confirm = ""
     @State private var status = Status.idle
@@ -37,33 +36,43 @@ struct BackupSheet: View {
     private var exportable: Bool { passphrase.count >= BackupService.minPassphrase && passphrase == confirm }
 
     var body: some View {
-        InkStack(alignment: .leading, spacing: 12) {
-            Text("Export & import").textStyle(.headlineSmall).foregroundStyle(c.onSurface)
-            Text("Sessions, gallery, attachments, providers (without API keys) and appearance settings, sealed with a passphrase (AES-256-GCM). The Android app opens the same file. Models are not included.")
-                .textStyle(.bodySmall)
-                .foregroundStyle(c.onSurface)
-                .fixedSize(horizontal: false, vertical: true)
-            ConsoleTextField(text: $passphrase, label: "Passphrase", kind: .secret, enabled: !working)
-            ConsoleTextField(text: $confirm, label: "Repeat (export only)", kind: .secret, enabled: !working)
-            MicroLabel("at least \(BackupService.minPassphrase) characters · it cannot be recovered", lines: 2)
-            switch status {
-            case .idle: EmptyView()
-            case .working(let s):
-                VStack(alignment: .leading, spacing: 6) {
-                    InkProgressBar(.indeterminate, height: 2)
-                    MicroLabel(s.hasSuffix("…") ? String(s.dropLast()) : s, lines: 2)
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Sessions, gallery, attachments, providers (without API keys) and appearance settings, sealed with a passphrase (AES-256-GCM). The Android app opens the same file. Models are not included.")
+                        .font(.subheadline)
                 }
-            case .done(let s): Text(s).textStyle(.bodySmall).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
-            case .failed(let s): Text(s).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+                Section {
+                    FormField("Passphrase", text: $passphrase, kind: .secret).disabled(working)
+                    FormField("Repeat (export only)", text: $confirm, kind: .secret).disabled(working)
+                } footer: {
+                    Text("at least \(BackupService.minPassphrase) characters · it cannot be recovered")
+                }
+                switch status {
+                case .idle: EmptyView()
+                case .working(let s):
+                    Section {
+                        ProgressView { Text(s.hasSuffix("…") ? String(s.dropLast()) : s).font(.footnote) }
+                    }
+                case .done(let s): Section { Text(s).font(.subheadline) }
+                case .failed(let s): Section { Text(s).font(.subheadline).foregroundStyle(.red) }
+                }
+                Section {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) { actions }
+                        VStack(spacing: 12) { actions }
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
             }
-            Spacer(minLength: 0)
-            HStack(spacing: 8) {
-                GhostButton("Import", enabled: !passphrase.isEmpty && !working, busy: working && !exporting) { importing = true }
-                PrimaryButton("Export", enabled: exportable && !working, busy: working && exporting) { export() }
+            .formStyle(.grouped)
+            .navigationTitle("Export & import")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() }.disabled(working) }
             }
         }
-        .padding(16)
-        .background(c.background.ignoresSafeArea())
         .presentationDetents([.large])
         .interactiveDismissDisabled(working)
         .fileExporter(
@@ -81,6 +90,21 @@ struct BackupSheet: View {
         .fileImporter(isPresented: $importing, allowedContentTypes: [.data, .item]) { result in
             if case .success(let url) = result { importBundle(url) }
         }
+    }
+
+    @ViewBuilder private var actions: some View {
+        Button { importing = true } label: {
+            Group { if working && !exporting { ProgressView() } else { Text("Import") } }.frame(maxWidth: .infinity)
+        }
+        .secondaryActionStyle()
+        .controlSize(.large)
+        .disabled(passphrase.isEmpty || working)
+        Button { export() } label: {
+            Group { if working && exporting { ProgressView() } else { Text("Export") } }.frame(maxWidth: .infinity)
+        }
+        .primaryActionStyle()
+        .controlSize(.large)
+        .disabled(!exportable || working)
     }
 
     private func export() {

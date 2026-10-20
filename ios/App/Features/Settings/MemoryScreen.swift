@@ -5,7 +5,6 @@ import SwiftUI
 struct MemoryScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var query = ""
     @State private var editor: NoteDraft?
     @State private var confirmDeleteAll = false
@@ -18,35 +17,32 @@ struct MemoryScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Memory", onBack: { nav.back() }) {
                 if total > 0 {
-                    IconAction(symbol: "trash", label: MemoryWords.shared.DELETE_ALL, tint: c.onSurfaceVariant, size: 18) { confirmDeleteAll = true }
+                    Button { confirmDeleteAll = true } label: { Image(systemName: "trash") }
+                        .accessibilityLabel(MemoryWords.shared.DELETE_ALL)
                 }
-                IconAction(symbol: "plus", label: MemoryWords.shared.ADD, tint: c.primary) { editor = NoteDraft() }
+                Button { editor = NoteDraft() } label: { Image(systemName: "plus") }
+                    .accessibilityLabel(MemoryWords.shared.ADD)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    SwitchRow(
+            List {
+                Section {
+                    InfoToggle(
                         title: MemoryWords.shared.USE_IN_CHATS,
-                        isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
                         info: MemoryWords.shared.USE_INFO,
+                        isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
                     )
-                    ConsoleTextField(text: $query, placeholder: MemoryWords.shared.SEARCH, kind: .mono)
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.vertical, 6)
-                    SectionLabel(MemoryWords.shared.count(total: Int32(total)))
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.vertical, 8)
+                }
+                Section(MemoryWords.shared.count(total: Int32(total)).sentenceCased) {
                     if notes.isEmpty {
-                        EmptyState(MemoryWords.shared.empty(total: Int32(total)))
+                        MarkUnavailableView(MemoryWords.shared.empty(total: Int32(total)))
                     } else {
-                        ForEach(notes) { note in row(note).transition(.inkDissolve) }
-                            .padding(.horizontal, Tokens.Spacing.gutter)
+                        ForEach(notes) { row($0) }
                     }
                 }
-                .animation(.inkDissolve, value: notes.map(\.id))
-                .padding(.bottom, 96)
             }
+            .listStyle(.insetGrouped)
+            .searchable(text: $query, prompt: MemoryWords.shared.SEARCH)
+            .animation(.default, value: notes.map(\.id))
         }
-        .background(c.background)
         .sheet(item: $editor) { draft in
             NoteEditorSheet(initial: draft) { outcome in
                 editor = nil
@@ -64,25 +60,25 @@ struct MemoryScreen: View {
     }
 
     private func row(_ note: MemoryRecord) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                Button { editor = NoteDraft(id: note.id, text: note.text, tags: note.tags.joined(separator: ", ")) } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        MicroLabel("\(note.id) · \(relativeTime(note.updatedAt))")
-                        Text(note.text).textStyle(.bodyMedium).foregroundStyle(c.onSurface).lineLimit(4).multilineTextAlignment(.leading)
-                        if !note.tags.isEmpty {
-                            Text(note.tags.map { "#\($0)" }.joined(separator: " ")).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+        Button { editor = NoteDraft(id: note.id, text: note.text, tags: note.tags.joined(separator: ", ")) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(note.text).lineLimit(4).multilineTextAlignment(.leading)
+                if !note.tags.isEmpty {
+                    Text(note.tags.map { "#\($0)" }.joined(separator: " ")).font(.caption).foregroundStyle(.tint)
                 }
-                .buttonStyle(PressStyle())
-                IconAction(symbol: "trash", label: "Delete note \(note.id)", tint: c.onSurfaceVariant, size: 16) { app.memory.delete(note.id) }
+                Text("\(note.id) · \(relativeTime(note.updatedAt))").font(.caption).foregroundStyle(.secondary)
             }
-            .padding(.vertical, 12)
-            Hairline()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .foregroundStyle(.primary)
+        .swipeActions {
+            Button("Delete", systemImage: "trash", role: .destructive) { app.memory.delete(note.id) }
+        }
+        .contextMenu {
+            Button("Delete note \(note.id)", systemImage: "trash", role: .destructive) { app.memory.delete(note.id) }
+        }
+        .accessibilityAction(named: "Delete note \(note.id)") { app.memory.delete(note.id) }
     }
 
     static func describe(_ outcome: MemoryRepository.SaveOutcome) -> String? {
@@ -110,7 +106,6 @@ private struct NoteEditorSheet: View {
     let onCancel: () -> Void
     @State private var draft: NoteDraft
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     init(initial: NoteDraft, onDone: @escaping (MemoryRepository.SaveOutcome) -> Void, onCancel: @escaping () -> Void) {
         _draft = State(initialValue: initial)
@@ -120,26 +115,29 @@ private struct NoteEditorSheet: View {
 
     var body: some View {
         let max = Int(MemoryRules.shared.MAX_TEXT)
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel(draft.id == nil ? "new note" : "edit note")
-                ConsoleTextField(
-                    text: Binding(get: { draft.text }, set: { draft.text = String($0.prefix(max)) }),
-                    label: "Note",
-                    minLines: 3,
-                    maxLines: 10,
-                )
-                MicroLabel("\(draft.text.count) / \(max) · one fact per note · never store passwords or keys", lines: 2)
-                ConsoleTextField(text: $draft.tags, placeholder: "work, travel", label: "Tags", kind: .mono)
-                PrimaryButton("Save", enabled: !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                    onDone(app.memory.save(id: draft.id, text: draft.text, tags: draft.tags))
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Note", text: Binding(get: { draft.text }, set: { draft.text = String($0.prefix(max)) }), axis: .vertical)
+                        .lineLimit(3 ... 10)
+                } footer: {
+                    Text("\(draft.text.count) / \(max) · one fact per note · never store passwords or keys")
                 }
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onCancel).frame(maxWidth: .infinity)
+                Section("Tags") {
+                    FormField("Tags", text: $draft.tags, prompt: "work, travel", kind: .mono)
+                }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+            .formStyle(.grouped)
+            .navigationTitle(draft.id == nil ? "New note" : "Edit note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { onDone(app.memory.save(id: draft.id, text: draft.text, tags: draft.tags)) }
+                        .disabled(draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
     }
 }

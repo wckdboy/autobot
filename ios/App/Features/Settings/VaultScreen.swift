@@ -5,7 +5,6 @@ import SwiftUI
 struct VaultScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var query = ""
     @State private var picking = false
     @State private var confirmDeleteAll = false
@@ -17,81 +16,77 @@ struct VaultScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Vault", onBack: { nav.back() }) {
                 if !vault.documents.isEmpty {
-                    IconAction(symbol: "trash", label: VaultWords.shared.DELETE_ALL, tint: c.onSurfaceVariant, size: 18) { confirmDeleteAll = true }
+                    Button { confirmDeleteAll = true } label: { Image(systemName: "trash") }
+                        .accessibilityLabel(VaultWords.shared.DELETE_ALL)
                 }
                 if vault.modelId != nil && !vault.running {
-                    IconAction(symbol: "plus", label: VaultWords.shared.ADD, tint: c.primary) { picking = true }
+                    Button { picking = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel(VaultWords.shared.ADD)
                 }
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    SwitchRow(
+            List {
+                Section {
+                    InfoToggle(
                         title: VaultWords.shared.AGENT_SEARCH,
-                        isOn: Binding(get: { settings.vaultEnabled }, set: { app.settings.setVaultEnabled($0) }),
                         info: VaultWords.shared.AGENT_SEARCH_INFO,
+                        isOn: Binding(get: { settings.vaultEnabled }, set: { app.settings.setVaultEnabled($0) }),
                     )
-                    NavigationRow(title: VaultWords.shared.EMBEDDING_MODEL, value: model?.title ?? VaultWords.shared.NO_MODEL) { nav.switchTo(.models) }
+                    PushRow(title: VaultWords.shared.EMBEDDING_MODEL, value: model?.title ?? VaultWords.shared.NO_MODEL) { nav.switchTo(.models) }
                     if let progress = vault.progress {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
-                                MicroLabel(progress.name.map { "indexing \($0) · \(progress.done)/\(progress.total)" } ?? "reading files…")
+                                Text(progress.name.map { "indexing \($0) · \(progress.done)/\(progress.total)" } ?? "reading files…")
+                                    .font(.footnote).foregroundStyle(.secondary)
                                 Spacer()
-                                Button("Stop") { vault.cancel() }.textStyle(.labelMedium).foregroundStyle(c.primary)
+                                Button("Stop") { vault.cancel() }.buttonStyle(.borderless)
                             }
-                            InkProgressBar(fraction: progress.fraction, height: 3, running: true)
-                                .frame(height: 3)
+                            ProgressView(value: progress.fraction)
                         }
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.vertical, 10)
                     } else if vault.stale > 0 {
-                        Notice(VaultWords.shared.stale(count: Int32(vault.stale)), tone: .warning, action: VaultWords.shared.REINDEX) { vault.reindex() }
-                            .padding(.horizontal, Tokens.Spacing.gutter)
-                            .padding(.vertical, 8)
-                    }
-                    if !vault.documents.isEmpty {
-                        ConsoleTextField(text: $query, placeholder: VaultWords.shared.SEARCH, kind: .mono, onSubmit: { vault.search(query) })
-                            .padding(.horizontal, Tokens.Spacing.gutter)
-                            .padding(.vertical, 6)
-                            .onChange(of: query) { _, q in if q.isEmpty { vault.clearResults() } }
-                    }
-                    if vault.searching {
-                        InkProgressBar(fraction: 0.3, height: 2, running: true)
-                            .frame(height: 2)
-                            .padding(.horizontal, Tokens.Spacing.gutter)
-                    }
-                    if let results = vault.results {
-                        if results.isEmpty && !vault.searching {
-                            Text(VaultWords.shared.NO_MATCH).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
+                        HStack {
+                            Label(VaultWords.shared.stale(count: Int32(vault.stale)), systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Button(VaultWords.shared.REINDEX.sentenceCased) { vault.reindex() }.buttonStyle(.borderless)
                         }
-                        ForEach(Array(results.enumerated()), id: \.offset) { _, hit in
-                            VStack(alignment: .leading, spacing: 3) {
-                                MicroLabel("\(hit.position) · \(String(format: "%.2f", hit.score))")
-                                Text(hit.snippet).textStyle(.bodySmall).foregroundStyle(c.onSurface).lineLimit(6)
+                    }
+                }
+                if vault.searching || vault.results != nil {
+                    Section {
+                        if vault.searching { ProgressView().frame(maxWidth: .infinity) }
+                        if let results = vault.results {
+                            if results.isEmpty && !vault.searching {
+                                Text(VaultWords.shared.NO_MATCH).foregroundStyle(.secondary)
                             }
-                            .padding(.vertical, 10)
-                            .padding(.horizontal, Tokens.Spacing.gutter)
-                            Hairline()
+                            ForEach(Array(results.enumerated()), id: \.offset) { _, hit in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(hit.position) · \(String(format: "%.2f", hit.score))").font(.caption).foregroundStyle(.secondary)
+                                    Text(hit.snippet).font(.subheadline).lineLimit(6)
+                                }
+                            }
                         }
                     }
-                    SectionLabel(VaultWords.shared.count(documents: Int32(vault.documents.count), passages: Int32(vault.documents.reduce(0) { $0 + Int($1.chunks) })))
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.vertical, 8)
+                }
+                Section(VaultWords.shared.count(documents: Int32(vault.documents.count), passages: Int32(vault.documents.reduce(0) { $0 + Int($1.chunks) })).sentenceCased) {
                     if vault.documents.isEmpty {
                         // Files need an embedding model; without one there is no "+" to point at.
                         if vault.modelId == nil {
-                            EmptyState(VaultWords.shared.empty(hasModel: false), actionLabel: "Models") { nav.switchTo(.models) }
+                            MarkUnavailableView(title: VaultWords.shared.empty(hasModel: false)) {
+                                Button("Models") { nav.switchTo(.models) }.primaryActionStyle()
+                            }
                         } else {
-                            EmptyState(VaultWords.shared.empty(hasModel: true))
+                            MarkUnavailableView(VaultWords.shared.empty(hasModel: true))
                         }
                     } else {
                         ForEach(vault.documents, id: \.id) { doc in row(doc) }
-                            .padding(.horizontal, Tokens.Spacing.gutter)
                     }
                 }
-                .padding(.bottom, 24)
             }
+            .listStyle(.insetGrouped)
+            .modifier(VaultSearch(enabled: !vault.documents.isEmpty, query: $query) { vault.search(query) })
+            .onChange(of: query) { _, q in if q.isEmpty { vault.clearResults() } }
         }
-        .background(c.background)
         .onAppear { vault.load() }
         .fileImporter(isPresented: $picking, allowedContentTypes: VaultImport.contentTypes, allowsMultipleSelection: true) { result in
             if case .success(let urls) = result, !urls.isEmpty { vault.add(urls) }
@@ -107,18 +102,17 @@ struct VaultScreen: View {
     }
 
     private func row(_ doc: VaultDocumentInfo) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(doc.name).textStyle(.bodyMedium).foregroundStyle(c.onSurface).lineLimit(2)
-                    MicroLabel(Self.details(doc))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                IconAction(symbol: "trash", label: "Remove \(doc.name)", tint: c.onSurfaceVariant, size: 16) { app.vault.remove(doc.id) }
-            }
-            .padding(.vertical, 12)
-            Hairline()
+        VStack(alignment: .leading, spacing: 3) {
+            Text(doc.name).lineLimit(2)
+            Text(Self.details(doc)).font(.caption).foregroundStyle(.secondary)
         }
+        .swipeActions {
+            Button("Remove", systemImage: "trash", role: .destructive) { app.vault.remove(doc.id) }
+        }
+        .contextMenu {
+            Button("Remove \(doc.name)", systemImage: "trash", role: .destructive) { app.vault.remove(doc.id) }
+        }
+        .accessibilityAction(named: "Remove \(doc.name)") { app.vault.remove(doc.id) }
     }
 
     static func details(_ doc: VaultDocumentInfo) -> String {
@@ -127,5 +121,22 @@ struct VaultScreen: View {
         parts.append("\(doc.chunks) passages")
         if !doc.current { parts.append("needs re-index") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// The vault's search field, in the navigation bar once there are documents; submit searches.
+private struct VaultSearch: ViewModifier {
+    let enabled: Bool
+    @Binding var query: String
+    let onSubmit: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .searchable(text: $query, prompt: VaultWords.shared.SEARCH)
+                .onSubmit(of: .search, onSubmit)
+        } else {
+            content
+        }
     }
 }
