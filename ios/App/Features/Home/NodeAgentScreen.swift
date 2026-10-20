@@ -408,6 +408,8 @@ struct NodeAgentScreen: View {
     @State private var otherText = ""
     @State private var picks: [PhotosPickerItem] = []
     @State private var showCamera = false
+    @FocusState private var focused: Bool
+    @Environment(\.keyboardUp) private var keyboardUp
 
     init(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil, bot: String? = nil) {
         _model = State(initialValue: NodeAgentModel(providerId: providerId, session: session, bot: bot))
@@ -437,30 +439,26 @@ struct NodeAgentScreen: View {
                         header
                         ForEach(model.rows) { row in rowView(row, retry: retry == row.id).id(row.id) }
                         if model.running { InkLoader(.inline) }
+                        Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(.horizontal, Tokens.Spacing.gutter)
                     .padding(.vertical, 8)
                 }
-                .onChange(of: model.rows.count) {
-                    if let last = model.rows.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-                }
+                .defaultScrollAnchor(.bottom)
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
+                .scrollDismissesKeyboard(.interactively)
+                // The composer rides on the keyboard; the newest row stays right above it.
+                .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+                .onChange(of: model.rows.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: keyboardUp) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
-            if !model.photos.isEmpty || model.photoProblem != nil || model.encoding > 0 { pendingPhotos }
-            HStack(alignment: .bottom, spacing: 8) {
-                photoMenu
-                ConsoleTextField(text: $draft, placeholder: "A task for your machine", minLines: 1, maxLines: 5, enabled: model.info != nil)
-                IconAction(symbol: "paperplane.fill", label: "Send", tint: c.primary, enabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty && !model.running && model.encoding == 0 && model.info != nil) {
-                    model.send(draft)
-                    draft = ""
-                }
-            }
-            .padding(Tokens.Spacing.gutter)
         }
         .background(c.background)
         .task {
             await model.connect(app: app)
             if open != nil { await model.loadActivity() }
         }
+        .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(900)); focused = true } }
         .onDisappear { model.stopListening() }
         // The model could not see the photo: the text comes back to the box.
         .onChange(of: model.returned) { _, text in
@@ -492,17 +490,32 @@ struct NodeAgentScreen: View {
         .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
     }
 
+    /// The node's composer: the photo menu, the field and Send. The node's agent neither queues nor
+    /// stops a turn, so Send waits for it (and for a photo still being downscaled).
+    private var composer: some View {
+        ComposerBar(text: $draft, placeholder: Composer.shared.placeholder(running: model.running, node: true), enabled: model.info != nil, focused: $focused) {
+            if !model.photos.isEmpty || model.photoProblem != nil || model.encoding > 0 { pendingPhotos }
+        } leading: {
+            photoMenu
+        } trailing: {
+            SendButton(enabled: Composer.shared.enabled(action: .send, text: draft, attachments: 0, ready: !model.running && model.encoding == 0 && model.info != nil)) {
+                model.send(draft)
+                draft = ""
+            }
+        }
+    }
+
     @ViewBuilder private var header: some View {
         if let problem = model.problem {
             VStack(alignment: .leading, spacing: 8) {
                 Text(problem).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
                 GhostButton("Retry") { Task { await model.connect(app: app) } }
             }
-        } else if let info = model.info {
+        } else if let info = model.info, Composer.shared.shows(part: .decor, keyboardUp: keyboardUp) {
             let folder = info.workdir.split(separator: "/").suffix(2).joined(separator: "/")
             // Several bots: which one this conversation is with.
             SectionLabel([model.severalBots ? "bot \(NodeBots.shared.of(bot: model.bot))" : nil, "runs on \(model.node)", "approvals: \(info.approvals)", info.private_ ? "local models only" : nil, "…/\(folder)"].compactMap { $0 }.joined(separator: " · "))
-        } else {
+        } else if model.info == nil {
             InkLoader(.inline)
         }
     }
@@ -518,7 +531,7 @@ struct NodeAgentScreen: View {
                 Label("Choose from library", systemImage: "photo.on.rectangle")
             }
         } label: {
-            Image(systemName: "photo").font(.system(size: 20)).foregroundStyle(enabled ? c.onSurface : c.outline).frame(width: 44, height: 44)
+            AutobotIconView(icon: .image, size: 24, color: enabled ? c.onSurface : c.onSurface.opacity(0.38)).frame(width: 44, height: composerButtonSize)
         }
         .disabled(!enabled)
         .accessibilityLabel("Attach a photo")

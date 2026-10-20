@@ -447,25 +447,35 @@ struct AutobotTopBar<Actions: View>: View {
     var onBack: (() -> Void)? = nil
     @ViewBuilder var actions: () -> Actions
     @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
-        HStack(spacing: Tokens.Spacing.topBarGap) {
-            if let onBack {
-                IconAction(symbol: "arrow.left", label: "Back", action: onBack)
+        // An accessibility size leaves no room for the actions beside the title (the chat's title
+        // broke one letter a line): they take a row of their own under it, as on Android.
+        let large = dynamicType.isAccessibilitySize
+        VStack(alignment: .trailing, spacing: 0) {
+            HStack(spacing: Tokens.Spacing.topBarGap) {
+                if let onBack {
+                    IconAction(symbol: "arrow.left", label: "Back", action: onBack)
+                }
+                if title == wordmarkTitle {
+                    Wordmark().frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ScreenTitle(title, mark: titleMark ?? (onBack == nil))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !large { actions() }
             }
-            if title == wordmarkTitle {
-                Wordmark().frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ScreenTitle(title, mark: titleMark ?? (onBack == nil))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
+            .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
+            .frame(minHeight: Tokens.Spacing.topBarMinHeight)
+            if large && Actions.self != EmptyView.self {
+                HStack(spacing: Tokens.Spacing.topBarGap) { actions() }
+                    .padding(.horizontal, Tokens.Spacing.topBarPaddingEnd)
+                    .padding(.bottom, 4)
             }
-            actions()
         }
-        .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
-        .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
-        .frame(minHeight: Tokens.Spacing.topBarMinHeight)
-        // Chrome stops growing at AX1 (the content below keeps growing), so the title keeps its
-        // room beside the actions instead of breaking mid-word.
+        // Chrome stops growing at AX1 (the content below keeps growing).
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .background(c.background)
     }

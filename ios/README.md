@@ -67,7 +67,8 @@ empty install with sample sessions, providers, gallery images and audit entries;
 compute, accounts, remote, node, settings, privacy, providers, backends, about, licenses, memory, vault,
 usage, recipes, mcp, studio) starts on that screen;
 `-AutobotTheme light|dark|system` overrides the saved appearance for that launch;
-`-AutobotSkipWelcome` starts past the welcome; `-AutobotDemoDigest failed` adds a failed receipt to
+`-AutobotSkipWelcome` starts past the welcome; `-AutobotKeyboard` opens a chat with its composer
+focused (keyboard-up screenshots); `-AutobotDemoDigest failed` adds a failed receipt to
 the node digest sample. Android's debug build takes the same switches as intent extras (see the
 main README, "Demo data and screenshots"); its screenshots are in `app/screenshots/`.
 

@@ -13,6 +13,12 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.wckdboy.autobot.core.designsystem.component.LocalKeyboardUp
+import androidx.compose.ui.test.hasSetTextAction
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.Themed
 import dev.wckdboy.autobot.shared.invincible.NodeChatSample
@@ -52,6 +58,31 @@ class NodeAgentScreenTest {
         compose.onNodeWithTag("node-agent").performScrollToNode(hasText("The middle one", substring = true))
         compose.onNodeWithContentDescription("Retry on the node").performClick()
         assertEquals(1, retried)
+    }
+
+    @Test
+    fun theNewestRowSitsOnTheComposerAndTheHeaderStepsAsideWhileTyping() {
+        var keyboard by mutableStateOf(false)
+        val rows = listOf(AgentRow.User("u", "Which one runs Home Assistant?"), AgentRow.Reply("r", "The middle one.", null))
+        compose.setContent { Themed { CompositionLocalProvider(LocalKeyboardUp provides keyboard) { NodeAgentScreen(state.copy(rows = rows), {}, {}, { _, _ -> }, {}, {}) } } }
+        // The last answer is on screen without scrolling (the list is anchored at the bottom).
+        compose.onNodeWithText("The middle one", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("runs on studio-mac", substring = true, ignoreCase = true).assertExists()
+        keyboard = true
+        compose.onNodeWithText("runs on studio-mac", substring = true, ignoreCase = true).assertDoesNotExist()
+        compose.onNodeWithText("The middle one", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun sendWaitsForTheRunningTurn() {
+        var sent = 0
+        var current by mutableStateOf(state.copy(running = true))
+        compose.setContent { Themed { NodeAgentScreen(current, {}, { sent++ }, { _, _ -> }, {}, {}) } }
+        compose.onNode(hasSetTextAction()).performTextInput("df -h")
+        compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
+        current = current.copy(running = false)
+        compose.onNodeWithContentDescription("Send").assertIsEnabled().performClick()
+        assertEquals(1, sent)
     }
 
     @Test

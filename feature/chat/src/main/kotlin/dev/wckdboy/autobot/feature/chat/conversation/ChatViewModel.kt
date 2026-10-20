@@ -587,6 +587,8 @@ class ChatViewModel @AssistedInject constructor(
         if (input.startsWith("/") && runCommand(input)) return
         val images = pending.value
         pending.value = emptyList()
+        // A follow-up queued behind a running turn is not timed: the running answer's next frame would take its mark.
+        if (!uiState.value.running) ChatTiming.sent()
         viewModelScope.launchSafely(::failed) { host.send(conversationId, input, images) }
     }
 
