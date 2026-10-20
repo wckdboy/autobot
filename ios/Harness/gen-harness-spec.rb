@@ -61,7 +61,12 @@ DSH_EXCLUDES = %w[
   DSHRootViewController.h DSHRootViewController.m DSHStatusOverlayView.h DSHStatusOverlayView.m
   DSHLogViewController.h DSHLogViewController.m
   DSHActivityViewController.h DSHActivityViewController.m DSHCapabilitiesViewController.h
-  DSHCapabilitiesViewController.m Info.plist DSH.entitlements AppDSH.xcconfig
+  DSHCapabilitiesViewController.m
+  # HealthKit requires the com.apple.developer.healthkit capability, which this app
+  # does not declare; linking it makes App Store processing reject the binary.
+  # The harness works without the health capability.
+  DSHHealthCapability.h DSHHealthCapability.m
+  Info.plist DSH.entitlements AppDSH.xcconfig
   DSHAssets.xcassets DSHLaunchScreen.storyboard PrivacyInfo.xcprivacy
 ].freeze
 
@@ -86,7 +91,6 @@ spec = {
         { 'target' => 'iSHLibarchive/libarchive', 'link' => true, 'embed' => false },
         { 'sdk' => 'WebKit.framework' },
         { 'sdk' => 'EventKit.framework' },
-        { 'sdk' => 'HealthKit.framework' },
         { 'sdk' => 'Contacts.framework' },
         { 'sdk' => 'UserNotifications.framework' },
         { 'sdk' => 'UniformTypeIdentifiers.framework' },

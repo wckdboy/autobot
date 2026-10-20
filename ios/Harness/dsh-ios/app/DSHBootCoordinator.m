@@ -9,7 +9,6 @@
 #import "DSHHostBridge.h"
 #import "DSHDeviceCapability.h"
 #import "DSHEventKitCapability.h"
-#import "DSHHealthCapability.h"
 #import "DSHLocationCapability.h"
 #import "DSHContactsCapability.h"
 #import "DSHNotificationCapability.h"
@@ -125,7 +124,6 @@ NSNotificationName const DSHBootStateDidChangeNotification = @"DSHBootStateDidCh
     DSHHostBridge *bridge = DSHHostBridge.shared;
     [DSHDeviceCapability installOn:bridge];
     [DSHEventKitCapability installOn:bridge];
-    [DSHHealthCapability installOn:bridge];
     [DSHLocationCapability installOn:bridge];
     [DSHContactsCapability installOn:bridge];
     [DSHNotificationCapability installOn:bridge];

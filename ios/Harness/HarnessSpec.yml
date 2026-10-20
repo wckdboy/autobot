@@ -24,6 +24,38 @@ targets:
       - DSHActivityViewController.m
       - DSHCapabilitiesViewController.h
       - DSHCapabilitiesViewController.m
+      - "#"
+      - HealthKit
+      - requires
+      - the
+      - com.apple.developer.healthkit
+      - capability,
+      - which
+      - this
+      - app
+      - "#"
+      - does
+      - not
+      - declare;
+      - linking
+      - it
+      - makes
+      - App
+      - Store
+      - processing
+      - reject
+      - the
+      - binary.
+      - "#"
+      - The
+      - harness
+      - works
+      - without
+      - the
+      - health
+      - capability.
+      - DSHHealthCapability.h
+      - DSHHealthCapability.m
       - Info.plist
       - DSH.entitlements
       - AppDSH.xcconfig
@@ -143,7 +175,6 @@ targets:
       embed: false
     - sdk: WebKit.framework
     - sdk: EventKit.framework
-    - sdk: HealthKit.framework
     - sdk: Contacts.framework
     - sdk: UserNotifications.framework
     - sdk: UniformTypeIdentifiers.framework
