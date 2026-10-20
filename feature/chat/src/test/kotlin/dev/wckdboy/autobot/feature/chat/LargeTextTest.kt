@@ -81,4 +81,11 @@ class LargeTextTest {
     @Test fun chatDefaultTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditChat(411, 1f))
 
     @Test fun chatLargestTextFitsOnANarrowPhone() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditChat(360, 2f))
+
+    /** A tablet or unfolded window: the list and the transcript keep a reading width, centred. */
+    @Test fun aWideWindowFits() {
+        assertEquals(emptyList<LargeTextAudit.Finding>(), auditList(900, 1f))
+    }
+
+    @Test fun aWideChatFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditChat(900, 1f))
 }

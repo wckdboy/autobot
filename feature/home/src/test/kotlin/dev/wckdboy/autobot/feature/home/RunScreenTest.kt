@@ -8,7 +8,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.Themed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,5 +32,25 @@ class RunScreenTest {
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("All"))
         compose.onNodeWithText("All").performClick()
         assertEquals(1, opened)
+    }
+
+    /** The mode cards reflow: two columns on a phone, one row of five on a wide window. */
+    @Test
+    @Config(qualifiers = "w900dp-h1000dp")
+    fun aWideWindowPutsTheModesInOneRow() {
+        compose.setContent { Themed { RunScreen(RunUiState(status = "ready"), LargeTextAudit.uncalled(), {}, {}, {}, {}, {}, {}) } }
+        val image = compose.onNodeWithText("Image").getUnclippedBoundsInRoot()
+        val studio = compose.onNodeWithText("Studio").getUnclippedBoundsInRoot()
+        assertEquals(image.top, studio.top)
+        assertTrue("Studio sits to the right of Image", studio.left > image.right)
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h1000dp")
+    fun aPhoneStacksTheModesInTwoColumns() {
+        compose.setContent { Themed { RunScreen(RunUiState(status = "ready"), LargeTextAudit.uncalled(), {}, {}, {}, {}, {}, {}) } }
+        val image = compose.onNodeWithText("Image").getUnclippedBoundsInRoot()
+        val studio = compose.onNodeWithText("Studio").getUnclippedBoundsInRoot()
+        assertTrue("Studio sits under Image", studio.top > image.bottom)
     }
 }
