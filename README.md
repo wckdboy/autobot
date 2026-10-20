@@ -221,11 +221,18 @@ The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
   on CryptoKit (passing on the iOS 26.1 simulator).
 
 **On Android, "My node" works end to end** (checked on an Android 16 emulator against a real node):
-Settings › Providers › + › *My node (Invincible)* opens a pairing sheet. Scanning the node's QR code
-with the system camera opens it filled in (an `invincible://pair?…` link: no camera permission, no
-new dependency), or the code can be pasted. The sheet shows the node's key fingerprint to compare
-with what `invincible pair` printed. The pairing is stored encrypted in the provider's API-key slot
-and never sent as one. Node connections go through the kill switch (offline mode refuses them, Tor
+Remote › *Pair a node* (or the welcome screen's *Pair a node*, or Remote › Providers › + › *My node
+(Invincible)*) opens a pairing sheet. Scanning the node's QR code with the system camera opens it
+filled in (an `invincible://pair?…` link: no camera permission, no new dependency; on a fresh
+install the welcome steps aside for it), or the code can be pasted. The sheet shows the node's key
+fingerprint to compare with what `invincible pair` printed; Cancel stops the handshake. The pairing
+is stored encrypted in the provider's API-key slot and never sent as one. Pairing the same node
+again (after an unpair there, or a new address) replaces that provider's pairing and keeps the
+phone's key, so the node lists it once. A node whose pairing is gone (a restored backup has no
+secrets) shows "not paired" in Providers. Failures are said in plain words, the same on both apps:
+a used or expired code, a node that is down or silent (handshakes give up after 15 s), an answer
+cut off, a phone the node no longer knows; a node that cannot be reached is tried once, not
+retried. Node connections go through the kill switch (offline mode refuses them, Tor
 and SOCKS5 carry them with remote DNS), every attempt is in the Privacy Center's audit log, and
 the turn's privacy receipt counts the bytes that went to the node. Ed25519 receipt checks use
 BouncyCastle's RFC 8032 verifier, because Android's software provider has no Ed25519.
@@ -326,8 +333,9 @@ them on its own models and never forwards them to a cloud backend. The notice re
 `phone → my node`, and the receipt says the turn was sent to your node and kept there. Nothing
 is redacted for the node; it redacts what it sends on itself.
 
-**On iOS too.** Settings › Providers › + › *My node (Invincible)* opens the same pairing sheet
-(paste the code, or open an `invincible://pair?…` link: the Camera app's QR scan does that). The
+**On iOS too.** Remote › *Pair a node* (or Remote › Providers › + › *My node (Invincible)*) opens
+the same pairing sheet (paste the code, or open an `invincible://pair?…` link: the Camera app's QR
+scan does that), with the same words and the same re-pairing. The
 connector is Network.framework under the same kill switch, routes and audit log as every request
 (`SwiftNodeConnector`; Tor and SOCKS5 get the node's name unresolved), and the crypto is CryptoKit.
 Chats, signed receipts, "phone first, then my node" and the agent screen (Remote › Agents · my

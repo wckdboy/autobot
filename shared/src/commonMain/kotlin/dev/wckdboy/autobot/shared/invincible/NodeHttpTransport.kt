@@ -35,6 +35,10 @@ class NodeHttpTransport(
     private val onRequestId: (suspend (TurnTrace, String) -> Unit)? = null,
     /** Turns that must not leave the node: their requests carry `invincible-private: 1`. */
     private val privateTurns: PrivateTurns? = null,
+    /** The node's name and addresses, for the words a failure is shown in ([NodeErrors]). */
+    private val node: String = "the node",
+    private val addresses: List<String> = emptyList(),
+    private val handshakeMillis: Long = NodeErrors.HANDSHAKE_MILLIS,
 ) : HttpTransport {
 
     override fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable {
@@ -43,8 +47,14 @@ class NodeHttpTransport(
         // shows up in its privacy receipt.
         val job = scope.launch(request.trace ?: EmptyCoroutineContext) {
             try {
-                val opened = connect().also { link = it }
-                val channel = InvincibleNode.session(crypto, opened, nodeKey, device)
+                val opened = PairedNode.open(addresses) { connect() }.also { link = it }
+                val channel = try {
+                    InvincibleNode.session(crypto, opened, nodeKey, device, handshakeMillis)
+                } catch (e: NodeRefusedException) {
+                    // This device was unpaired there: a refusal, not a network error (not retried).
+                    sink.onResponse(403, emptyMap(), NodeErrors.unpairedBody(node))
+                    return@launch
+                }
                 val private = request.trace?.let { privateTurns?.isPrivate(it) } == true
                 channel.send(encode(request, private))
                 var requestId: String? = null
@@ -62,7 +72,9 @@ class NodeHttpTransport(
             } catch (e: NodeBlockedException) {
                 sink.onFailure(blocked = true, message = e.message ?: "Blocked by network policy")
             } catch (e: Exception) {
-                sink.onFailure(blocked = false, message = "My node: ${e.message ?: e::class.simpleName}")
+                // Down, silent or cut off: said once, not retried (each try can wait a connect
+                // timeout per address, and a cut-off agent turn may already have acted).
+                sink.onFinalFailure(failure(e))
             } finally {
                 link?.close()
             }
@@ -71,6 +83,14 @@ class NodeHttpTransport(
             job.cancel()
             link?.close()
         }
+    }
+
+    /** [e] in words: the node unreachable, this phone offline, no handshake in time, the answer cut off. */
+    private fun failure(e: Exception): String = when (e) {
+        is NodeConnectException -> if (NodeErrors.isNoNetwork(e.message)) NodeErrors.NO_NETWORK else NodeErrors.unreachable(node, addresses)
+        is NodeTimeoutException -> NodeErrors.timeout(node)
+        is NodeDroppedException -> NodeErrors.dropped(node)
+        else -> "$node: ${e.message ?: e::class.simpleName}"
     }
 
     companion object {
@@ -134,7 +154,7 @@ internal class Http1Reader(private val channel: NodeChannel) {
     }
 
     private suspend fun bytes(count: Int): ByteArray {
-        while (buffer.size - at < count) check(fill()) { "the node closed the connection mid-answer" }
+        while (buffer.size - at < count) if (!fill()) throw NodeDroppedException("the node closed the connection mid-answer")
         return buffer.copyOfRange(at, at + count).also { at += count }
     }
 
@@ -148,10 +168,11 @@ internal class Http1Reader(private val channel: NodeChannel) {
     }
 
     suspend fun deliver(maxBytes: Long, sink: HttpSink) {
-        val status = line()?.split(' ')?.getOrNull(1)?.toIntOrNull() ?: error("no HTTP status from the node")
+        val first = line() ?: throw NodeDroppedException("the node closed the connection before answering")
+        val status = first.split(' ').getOrNull(1)?.toIntOrNull() ?: error("no HTTP status from the node")
         val headers = LinkedHashMap<String, String>()
         while (true) {
-            val h = line() ?: error("headers cut off")
+            val h = line() ?: throw NodeDroppedException("headers cut off")
             if (h.isEmpty()) break
             val colon = h.indexOf(':')
             if (colon > 0) headers[h.substring(0, colon).trim().lowercase()] = h.substring(colon + 1).trim()
@@ -187,7 +208,9 @@ internal class Http1Reader(private val channel: NodeChannel) {
             val length = headers["content-length"]?.toLongOrNull()
             when {
                 headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true -> while (true) {
-                    val size = reader.line()?.substringBefore(';')?.trim()?.toIntOrNull(16) ?: error("bad chunk size")
+                    // The stream ending where a chunk should start: the connection dropped, not a bad answer.
+                    val line = reader.line() ?: throw NodeDroppedException("the answer was cut off")
+                    val size = line.substringBefore(';').trim().toIntOrNull(16) ?: error("bad chunk size")
                     if (size == 0) {
                         while (reader.line()?.isNotEmpty() == true) {
                             // trailers: skipped

@@ -179,6 +179,102 @@ struct NodeConnectorTests {
         #expect(activity.agentProblem == nil)
     }
 
+    /// A runtime with the app's real node connector, for the pairing tests below.
+    @MainActor private func pairingRuntime() throws -> SharedAgentRuntime {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("node-pair-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let keys = KeyManager()
+        let store = EncryptedStore(url: dir.appendingPathComponent("db.sqlite"), keys: keys)
+        let secrets = SecretStore()
+        let policy = NetworkPolicy()
+        policy.setMode(.direct)
+        return SharedAgentRuntime(
+            conversations: ConversationRepository(store: store), providers: ProviderRepository(store: store, secrets: secrets),
+            store: Autobot.SessionStore(store: store), clients: HttpClientFactory(policy: policy, auditLog: AuditLog()), llm: LocalLlm(),
+            attachments: AttachmentRepository(keys: keys), secrets: secrets, snapshots: HostSnapshots(),
+        )
+    }
+
+    private static let key = String(repeating: "A", count: 42) + "E"
+
+    /// A pairing code for a "node" at [address].
+    private static func code(_ address: String) -> String { "invincible://pair?v=0&k=\(key)&s=\(key)&a=\(address)" }
+
+    /// Pairing with a node that is not running says where it looked and what to check, in the same words as Android.
+    @MainActor @Test func pairingWithANodeThatIsDownSaysSo() async throws {
+        let runtime = try pairingRuntime()
+        let paired = await runtime.pairNode(code: Self.code("127.0.0.1:9"), deviceName: "iPhone test")
+        #expect(paired.secret == nil)
+        #expect(paired.error == NodeErrors.shared.unreachable(node: "the node", addresses: ["127.0.0.1:9"]), "\(paired.error ?? "")")
+    }
+
+    /// A node that closes the connection without a reply (a used, expired or wrong code): the code is refused, in words.
+    @MainActor @Test func aRefusedCodeIsSaidAsOne() async throws {
+        let listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            // Read the mode byte and the first handshake message, then close, as the node does.
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { _, _, _, _ in connection.cancel() }
+        }
+        let ready = AsyncStream<UInt16> { continuation in
+            listener.stateUpdateHandler = { state in if case .ready = state { continuation.yield(listener.port?.rawValue ?? 0); continuation.finish() } }
+        }
+        listener.start(queue: .global())
+        defer { listener.cancel() }
+        var port: UInt16 = 0
+        for await p in ready { port = p }
+        let runtime = try pairingRuntime()
+        let paired = await runtime.pairNode(code: Self.code("127.0.0.1:\(port)"), deviceName: "iPhone test")
+        #expect(paired.error == NodeErrors.shared.CODE_REFUSED, "\(paired.error ?? "")")
+    }
+
+    /// Cancel (the sheet's) stops a pairing waiting on a node that never answers: the Kotlin side
+    /// is cancelled too and the node sees the connection close, well before the 15 s limit, so the
+    /// handshake cannot go on to use up the code.
+    @MainActor @Test func cancellingAPairingClosesItsConnection() async throws {
+        let received = Flag()
+        let closed = Flag()
+        let listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            // Take what the phone sends and never answer; a close from the phone ends the receive.
+            @Sendable func drain() {
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, complete, error in
+                    if let data, !data.isEmpty { received.set() }
+                    if complete || error != nil { closed.set(); connection.cancel() } else { drain() }
+                }
+            }
+            drain()
+        }
+        let ready = AsyncStream<UInt16> { continuation in
+            listener.stateUpdateHandler = { state in if case .ready = state { continuation.yield(listener.port?.rawValue ?? 0); continuation.finish() } }
+        }
+        listener.start(queue: .global())
+        defer { listener.cancel() }
+        var port: UInt16 = 0
+        for await p in ready { port = p }
+        let runtime = try pairingRuntime()
+        let started = ContinuousClock.now
+        let task = Task { await runtime.pairNode(code: Self.code("127.0.0.1:\(port)"), deviceName: "iPhone test") }
+        #expect(await eventually(.seconds(5)) { received.value })
+        try await Task.sleep(for: .milliseconds(300))
+        task.cancel()
+        let paired = await task.value
+        #expect(paired.secret == nil)
+        #expect(ContinuousClock.now - started < .seconds(8))
+        #expect(await eventually(.seconds(5)) { closed.value })
+    }
+
+    /// Pairing again with a node already here finds that pairing (its provider is updated, not duplicated).
+    @MainActor @Test func pairingAgainFindsTheNodeAlreadyHere() throws {
+        let runtime = try pairingRuntime()
+        #expect(runtime.pairedNodeIndex(Self.code("127.0.0.1:9"), secrets: ["sk-not-a-pairing", ""]) == nil)
+        #expect(NodePairingWords.shared.row(addresses: ["127.0.0.1:7802", "10.0.2.2:7802"]) == "127.0.0.1:7802 · 10.0.2.2:7802 · paired")
+        // A provider whose pairing is gone (a restored backup has no secrets) does not claim to be paired.
+        #expect(NodePairingWords.shared.row(addresses: []) == NodePairingWords.shared.NOT_PAIRED)
+        #expect(!NodePairingWords.shared.paired(addresses: []))
+    }
+
     @Test func approvalCardsSayWhatIsAsked() {
         #expect(NodeAgentModel.describe(AgentActionCommand(command: "ls -la"), fallback: "") == ("Run a command?", "ls -la"))
         #expect(NodeAgentModel.describe(AgentActionWrite(path: "/w/x", bytes: 5, inside: false), fallback: "") == ("Write outside the working directory?", "/w/x · 5 bytes"))
@@ -195,4 +291,12 @@ struct NodeConnectorTests {
 
 private extension Array {
     var single: Element? { count == 1 ? first : nil }
+}
+
+/// A flag set from any thread.
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on = false
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return on }
+    func set() { lock.lock(); on = true; lock.unlock() }
 }

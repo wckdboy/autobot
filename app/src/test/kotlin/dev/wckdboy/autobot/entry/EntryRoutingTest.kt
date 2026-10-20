@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.feature.chat.conversation.ChatStart
 import dev.wckdboy.autobot.navigation.Chat
 import dev.wckdboy.autobot.navigation.Imagine
 import dev.wckdboy.autobot.navigation.Models
+import dev.wckdboy.autobot.navigation.Remote
 import dev.wckdboy.autobot.navigation.Run
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -73,6 +74,6 @@ class EntryRoutingTest {
     fun aPairingLinkOpensProvidersInSettings() {
         val plan = EntryRouting.plan(EntryRequest.PairNode("invincible://pair?v=0"), canChat = false)
         assertEquals(EntryPlan.PairNode("invincible://pair?v=0"), plan)
-        assertEquals(listOf(Settings, Providers()), EntryRouting.backStack(plan, null))
+        assertEquals(listOf(Remote, Providers()), EntryRouting.backStack(plan, null))
     }
 }

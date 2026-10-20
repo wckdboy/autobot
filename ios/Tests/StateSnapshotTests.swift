@@ -76,7 +76,7 @@ struct StateSnapshotTests {
         s.projection = SessionProjection(
             items: [
                 .user(key: "e1", text: "Summarise my notes from this week", images: []),
-                .notice(key: "e2", text: "The provider rejected the API key. Check it under Settings › Model providers", kind: .error),
+                .notice(key: "e2", text: "The provider rejected the API key. Check it in Remote › Providers", kind: .error),
                 .user(key: "e3", text: "Try again", images: []),
                 .assistant(key: "e4", text: "Here is what you wrote on Monday", reasoning: nil, interrupted: true, outputTokens: 9, model: "deepseek-chat"),
                 .notice(key: "e5", text: "stopped", kind: .warn),
