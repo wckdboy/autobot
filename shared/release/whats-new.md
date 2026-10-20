@@ -1,21 +1,14 @@
-A new look on both apps: the purple pixel a, calmer screens, and the node's team board on your phone.
+See what your node did while you were away, and tell the agent what to do instead.
 
-## A new look (Android and iOS)
-- **The icon is the purple pixel a** on white. The launch screen shows the same a.
-- **Calmer screens.** Titles and buttons are in sentence case; the main screens' titles end in a small purple square. Labels and buttons are no longer in capitals.
-- **One way to show what's selected.** Segments, chips and tabs show the choice in ink over a thin purple bar, everywhere.
-- **No more dot patterns.** Progress bars are flat, loaders are three pixels, and image previews are plain panels.
-- **Purple is rare.** It marks the a, the active tab, the switch you turned on and the main action of a screen. Links and code are in ink, and tags are neutral.
-- **Light mode looks as good as dark,** and the Image screen follows your theme instead of always being paper.
-- **The node keeps its orange i** on every screen about your node.
-- **Clearer empty screens:** the a, one sentence and one action.
+## While you were away (Android and iOS)
+- **A card on the Run screen** sums up what your node did since you last looked: requests answered (and whether they all stayed on your node), actions it ran (and who allowed them), and recipes and schedules that ran.
+- **What needs you comes first.** "2 approvals waiting" opens the conversation they're in; team questions open the Board.
+- **Receipts are checked.** "All 12 receipts verified" in grey, or a red line first when one fails to verify.
+- Details opens the node's Activity, and ✕ dismisses the card. Nothing shows when nothing is new.
 
-## Your node's team board (Android and iOS)
-- The Activity sheet has a **Board** tab with the team's plans and each task's state, and a count of the tasks waiting for you.
-- A blocked task shows the member's question, with a field to answer it from the phone.
-- Older nodes without a board show none.
+## Something else (Android and iOS)
+- An approval card from your node has a quiet third answer: **Something else…** Type what the agent should do instead and it does that. It needs Invincible 0.0.12 or newer.
 
-## Fixes
-- Session rows line up with the margin. Large text no longer overlaps the Run cards on iPhone, and segment labels no longer break mid-word on small Android phones.
-- On iPhone, "1 providers" now reads "1 provider".
-- A voice test that depended on timing is steady.
+## Smaller things
+- The theme follows your phone's setting by default. A theme you picked stays as it is.
+- Android's welcome screen has the two quiet links again: Pair a PC and Add an API key.

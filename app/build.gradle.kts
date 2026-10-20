@@ -31,8 +31,8 @@ android {
 
     defaultConfig {
         applicationId = "ai.wckd.autobot"
-        versionCode = 24
-        versionName = "1.11.0"
+        versionCode = 25
+        versionName = "1.11.1"
         // About shows the build date: the date of the commit it was built from, so the same source
         // always builds the same APK (reproducible builds); blank when built outside git.
         buildConfigField("String", "BUILD_DATE", "\"$commitDate\"")
