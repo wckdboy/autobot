@@ -65,7 +65,7 @@ below).
 empty install with sample sessions, providers, gallery images and audit entries;
 `-AutobotOpen <screen>` (run, sessions, chat, agent, phone-first, imagine, gallery, viewer, models,
 compute, accounts, remote, node, settings, privacy, providers, backends, about, licenses, memory, vault,
-usage, recipes, mcp, studio) starts on that screen;
+usage, recipes, mcp, studio, a2ui) starts on that screen;
 `-AutobotTheme light|dark|system` overrides the saved appearance for that launch;
 `-AutobotSkipWelcome` starts past the welcome; `-AutobotKeyboard` opens a chat with its composer
 focused (keyboard-up screenshots); `-AutobotDemoDigest failed` adds a failed receipt to
@@ -103,6 +103,7 @@ App/
   Core/Diffusion        image backends (A1111, SSE, Core ML), generator
   Providers/            OpenAI-compatible SSE + on-device chat (fallback path, see below)
   Agent/                AgentRuntime: SharedAgentRuntime (KMP) / InterimAgentRuntime
+  A2UI/                 A2UI v1.0 renderer (basic catalog, system SwiftUI + Liquid Glass) over the shared A2uiHost; debug preview
   Engines/              the only files that import AutobotEngines
 Tests/                  Swift Testing ports of the Android JVM tests
 ```
