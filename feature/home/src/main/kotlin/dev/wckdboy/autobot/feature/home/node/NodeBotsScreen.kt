@@ -51,6 +51,7 @@ import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.EmptyState
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
+import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
 import dev.wckdboy.autobot.core.designsystem.component.Notice
 import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
@@ -68,6 +69,8 @@ import dev.wckdboy.autobot.shared.invincible.AgentSession
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
 import dev.wckdboy.autobot.shared.invincible.NodeBot
+import dev.wckdboy.autobot.shared.invincible.NodeBotDetail
+import dev.wckdboy.autobot.shared.invincible.NodeBotDetails
 import dev.wckdboy.autobot.shared.invincible.NodeBots
 import dev.wckdboy.autobot.shared.invincible.NodeBotsRepository
 import dev.wckdboy.autobot.shared.invincible.NodeBotsState
@@ -144,6 +147,10 @@ data class NodeBotUiState(
     val problem: String? = null,
     /** Unix seconds, for "active 5m ago". */
     val now: Long = 0,
+    /** Its personality, profile, usage and insights; null until loaded (each part null on an older node). */
+    val detail: NodeBotDetail? = null,
+    /** A personality being set: its name ("none" for none). */
+    val settingPersonality: String? = null,
 ) {
     val bot: NodeBot? get() = bots.bot(name)
 }
@@ -184,6 +191,7 @@ class NodeBotViewModel @AssistedInject constructor(
                         sessions = NodeBots.sampleSessions(now).filter { s -> NodeBots.of(s.bot) == name },
                         approvals = NodeBots.sampleApprovals(now).filter { a -> NodeBots.of(a.bot) == name },
                         now = now,
+                        detail = it.detail ?: NodeBotDetails.sample(name),
                     )
                 }
                 return@launch
@@ -207,12 +215,30 @@ class NodeBotViewModel @AssistedInject constructor(
                 .onFailure { e -> _state.update { it.copy(sessions = emptyList(), problem = e.message ?: "The node did not answer.") } }
             val waiting = runCatching { found.first.approvals() }.getOrNull().orEmpty()
             _state.update { it.copy(approvals = waiting.filter { a -> NodeBots.of(a.bot) == name }.sortedBy { a -> a.askedAt }) }
+            val detail = NodeBotDetails.fetch(found.first, name)
+            _state.update { it.copy(detail = detail) }
+        }
+    }
+
+    /** Sets the bot's personality ([personality] null for none), shown at once and put back when the node says no. */
+    fun setPersonality(personality: String?) {
+        val before = _state.value.detail?.personalities ?: return
+        val wanted = personality?.takeUnless { it == NodeBotDetails.NONE }
+        _state.update { s -> s.copy(detail = s.detail?.copy(personalities = before.copy(active = wanted)), settingPersonality = wanted ?: NodeBotDetails.NONE, problem = null) }
+        if (demo) return _state.update { it.copy(settingPersonality = null) }
+        val agent = agent ?: return
+        viewModelScope.launch {
+            runCatching { agent.setPersonality(wanted, name) }
+                .onSuccess { active -> _state.update { s -> s.copy(detail = s.detail?.copy(personalities = before.copy(active = active)), settingPersonality = null) } }
+                .onFailure { e -> _state.update { s -> s.copy(detail = s.detail?.copy(personalities = before), settingPersonality = null, problem = e.message ?: "The node did not answer.") } }
         }
     }
 
     fun setEnabled(enabled: Boolean) {
         if (demo) {
-            _state.update { s -> s.copy(bots = s.bots.copy(bots = s.bots.bots.map { if (it.name == name) NodeBots.switched(it, enabled) else it })) }
+            _state.update { s ->
+                s.copy(bots = s.bots.copy(bots = s.bots.bots.map { if (it.name == name) NodeBots.switched(it, enabled) else it }, notice = NodeBotDetails.switched(name, dev.wckdboy.autobot.shared.invincible.BotSwitch(enabled, status = if (enabled) "running" else "stopped"))))
+            }
             return
         }
         val repo = repository ?: return
@@ -255,6 +281,7 @@ fun NodeBotRoute(providerId: String, name: String, onBack: () -> Unit, onOpenSes
         onNewChat = { onOpenSession(null, name) },
         onAnswer = viewModel::answer,
         onInstead = viewModel::answerInstead,
+        onPersonality = viewModel::setPersonality,
     )
 }
 
@@ -268,6 +295,7 @@ fun NodeBotScreen(
     onNewChat: () -> Unit,
     onAnswer: (String, ApprovalAnswer) -> Unit = { _, _ -> },
     onInstead: (String, String) -> Unit = { _, _ -> },
+    onPersonality: (String?) -> Unit = {},
 ) {
     var confirmOff by rememberSaveable { mutableStateOf(false) }
     val bot = state.bot
@@ -330,6 +358,8 @@ fun NodeBotScreen(
                     }
                     Switch(checked = bot.enabled, onCheckedChange = null)
                 }
+                // What the node said it did ("ops is running.").
+                state.bots.notice?.let { Text(it, Modifier.padding(bottom = 8.dp), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 Hairline()
             }
             item(key = "channels-label") { SectionLabel("channels", Modifier.padding(top = 16.dp)) }
@@ -367,6 +397,7 @@ fun NodeBotScreen(
                     Text(NodeBots.approvals(bot.approvals), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            botDetailItems(state.detail, bot.name, state.node, state.settingPersonality, onPersonality)
             if (state.approvals.isNotEmpty()) {
                 item(key = "waiting-label") { SectionLabel("waiting for you · ${state.approvals.size}", Modifier.padding(top = 16.dp)) }
                 items(state.approvals, key = { "a-${it.id}" }) { a ->

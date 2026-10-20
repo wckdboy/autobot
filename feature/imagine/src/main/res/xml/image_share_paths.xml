@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="shared-images" path="shared-images/" />
+    <!-- A photo the camera app takes for a node chat (feature:home), deleted once downscaled. -->
+    <cache-path name="photos" path="photos/" />
 </paths>

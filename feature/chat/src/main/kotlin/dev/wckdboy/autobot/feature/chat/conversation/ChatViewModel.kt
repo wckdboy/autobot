@@ -212,6 +212,8 @@ data class ChatUiState(
     val contextWindow: Int? = null,
     val privacyStatus: PrivacyStatus = PrivacyStatus.OFFLINE,
     val showOfflineBanner: Boolean = false,
+    /** The chat's cloud provider has no API key: its name, for the banner; null otherwise. */
+    val missingKeyProvider: String? = null,
     val isIncognito: Boolean = false,
     val notice: String? = null,
     val loaded: Boolean = false,
@@ -464,6 +466,8 @@ class ChatViewModel @AssistedInject constructor(
             contextWindow = snap.projection.contextWindow,
             privacyStatus = if (loopback || isLocal) PrivacyStatus.OFFLINE else effective.toPrivacyStatus(),
             showOfflineBanner = provider != null && !isLocal && mode == NetworkMode.Offline && !(loopback && allowLoopback),
+            // A cloud provider saved without the key its preset needs: said before anything is sent (as on iOS).
+            missingKeyProvider = provider?.takeIf { !isLocal && it.kind != ProviderKind.INVINCIBLE_NODE && it.preset().requiresApiKey && it.apiKeyRef.isNullOrEmpty() }?.displayName,
             // On this phone: the engine the model actually runs on (NPU / GPU / CPU) once known.
             route = when {
                 isLocal -> Route.local((conversation?.model?.takeIf { it.isNotBlank() } ?: provider?.defaultModel)?.let { localBackend[it] }?.id)

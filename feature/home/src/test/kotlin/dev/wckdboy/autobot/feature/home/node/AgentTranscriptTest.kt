@@ -58,4 +58,42 @@ class AgentTranscriptTest {
         assertEquals(3, after.size)
         assertEquals(AgentRow.Question("w-a2", "a2", "write", AgentAction.Write("/etc/x", 3, false), agent = "coder"), after[2])
     }
+
+    @Test
+    fun keptNotesFollowTheAnswerQuietly() {
+        val rows = AgentTranscript.apply(listOf(AgentRow.Reply("k0", "Done.", null)), AgentEvent.Kept("profile: prefers short answers"), null, "k1")
+        assertEquals(AgentRow.Kept("k1", "kept · profile: prefers short answers"), rows.last())
+    }
+
+    @Test
+    fun retryIsOnTheLastAnswerOrFailureOfAFinishedTurn() {
+        val turn = listOf(
+            AgentRow.User("u0", "first"),
+            AgentRow.Reply("r0", "one", null),
+            AgentRow.User("u1", "second"),
+            AgentRow.Note("t1", "run: ls", AgentRow.Tone.TOOL),
+            AgentRow.Reply("r1", "two", null),
+            AgentRow.Kept("k1", "kept · memory: x"),
+        )
+        assertEquals("r1", AgentTranscript.retryTarget(turn, running = false))
+        assertEquals(null, AgentTranscript.retryTarget(turn, running = true))
+        // A failed turn retries from its failure.
+        val failed = turn.take(3) + AgentRow.Note("e1", "The node did not answer.", AgentRow.Tone.ERROR)
+        assertEquals("e1", AgentTranscript.retryTarget(failed, running = false))
+        // Waiting for an approval: not finished.
+        val asking = turn.take(3) + AgentRow.Question("q", "a", "run: rm", AgentAction.Command("rm"))
+        assertEquals(null, AgentTranscript.retryTarget(asking, running = false))
+        assertEquals(null, AgentTranscript.retryTarget(listOf(AgentRow.Reply("r", "hi", null)), running = false))
+        // Retrying: the last turn's rows go, its message stays.
+        assertEquals(turn.take(3), AgentTranscript.retrying(turn))
+    }
+
+    @Test
+    fun aMessageTheModelCouldNotSeeLeavesTheTranscript() {
+        val rows = listOf(AgentRow.User("u0", "hi"), AgentRow.User("u1", "what is this", listOf(byteArrayOf(1, 2, 3))))
+        assertEquals(listOf(AgentRow.User("u0", "hi")), AgentTranscript.unsent(rows, "u1"))
+        // Photos compare by content.
+        assertEquals(AgentRow.User("u1", "what is this", listOf(byteArrayOf(1, 2, 3))), rows[1])
+        assertEquals(1, (rows[1] as AgentRow.User).photoCount)
+    }
 }

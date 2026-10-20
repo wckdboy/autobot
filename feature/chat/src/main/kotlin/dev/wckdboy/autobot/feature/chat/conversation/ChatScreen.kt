@@ -7,6 +7,7 @@ import dev.wckdboy.autobot.core.designsystem.component.labelCase
 import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
 import androidx.compose.ui.draw.drawBehind
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import dev.wckdboy.autobot.shared.ChatBanners
 import dev.wckdboy.autobot.shared.cascade.CascadeLabels
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import dev.wckdboy.autobot.shared.session.CascadeOffer
@@ -285,6 +286,7 @@ fun ChatScreen(
     ) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
             if (state.showOfflineBanner) Banner("Offline mode: this provider is remote, so the kill switch blocks it.", "Privacy", onOpenPrivacyCenter)
+            state.missingKeyProvider?.let { Banner(ChatBanners.missingKey(it), "Add key", onOpenProviders) }
             if (state.loaded && state.providers.isEmpty()) Banner("No model yet.", "Add", onOpenProviders)
             state.notice?.let { Banner(it, "OK", actions::dismissNotice) }
 

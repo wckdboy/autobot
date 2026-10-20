@@ -60,6 +60,27 @@ import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.shared.invincible.AgentAction
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.NodeBots
+import dev.wckdboy.autobot.shared.invincible.NodeImages
+import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 
 /** The Autobot Agent on a paired node: tasks run on that machine; questions come here. */
 @Composable
@@ -90,6 +111,11 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit, open: String? = null,
             viewModel.loadActivity()
         },
         onInstead = viewModel::answerInstead,
+        onRetryTurn = viewModel::retry,
+        onAttach = viewModel::attach,
+        onRemovePhoto = viewModel::removePhoto,
+        onTookReturned = viewModel::tookReturned,
+        onPhotoProblem = viewModel::photoProblem,
     )
     if (showActivity) {
         NodeActivitySheet(state, initialTab = if (open == "board") BOARD_TAB else 0, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget, onAnswer = viewModel::answerBoard)
@@ -110,8 +136,21 @@ fun NodeAgentScreen(
     onOpenSchedules: () -> Unit = {},
     onOpenActivity: () -> Unit = {},
     onInstead: (id: String, text: String) -> Unit = { _, _ -> },
+    onRetryTurn: () -> Unit = {},
+    onAttach: (uri: Uri, fromCamera: Boolean) -> Unit = { _, _ -> },
+    onRemovePhoto: (Int) -> Unit = {},
+    onTookReturned: () -> Unit = {},
+    onPhotoProblem: (String) -> Unit = {},
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
+    // The model could not see the photo: the text comes back to the box.
+    LaunchedEffect(state.returned) {
+        state.returned?.let {
+            draft = it
+            onTookReturned()
+        }
+    }
+    val retryKey = AgentTranscript.retryTarget(state.rows, state.running)
     val list = rememberLazyListState()
     LaunchedEffect(state.rows.size) { if (state.rows.isNotEmpty()) list.animateScrollToItem(state.rows.size - 1) }
     Scaffold(
@@ -141,7 +180,7 @@ fun NodeAgentScreen(
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
             LazyColumn(
                 state = list,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.weight(1f).fillMaxWidth().testTag("node-agent"),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -149,7 +188,7 @@ fun NodeAgentScreen(
                     when {
                         state.problem != null -> Notice(state.problem, tone = NoticeTone.WARNING, action = "Retry", onAction = onRetry)
                         state.info == null -> InkLoader()
-                        else -> SectionLabel(
+                        else -> Text(style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, text = labelCase(
                             listOfNotNull(
                                 // Several bots: which one this conversation is with.
                                 "bot ${NodeBots.of(state.bot)}".takeIf { state.severalBots },
@@ -159,13 +198,18 @@ fun NodeAgentScreen(
                                 // The end of the path is the part that tells folders apart.
                                 state.info.workdir.split('/').filter { it.isNotEmpty() }.takeLast(2).joinToString("/", prefix = "…/"),
                             ).joinToString(" · "),
-                        )
+                        ))
                     }
                 }
-                items(state.rows, key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead) }
+                items(state.rows, key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
                 if (state.running) item(key = "busy") { InkLoader() }
             }
+            if (state.photos.isNotEmpty() || state.photoProblem != null) {
+                PendingPhotos(state.photos, state.photoProblem, onRemovePhoto)
+            }
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                PhotoButton(enabled = state.info != null && !state.running && state.photos.size < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
+                Spacer(Modifier.width(4.dp))
                 ConsoleTextField(
                     value = draft,
                     onValueChange = { draft = it },
@@ -191,22 +235,131 @@ fun NodeAgentScreen(
 }
 
 @Composable
-private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Unit, onInstead: (String, String) -> Unit) {
+private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Unit, onInstead: (String, String) -> Unit, retry: (() -> Unit)? = null) {
     when (row) {
-        is AgentRow.User -> ChatBubble(BubbleRole.USER, row.text)
+        is AgentRow.User -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (row.photos.isNotEmpty()) SentPhotos(row.photos)
+            ChatBubble(BubbleRole.USER, row.text)
+            // From the node's history: the photos stay there; how many.
+            if (row.photos.isEmpty() && row.photoCount > 0) MicroLabel(NodeImages.label(row.photoCount))
+        }
         is AgentRow.Reply -> ChatBubble(
             BubbleRole.ASSISTANT,
             row.text,
-            footer = row.route?.let { route -> { Text(route, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+            footer = if (row.route == null && retry == null) null else {
+                {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(row.route.orEmpty(), Modifier.weight(1f), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (retry != null) RetryButton(retry)
+                    }
+                }
+            },
         )
-        is AgentRow.Note -> Text(
-            (if (row.tone == AgentRow.Tone.TOOL) "› " else "✗ ") + row.text,
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            color = if (row.tone == AgentRow.Tone.TOOL) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+        is AgentRow.Note -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                (if (row.tone == AgentRow.Tone.TOOL) "› " else "✗ ") + row.text,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = if (row.tone == AgentRow.Tone.TOOL) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+            )
+            if (retry != null) RetryButton(retry)
+        }
+        // Quiet: what the agent kept about the owner or the work, on its own.
+        is AgentRow.Kept -> Text(
+            row.text,
+            Modifier.testTag("kept"),
+            style = AutobotTheme.styles.micro,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         is AgentRow.Question -> QuestionCard(row, onAnswer, onInstead)
     }
+}
+
+@Composable
+private fun RetryButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+        Icon(AutobotIcons.Retry, contentDescription = "Retry on the node", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+    }
+}
+
+/** Thumbnails of JPEGs, decoded small. */
+@Composable
+private fun PhotoThumb(jpeg: ByteArray, side: Int, description: String) {
+    val bitmap = remember(jpeg) { decodeThumb(jpeg, side * 3) }
+    if (bitmap == null) return
+    Image(
+        bitmap,
+        contentDescription = description,
+        modifier = Modifier.size(side.dp).clip(MaterialTheme.shapes.small).border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small),
+        contentScale = ContentScale.Crop,
+    )
+}
+
+@Composable
+private fun SentPhotos(photos: List<ByteArray>) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        photos.forEachIndexed { i, p -> PhotoThumb(p, if (photos.size == 1) 160 else 96, "Photo ${i + 1} sent") }
+    }
+}
+
+@Composable
+private fun PendingPhotos(photos: List<ByteArray>, problem: String?, onRemove: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            photos.forEachIndexed { i, p ->
+                Box {
+                    PhotoThumb(p, 64, "Photo ${i + 1}")
+                    IconButton(onClick = { onRemove(i) }, modifier = Modifier.size(28.dp).align(Alignment.TopEnd).background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall)) {
+                        Icon(Icons.Filled.Close, contentDescription = "Remove photo ${i + 1}", modifier = Modifier.size(14.dp))
+                    }
+                }
+            }
+        }
+        if (problem != null) MicroLabel(problem, color = MaterialTheme.colorScheme.error, maxLines = 2)
+        else MicroLabel("sent to the node at up to ${NodeImages.MAX_SIDE} px, without location")
+    }
+}
+
+/** Attach a photo: the camera, or the library (the system photo picker, no permission needed). */
+@Composable
+private fun PhotoButton(enabled: Boolean, onAttach: (Uri, Boolean) -> Unit, onProblem: (String) -> Unit) {
+    val context = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
+    var shot by rememberSaveable { mutableStateOf<String?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { onAttach(it, false) } }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        val uri = shot?.let(Uri::parse)
+        if (taken && uri != null) onAttach(uri, true)
+        shot = null
+    }
+    Box {
+        IconButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.size(48.dp)) {
+            Icon(AutobotIcons.Image, contentDescription = "Attach a photo")
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("Take a photo") }, onClick = {
+                menu = false
+                runCatching {
+                    val target = NodePhotos.cameraTarget(context)
+                    shot = target.toString()
+                    camera.launch(target)
+                }.onFailure { onProblem("There is no camera app to take a photo with.") }
+            })
+            DropdownMenuItem(text = { Text("Choose from library") }, onClick = {
+                menu = false
+                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            })
+        }
+    }
+}
+
+private fun decodeThumb(jpeg: ByteArray, maxPx: Int): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxPx) sample *= 2
+    return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
 }
 
 @Composable

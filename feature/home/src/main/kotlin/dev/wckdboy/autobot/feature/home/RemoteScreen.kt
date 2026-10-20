@@ -1,6 +1,10 @@
 package dev.wckdboy.autobot.feature.home
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Alignment
+import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -10,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.runtime.Composable
@@ -118,6 +123,17 @@ class RemoteViewModel @Inject constructor(
             }
         }
     }
+
+    /** Asks node [providerId] to bring its bots in line with their configuration now; what it did shows under the list. */
+    fun reloadBots(providerId: String) {
+        viewModelScope.launch {
+            if (BotsDemo.on(providerId)) return@launch bots.update { it + (providerId to BotsDemo.state().copy(notice = "Nothing to change.")) }
+            val provider = providers.observeProviders().first().firstOrNull { it.id == providerId } ?: return@launch
+            bots.update { m -> m + (providerId to (m[providerId] ?: NodeBotsState()).copy(loading = true, notice = null)) }
+            val state = runCatching { agents.bots(provider)?.reload() }.getOrNull() ?: return@launch
+            bots.update { it + (providerId to state) }
+        }
+    }
 }
 
 /** The Remote tab: everything that leaves the phone — APIs, PCs on the LAN, hub accounts, the route. */
@@ -138,7 +154,7 @@ fun RemoteRoute(
         viewModel.refreshBots()
         onPauseOrDispose {}
     }
-    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy, onOpenNodeAgent, onPairNode, onOpenBot)
+    RemoteScreen(state, onOpenProviders, onOpenBackends, onOpenAccounts, onOpenPrivacy, onOpenNodeAgent, onPairNode, onOpenBot, onReloadBots = viewModel::reloadBots)
 }
 
 @Composable
@@ -151,6 +167,7 @@ fun RemoteScreen(
     onOpenNodeAgent: (providerId: String) -> Unit = {},
     onPairNode: () -> Unit = onOpenProviders,
     onOpenBot: (providerId: String, bot: String) -> Unit = { _, _ -> },
+    onReloadBots: (providerId: String) -> Unit = {},
 ) {
     val nodes = state.nodes
     Scaffold(
@@ -182,7 +199,14 @@ fun RemoteScreen(
                     // Bots mode: the node's bots, one row each (an older node has no list).
                     val bots = state.bots[n.id]
                     if (bots?.showList == true) {
-                        item(key = "bl-${n.id}") { SectionLabel(if (nodes.size > 1) "bots · ${n.name}" else "bots", Modifier.padding(top = 12.dp)) }
+                        item(key = "bl-${n.id}") {
+                            Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                SectionLabel(if (nodes.size > 1) "bots · ${n.name}" else "bots", Modifier.weight(1f))
+                                // The node picks up a changed bot.toml or SOUL.md on its own within seconds; this is now.
+                                Tag("Reload", onClick = { onReloadBots(n.id) })
+                            }
+                        }
+                        bots.notice?.let { notice -> item(key = "bn-${n.id}") { Text(notice, Modifier.padding(bottom = 4.dp), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
                         items(bots.bots, key = { "bot-${n.id}-${it.name}" }) { bot -> BotRow(bot, state.now, onClick = { onOpenBot(n.id, bot.name) }) }
                     }
                 }
