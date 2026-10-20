@@ -12,6 +12,8 @@ import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.AgentEvent
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
 import dev.wckdboy.autobot.shared.invincible.NodeActivity
+import dev.wckdboy.autobot.shared.invincible.NodeDigest
+import dev.wckdboy.autobot.shared.invincible.NodeDigests
 import dev.wckdboy.autobot.shared.invincible.nodeCrypto
 import dev.wckdboy.autobot.shared.invincible.nodeConnector
 import dev.wckdboy.autobot.shared.invincible.fingerprint
@@ -709,6 +711,20 @@ class AgentBridge(
     ) {
         val (agent, paired) = nodeAgentAndPairing(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
         agent.activity(nodeCrypto!!, paired.name, paired.receiptKey) to null
+    }
+
+    /**
+     * "While you were away": what [providerId]'s node did after [since] (Unix seconds, from
+     * [NodeDigests.since]) and what waits for the owner now. [recipesJson] are the host's recipes
+     * ([RecipeCodec] JSON), for the result chats of those that ran there.
+     */
+    fun nodeDigest(providerId: String, since: Long, recipesJson: List<String>, callback: (NodeDigest?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<NodeDigest?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) {
+        val (agent, paired) = nodeAgentAndPairing(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
+        val recipes = recipesJson.mapNotNull(NodeDigests::recipeJson)
+        NodeDigests.fetch(agent, nodeCrypto!!, paired.name, paired.receiptKey, providerId, since, recipes, exceptDevice = paired.deviceName) to null
     }
 
     /*

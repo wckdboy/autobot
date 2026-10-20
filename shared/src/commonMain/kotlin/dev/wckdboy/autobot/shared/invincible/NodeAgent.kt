@@ -69,6 +69,8 @@ data class AgentSchedule(
     val lastAt: Long?,
     val lastOk: Boolean?,
     val lastResult: String?,
+    /** Its name, when it has one (a recipe's). */
+    val name: String? = null,
 )
 
 /** The agent as a device opens it: its conversation id there, the agent's settings, the conversation so far. */
@@ -173,6 +175,7 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
                 lastAt = last?.get("at")?.jsonPrimitive?.longOrNull,
                 lastOk = last?.get("ok")?.jsonPrimitive?.booleanOrNull,
                 lastResult = last?.text("result"),
+                name = o.text("name"),
             )
         }
 
@@ -220,11 +223,14 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
      * The node's audit log (Invincible's spec/audit.md), newest first: the requests it answered,
      * each receipt checked against [receiptKey], the key pinned at pairing.
      */
-    suspend fun requests(crypto: NodeCrypto, node: String, receiptKey: String?, limit: Int = 100): List<NodeRequest> =
-        NodeActivityParser.requests(request("GET", "?limit=$limit", root = AUDIT), node, receiptKey, crypto)
+    suspend fun requests(crypto: NodeCrypto, node: String, receiptKey: String?, limit: Int = 100, since: Long? = null): List<NodeRequest> =
+        NodeActivityParser.requests(request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT), node, receiptKey, crypto)
 
     /** The agent's action log, newest first: what it asked to do, whether it ran, who decided. */
-    suspend fun actions(limit: Int = 100): List<AgentActionEntry> = NodeActivityParser.actions(request("GET", "/actions?limit=$limit"))
+    suspend fun actions(limit: Int = 100, since: Long? = null): List<AgentActionEntry> =
+        NodeActivityParser.actions(request("GET", "/actions?limit=$limit" + sinceQuery(since)))
+
+    private fun sinceQuery(since: Long?): String = if (since == null) "" else "&since=$since"
 
     /** What the agent remembered between conversations, newest first. */
     suspend fun memory(): List<AgentFact> = NodeActivityParser.facts(request("GET", "/memory"))
