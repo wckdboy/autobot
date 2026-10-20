@@ -1,13 +1,25 @@
 package dev.wckdboy.autobot.feature.home
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.feature.home.remoteui.AppBar
+import dev.wckdboy.autobot.feature.home.remoteui.Centered
+import dev.wckdboy.autobot.feature.home.remoteui.RouteLabel
+import dev.wckdboy.autobot.feature.home.remoteui.Subheader
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Alignment
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,15 +42,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatusPill
 import dev.wckdboy.autobot.core.designsystem.component.Route
-import dev.wckdboy.autobot.core.designsystem.component.RouteTag
-import dev.wckdboy.autobot.core.designsystem.component.RunRow
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackend
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackendRepository
@@ -175,84 +180,122 @@ fun RemoteScreen(
     val nodes = state.nodes
     Scaffold(
         topBar = {
-            AutobotTopBar(
+            AppBar(
                 title = "Remote",
-                mark = true,
-                // The network route, and the way into Privacy Center. 8 dp here + the bar's 8 dp = a 16 dp edge margin.
-                actions = { PrivacyStatusPill(state.network, Modifier.padding(end = 8.dp), onClick = onOpenPrivacy) },
+                onBack = null,
+                // The network route, and the way into Privacy Center.
+                actions = { NetworkChip(state.network, onOpenPrivacy, Modifier.padding(end = 8.dp)) },
             )
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-            if (nodes.isNotEmpty()) {
+        Centered(Modifier.padding(padding)) { width ->
+            LazyColumn(width.fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 // The Autobot Agent on each paired node: tasks run there, approvals come here.
-                item { SectionLabel("agents · my node") }
+                item { Subheader(labelCase("agents · my node")) }
                 nodes.forEach { n ->
                     item(key = "a-${n.id}") {
-                        RunRow(
+                        RemoteItem(
                             "Agent on ${n.name}",
                             "runs there · you approve",
+                            onClick = { onOpenNodeAgent(n.id) },
                             // The node's own mark: Invincible's pixel i.
                             leading = { NodeMark() },
-                            onClick = { onOpenNodeAgent(n.id) },
-                        ) {
-                            RouteTag(Route.PC_LAN)
-                        }
+                            route = Route.PC_LAN,
+                        )
                     }
                     // Bots mode: the node's bots, one row each (an older node has no list).
                     val bots = state.bots[n.id]
                     if (bots?.showList == true) {
                         item(key = "bl-${n.id}") {
-                            Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                SectionLabel(if (nodes.size > 1) "bots · ${n.name}" else "bots", Modifier.weight(1f))
+                            Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Subheader(labelCase(if (nodes.size > 1) "bots · ${n.name}" else "bots"), Modifier.weight(1f))
                                 // The node picks up a changed bot.toml or SOUL.md on its own within seconds; this is now.
-                                Tag("Reload", onClick = { onReloadBots(n.id) })
+                                TextButton(onClick = { onReloadBots(n.id) }) { Text("Reload") }
                             }
                         }
-                        bots.problem?.let { problem -> item(key = "bp-${n.id}") { Text("$problem ✗", Modifier.padding(bottom = 4.dp), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error) } }
-                        bots.notice?.let { notice -> item(key = "bn-${n.id}") { Text(notice, Modifier.padding(bottom = 4.dp), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                        bots.problem?.let { problem ->
+                            item(key = "bp-${n.id}") { Text("$problem ✗", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                        }
+                        bots.notice?.let { notice ->
+                            item(key = "bn-${n.id}") { Text(notice, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
                         items(bots.bots, key = { "bot-${n.id}-${it.name}" }) { bot -> BotRow(bot, state.now, onClick = { onOpenBot(n.id, bot.name) }) }
                     }
                 }
-                item { Spacer(Modifier.height(18.dp)) }
-            }
-            if (nodes.isEmpty()) {
-                // Bringing a PC is a first-run path (the welcome screen's "Pair a PC"): one row away here too.
+                if (nodes.isEmpty()) {
+                    // Bringing a PC is a first-run path (the welcome screen's "Pair a PC"): one row away here too.
+                    item { RemoteItem("Pair a PC", "your Invincible node · end to end encrypted", onClick = onPairNode, leading = { NodeMark() }, chevron = true) }
+                }
+                item { Subheader(labelCase("providers")) }
+                items(state.providers, key = { "p-${it.id}" }) { p ->
+                    RemoteItem(
+                        p.displayName,
+                        "${p.defaultModel} · ${p.baseUrl.substringAfter("://").substringBefore('/')}",
+                        onClick = onOpenProviders,
+                        route = if (Loopback.isLoopbackUrl(p.baseUrl) || p.kind == ProviderKind.OLLAMA || p.kind == ProviderKind.INVINCIBLE_NODE) Route.PC_LAN else Route.CLOUD_API,
+                    )
+                }
+                item { RemoteItem(if (state.providers.isEmpty()) "Add an API key or server" else "Add or edit", null, onClick = onOpenProviders, chevron = true) }
+                item { Subheader(labelCase("image backends")) }
+                items(state.backends, key = { "b-${it.id}" }) { b ->
+                    RemoteItem(b.name, "${b.kind.label} · ${b.baseUrl.substringAfter("://")}", onClick = onOpenBackends, route = if (b.isLoopback) Route.LOCAL else Route.PC_LAN)
+                }
                 item {
-                    SectionLabel("agents · my node")
-                    RunRow("Pair a PC", "your Invincible node · end to end encrypted", leading = { NodeMark() }, onClick = onPairNode) { Chevron() }
-                    Spacer(Modifier.height(18.dp))
+                    RemoteItem(if (state.backends.isEmpty()) "Add an image server" else "Add or edit", null, onClick = onOpenBackends, chevron = true)
+                    Subheader(labelCase("accounts"))
+                    RemoteItem("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts, chevron = true)
+                    RemoteItem(
+                        "Civitai",
+                        (state.accounts.civitaiUser?.let { "key · $it" } ?: "no API key") + " · ${state.accounts.civitaiHost.host}",
+                        onClick = onOpenAccounts,
+                        chevron = true,
+                    )
                 }
-            }
-            item { SectionLabel("providers") }
-            items(state.providers, key = { "p-${it.id}" }) { p ->
-                RunRow(p.displayName, "${p.defaultModel} · ${p.baseUrl.substringAfter("://").substringBefore('/')}", onClick = onOpenProviders) {
-                    RouteTag(if (Loopback.isLoopbackUrl(p.baseUrl) || p.kind == ProviderKind.OLLAMA || p.kind == ProviderKind.INVINCIBLE_NODE) Route.PC_LAN else Route.CLOUD_API)
-                }
-            }
-            item {
-                RunRow(if (state.providers.isEmpty()) "Add an API key or server" else "Add or edit", "", onClick = onOpenProviders) { Chevron() }
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("image backends")
-            }
-            items(state.backends, key = { "b-${it.id}" }) { b ->
-                RunRow(b.name, "${b.kind.label} · ${b.baseUrl.substringAfter("://")}", onClick = onOpenBackends) {
-                    RouteTag(if (b.isLoopback) Route.LOCAL else Route.PC_LAN)
-                }
-            }
-            item {
-                RunRow(if (state.backends.isEmpty()) "Add an image server" else "Add or edit", "", onClick = onOpenBackends) { Chevron() }
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("accounts")
-                RunRow("Hugging Face", state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "not signed in", onClick = onOpenAccounts) { Chevron() }
-                RunRow("Civitai", (state.accounts.civitaiUser?.let { "key · $it" } ?: "no API key") + " · ${state.accounts.civitaiHost.host}", onClick = onOpenAccounts) { Chevron() }
             }
         }
     }
 }
 
-/** A row that opens a screen: the chevron, as in Settings (and on iOS). */
+/**
+ * A Remote list item: [title], a [subtitle], and where it runs ([route]) or a chevron when it
+ * opens a screen. A large font moves the route under the text, where it has the row's width.
+ */
 @Composable
-private fun Chevron() {
-    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun RemoteItem(
+    title: String,
+    subtitle: String?,
+    onClick: () -> Unit,
+    leading: (@Composable () -> Unit)? = null,
+    route: Route? = null,
+    chevron: Boolean = false,
+) {
+    val large = isLargeText()
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = if (subtitle.isNullOrEmpty() && !(large && route != null)) null else {
+            {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (!subtitle.isNullOrEmpty()) Text(subtitle)
+                    if (large && route != null) RouteLabel(route)
+                }
+            }
+        },
+        leadingContent = leading,
+        trailingContent = when {
+            route != null && !large -> { { RouteLabel(route) } }
+            chevron -> { { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) } }
+            else -> null
+        },
+        modifier = Modifier.clickable(role = Role.Button, onClick = onClick),
+    )
+}
+
+/** The network route as an assist chip ("Tor"), the way into Privacy Center. */
+@Composable
+private fun NetworkChip(status: PrivacyStatus, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(status.label) },
+        modifier = modifier.semantics { contentDescription = "Network: ${status.description}" },
+    )
 }

@@ -1,6 +1,23 @@
 package dev.wckdboy.autobot.feature.home.node
 
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
+import dev.wckdboy.autobot.core.designsystem.component.ScreenTitle
+import dev.wckdboy.autobot.feature.home.remoteui.BackIcon
+import dev.wckdboy.autobot.feature.home.remoteui.ContentMaxWidth
+import dev.wckdboy.autobot.feature.home.remoteui.Field
+import dev.wckdboy.autobot.feature.home.remoteui.Loading
+import dev.wckdboy.autobot.feature.home.remoteui.NoticeCard
+import dev.wckdboy.autobot.feature.home.remoteui.Tone
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
@@ -43,30 +60,20 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import androidx.compose.material3.TextButton
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
 import dev.wckdboy.autobot.core.designsystem.component.ComposerBar
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.SendButton
 import dev.wckdboy.autobot.core.designsystem.component.ComposerButtonSize
 import dev.wckdboy.autobot.core.designsystem.component.keyboardUp
 import dev.wckdboy.autobot.shared.composer.Composer
 import dev.wckdboy.autobot.shared.composer.Composer.Part
 import androidx.compose.foundation.layout.consumeWindowInsets
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.shared.invincible.AgentAction
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.NodeBots
 import dev.wckdboy.autobot.shared.invincible.NodeImages
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import android.graphics.BitmapFactory
@@ -130,6 +137,7 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit, open: String? = null,
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NodeAgentScreen(
     state: NodeAgentUiState,
@@ -162,13 +170,14 @@ fun NodeAgentScreen(
     val keyboard = keyboardUp()
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = "Agent · ${state.node}",
-                showMark = false,
-                navigation = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    // A screen about the node: Invincible's pixel i says which product is speaking.
-                    NodeMark(size = 14.dp)
+            TopAppBar(
+                title = { ScreenTitle("Agent · ${state.node}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, mark = false, maxLines = 1, autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = MaterialTheme.typography.titleLarge.fontSize, stepSize = 1.sp)) },
+                navigationIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BackIcon(onBack)
+                        // A screen about the node: Invincible's pixel i says which product is speaking.
+                        NodeMark(size = 14.dp)
+                    }
                 },
                 actions = {
                     IconButton(onClick = onOpenActivity) {
@@ -185,23 +194,24 @@ fun NodeAgentScreen(
         },
     ) { padding ->
         // The scaffold already pads for the navigation bar: consumed, so the keyboard's padding does not add it twice.
-        Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
+        Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             LazyColumn(
                 state = list,
-                modifier = Modifier.weight(1f).fillMaxWidth().testTag("node-agent"),
+                // A reading width on a wide window.
+                modifier = Modifier.weight(1f).widthIn(max = ContentMaxWidth).fillMaxWidth().testTag("node-agent"),
                 reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
             ) {
-                if (state.running) item(key = "busy") { InkLoader() }
+                if (state.running) item(key = "busy") { Loading() }
                 items(state.rows.asReversed(), key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
                 item(key = "head") {
                     when {
-                        state.problem != null -> Notice(state.problem, tone = NoticeTone.WARNING, action = "Retry", onAction = onRetry)
-                        state.info == null -> InkLoader()
+                        state.problem != null -> NoticeCard(state.problem, tone = Tone.WARNING, action = "Retry", onAction = onRetry)
+                        state.info == null -> Loading()
                         // What the conversation runs with: it steps aside while typing.
                         !Composer.shows(Part.DECOR, keyboard) -> Unit
-                        else -> Text(style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, text = labelCase(
+                        else -> Text(style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, text = labelCase(
                             listOfNotNull(
                                 // Several bots: which one this conversation is with.
                                 "bot ${NodeBots.of(state.bot)}".takeIf { state.severalBots },
@@ -250,7 +260,7 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
             if (row.photos.isNotEmpty()) SentPhotos(row.photos)
             ChatBubble(BubbleRole.USER, row.text)
             // From the node's history: the photos stay there; how many.
-            if (row.photos.isEmpty() && row.photoCount > 0) MicroLabel(NodeImages.label(row.photoCount))
+            if (row.photos.isEmpty() && row.photoCount > 0) Caption(NodeImages.label(row.photoCount))
         }
         is AgentRow.Reply -> ChatBubble(
             BubbleRole.ASSISTANT,
@@ -258,7 +268,7 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
             footer = if (row.route == null && retry == null) null else {
                 {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(row.route.orEmpty(), Modifier.weight(1f), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(row.route.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (retry != null) RetryButton(retry)
                     }
                 }
@@ -278,7 +288,7 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
         is AgentRow.Kept -> Text(
             row.text,
             Modifier.testTag("kept"),
-            style = AutobotTheme.styles.micro,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         is AgentRow.Question -> QuestionCard(row, onAnswer, onInstead)
@@ -326,9 +336,9 @@ private fun PendingPhotos(photos: List<ByteArray>, problem: String?, encoding: I
             }
         }
         when {
-            problem != null -> MicroLabel(problem, color = MaterialTheme.colorScheme.error, maxLines = 2)
-            encoding > 0 -> MicroLabel("preparing ${NodeImages.label(encoding)}…")
-            else -> MicroLabel("sent to the node at up to ${NodeImages.MAX_SIDE} px, without location")
+            problem != null -> Caption(problem, color = MaterialTheme.colorScheme.error)
+            encoding > 0 -> Caption("preparing ${NodeImages.label(encoding)}…")
+            else -> Caption("sent to the node at up to ${NodeImages.MAX_SIDE} px, without location")
         }
     }
 }
@@ -385,13 +395,14 @@ internal fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAns
         is AgentAction.Mcp -> "Use ${a.tool}?" to a.arguments
         is AgentAction.Other -> "Approve?" to row.text
     }.let { (title, detail) -> (row.agent?.let { "$it: $title" } ?: title) to detail }
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small).padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
+    Card(Modifier.fillMaxWidth()) {
+    Column(Modifier.padding(16.dp).semantics { contentDescription = "Approval: $title $detail" }) {
         // Several bots: which one asks.
-        if (row.bot != null) SectionLabel("bot ${row.bot}", Modifier.padding(bottom = 4.dp))
+        if (row.bot != null) Text(labelCase("bot ${row.bot}"), Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text(title, style = MaterialTheme.typography.titleSmall)
-        Text(detail, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 8.dp))
+        Text(detail, style = AutobotTheme.styles.code, modifier = Modifier.padding(vertical = 8.dp))
         if (row.instead != null) {
-            Text("Asked instead: ${row.instead}", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Asked instead: ${row.instead}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
         when (row.answer) {
@@ -399,24 +410,31 @@ internal fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAns
                 var other by rememberSaveable(row.id) { mutableStateOf(false) }
                 var text by rememberSaveable(row.id) { mutableStateOf("") }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryButton("Allow", { onAnswer(row.id, ApprovalAnswer.ONCE) })
-                    GhostButton("Always", { onAnswer(row.id, ApprovalAnswer.ALWAYS) })
-                    GhostButton("Deny", { onAnswer(row.id, ApprovalAnswer.DENY) })
+                    Button(onClick = { onAnswer(row.id, ApprovalAnswer.ONCE) }) { Text("Allow") }
+                    OutlinedButton(onClick = { onAnswer(row.id, ApprovalAnswer.ALWAYS) }) { Text("Always") }
+                    OutlinedButton(onClick = { onAnswer(row.id, ApprovalAnswer.DENY) }) { Text("Deny") }
                     // The quiet third answer: no, and do this instead.
                     if (!other) {
-                        TextButton(onClick = { other = true }) { ActionText("Something else…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        TextButton(onClick = { other = true }) { Text("Something else…") }
                     }
                 }
                 if (other) {
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ConsoleTextField(text, { text = it }, Modifier.weight(1f), placeholder = "What to do instead", singleLine = true)
-                        GhostButton("Send", { onInstead(row.id, text) }, enabled = text.isNotBlank())
+                        Field(text, { text = it }, Modifier.weight(1f), placeholder = "What to do instead", singleLine = true)
+                        FilledTonalButton(onClick = { onInstead(row.id, text) }, enabled = text.isNotBlank()) { Text("Send") }
                     }
                 }
             }
-            ApprovalAnswer.ONCE -> Text("Allowed", style = AutobotTheme.styles.micro)
-            ApprovalAnswer.ALWAYS -> Text("Allowed for this conversation", style = AutobotTheme.styles.micro)
-            ApprovalAnswer.DENY -> Text("Denied", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error)
+            ApprovalAnswer.ONCE -> Text("Allowed", style = MaterialTheme.typography.labelLarge)
+            ApprovalAnswer.ALWAYS -> Text("Allowed for this conversation", style = MaterialTheme.typography.labelLarge)
+            ApprovalAnswer.DENY -> Text("Denied", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
         }
     }
+    }
+}
+
+/** A quiet caption line in sentence case. */
+@Composable
+private fun Caption(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Text(labelCase(text), style = MaterialTheme.typography.labelMedium, color = color)
 }
