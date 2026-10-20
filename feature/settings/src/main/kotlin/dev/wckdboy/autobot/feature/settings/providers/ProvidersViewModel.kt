@@ -69,7 +69,7 @@ data class ProviderRow(
     val chats: Int = 0,
     /** Why its model list could not be fetched after the last save (a rejected key, the kill switch). */
     val problem: String? = null,
-    /** A paired node: where it is (from the pairing), shown instead of a base URL and a key. */
+    /** A paired node: where it is (from the pairing), shown instead of a base URL and a key; empty when its pairing is missing or unreadable. */
     val nodeAddresses: List<String>? = null,
 )
 
@@ -234,6 +234,8 @@ class ProvidersViewModel @Inject constructor(
                 requiresKey = p.preset().requiresApiKey,
                 chats = usage[p.id] ?: 0,
                 problem = issues[p.id],
+                // A node's addresses from its pairing; none when that is missing or unreadable
+                // (an imported backup has no secrets): the row then says to pair it again.
                 nodeAddresses = if (p.kind == ProviderKind.INVINCIBLE_NODE) {
                     runCatching { repository.apiKey(p)?.reveal()?.let(PairedNode::fromSecret)?.addresses }.getOrNull().orEmpty()
                 } else null,

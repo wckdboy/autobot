@@ -17,6 +17,16 @@ object NodePairingWords {
     const val REMOTE_ROW = "Pair a node"
     const val REMOTE_ROW_DETAIL = "Invincible on your computer"
 
-    /** A node's row in Providers: where it is, and that it is paired (it has no API key). */
-    fun row(addresses: List<String>): String = (addresses.take(2) + "paired").joinToString(" · ")
+    /**
+     * A node's row in Providers: where it is, and that it is paired (it has no API key). No
+     * addresses means no readable pairing (a restored backup leaves secrets behind, or the
+     * Keychain / keystore lost it): the row says to pair it again instead.
+     */
+    fun row(addresses: List<String>): String =
+        if (paired(addresses)) (addresses.take(2) + "paired").joinToString(" · ") else NOT_PAIRED
+
+    /** Whether a node's stored pairing could be read ([addresses] are its addresses; none: it could not). */
+    fun paired(addresses: List<String>): Boolean = addresses.isNotEmpty()
+
+    const val NOT_PAIRED = "not paired · pair it again in Remote"
 }

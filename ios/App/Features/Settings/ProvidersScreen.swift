@@ -168,9 +168,15 @@ struct ProvidersScreen: View {
         return text
     }
 
-    private func nodeRow(_ p: Provider) -> String {
-        let addresses = app.providers.apiKey(p).flatMap { PairedNode.companion.fromSecret(secret: $0.reveal()) }?.addresses ?? []
-        return NodePairingWords.shared.row(addresses: addresses)
+    /// A node's addresses from its pairing; none when that is missing or unreadable (an imported
+    /// backup has no secrets): the row then says to pair it again, in the error color.
+    private func nodeAddresses(_ p: Provider) -> [String] {
+        app.providers.apiKey(p).flatMap { PairedNode.companion.fromSecret(secret: $0.reveal()) }?.addresses ?? []
+    }
+
+    @ViewBuilder private func nodeLabel(_ p: Provider) -> some View {
+        let addresses = nodeAddresses(p)
+        MicroLabel(NodePairingWords.shared.row(addresses: addresses), color: NodePairingWords.shared.paired(addresses: addresses) ? nil : c.error)
     }
 
     private func row(_ p: Provider) -> some View {
@@ -181,7 +187,7 @@ struct ProvidersScreen: View {
                 Button { startEdit(p) } label: {
                     VStack(alignment: .leading, spacing: 3) {
                         // A node's base URL is a placeholder: its addresses say where it is.
-                        MicroLabel(p.kind == .invincibleNode ? nodeRow(p) : p.baseUrl)
+                        if p.kind == .invincibleNode { nodeLabel(p) } else { MicroLabel(p.baseUrl) }
                         Text(p.displayName).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
                         HStack(spacing: 0) {
                             Text(p.defaultModel.isEmpty ? "—" : ChatListModel.modelLabel(p.defaultModel))

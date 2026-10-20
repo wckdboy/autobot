@@ -55,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -205,7 +206,15 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
                             }
                         },
                         // A node's base URL is a placeholder: its addresses say where it is.
-                        overlineContent = { Text(row.nodeAddresses?.let(NodePairingWords::row) ?: row.baseUrl, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        // A node whose pairing is gone (a restored backup) says so, in the error color.
+                        overlineContent = {
+                            Text(
+                                row.nodeAddresses?.let(NodePairingWords::row) ?: row.baseUrl,
+                                color = if (row.nodeAddresses?.let(NodePairingWords::paired) == false) MaterialTheme.colorScheme.error else Color.Unspecified,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
                         trailingContent = {
                             IconButton(onClick = { deleting = row }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
