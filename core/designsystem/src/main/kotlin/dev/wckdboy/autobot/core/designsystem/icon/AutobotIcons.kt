@@ -133,6 +133,24 @@ object AutobotIcons {
         }
     }
 
+    /** An open box with an arrow out of it: share (as iOS's share glyph). */
+    val Share: ImageVector by lazy {
+        icon("Share") {
+            moveTo(8f, 10f); lineTo(5f, 10f); lineTo(5f, 21f); lineTo(19f, 21f); lineTo(19f, 10f); lineTo(16f, 10f)
+            moveTo(12f, 15f); lineTo(12f, 3f)
+            moveTo(8f, 7f); lineTo(12f, 3f); lineTo(16f, 7f)
+        }
+    }
+
+    /** A clockwise arrow round: ask again (retry). */
+    val Retry: ImageVector by lazy {
+        icon("Retry") {
+            moveTo(19.5f, 12f); curveTo(19.5f, 16.1f, 16.1f, 19.5f, 12f, 19.5f); curveTo(7.9f, 19.5f, 4.5f, 16.1f, 4.5f, 12f)
+            curveTo(4.5f, 7.9f, 7.9f, 4.5f, 12f, 4.5f); lineTo(18f, 4.5f)
+            moveTo(15f, 1.5f); lineTo(18f, 4.5f); lineTo(15f, 7.5f)
+        }
+    }
+
     /** Wrench: tools. */
     val Wrench: ImageVector by lazy {
         icon("Wrench") {

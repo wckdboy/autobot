@@ -9,7 +9,10 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+
 import androidx.compose.ui.test.performScrollTo
 import dev.wckdboy.autobot.core.designsystem.motion.InkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
@@ -81,7 +84,10 @@ class ChatScreenTest {
     fun aFailedTurnExplainsTheRejectedKey() {
         val error = "The provider rejected the API key. Check it under Settings › Model providers (HTTP 401: invalid key)"
         show(ChatUiState(loaded = true, providers = listOf(provider), items = listOf(SessionItem.User("u1", "hi"), SessionItem.Notice("n1", error, NoticeKind.ERROR))))
-        compose.onNodeWithText("$error").assertIsDisplayed()
+        compose.onNodeWithText("✗ $error").assertIsDisplayed()
+        // The failed turn can be asked again in one tap.
+        compose.onNodeWithText("Retry").performClick()
+        assertTrue(calls.toString(), "send(hi)" in calls)
     }
 
     @Test
@@ -97,7 +103,7 @@ class ChatScreenTest {
                 approvals = mapOf("call-1" to ApprovalUi("call-1", "write_file", "path=notes.md", "writes a file")),
             ),
         )
-        compose.onNodeWithText("01 · Approval needed").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("▪ Approval needed").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("write_file(path=notes.md)").assertIsDisplayed()
         compose.onNodeWithText("Approve", ignoreCase = true).performClick()
         compose.onNodeWithText("Deny", ignoreCase = true).performClick()
@@ -195,5 +201,39 @@ class ChatScreenTest {
         compose.onNodeWithText("judge weak", substring = true, ignoreCase = true).performClick()
         compose.onNodeWithText("Not sent on its own: the prompt involves health.", substring = true).assertExists()
         compose.onNodeWithText("judge · self-check · 412 ms").assertExists()
+    }
+
+    @Test
+    fun theLastAnswerOffersCopyShareRetryAndReadAloud() {
+        val answer = SessionItem.Assistant("a1", "Use reversed().", null, false, 12, null)
+        val items = listOf(SessionItem.User("u1", "Reverse a list"), answer)
+        val update = show(ChatUiState(loaded = true, providers = listOf(provider), items = items))
+        compose.onNodeWithContentDescription("Copy message").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Share").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Read aloud").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Retry").performClick()
+        assertTrue(calls.toString(), "send(Reverse a list)" in calls)
+        // While a turn runs there is nothing to retry yet.
+        update(ChatUiState(loaded = true, providers = listOf(provider), running = true, items = items))
+        compose.onNodeWithContentDescription("Retry").assertDoesNotExist()
+    }
+
+    @Test
+    fun longPressOpensTheSameMenuAsIos() {
+        val answer = SessionItem.Assistant("a1", "Use reversed().", null, false, 12, null)
+        show(ChatUiState(loaded = true, providers = listOf(provider), items = listOf(SessionItem.User("u1", "Reverse a list"), answer)))
+        compose.onNodeWithText("Use reversed().").performTouchInput { longClick() }
+        listOf("Copy", "Share", "Retry", "Read aloud", "Select text").forEach { compose.onNodeWithText(it).assertIsDisplayed() }
+        compose.onNodeWithText("Read aloud").performClick()
+        assertTrue(calls.toString(), calls.any { it.startsWith("speak(a1") })
+    }
+
+    @Test
+    fun stepsUseTheTerminalSquare() {
+        val tool = SessionItem.Tool("t1", "call-1", "read", "notes.md", ToolState.OK, "# Notes", null, emptyList())
+        show(ChatUiState(loaded = true, providers = listOf(provider), toolsEnabled = true, items = listOf(SessionItem.User("u1", "Read my notes"), tool), stepNumbers = mapOf("t1" to 1)))
+        compose.onNodeWithText("▪").assertIsDisplayed()
+        compose.onNodeWithText("└ read · notes.md").assertIsDisplayed()
+        compose.onNodeWithText("01").assertDoesNotExist()
     }
 }

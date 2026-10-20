@@ -47,6 +47,7 @@ import dev.wckdboy.autobot.core.designsystem.component.Route
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.markdown.LiteMarkdown
 import dev.wckdboy.autobot.core.models.Backend
+import dev.wckdboy.autobot.core.models.Catalog
 import dev.wckdboy.autobot.core.models.ComputeProfile
 import dev.wckdboy.autobot.core.models.EngineKind
 import dev.wckdboy.autobot.core.models.FileRole
@@ -475,7 +476,8 @@ class ChatViewModel @AssistedInject constructor(
                 when {
                     !isLocal -> m
                     SystemModels.isSystem(m) -> SystemModels.title(m)
-                    else -> m.substringAfter("catalog:").substringAfterLast('/').substringBefore(".gguf")
+                    // A catalog model by its name ("Qwen3.5 0.8B"), not its id.
+                    else -> Catalog.all.firstOrNull { it.id == m }?.title ?: m.substringAfter("catalog:").substringAfterLast('/').substringBefore(".gguf")
                 }
             },
             isIncognito = conversations.isIncognito(conversationId),
