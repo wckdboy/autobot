@@ -2,9 +2,9 @@ import Observation
 import SwiftUI
 import UIKit
 
-/// Bottom-bar destinations (RUN · MODELS · REMOTE · SETTINGS). Selecting one resets the stack.
+/// Bottom-bar destinations (RUN · MODELS · REMOTE · HARNESS · SETTINGS). Selecting one resets the stack.
 enum Tab: String, CaseIterable, Hashable {
-    case run, models, remote, settings
+    case run, models, remote, harness, settings
 
     var label: String { rawValue }
 }
@@ -92,6 +92,7 @@ final class Navigator {
             case "node": tab = .remote; path = [.nodeAgent(providerId: "demo-node")]
             // The demo node's ops bot (Bot detail).
             case "bot": tab = .remote; path = [.nodeBot(providerId: BotsDemo.nodeId, name: "ops")]
+            case "harness": tab = .harness
 
             case "settings": tab = .settings
             case "sessions": path = [.chatList]
@@ -202,6 +203,7 @@ struct AutobotNavHost: View {
         case .run: RunScreen()
         case .models: ModelsScreen()
         case .remote: RemoteScreen()
+        case .harness: HarnessScreen()
         case .settings: SettingsScreen()
         }
     }
