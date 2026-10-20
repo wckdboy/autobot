@@ -8,9 +8,23 @@ enum NodeAgentRow: Identifiable, Equatable {
     case reply(id: Int, text: String, route: String?)
     /// A tool run, a refusal or a failure: one short line.
     case note(id: Int, text: String, tone: Tone)
-    case question(id: Int, approval: String, title: String, detail: String, answer: ApprovalAnswer?)
+    case question(id: Int, approval: String, title: String, detail: String, answer: Answer?)
 
     enum Tone { case tool, refused, error }
+
+    /// How the owner answered: allowed, always, denied, or "no, do this instead".
+    enum Answer: Equatable {
+        case once, always, deny
+        case instead(String)
+
+        init(_ answer: ApprovalAnswer) {
+            switch answer {
+            case .always: self = .always
+            case .deny: self = .deny
+            default: self = .once
+            }
+        }
+    }
 
     var id: Int {
         switch self {
@@ -46,7 +60,13 @@ final class NodeAgentModel {
     @ObservationIgnored private var route: String?
     @ObservationIgnored private weak var runtime: SharedAgentRuntime?
 
-    init(providerId: String) { self.providerId = providerId }
+    /// A conversation to open instead of this device's own (the one approvals wait in).
+    let openSession: String?
+
+    init(providerId: String, session: String? = nil) {
+        self.providerId = providerId
+        openSession = session
+    }
 
     func connect(app: AppContainer) async {
         await connect(runtime: app.agent as? SharedAgentRuntime, node: app.providers.get(providerId)?.displayName ?? "my node")
@@ -58,17 +78,20 @@ final class NodeAgentModel {
         guard let runtime else { return problem = "My node is not available here" }
         connected = true
         problem = nil
-        let (opened, error) = await runtime.nodeAgentOpen(providerId)
+        let (opened, error) = await runtime.nodeAgentOpen(providerId, session: openSession)
         guard let opened else { return problem = error ?? "The node did not answer" }
         session = opened.session
         info = opened.info
-        rows = opened.history.map { line in
+        let history: [NodeAgentRow] = opened.history.map { line in
             switch line.role {
             case "user": .user(id: next(), text: line.text)
             case "tool": .note(id: next(), text: line.text, tone: .tool)
             default: .reply(id: next(), text: line.text, route: nil)
             }
         }
+        // Approvals waiting anywhere on the node, as cards (an older node cannot list them: none shown).
+        let waiting = await runtime.nodeAgentApprovals(providerId)
+        rows = Self.waiting(history, waiting) { [self] in next() }
     }
 
     func send(_ text: String) {
@@ -117,12 +140,38 @@ final class NodeAgentModel {
         }
     }
 
-    func answer(_ approval: String, _ answer: ApprovalAnswer) {
-        guard let runtime else { return }
-        rows = rows.map { row in
+    /// [rows] with [approval]'s card answered.
+    nonisolated static func answered(_ rows: [NodeAgentRow], _ approval: String, _ answer: NodeAgentRow.Answer) -> [NodeAgentRow] {
+        rows.map { row in
             if case .question(let id, approval, let title, let detail, nil) = row { return .question(id: id, approval: approval, title: title, detail: detail, answer: answer) }
             return row
         }
+    }
+
+    /// [rows] and, after them, a card for each approval waiting that is not on screen yet.
+    static func waiting(_ rows: [NodeAgentRow], _ approvals: [PendingApproval], next: () -> Int) -> [NodeAgentRow] {
+        let shown = Set(rows.compactMap { row -> String? in if case .question(_, let approval, _, _, _) = row { approval } else { nil } })
+        return rows + approvals.filter { !shown.contains($0.id) }.map { a in
+            let (title, detail) = describe(a.action, fallback: a.text)
+            return .question(id: next(), approval: a.id, title: a.agent.map { "\($0): \(title)" } ?? title, detail: detail, answer: nil)
+        }
+    }
+
+    /// "No, and do this instead": answers [approval] with [text].
+    func answerInstead(_ approval: String, _ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let runtime, !trimmed.isEmpty else { return }
+        rows = Self.answered(rows, approval, .instead(trimmed))
+        Task {
+            if !(await runtime.nodeAgentInstead(providerId, id: approval, text: trimmed)) {
+                rows.append(.note(id: next(), text: "That question had expired.", tone: .error))
+            }
+        }
+    }
+
+    func answer(_ approval: String, _ answer: ApprovalAnswer) {
+        guard let runtime else { return }
+        rows = Self.answered(rows, approval, NodeAgentRow.Answer(answer))
         Task {
             if !(await runtime.nodeAgentAnswer(providerId, id: approval, answer: answer)) {
                 rows.append(.note(id: next(), text: "That question had expired.", tone: .error))
@@ -190,6 +239,9 @@ final class NodeAgentModel {
     }
 }
 
+/// A sheet the agent screen opens on arrival: the activity, or straight to its board.
+enum NodeAgentSheet: Hashable { case activity, board }
+
 struct NodeAgentScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
@@ -199,7 +251,16 @@ struct NodeAgentScreen: View {
     @State private var showSchedules = false
     @State private var showActivity = false
 
-    init(providerId: String) { _model = State(initialValue: NodeAgentModel(providerId: providerId)) }
+    private let open: NodeAgentSheet?
+
+    @State private var otherFor: String?
+    @State private var otherText = ""
+
+    init(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil) {
+        _model = State(initialValue: NodeAgentModel(providerId: providerId, session: session))
+        _showActivity = State(initialValue: open != nil)
+        self.open = open
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -240,10 +301,13 @@ struct NodeAgentScreen: View {
             .padding(Tokens.Spacing.gutter)
         }
         .background(c.background)
-        .task { await model.connect(app: app) }
+        .task {
+            await model.connect(app: app)
+            if open != nil { await model.loadActivity() }
+        }
         .onDisappear { model.stopListening() }
         .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
-        .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model) }
+        .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
     }
 
     @ViewBuilder private var header: some View {
@@ -283,8 +347,27 @@ struct NodeAgentScreen: View {
                         GhostButton("Always") { model.answer(approval, .always) }
                         GhostButton("Deny") { model.answer(approval, .deny) }
                     }
+                    // The quiet third answer: no, and do this instead.
+                    if otherFor == approval {
+                        HStack(alignment: .bottom, spacing: 8) {
+                            ConsoleTextField(text: $otherText, placeholder: "What to do instead", minLines: 1, maxLines: 1)
+                            GhostButton("Send", enabled: !otherText.trimmingCharacters(in: .whitespaces).isEmpty) {
+                                model.answerInstead(approval, otherText)
+                                otherFor = nil
+                                otherText = ""
+                            }
+                            .fixedSize()
+                        }
+                    } else {
+                        TextAction("Something else…", color: c.onSurfaceVariant) {
+                            otherFor = approval
+                            otherText = ""
+                        }
+                        .accessibilityHint("Say no, and what to do instead")
+                    }
                 case .always?: MicroLabel("allowed for this conversation")
                 case .deny?: MicroLabel("denied")
+                case .instead(let text)?: MicroLabel("asked instead: \(text)", lines: 3)
                 default: MicroLabel("allowed")
                 }
             }
@@ -361,8 +444,15 @@ struct NodeSchedulesSheet: View {
 struct NodeActivitySheet: View {
     let model: NodeAgentModel
     @Environment(\.scheme) private var c
-    @State private var tab = 0
+    @State private var tab: Int
     private static let tabs = ["requests", "actions", "board", "memory"]
+    /// The board's tab, to open the sheet on it.
+    static let boardTab = 2
+
+    init(model: NodeAgentModel, initialTab: Int = 0) {
+        self.model = model
+        _tab = State(initialValue: initialTab)
+    }
     @State private var answers: [String: String] = [:]
     private let words = NodeActivityWords.shared
 

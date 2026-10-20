@@ -12,6 +12,9 @@ import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.AgentEvent
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
 import dev.wckdboy.autobot.shared.invincible.NodeActivity
+import dev.wckdboy.autobot.shared.invincible.NodeDigest
+import dev.wckdboy.autobot.shared.invincible.NodeDigests
+import dev.wckdboy.autobot.shared.invincible.PendingApproval
 import dev.wckdboy.autobot.shared.invincible.nodeCrypto
 import dev.wckdboy.autobot.shared.invincible.nodeConnector
 import dev.wckdboy.autobot.shared.invincible.fingerprint
@@ -638,14 +641,30 @@ class AgentBridge(
     private suspend fun requireNodeAgent(providerId: String): Pair<NodeAgent, String> =
         nodeAgent(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
 
-    /** Opens the agent: this device's conversation id, the agent's settings and the conversation so far. */
-    fun nodeAgentOpen(providerId: String, callback: (NodeAgentOpened?, String?) -> Unit) = launchAnswering(
+    /**
+     * Opens the agent: this device's conversation (or [session], one an approval waits in), the
+     * agent's settings and the conversation so far.
+     */
+    fun nodeAgentOpen(providerId: String, session: String?, callback: (NodeAgentOpened?, String?) -> Unit) = launchAnswering(
         callback = { r: Pair<NodeAgentOpened?, String?> -> callback(r.first, r.second) },
         failed = { null to it },
     ) {
-        val (agent, session) = requireNodeAgent(providerId)
-        NodeAgentOpened(session, agent.info(), agent.history(session)) to null
+        val (agent, own) = requireNodeAgent(providerId)
+        val id = session ?: own
+        NodeAgentOpened(id, agent.info(), agent.history(id)) to null
     }
+
+    /** The approvals waiting now, oldest first; null with no error from a node too old to list them. */
+    fun nodeAgentApprovals(providerId: String, callback: (List<PendingApproval>?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<List<PendingApproval>?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) { requireNodeAgent(providerId).first.approvals() to null }
+
+    /** Answers an approval "no, do this instead: [text]"; false when it was no longer waiting. */
+    fun nodeAgentInstead(providerId: String, id: String, text: String, callback: (Boolean) -> Unit) = launchAnswering(
+        callback = callback,
+        failed = { false },
+    ) { requireNodeAgent(providerId).first.answerInstead(id, text) }
 
     /** Runs a turn; [listener] gets its events, the last being an answer or a failure. Cancelling stops listening, not the turn. */
     fun nodeAgentTurn(providerId: String, session: String, text: String, listener: (AgentEvent) -> Unit): Cancellable {
@@ -709,6 +728,20 @@ class AgentBridge(
     ) {
         val (agent, paired) = nodeAgentAndPairing(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
         agent.activity(nodeCrypto!!, paired.name, paired.receiptKey) to null
+    }
+
+    /**
+     * "While you were away": what [providerId]'s node did after [since] (Unix seconds, from
+     * [NodeDigests.since]) and what waits for the owner now. [recipesJson] are the host's recipes
+     * ([RecipeCodec] JSON), for the result chats of those that ran there.
+     */
+    fun nodeDigest(providerId: String, since: Long, recipesJson: List<String>, callback: (NodeDigest?, String?) -> Unit) = launchAnswering(
+        callback = { r: Pair<NodeDigest?, String?> -> callback(r.first, r.second) },
+        failed = { null to it },
+    ) {
+        val (agent, paired) = nodeAgentAndPairing(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
+        val recipes = recipesJson.mapNotNull(NodeDigests::recipeJson)
+        NodeDigests.fetch(agent, nodeCrypto!!, paired.name, paired.receiptKey, providerId, since, recipes, exceptDevice = paired.deviceName) to null
     }
 
     /*

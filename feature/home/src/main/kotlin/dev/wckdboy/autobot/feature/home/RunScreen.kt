@@ -30,7 +30,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.wckdboy.autobot.feature.home.node.NodeDigestCard
+import dev.wckdboy.autobot.feature.home.node.NodeDigestCardState
+import dev.wckdboy.autobot.feature.home.node.NodeDigestViewModel
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.CountBadge
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
@@ -48,14 +52,43 @@ fun RunRoute(
     onOpenAllRuns: () -> Unit,
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
+    /**
+     * The agent on a paired node; [open] is a sheet to open there (`activity`, `board`), or null;
+     * [session] a conversation to open instead of this device's (where approvals wait).
+     */
+    onOpenNodeAgent: (providerId: String, open: String?, session: String?) -> Unit = { _, _, _ -> },
     viewModel: RunViewModel = hiltViewModel(),
+    digestModel: NodeDigestViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val digest by digestModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(viewModel) {
         viewModel.navigation.collect { if (it is RunEvent.OpenSession) onOpenSession(it.conversationId) }
     }
-    RunScreen(state, viewModel, onOpenSession, onOpenImagine, onOpenStudio, onOpenAllRuns, onOpenGalleryItem, onOpenModels)
+    // Each time Run shows again: what the node did meanwhile.
+    LifecycleResumeEffect(digestModel) {
+        digestModel.refresh()
+        onPauseOrDispose {}
+    }
+    RunScreen(
+        state, viewModel, onOpenSession, onOpenImagine, onOpenStudio, onOpenAllRuns, onOpenGalleryItem, onOpenModels,
+        digest = digest,
+        onDigestNeedsYou = { d ->
+            digestModel.markSeen()
+            // Approvals hold a turn: the agent, in their conversation when they share one. Else the board's questions.
+            if (d.digest.opensBoard) onOpenNodeAgent(d.providerId, NODE_SHEET_BOARD, null) else onOpenNodeAgent(d.providerId, null, d.digest.approvalSession)
+        },
+        onDigestDetails = { d ->
+            digestModel.markSeen()
+            onOpenNodeAgent(d.providerId, NODE_SHEET_ACTIVITY, null)
+        },
+        onDigestDismiss = digestModel::markSeen,
+    )
 }
+
+/** Sheets the node agent screen opens on arrival. */
+const val NODE_SHEET_ACTIVITY = "activity"
+const val NODE_SHEET_BOARD = "board"
 
 @Composable
 fun RunScreen(
@@ -67,6 +100,10 @@ fun RunScreen(
     onOpenAllRuns: () -> Unit,
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
+    digest: NodeDigestCardState? = null,
+    onDigestNeedsYou: (NodeDigestCardState) -> Unit = {},
+    onDigestDetails: (NodeDigestCardState) -> Unit = {},
+    onDigestDismiss: () -> Unit = {},
 ) {
     Scaffold(topBar = { AutobotTopBar(actions = { if (state.live > 0) CountBadge("${state.live} live") }) }) { padding ->
         run {
@@ -77,6 +114,13 @@ fun RunScreen(
                 item {
                     SectionLabel(state.status.replaceFirstChar { it.titlecase(Locale.ROOT) })
                     Spacer(Modifier.height(14.dp))
+                }
+                // What the paired node did meanwhile; nothing when there is no node or nothing new.
+                if (digest != null) {
+                    item(key = "node-digest") {
+                        NodeDigestCard(digest, { onDigestNeedsYou(digest) }, { onDigestDetails(digest) }, onDigestDismiss)
+                        Spacer(Modifier.height(14.dp))
+                    }
                 }
                 // One 2-column grid: every row splits at the same x with the same gutter.
                 item {

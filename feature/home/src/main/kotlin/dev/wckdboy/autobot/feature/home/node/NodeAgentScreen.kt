@@ -45,7 +45,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import androidx.compose.material3.TextButton
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
@@ -60,11 +62,17 @@ import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 
 /** The Autobot Agent on a paired node: tasks run on that machine; questions come here. */
 @Composable
-fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
-    val viewModel = hiltViewModel<NodeAgentViewModel, NodeAgentViewModel.Factory>(key = providerId) { it.create(providerId) }
+fun NodeAgentRoute(providerId: String, onBack: () -> Unit, open: String? = null, session: String? = null) {
+    val viewModel = hiltViewModel<NodeAgentViewModel, NodeAgentViewModel.Factory>(key = "$providerId/${session.orEmpty()}") { it.create(providerId, session) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showSchedules by rememberSaveable { mutableStateOf(false) }
-    var showActivity by rememberSaveable { mutableStateOf(false) }
+    // Opened from the Run screen's "While you were away": straight to the activity (or its board).
+    var showActivity by rememberSaveable { mutableStateOf(open != null) }
+    var arrived by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (open != null && !arrived) viewModel.loadActivity()
+        arrived = true
+    }
     NodeAgentScreen(
         state,
         onBack,
@@ -80,9 +88,10 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit) {
             showActivity = true
             viewModel.loadActivity()
         },
+        onInstead = viewModel::answerInstead,
     )
     if (showActivity) {
-        NodeActivitySheet(state, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget, onAnswer = viewModel::answerBoard)
+        NodeActivitySheet(state, initialTab = if (open == "board") BOARD_TAB else 0, onDismiss = { showActivity = false }, onRefresh = viewModel::loadActivity, onForget = viewModel::forget, onAnswer = viewModel::answerBoard)
     }
     if (showSchedules) {
         NodeSchedulesSheet(state, onDismiss = { showSchedules = false }, onAdd = viewModel::addSchedule, onRemove = viewModel::removeSchedule)
@@ -99,6 +108,7 @@ fun NodeAgentScreen(
     onRetry: () -> Unit,
     onOpenSchedules: () -> Unit = {},
     onOpenActivity: () -> Unit = {},
+    onInstead: (id: String, text: String) -> Unit = { _, _ -> },
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val list = rememberLazyListState()
@@ -149,7 +159,7 @@ fun NodeAgentScreen(
                         )
                     }
                 }
-                items(state.rows, key = { it.key }) { row -> AgentRowView(row, onAnswer) }
+                items(state.rows, key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead) }
                 if (state.running) item(key = "busy") { InkLoader() }
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -178,7 +188,7 @@ fun NodeAgentScreen(
 }
 
 @Composable
-private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Unit) {
+private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Unit, onInstead: (String, String) -> Unit) {
     when (row) {
         is AgentRow.User -> ChatBubble(BubbleRole.USER, row.text)
         is AgentRow.Reply -> ChatBubble(
@@ -192,12 +202,12 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
             fontFamily = FontFamily.Monospace,
             color = if (row.tone == AgentRow.Tone.TOOL) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
         )
-        is AgentRow.Question -> QuestionCard(row, onAnswer)
+        is AgentRow.Question -> QuestionCard(row, onAnswer, onInstead)
     }
 }
 
 @Composable
-private fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAnswer) -> Unit) {
+internal fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAnswer) -> Unit, onInstead: (String, String) -> Unit = { _, _ -> }) {
     val (title, detail) = when (val a = row.action) {
         is AgentAction.Command -> "Run a command?" to a.command
         is AgentAction.Write -> (if (a.inside) "Write a file?" else "Write outside the working directory?") to "${a.path} · ${a.bytes} bytes"
@@ -210,11 +220,29 @@ private fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAnsw
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small).padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(detail, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 8.dp))
+        if (row.instead != null) {
+            Text("Asked instead: ${row.instead}", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return@Column
+        }
         when (row.answer) {
-            null -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                PrimaryButton("Allow", { onAnswer(row.id, ApprovalAnswer.ONCE) })
-                GhostButton("Always", { onAnswer(row.id, ApprovalAnswer.ALWAYS) })
-                GhostButton("Deny", { onAnswer(row.id, ApprovalAnswer.DENY) })
+            null -> {
+                var other by rememberSaveable(row.id) { mutableStateOf(false) }
+                var text by rememberSaveable(row.id) { mutableStateOf("") }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PrimaryButton("Allow", { onAnswer(row.id, ApprovalAnswer.ONCE) })
+                    GhostButton("Always", { onAnswer(row.id, ApprovalAnswer.ALWAYS) })
+                    GhostButton("Deny", { onAnswer(row.id, ApprovalAnswer.DENY) })
+                    // The quiet third answer: no, and do this instead.
+                    if (!other) {
+                        TextButton(onClick = { other = true }) { ActionText("Something else…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+                if (other) {
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ConsoleTextField(text, { text = it }, Modifier.weight(1f), placeholder = "What to do instead", singleLine = true)
+                        GhostButton("Send", { onInstead(row.id, text) }, enabled = text.isNotBlank())
+                    }
+                }
             }
             ApprovalAnswer.ONCE -> Text("Allowed", style = AutobotTheme.styles.micro)
             ApprovalAnswer.ALWAYS -> Text("Allowed for this conversation", style = AutobotTheme.styles.micro)

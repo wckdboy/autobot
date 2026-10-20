@@ -23,6 +23,9 @@ data class NodeRequest(
     val action: String,
     val reason: String?,
     val receipt: ReceiptNode,
+    /** Tokens in and out, from the receipt's `tokens` (0 when the answer reported no usage). */
+    val tokensIn: Long = 0,
+    val tokensOut: Long = 0,
 ) {
     /** The device's name for a device's request; null for the node's own (the agent, a local app). */
     val device: String? get() = caller.removePrefix("device:").takeIf { caller.startsWith("device:") }
@@ -151,6 +154,7 @@ internal object NodeActivityParser {
             val verified = receiptKey != null && receipt.text("node") == receiptKey &&
                 NodeReceipts.verify(crypto, receiptKey, receipt, signature)
             val decision = receipt["decision"] as? JsonObject
+            val tokens = receipt["tokens"] as? JsonObject
             NodeRequest(
                 at = o.long("at") ?: 0,
                 caller = o.text("caller") ?: "local",
@@ -158,6 +162,8 @@ internal object NodeActivityParser {
                 action = decision?.text("action") ?: "?",
                 reason = decision?.text("reason"),
                 receipt = NodeReceiptLog.parse(node, id, verified, receipt),
+                tokensIn = tokens?.long("input") ?: 0,
+                tokensOut = tokens?.long("output") ?: 0,
             )
         }.reversed()
 

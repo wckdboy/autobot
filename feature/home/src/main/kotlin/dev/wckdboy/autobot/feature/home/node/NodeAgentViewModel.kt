@@ -16,6 +16,7 @@ import dev.wckdboy.autobot.shared.invincible.AgentSchedule
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.NodeActivity
 import dev.wckdboy.autobot.shared.invincible.NodeAgent
+import dev.wckdboy.autobot.shared.invincible.PendingApproval
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,8 +33,21 @@ sealed interface AgentRow {
     data class Reply(override val key: String, val text: String, val route: String?) : AgentRow
     /** A tool run, a refusal, or a failure: one short line. */
     data class Note(override val key: String, val text: String, val tone: Tone) : AgentRow
-    /** [agent]: the team member asking, when it is not the main agent. */
-    data class Question(override val key: String, val id: String, val text: String, val action: AgentAction, val answer: ApprovalAnswer? = null, val agent: String? = null) : AgentRow
+    /**
+     * [agent]: the team member asking, when it is not the main agent. [instead]: the owner said no,
+     * and to do this instead (then [answer] is null).
+     */
+    data class Question(
+        override val key: String,
+        val id: String,
+        val text: String,
+        val action: AgentAction,
+        val answer: ApprovalAnswer? = null,
+        val agent: String? = null,
+        val instead: String? = null,
+    ) : AgentRow {
+        val answered: Boolean get() = answer != null || instead != null
+    }
 
     enum class Tone { TOOL, REFUSED, ERROR }
 }
@@ -71,19 +85,34 @@ object AgentTranscript {
     fun answered(rows: List<AgentRow>, id: String, answer: ApprovalAnswer): List<AgentRow> =
         rows.map { if (it is AgentRow.Question && it.id == id) it.copy(answer = answer) else it }
 
+    /** "No, do this instead": the question shows what was asked for. */
+    fun instead(rows: List<AgentRow>, id: String, text: String): List<AgentRow> =
+        rows.map { if (it is AgentRow.Question && it.id == id) it.copy(instead = text) else it }
+
+    /**
+     * The approvals waiting on the node (any conversation) as question cards, after [rows]; those
+     * already on screen are left as they are.
+     */
+    fun waiting(rows: List<AgentRow>, approvals: List<PendingApproval>, key: (PendingApproval) -> String): List<AgentRow> {
+        val shown = rows.filterIsInstance<AgentRow.Question>().map { it.id }.toSet()
+        return rows + approvals.filter { it.id !in shown }.map { AgentRow.Question(key(it), it.id, it.text, it.action, agent = it.agent) }
+    }
+
     /** "qwen3.5-4b · node" for the last receipt. */
     fun route(event: AgentEvent.Receipt): String = listOfNotNull(event.model, event.tier).joinToString(" · ")
 }
 
 @HiltViewModel(assistedFactory = NodeAgentViewModel.Factory::class)
 class NodeAgentViewModel @AssistedInject constructor(
-    @Assisted private val providerId: String,
+    @Assisted("provider") private val providerId: String,
+    /** A conversation to open instead of this device's own (the one approvals wait in); null for this device's. */
+    @Assisted("session") private val openSession: String?,
     private val providers: ProviderRepository,
     private val agents: NodeAgents,
 ) : ViewModel() {
     @AssistedFactory
     interface Factory {
-        fun create(providerId: String): NodeAgentViewModel
+        fun create(@Assisted("provider") providerId: String, @Assisted("session") openSession: String?): NodeAgentViewModel
     }
 
     private val _state = MutableStateFlow(NodeAgentUiState())
@@ -112,7 +141,7 @@ class NodeAgentViewModel @AssistedInject constructor(
                 return@launch
             }
             this@NodeAgentViewModel.agent = agent
-            session = NodeAgent.sessionFor(device)
+            session = openSession ?: NodeAgent.sessionFor(device)
             runCatching {
                 val info = agent.info()
                 val history = agent.history(session).map { line ->
@@ -122,7 +151,9 @@ class NodeAgentViewModel @AssistedInject constructor(
                         else -> AgentRow.Reply(nextKey(), line.text, null)
                     }
                 }
-                _state.update { it.copy(info = info, rows = history) }
+                // Approvals waiting anywhere on the node (an older node cannot list them: none shown).
+                val waiting = runCatching { agent.approvals() }.getOrNull().orEmpty()
+                _state.update { it.copy(info = info, rows = AgentTranscript.waiting(history, waiting) { nextKey() }) }
             }.onFailure { e -> _state.update { it.copy(problem = e.message ?: "The node did not answer.") } }
         }
     }
@@ -150,6 +181,18 @@ class NodeAgentViewModel @AssistedInject constructor(
         _state.update { it.copy(rows = AgentTranscript.answered(it.rows, id, answer)) }
         viewModelScope.launch {
             val ok = runCatching { agent.answer(id, answer) }.getOrDefault(false)
+            if (!ok) _state.update { it.copy(rows = it.rows + AgentRow.Note(nextKey(), "That question had expired.", AgentRow.Tone.ERROR)) }
+        }
+    }
+
+    /** "No, and do this instead": answers [id] with [text]. */
+    fun answerInstead(id: String, text: String) {
+        val agent = agent ?: return
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        _state.update { it.copy(rows = AgentTranscript.instead(it.rows, id, trimmed)) }
+        viewModelScope.launch {
+            val ok = runCatching { agent.answerInstead(id, trimmed) }.getOrDefault(false)
             if (!ok) _state.update { it.copy(rows = it.rows + AgentRow.Note(nextKey(), "That question had expired.", AgentRow.Tone.ERROR)) }
         }
     }

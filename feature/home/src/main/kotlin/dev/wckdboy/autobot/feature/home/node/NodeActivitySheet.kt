@@ -51,6 +51,9 @@ import java.util.Date
 
 private val TABS = listOf("Requests", "Actions", "Board", "Memory")
 
+/** The Board tab's index, to open the sheet on it. */
+internal const val BOARD_TAB = 2
+
 /** What the node answered, what the agent did, and what it remembers: from the node's own logs. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,8 +63,9 @@ fun NodeActivitySheet(
     onRefresh: () -> Unit,
     onForget: (Long) -> Unit,
     onAnswer: (id: String, text: String, onDone: () -> Unit) -> Unit = { _, _, _ -> },
+    initialTab: Int = 0,
 ) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(initialTab) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),

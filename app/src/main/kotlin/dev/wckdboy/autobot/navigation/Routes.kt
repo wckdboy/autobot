@@ -52,9 +52,13 @@ data class Gallery(val openId: String? = null, val scope: List<String> = emptyLi
 @Serializable
 data object Providers : NavKey
 
-/** The Autobot Agent on a paired Invincible node ([providerId]: its "My node" provider). */
+/**
+ * The Autobot Agent on a paired Invincible node ([providerId]: its "My node" provider); [open] is a
+ * sheet to open on arrival (`activity`, `board`); [session] a conversation to open instead of this
+ * device's own (the one approvals wait in).
+ */
 @Serializable
-data class NodeAgent(val providerId: String) : NavKey
+data class NodeAgent(val providerId: String, val open: String? = null, val session: String? = null) : NavKey
 
 @Serializable
 data object McpServers : NavKey
