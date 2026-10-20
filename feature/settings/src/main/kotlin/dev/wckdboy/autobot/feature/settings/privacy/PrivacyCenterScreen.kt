@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.settings.privacy
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -132,7 +135,7 @@ fun PrivacyCenterScreen(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Header("Audit log (${state.audit.size})")
                     InfoButton("Audit log", "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.", Modifier.weight(1f))
-                    TextButton(onClick = onClearAudit, modifier = Modifier.padding(end = 8.dp)) { Text("Clear") }
+                    TextButton(onClick = onClearAudit, modifier = Modifier.padding(end = 8.dp)) { ActionText("Clear") }
                 }
             }
             if (state.audit.isEmpty()) {
@@ -152,12 +155,7 @@ fun PrivacyCenterScreen(
 
 @Composable
 private fun Header(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-    )
+    SectionLabel(text, modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp))
 }
 
 @Composable
@@ -277,19 +275,12 @@ private fun AuditRowView(row: AuditRow) {
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Surface(
-            shape = MaterialTheme.shapes.extraSmall,
-            color = (if (row.blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary).copy(alpha = 0.15f),
-            contentColor = if (row.blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 2.dp),
-        ) {
-            Text(
-                if (row.blocked) "BLOCKED" else row.method,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+        // The method as a quiet tag; a blocked request says so, in the error colour.
+        Tag(
+            if (row.blocked) "✗ blocked" else row.method,
+            Modifier.padding(top = 2.dp),
+            accent = if (row.blocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Column(Modifier.weight(1f)) {
             Text(
                 row.host + row.path,
@@ -299,7 +290,7 @@ private fun AuditRowView(row: AuditRow) {
             )
             Text(
                 timeFormat.get()!!.format(Date(row.timeMillis)) + " · " + row.detail,
-                style = MaterialTheme.typography.labelSmall,
+                style = AutobotTheme.styles.micro,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -334,7 +325,7 @@ internal fun PanicWipeDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit)
                 Text("Wipe", color = if (matches) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }
 

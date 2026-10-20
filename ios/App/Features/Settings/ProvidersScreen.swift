@@ -114,7 +114,7 @@ struct ProvidersScreen: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        SectionLabel("\(providers.count) providers").padding(.vertical, 8)
+                        SectionLabel(counted(providers.count, "provider")).padding(.vertical, 8)
                         ForEach(providers) { p in row(p).transition(.inkDissolve) }
                     }
                     .animation(.inkDissolve, value: providers.map(\.id))
@@ -232,7 +232,7 @@ private struct PresetPickerSheet: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if groups.isEmpty { MicroLabel("no match · try “Other OpenAI-compatible”").padding(.vertical, 16) }
                     ForEach(groups, id: \.group) { group in
-                        MicroLabel("// \(group.group) · \(group.presets.count)", color: c.primary).padding(.top, 14).padding(.bottom, 4)
+                        MicroLabel("\(group.group) · \(group.presets.count)").padding(.top, 14).padding(.bottom, 4)
                         if group.group == AutobotShared.PresetGroup.localServers.label {
                             Text("127.0.0.1 is this iPhone: these presets only reach a server running on the phone. For a server on your PC or network use its https address (Tailscale or a reverse proxy) — plain http only works on the phone itself.")
                                 .textStyle(.bodySmall)
@@ -473,7 +473,7 @@ private struct ProviderEditorSheet: View {
         case .idle: EmptyView()
         // The Test button carries the loader.
         case .running: EmptyView()
-        case .success(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.primary)
+        case .success(let m): Text("✓ \(m)").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
         case .failure(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.error)
         }
     }

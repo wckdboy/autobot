@@ -12,33 +12,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.motion.DotGeometry
 import dev.wckdboy.autobot.core.designsystem.motion.InkMath
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 
 /**
- * [InkLoader] sizes: a row of five dots inline in text (14dp tall) or in place of a button label
- * (16dp tall), and a 7×3 block (24dp tall) whose wave runs diagonally.
+ * [InkLoader] sizes: three pixels in a row inline in text (14 dp tall), in place of a button
+ * label (16 dp tall), and a larger row (24 dp tall) on its own.
  */
 enum class InkLoaderSize(internal val cols: Int, internal val rows: Int, internal val pitch: Dp, internal val height: Dp) {
-    Inline(5, 1, 4.5.dp, 14.dp),
-    Button(5, 1, 5.dp, 16.dp),
-    Block(7, 3, 8.dp, 24.dp),
+    Inline(3, 1, 7.dp, 14.dp),
+    Button(3, 1, 8.dp, 16.dp),
+    Block(3, 1, 12.dp, 24.dp),
 }
 
-/** A loader dot at full swell fills this much of its pitch. */
-private const val LOADER_DOT = 0.42f
+/** A loader pixel's side, as a fraction of its pitch. */
+private const val LOADER_PIXEL = 0.55f
 
 /**
- * Indeterminate work: the same travelling wave of swelling dots as a loading [InkProgressBar]
- * (one cycle per `loaderCycleMillis`, a `barWaveSlots` wavelength) — one visual language for
- * "working". Dot centres are cached per size; each frame only radii change, drawn as circles
- * on the shared active-tier clock, read only while drawing. Still dots with reduced motion.
+ * Indeterminate work: three square pixels (the symbols' pixel, never a dot field) whose
+ * strength travels along the row, one cycle per `loaderCycleMillis`. Drawn on the shared
+ * active-tier clock, read only while drawing; still with reduced motion.
  */
 @Composable
 fun InkLoader(
@@ -53,22 +53,15 @@ fun InkLoader(
             .size(size.pitch * size.cols, size.height)
             .then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier)
             .drawWithCache {
-                val grid = DotGeometry.loader(this.size.width, this.size.height, size.pitch.toPx(), size.cols, size.rows, LOADER_DOT)
-                val n = size.cols * size.rows
-                val xs = FloatArray(n)
-                val ys = FloatArray(n)
-                val along = FloatArray(n)
-                for (r in 0 until size.rows) for (c in 0 until size.cols) {
-                    val i = r * size.cols + c
-                    xs[i] = grid.x.at(c)
-                    ys[i] = grid.y.at(r)
-                    // The block's wave runs along the diagonal; a row's along the row.
-                    along[i] = (c + r).toFloat()
-                }
-                val full = grid.full
+                val pitch = this.size.width / size.cols
+                val side = (pitch * LOADER_PIXEL).let { kotlin.math.round(it) }.coerceAtLeast(1f)
+                val top = kotlin.math.round((this.size.height - side) / 2f)
                 onDrawBehind {
                     val ms = clock.time * 1000f
-                    for (i in 0 until n) inkDot(color, xs[i], ys[i], full * InkMath.waveScale(InkMath.dotWave(along[i], ms)))
+                    for (c in 0 until size.cols) {
+                        val x = kotlin.math.round(c * pitch + (pitch - side) / 2f)
+                        drawRect(color, Offset(x, top), Size(side, side), alpha = InkMath.waveScale(InkMath.dotWave(c.toFloat(), ms)))
+                    }
                 }
             },
     )

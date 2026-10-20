@@ -7,9 +7,9 @@ struct NavItem<K: Hashable>: Hashable {
 }
 
 /**
- Bottom navigation as in the print mockups: mono labels only, a red dot above the active one,
- a hairline on top. The dot slides to a new tab with ease-out and leaves a one-frame
- registration ghost.
+ Bottom navigation: sentence-case mono labels (11 pt), a small purple square above the active one
+ (the title mark's square), a hairline on top. Active = onSurface, inactive = onSurfaceVariant.
+ The square slides to a new tab with ease-out and leaves a one-frame registration ghost.
  */
 struct AutobotNavBar<K: Hashable>: View {
     let items: [NavItem<K>]
@@ -28,14 +28,14 @@ struct AutobotNavBar<K: Hashable>: View {
                     VStack(spacing: 0) {
                         ZStack {
                             if ghost.key == AnyHashable(item.key) {
-                                Circle().fill(c.primary.opacity(0.4)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
+                                Rectangle().fill(AutobotColors.purple.opacity(0.4)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
                             }
-                            if active { Circle().fill(c.primary).matchedGeometryEffect(id: "dot", in: marker) }
+                            if active { Rectangle().fill(AutobotColors.purple).matchedGeometryEffect(id: "dot", in: marker) }
                         }
                         .frame(width: Tokens.Spacing.navDot, height: Tokens.Spacing.navDot)
                         Spacer().frame(height: Tokens.Spacing.navDotGap)
-                        Text(item.label.uppercased())
-                            .textStyle(.labelMedium)
+                        Text(item.label.sentenceCased)
+                            .textStyle(.labelSmall, weight: active ? 600 : nil)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                             .foregroundStyle(active ? c.onBackground : c.onSurfaceVariant)
@@ -46,7 +46,7 @@ struct AutobotNavBar<K: Hashable>: View {
                 .buttonStyle(PressStyle())
                 // A tab bar holds four labels at any size: past xxxLarge a long press shows the
                 // label in the large content viewer, as the system tab bar does.
-                .accessibilityShowsLargeContentViewer { Text(item.label) }
+                .accessibilityShowsLargeContentViewer { Text(item.label.sentenceCased) }
                 .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
             }
         }

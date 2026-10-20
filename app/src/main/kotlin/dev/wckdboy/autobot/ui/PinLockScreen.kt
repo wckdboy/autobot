@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.ui
 
+import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,7 +42,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.panic.LockStatus
 import dev.wckdboy.autobot.shared.panic.PanicCopy
@@ -83,11 +84,11 @@ fun PinLockScreen(
 
     Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
-            modifier = Modifier.fillMaxSize().inkGround().padding(horizontal = 32.dp, vertical = 24.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(Icons.Filled.Lock, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+            AutobotMark(size = 32.dp)
             SectionLabel(PanicCopy.LOCKED)
             Text(PanicCopy.ENTER_PIN, style = MaterialTheme.typography.headlineSmall)
             Dots(pin.length)
@@ -138,9 +139,9 @@ private fun Dots(count: Int) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(count.coerceAtMost(PinRules.MAX_LENGTH)) {
-            Box(Modifier.size(10.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+            Box(Modifier.size(10.dp).background(AutobotColors.Purple))
         }
-        if (count == 0) Box(Modifier.size(10.dp).border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), CircleShape))
+        if (count == 0) Box(Modifier.size(10.dp).border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)))
     }
 }
 
@@ -154,7 +155,7 @@ private fun Keypad(enabled: Boolean, biometrics: Boolean, onDigit: (Char) -> Uni
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (biometrics) {
                 Key("", true, description = "Use biometrics", onClick = onBiometrics) {
-                    Text("BIO", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.primary)
+                    Text("Bio", style = AutobotTheme.styles.action, color = MaterialTheme.colorScheme.onSurface)
                 }
             } else {
                 Spacer(Modifier.size(KEY))

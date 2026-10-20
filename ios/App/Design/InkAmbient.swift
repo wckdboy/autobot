@@ -498,10 +498,12 @@ extension View {
     /// Prints this title's primary plate into register when the screen inks in ([inkArrive]).
     func titleGhost(_ color: Color) -> some View { modifier(TitleGhost(color: color)) }
 
-    /// A living paper ground behind this view (motion specs v2 §2, v3 §2) while [when]; [fade]
-    /// thins the dots where text sits.
+    /**
+     Was a living paper dot field behind this view (motion specs v2 §2, v3 §2). App UI v4 has no
+     dot fields: surfaces are flat, so this draws nothing (kept so call sites read as before).
+     */
     func inkGround(_ when: Bool = true, plate: Bool = true, fade: UnitPoint? = nil) -> some View {
-        background { if when { InkGround(plate: plate, fade: fade).ignoresSafeArea() } }
+        self
     }
 }
 

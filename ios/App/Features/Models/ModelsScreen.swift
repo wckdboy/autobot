@@ -9,7 +9,7 @@ enum ModelsTab: String, CaseIterable, Hashable {
     var label: String {
         switch self {
         case .recommended: "for this phone"
-        case .huggingFace: "hugging face"
+        case .huggingFace: "Hugging Face"
         case .civitai: "civitai"
         }
     }
@@ -306,7 +306,7 @@ struct ModelsScreen: View {
         let installedIds = Set(app.library.models.map(\.id))
         VStack(spacing: 0) {
             AutobotTopBar(title: "Models") {
-                TextAction("Compute", color: c.onSurface) { nav.push(.compute) }
+                TextAction("Compute", color: c.onSurfaceVariant) { nav.push(.compute) }
                 .accessibilityHint("Benchmarks for this phone")
             }
             ScrollView {
@@ -467,12 +467,11 @@ struct SearchNoticeView: View {
     }
 }
 
-/// No search results yet: a patch of living paper.
+/// No search results yet: a flat gap (v4: no dot field).
 private struct EmptyResults: View {
     var body: some View {
         Color.clear
-            .frame(height: 180)
-            .inkGround(fade: .bottom)
+            .frame(height: 48)
             .accessibilityHidden(true)
     }
 }
@@ -529,7 +528,7 @@ private struct InstalledRow: View {
         RunRow(title: model.title, subtitle: subtitle, action: opens ? onUse : nil) {
             ZStack {
                 switch model.status {
-                case .ready: Tag("ready", accent: c.primary, filled: true)
+                case .ready: Tag("✓ ready")
                 case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary) { app.downloader.pause(model.id) }
                 case .queued: Tag("queued") { app.downloader.pause(model.id) }
                 case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }
@@ -574,7 +573,7 @@ private struct CatalogRow: View {
             if installed {
                 Tag("added", accent: c.onSurfaceVariant)
             } else {
-                Tag("get", accent: c.primary, filled: true, action: onGet)
+                Tag("get", accent: c.onSurface, action: onGet)
             }
         }
     }
@@ -613,7 +612,7 @@ private struct RepoSheet: View {
                         let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
                         RunRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.lowercased().contains("original") ? "gpu" : "neural engine")") {
                             if let fit, fit != .good { Tag(fit.label, accent: fitColor(fit, c)) }
-                            Tag("get", accent: c.primary, filled: true) { model.installCoreML(repo, folder: folder) }
+                            Tag("get", accent: c.onSurface) { model.installCoreML(repo, folder: folder) }
                         }
                     }
                 }
@@ -627,7 +626,7 @@ private struct RepoSheet: View {
                         if format == .safetensors || format == .ckpt {
                             PcOnlyGetTag { model.installFile(repo, f.path) }
                         } else {
-                            Tag("get", accent: c.primary, filled: true) { model.installFile(repo, f.path) }
+                            Tag("get", accent: c.onSurface) { model.installFile(repo, f.path) }
                         }
                     }
                 }
@@ -656,7 +655,7 @@ private struct PcOnlyGetTag: View {
             }
         } else {
             Tag("pc", accent: c.onSurfaceVariant)
-            Tag("get", accent: c.primary, filled: true) { confirm = true }
+            Tag("get", accent: c.onSurface) { confirm = true }
         }
     }
 }

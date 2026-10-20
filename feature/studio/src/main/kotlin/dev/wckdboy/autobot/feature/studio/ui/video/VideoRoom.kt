@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
@@ -81,7 +81,7 @@ fun VideoRoom(state: VideoRoomState, shell: StudioShellState, actions: VideoActi
             if (running != null) {
                 val preview = rememberDecoded(running.preview?.bytes)
                 Column(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                    DevelopingHalftone(preview, Modifier.fillMaxSize(), progress = running.progress, loading = running.steps == 0, seed = 5f)
+                    DevelopingPreview(preview, Modifier.fillMaxSize())
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (running.steps == 0) InkLoader(contentDescription = null)

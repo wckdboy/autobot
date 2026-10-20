@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.settings.recipes
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -195,8 +196,8 @@ private fun RecipeListRow(
         }
         row.notes.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotColors.Amber) }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { onRunNow(row.id) }, enabled = !row.running) { Text(if (row.running) "Running…" else RecipeCopy.RUN_NOW) }
-            row.lastChat?.let { chat -> TextButton(onClick = { onOpenChat(chat) }) { Text(RecipeCopy.OPEN_RESULT) } }
+            TextButton(onClick = { onRunNow(row.id) }, enabled = !row.running) { ActionText(if (row.running) "Running…" else RecipeCopy.RUN_NOW) }
+            row.lastChat?.let { chat -> TextButton(onClick = { onOpenChat(chat) }) { ActionText(RecipeCopy.OPEN_RESULT) } }
         }
     }
 }
@@ -272,7 +273,7 @@ private fun RecipeEditorSheet(
                 schedule.minute?.let { minute ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(schedule.label(), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                        TextButton(onClick = { pickingTime = true }) { Text(RecipeSchedule.clock(minute)) }
+                        TextButton(onClick = { pickingTime = true }) { ActionText(RecipeSchedule.clock(minute)) }
                     }
                 } ?: Text(schedule.label(), style = MaterialTheme.typography.bodyLarge)
 
@@ -320,9 +321,9 @@ private fun RecipeEditorSheet(
 
                 problems.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (!isNew) TextButton(onClick = { confirmDelete = true }) { Text(RecipeCopy.DELETE, color = MaterialTheme.colorScheme.error) }
+                    if (!isNew) TextButton(onClick = { confirmDelete = true }) { ActionText(RecipeCopy.DELETE, color = MaterialTheme.colorScheme.error) }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    TextButton(onClick = onDismiss) { ActionText("Cancel") }
                     Button(onClick = onSave, enabled = problems.isEmpty()) { Text("Save") }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -348,9 +349,9 @@ private fun RecipeEditorSheet(
                         )
                     }
                     pickingTime = false
-                }) { Text("OK") }
+                }) { ActionText("OK") }
             },
-            dismissButton = { TextButton(onClick = { pickingTime = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { pickingTime = false }) { ActionText("Cancel") } },
             text = { TimePicker(picker) },
         )
     }
@@ -363,9 +364,9 @@ private fun RecipeEditorSheet(
                 TextButton(onClick = {
                     confirmDelete = false
                     onDelete()
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { ActionText("Cancel") } },
         )
     }
 }

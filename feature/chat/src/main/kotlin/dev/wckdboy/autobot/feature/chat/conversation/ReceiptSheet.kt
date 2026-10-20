@@ -41,11 +41,11 @@ internal fun ReceiptLine(receipt: Receipt?, onOpen: (Receipt) -> Unit) {
     Box(Modifier.stamp(receipt?.line, enabled = receipt != null)) {
         if (receipt != null) {
             val accent = when {
-                receipt.onDevice -> MaterialTheme.colorScheme.primary
+                receipt.onDevice -> MaterialTheme.colorScheme.onSurface
                 receipt.models.any { it.policy == TRAINS } -> AutobotTheme.inks.amber
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
-            Tag("▤ ${receipt.line}", accent = accent, filled = receipt.onDevice, onClick = { onOpen(receipt) })
+            Tag("▤ ${receipt.line}", accent = accent, onClick = { onOpen(receipt) })
         }
     }
 }
@@ -81,7 +81,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
 
             receipt.nodes.forEach { node ->
                 Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel("on ${node.node}", color = MaterialTheme.colorScheme.primary)
+                MicroLabel("on ${node.node}")
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         node.models.joinToString(", ").ifEmpty { "no model ran" },
@@ -131,7 +131,7 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
 
             receipt.cascade?.let { cascade ->
                 Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel(if (cascade.role == "cloud") "phone first · ${cascade.followUpTarget} follow-up" else "phone first", color = MaterialTheme.colorScheme.primary)
+                MicroLabel(if (cascade.role == "cloud") "phone first · ${cascade.followUpTarget} follow-up" else "phone first")
                 Text(cascade.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     cascade.details.forEach { Tag(it) }

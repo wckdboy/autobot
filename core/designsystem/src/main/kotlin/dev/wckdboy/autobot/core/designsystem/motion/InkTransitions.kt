@@ -20,11 +20,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.DotBatch
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -73,12 +71,9 @@ fun Modifier.misregisterEnter(animate: Boolean): Modifier {
 /** Rows are given this long to leave the list after their delete before they show again (e.g. it failed). */
 private const val DISSOLVE_RESTORE_MILLIS = 2_000L
 
-/** Cell of the dissolve's dot mask. */
-private val DISSOLVE_CELL = 6.dp
-
 /**
- * List deletion: [dissolve] a row's key, and its row (wearing [inkDissolve]) shrinks into
- * halftone dots and collapses over `dissolveMillis`; then the real delete runs. With reduced
+ * List deletion: [dissolve] a row's key, and its row (wearing [inkDissolve]) fades and
+ * collapses over `dissolveMillis`; then the real delete runs. With reduced
  * motion the delete runs at once.
  */
 @Stable
@@ -113,45 +108,31 @@ fun rememberInkDissolve(): InkDissolveState {
 }
 
 /**
- * The row half of [InkDissolveState]: while its [key] dissolves, the row is masked by a dot grid
- * whose dots shrink to nothing (lightly staggered along the diagonal) and its height collapses.
- * Progress is read only in layout and draw; untouched rows allocate nothing.
+ * The row half of [InkDissolveState]: while its [key] dissolves, the row fades out and its height
+ * collapses. Progress is read only in layout and draw; untouched rows allocate nothing.
  */
 @Composable
 fun Modifier.inkDissolve(state: InkDissolveState, key: Any): Modifier {
-    // Rows of a long list pay one map read; the animation and its path exist only while dissolving.
+    // Rows of a long list pay one map read; the animation exists only while dissolving.
     if (!state.isDissolving(key)) return this
     val progress = remember(key) { Animatable(0f) }
-    val batch = remember { DotBatch() }
     LaunchedEffect(key) { progress.animateTo(1f, tween(Motion.dissolveMillis, easing = LinearEasing)) }
-    return dissolveAt(batch) { progress.value }
+    return dissolveAt { progress.value }
 }
 
 /**
- * The dissolve at [progress] (0…1 of `dissolveMillis`; read only in layout and draw): the row is
- * drawn clipped to one path of dots that shrink to nothing (no offscreen layer), and its height
- * collapses. The bounds clip sits outside the collapsing layout so the row is cut to its height.
+ * The dissolve at [progress] (0…1 of `dissolveMillis`; read only in layout and draw): the row
+ * fades and its height collapses. The bounds clip sits outside the collapsing layout so the row
+ * is cut to its height.
  */
-internal fun Modifier.dissolveAt(batch: DotBatch, progress: () -> Float): Modifier = this
+internal fun Modifier.dissolveAt(progress: () -> Float): Modifier = this
     .clipToBounds()
     .layout { measurable, constraints ->
         val p = measurable.measure(constraints)
         val h = (p.height * InkMath.dissolveHeight(progress())).roundToInt()
         layout(p.width, max(0, h)) { p.place(0, 0) }
     }
-    .drawWithContent {
-        val t = progress()
-        val c = InkMath.cappedCell(size.width, size.height, DISSOLVE_CELL.toPx())
-        val cols = (size.width / c).toInt() + 1
-        val rows = (size.height / c).toInt() + 1
-        batch.reset()
-        for (r in 0 until rows) for (col in 0 until cols) {
-            // 0.72 × cell covers the cell: at t = 0 the dots hide nothing.
-            val m = InkMath.dissolveDot(t, col / cols.toFloat(), r / rows.toFloat())
-            batch.dot((col + 0.5f) * c, (r + 0.5f) * c, c * 0.72f * m)
-        }
-        clipPath(batch.path) { this@drawWithContent.drawContent() }
-    }
+    .graphicsLayer { alpha = 1f - InkMath.clamp01(progress() / InkMath.DISSOLVE_COLLAPSE_START) }
 
 /**
  * A selection indicator's slide between slots (tabs, segmented controls): eases out over

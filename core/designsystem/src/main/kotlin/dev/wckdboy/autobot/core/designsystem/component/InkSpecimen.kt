@@ -2,7 +2,6 @@ package dev.wckdboy.autobot.core.designsystem.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,8 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * The ink components on one sheet, for pixel inspection in debug builds: the dot bar at fixed
- * progress and indeterminate, the loaders, a living card and the paper ground.
+ * The progress components on one sheet, for inspection in debug builds: the flat bar at fixed
+ * progress and indeterminate, the loaders, an empty canvas and an empty state.
  */
 @Composable
 fun InkSpecimen() {
@@ -24,18 +23,18 @@ fun InkSpecimen() {
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        ScreenTitle("Specimen")
         for (p in listOf(0f, 0.25f, 0.5f, 1f)) {
-            MicroLabel("bar ${(p * 100).toInt()}%")
-            InkProgressBar(p, Modifier.fillMaxWidth().height(6.dp), state = InkBarState.Idle)
+            MicroLabel("Bar ${(p * 100).toInt()}%")
+            InkProgressBar(p, Modifier.fillMaxWidth().height(2.dp), state = InkBarState.Idle)
         }
-        MicroLabel("bar indeterminate")
-        InkProgressBar(null, Modifier.fillMaxWidth().height(6.dp))
-        MicroLabel("loaders")
+        MicroLabel("Bar indeterminate")
+        InkProgressBar(null, Modifier.fillMaxWidth().height(2.dp))
+        MicroLabel("Loaders")
         InkLoader()
         InkLoaderBlock()
-        MicroLabel("living card")
-        Box(Modifier.fillMaxWidth().height(120.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh).inkCard())
-        MicroLabel("paper ground")
-        Box(Modifier.fillMaxWidth().height(160.dp).inkGround())
+        Segmented(listOf("txt2img", "img2img", "inpaint"), "img2img", {}, { it }, Modifier.fillMaxWidth())
+        EmptyCanvas(Modifier.fillMaxWidth().height(120.dp), hint = "Nothing generated yet")
+        EmptyState("No chats yet.", action = "New chat", onAction = {})
     }
 }

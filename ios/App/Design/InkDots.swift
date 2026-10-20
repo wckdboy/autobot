@@ -131,7 +131,11 @@ extension InkBarState {
 }
 
 /**
- Progress bar as a row of dots (motion spec v3 §1). Empty: faint pin dots. Determinate: dots up to
+ Progress bar. App UI v4: a flat bar (no dot fill), a filled run in the ink over a flat track in
+ the pin colour, [height] points tall; indeterminate is a short run sliding along the track. The
+ dot geometry below ([InkBar.radii], [InkBar.draw]) is kept for the motion tests.
+
+ Before v4, a row of dots (motion spec v3 §1). Empty: faint pin dots. Determinate: dots up to
  the progress point fill, growing from small at the start to full at the head, the head easing in
  so growth is continuous; values ease over `progressMillis`. Running adds a ±10% wave to the fill;
  indeterminate is a travelling wave of swelling dots. Paused: dimmed with a `‖` mark. Error: the
@@ -200,7 +204,7 @@ private struct InkBarCanvas: View, Animatable {
         InkTimeline(active: live) { date in
             Canvas { context, size in
                 InkProbe.hit("ink.draw")
-                InkBar.draw(&context, size: size, state: state, fraction: fraction, seconds: live ? date.timeIntervalSinceReferenceDate : 0, colors: colors)
+                InkBar.drawFlat(&context, size: size, state: state, fraction: fraction, seconds: live ? date.timeIntervalSinceReferenceDate : 0, colors: colors)
             }
         }
     }
@@ -208,6 +212,24 @@ private struct InkBarCanvas: View, Animatable {
 
 /// Bar drawing, shared by the view and the frame tests.
 enum InkBar {
+    /// The v4 flat bar: a track in the pin colour and a run of ink (sliding when indeterminate).
+    static func drawFlat(_ context: inout GraphicsContext, size: CGSize, state: InkBarState, fraction: Double, seconds: Double, colors: InkBarColors) {
+        let h = min(size.height, max(2, size.height / 1.5))
+        let y = (size.height - h) / 2
+        context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: h)), with: .color(colors.pin))
+        switch state {
+        case .indeterminate:
+            let run = size.width * 0.3
+            let t = InkMath.cycle(seconds / 1.4)
+            let x = -run + (size.width + run) * t
+            context.fill(Path(CGRect(x: x, y: y, width: run, height: h)), with: .color(colors.ink))
+        default:
+            let ink = state.isPaused ? colors.mark : colors.ink
+            let w = size.width * InkMath.clamp01(fraction)
+            if w > 0 { context.fill(Path(CGRect(x: 0, y: y, width: w, height: h)), with: .color(ink)) }
+        }
+    }
+
     /// The dots' radii (pixels) slot by slot for [count] slots: `nil` marks the paused `‖` slot.
     /// Pins are `barEmptyDotScale` of the full radius, the fill ramps from `barFillStartScale`
     /// (eased in at the head, whose position is linear in [fraction]), running adds the wave.

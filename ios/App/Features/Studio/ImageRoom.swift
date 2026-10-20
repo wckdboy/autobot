@@ -429,7 +429,7 @@ struct ImageRoom: View {
                     } else if let asset {
                         CanvasImage(asset: asset)
                     } else {
-                        Color.clear.inkCard(seed: 0.6, fade: .bottomLeading, cornerRadius: 0)
+                        Color.clear
                             .accessibilityLabel("Empty canvas")
                     }
                     if let running {
@@ -530,18 +530,8 @@ struct ImageRoom: View {
     }
 
     private func chip(_ label: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label.uppercased())
-                .textStyle(.micro)
-                .lineLimit(1)
-                .foregroundStyle(active ? c.background : c.onBackground)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(active ? c.onBackground : Color.clear))
-                .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.onBackground, lineWidth: 1))
-        }
-        .buttonStyle(PressStyle())
-        .accessibilityAddTraits(active ? .isSelected : [])
+        Tag(label, accent: active ? c.primary : c.onSurfaceVariant, filled: active, action: action)
+            .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     @ViewBuilder private var backendControls: some View {
@@ -751,7 +741,7 @@ private struct LoraPicker: View {
                         Button { onPick(name) } label: {
                             HStack {
                                 Text(name).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                                if selected.contains(name) { MicroLabel("added", color: c.primary) }
+                                if selected.contains(name) { MicroLabel("added") }
                             }
                             .padding(.vertical, 10)
                             .contentShape(Rectangle())

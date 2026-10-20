@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.settings
 
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
@@ -215,9 +217,9 @@ fun SettingsRoute(
                 TextButton(onClick = {
                     viewModel.deleteAllChats()
                     confirmDeleteChats = false
-                }) { Text("DELETE ALL", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText("Delete all", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { Text("CANCEL") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { ActionText("Cancel") } },
         )
     }
     if (showWipe) {
@@ -301,6 +303,7 @@ fun SettingsScreen(
         topBar = {
             AutobotTopBar(
                 title = "Settings",
+                mark = onBack == null,
                 navigation = onBack?.let { back -> { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } } },
             )
         },
@@ -324,22 +327,13 @@ fun SettingsScreen(
                 enabled = state.appLockAvailable && !pinLocks,
             )
             if (pinLocks || (state.appLockEnabled && state.appLockAvailable)) {
-                Text(
-                    "Lock after",
-                    modifier = Modifier.padding(horizontal = 16.dp).padding(top = 4.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ChoiceTitle("Lock after")
                 FlowRow(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     LockTimeoutOptions.forEach { (millis, label) ->
-                        FilterChip(
-                            selected = state.lockTimeoutMillis == millis,
-                            onClick = { onLockTimeout(millis) },
-                            label = { Text(label) },
-                        )
+                        ChoiceChip(label, selected = state.lockTimeoutMillis == millis, onClick = { onLockTimeout(millis) })
                     }
                 }
             }
@@ -351,17 +345,13 @@ fun SettingsScreen(
                 onRedactCloud,
                 info = "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
             )
-            Text(
-                "Phone first",
-                modifier = Modifier.padding(horizontal = 16.dp).padding(top = 8.dp),
-                style = MaterialTheme.typography.bodyLarge,
-            )
+            ChoiceTitle("Phone first")
             Segmented(
                 CascadePolicy.entries,
                 state.cascade,
                 onCascade,
-                { it.title.lowercase() },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                { it.title },
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
             )
             Text(
                 state.cascade.detail + " " + CASCADE_SCOPE,
@@ -401,13 +391,13 @@ fun SettingsScreen(
             Divider()
 
             SectionHeader(appearance)
-            // The ink segmented control: its selection block slides and leaves a registration ghost.
+            ChoiceTitle("Theme")
             Segmented(
                 ThemeMode.entries,
                 state.themeMode,
                 onThemeMode,
-                { it.name.lowercase() },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                { it.name.lowercase().replaceFirstChar(Char::uppercaseChar) },
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
             )
             SwitchRow("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
             SwitchRow("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the ink palette.")
@@ -432,7 +422,13 @@ private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
 private fun Note(text: String, color: androidx.compose.ui.graphics.Color) =
     Text(text, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = color)
 
-/** `// PRIVACY & SECURITY`: the app's section label (as on iOS). */
+/** The title over a choice row (Lock after, Phone first, Theme): a row title without a row. */
+@Composable
+private fun ChoiceTitle(text: String) {
+    Text(text, Modifier.padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+}
+
+/** `Privacy & security`: the app's section label (as on iOS). */
 @Composable
 internal fun SectionHeader(text: String) {
     SectionLabel(text, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp))

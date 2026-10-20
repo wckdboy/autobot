@@ -30,8 +30,8 @@ import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.inkCard
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
+import dev.wckdboy.autobot.core.designsystem.component.ScreenTitle
+import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
 import java.io.File
@@ -119,20 +119,18 @@ private fun Sheet() {
         InkProgressBar(0.4f, Modifier.fillMaxWidth().height(6.dp), state = InkBarState.Paused)
         MicroLabel("bar · error 70%")
         InkProgressBar(0.7f, Modifier.fillMaxWidth().height(6.dp), state = InkBarState.Error)
-        MicroLabel("bar · thin 2dp 45% (draws 4dp dots)")
+        MicroLabel("bar · thin 2dp 45%")
         InkProgressBar(0.45f, Modifier.fillMaxWidth().height(2.dp))
         Segmented(listOf("txt2img", "img2img", "inpaint"), "img2img", {}, { it }, Modifier.fillMaxWidth())
         Box(
             Modifier.fillMaxWidth().height(120.dp).clip(MaterialTheme.shapes.extraSmall)
-                .background(MaterialTheme.colorScheme.surfaceContainer).inkCard().padding(14.dp),
+                .background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp),
         ) {
             Column {
-                Text("Living card", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                MicroLabel("halftone · slow travelling wave")
+                ScreenTitle("Flat card", style = MaterialTheme.typography.titleMedium)
+                MicroLabel("no texture · hairlines only")
             }
         }
-        Box(Modifier.fillMaxWidth().height(70.dp).inkGround(), contentAlignment = Alignment.Center) {
-            MicroLabel("nothing generated yet")
-        }
+        EmptyCanvas(Modifier.fillMaxWidth().height(70.dp), hint = "Nothing generated yet")
     }
 }

@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.feature.studio.ui
 
+import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.Notice
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -56,7 +60,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.SelectField
@@ -96,11 +99,11 @@ val LocalAssetLoader = staticCompositionLocalOf<AssetLoader> {
     }
 }
 
-/** An asset's preview: its thumbnail (image / video) or waveform (audio); halftone while it loads. */
+/** An asset's preview: its thumbnail (image / video) or waveform (audio); a flat panel while it loads. */
 @Composable
 fun AssetThumb(asset: StudioAsset, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
     val loader = LocalAssetLoader.current
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow), contentAlignment = Alignment.Center) {
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
         when (asset.type) {
             AssetType.AUDIO -> {
                 val peaks by produceState<FloatArray?>(null, asset.id) { value = loader.peaks(asset.id) }
@@ -111,16 +114,14 @@ fun AssetThumb(asset: StudioAsset, modifier: Modifier = Modifier, contentScale: 
                 val img = image
                 if (img != null) {
                     Image(img, contentDescription = null, contentScale = contentScale, modifier = Modifier.fillMaxSize())
-                } else {
-                    HalftoneField(Modifier.fillMaxSize(), cell = 7.dp, dot = MaterialTheme.colorScheme.outlineVariant)
                 }
                 if (asset.type == AssetType.VIDEO) {
-                    Tag("▶ ${duration(asset.durationMs)}", Modifier.align(Alignment.BottomStart).padding(4.dp), accent = MaterialTheme.colorScheme.primary, filled = true)
+                    Tag("▶ ${duration(asset.durationMs)}", Modifier.align(Alignment.BottomStart).padding(4.dp), filled = true)
                 }
             }
         }
         if (asset.favorite) {
-            Text("★", Modifier.align(Alignment.TopEnd).padding(4.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            Text("★", Modifier.align(Alignment.TopEnd).padding(4.dp), color = AutobotTheme.inks.amber, style = AutobotTheme.styles.action)
         }
     }
 }
@@ -134,7 +135,7 @@ fun rememberDecoded(bytes: ByteArray?, maxSide: Int = 768): ImageBitmap? {
     return state
 }
 
-/** A clip's waveform as printed bars; [progress] (0…1) inks the played part red. */
+/** A clip's waveform as bars; [progress] (0…1) marks the played part in purple. */
 @Composable
 fun Waveform(
     peaks: FloatArray?,
@@ -200,7 +201,7 @@ fun ControlSheet(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(if (expanded) "HIDE ▾" else "CONTROLS ▴", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.primary)
+            Text(if (expanded) "Hide ▾" else "Controls ▴", style = AutobotTheme.styles.action, color = MaterialTheme.colorScheme.onSurface)
         }
         AnimatedVisibility(
             visible = expanded,
@@ -216,16 +217,10 @@ fun ControlSheet(
     }
 }
 
-/** A red line with the message and a dismiss button. */
+/** What went wrong, as a notice in the error colour, and a dismiss button. */
 @Composable
 fun ErrorLine(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primary).padding(start = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.weight(1f))
-        IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp)) }
-    }
+    Notice(message, modifier, tone = NoticeTone.ERROR, action = "Dismiss", onAction = onDismiss)
 }
 
 /** "runs on <backend>" — where a job's work happens, said before it starts. */
@@ -233,42 +228,29 @@ fun ErrorLine(message: String, onDismiss: () -> Unit, modifier: Modifier = Modif
 fun RunsOn(label: String?, modifier: Modifier = Modifier) {
     val local = label == null
     Text(
-        if (local) "● RUNS ON THIS PHONE" else "◐ RUNS ON ${label!!.uppercase(Locale.ROOT)}",
+        if (local) "● Runs on this phone" else "◐ Runs on $label",
         modifier.semantics { contentDescription = if (local) "Runs on this phone" else "Runs on $label" },
         style = AutobotTheme.styles.micro,
-        color = if (local) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
-/** An empty room: a heading, a plain explanation and what to do. */
+/** An empty room: the pixel a, a heading, a plain explanation and what to do. */
 @Composable
 fun EmptyRoom(title: String, body: String, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) {
     Column(modifier.fillMaxWidth().padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        AutobotMark(size = 20.dp)
         SectionLabel(title, Modifier.semantics { heading() })
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         actions()
     }
 }
 
-/** A chip row of choices; the selected one is printed solid. */
+/** A row of choices: the selected one reads in onSurface over the purple bar ([ChoiceChip]). */
 @Composable
 fun <T> ChipRow(options: List<T>, selected: T?, onSelect: (T) -> Unit, label: (T) -> String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
     Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        options.forEach { option ->
-            val active = option == selected
-            Text(
-                label(option).uppercase(Locale.ROOT),
-                modifier = Modifier
-                    .background(if (active) MaterialTheme.colorScheme.onBackground else Color.Transparent, MaterialTheme.shapes.extraSmall)
-                    .border(1.dp, MaterialTheme.colorScheme.onBackground, MaterialTheme.shapes.extraSmall)
-                    .clickable { onSelect(option) }
-                    .semantics { stateDescription = if (active) "Selected" else "Not selected" }
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                style = AutobotTheme.styles.micro,
-                color = if (active) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-            )
-        }
+        options.forEach { option -> ChoiceChip(label(option), selected = option == selected, onClick = { onSelect(option) }) }
         trailing()
     }
 }

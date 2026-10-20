@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.home
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import androidx.compose.ui.Alignment
+import java.util.Locale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,23 +26,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.CountBadge
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneImage
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.ModeCard
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.RouteTag
 import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.ProvideInkAmbient
-import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
-import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 
 @Composable
 fun RunRoute(
@@ -69,25 +68,20 @@ fun RunScreen(
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
 ) {
-    // The image card's empty hero drifts as ambient paper; still while the phone's CPU works.
-    val ambient = rememberInkAmbient(heavyWork = state.busy)
-    Scaffold(topBar = { AutobotTopBar(actions = { if (state.live > 0) CountBadge("${state.live} LIVE") }) }) { padding ->
-        // One ambient clock for the hero and the living mode cards.
-        ProvideInkAmbient(ambient) {
+    Scaffold(topBar = { AutobotTopBar(actions = { if (state.live > 0) CountBadge("${state.live} live") }) }) { padding ->
+        run {
             LazyColumn(
-                Modifier.padding(padding).fillMaxSize().ambientTouch(ambient),
+                Modifier.padding(padding).fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 item {
-                    SectionLabel(state.status)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Run\nanything.", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.onBackground)
-                    Spacer(Modifier.height(18.dp))
+                    SectionLabel(state.status.replaceFirstChar { it.titlecase(Locale.ROOT) })
+                    Spacer(Modifier.height(14.dp))
                 }
                 // One 2-column grid: every row splits at the same x with the same gutter.
                 item {
                     // Grows past 268 dp when a large font needs it (Chat and Agent each stack a tag, title and model).
-                    Row(Modifier.fillMaxWidth().heightIn(min = 268.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 236.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(GRID_GUTTER)) {
                         val last by produceState<ImageBitmap?>(null, state.lastImageId) { value = state.lastImageId?.let { actions.thumbnail(it) } }
                         ModeCard(
                             index = "01",
@@ -96,12 +90,15 @@ fun RunScreen(
                             route = state.imageRoute,
                             onClick = onOpenImagine,
                             modifier = Modifier.weight(1f).fillMaxSize(),
-                            background = {
-                                val image = last
-                                if (image != null) {
-                                    HalftoneImage(image, Modifier.fillMaxSize(), cell = 7.dp)
-                                } else {
-                                    HalftoneField(Modifier.fillMaxSize(), cell = 8.dp, ambient = ambient)
+                            // The last image, as it is, above the words; nothing when there is none.
+                            background = last?.let { image ->
+                                {
+                                    androidx.compose.foundation.Image(
+                                        image,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.extraSmall),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    )
                                 }
                             },
                         )
@@ -129,9 +126,9 @@ fun RunScreen(
                 // Nothing run yet: no empty section (the cards above are the way in).
                 if (state.recent.isNotEmpty()) {
                     item {
-                        Row {
-                            MicroLabel("recent runs", Modifier.weight(1f).padding(top = 14.dp))
-                            TextButton(onClick = onOpenAllRuns) { Text("ALL →", style = MaterialTheme.typography.labelMedium) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SectionLabel("Recent runs", Modifier.weight(1f))
+                            TextButton(onClick = onOpenAllRuns) { ActionText("All", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }

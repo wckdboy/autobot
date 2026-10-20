@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.studio.ui.image
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import dev.wckdboy.autobot.core.diffusion.Aspect
 import dev.wckdboy.autobot.core.diffusion.SizeSupport
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -52,9 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
@@ -220,20 +220,14 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
         Modifier
             .fillMaxWidth()
             .aspectRatio(if (current != null && current.height > 0 && running == null) (current.width.toFloat() / current.height).coerceIn(0.5f, 2f) else ratio)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow),
+            .background(MaterialTheme.colorScheme.surfaceContainer),
     ) {
         when {
             running != null -> {
                 val preview = rememberDecoded(running.preview?.bytes)
-                DevelopingHalftone(
-                    preview = preview,
-                    modifier = Modifier.fillMaxSize(),
-                    progress = running.progress,
-                    loading = running.steps == 0,
-                    seed = (running.createdAt % 997).toFloat(),
-                )
+                DevelopingPreview(preview, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 if (running.steps > 0) {
-                    Tag("step ${running.step}/${running.steps}", Modifier.align(Alignment.BottomStart).padding(8.dp), accent = MaterialTheme.colorScheme.primary, filled = true)
+                    Tag("step ${running.step}/${running.steps}", Modifier.align(Alignment.BottomStart).padding(8.dp), filled = true)
                 } else {
                     InkLoader(Modifier.align(Alignment.BottomStart).padding(10.dp), contentDescription = running.status ?: "Loading the model")
                 }
@@ -252,7 +246,7 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
                 Image(state.inputImage, contentDescription = "Input image", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 if (state.inpaint) MaskOverlay(state.mask, Modifier.fillMaxSize())
             }
-            else -> HalftoneField(Modifier.fillMaxSize(), cell = 9.dp, dot = MaterialTheme.colorScheme.outlineVariant)
+            else -> EmptyCanvas(Modifier.fillMaxSize(), hint = "Describe an image, then Generate.")
         }
     }
 }
@@ -263,7 +257,7 @@ private fun RunBar(state: ImageRoomState, pending: Int, onRun: () -> Unit, onGri
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             RunsOn(state.backend?.takeIf { !it.onDevice }?.name, Modifier.weight(1f))
-            if (pending > 0) MicroLabel("$pending in queue", color = MaterialTheme.colorScheme.primary)
+            if (pending > 0) MicroLabel("$pending in queue")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GhostButton("X/Y grid", onGrid, Modifier.weight(1f), enabled = state.canRun)
@@ -472,7 +466,7 @@ private fun LoraSheet(available: List<String>, selected: Set<String>, onPick: (S
                 filtered.forEach { name ->
                     Row(Modifier.fillMaxWidth().clickable(enabled = name !in selected) { onPick(name) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(name, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (name in selected) MicroLabel("added", color = MaterialTheme.colorScheme.primary)
+                        if (name in selected) MicroLabel("added")
                     }
                 }
             }

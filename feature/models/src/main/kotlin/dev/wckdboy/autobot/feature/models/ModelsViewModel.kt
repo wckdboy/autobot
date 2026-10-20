@@ -61,21 +61,21 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class ModelsTab(val label: String) { RECOMMENDED("for this phone"), HUGGING_FACE("hugging face"), CIVITAI("civitai") }
+enum class ModelsTab(val label: String) { RECOMMENDED("For this phone"), HUGGING_FACE("Hugging Face"), CIVITAI("Civitai") }
 
 /** What the Hub search looks for. */
 enum class HfScope(val label: String, val kind: ModelKind) {
-    CHAT("chat", ModelKind.CHAT),
-    CODE("code", ModelKind.CODE),
-    IMAGE("image", ModelKind.IMAGE),
+    CHAT("Chat", ModelKind.CHAT),
+    CODE("Code", ModelKind.CODE),
+    IMAGE("Image", ModelKind.IMAGE),
 
     /** Precompiled NPU/GPU image packages (Local Dream layout). */
-    NPU("npu", ModelKind.IMAGE),
+    NPU("NPU", ModelKind.IMAGE),
 }
 
 enum class CivitaiScope(val label: String, val types: List<String>) {
-    CHECKPOINT("checkpoints", listOf("Checkpoint")),
-    LORA("lora", listOf("LORA", "LoCon", "DoRA")),
+    CHECKPOINT("Checkpoints", listOf("Checkpoint")),
+    LORA("LoRA", listOf("LORA", "LoCon", "DoRA")),
 }
 
 /** Why the last hub search came back empty-handed; [blocked] means the kill switch refused it. */

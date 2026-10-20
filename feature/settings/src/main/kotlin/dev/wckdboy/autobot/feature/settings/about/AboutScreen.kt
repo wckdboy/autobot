@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.settings.about
 
+import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -151,7 +153,8 @@ fun AboutScreen(
                 Modifier.fillMaxWidth().padding(horizontal = RowGutter, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                content.icon?.let { Image(it, contentDescription = null, modifier = Modifier.size(56.dp).clip(RoundedCornerShape(14.dp))) }
+                // The pixel a, not the launcher icon's white plate: the symbol is the ornament.
+                AutobotMark(size = 40.dp)
                 Column(Modifier.padding(start = 16.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Autobot", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
                     Text("Version ${info.version}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -177,7 +180,7 @@ fun AboutScreen(
                 ReleaseNotes(shown, Modifier.padding(horizontal = RowGutter, vertical = 4.dp))
                 if (shown.size < content.notes.size) {
                     TextButton(onClick = { allNotes = true }, Modifier.padding(horizontal = 4.dp)) {
-                        Text("SHOW ALL", style = MaterialTheme.typography.labelMedium)
+                        ActionText("Show all")
                     }
                 }
             }
@@ -214,7 +217,7 @@ fun AboutScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showLicenses = false }) { Text("Close") } },
+            confirmButton = { TextButton(onClick = { showLicenses = false }) { ActionText("Close") } },
         )
     }
     license?.let { name ->
@@ -230,7 +233,7 @@ fun AboutScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
-            confirmButton = { TextButton(onClick = { license = null }) { Text("Close") } },
+            confirmButton = { TextButton(onClick = { license = null }) { ActionText("Close") } },
         )
     }
 }
@@ -242,7 +245,7 @@ private fun SignerBlock(info: AboutInfo, actual: String?, loaded: Boolean, onCop
     Column(Modifier.padding(horizontal = RowGutter, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MicroLabel("release signer · sha-256", Modifier.weight(1f))
-            TextButton(onClick = onCopy) { Text("COPY", style = MaterialTheme.typography.labelMedium) }
+            TextButton(onClick = onCopy) { ActionText("Copy") }
         }
         Text(groupedFingerprint(AboutLinks.RELEASE_CERT_SHA256), style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurface)
         Text(
@@ -250,7 +253,7 @@ private fun SignerBlock(info: AboutInfo, actual: String?, loaded: Boolean, onCop
             style = MaterialTheme.typography.bodyMedium,
             color = when {
                 !loaded -> MaterialTheme.colorScheme.onSurfaceVariant
-                match == CertMatch.OFFICIAL -> MaterialTheme.colorScheme.primary
+                match == CertMatch.OFFICIAL -> MaterialTheme.colorScheme.onSurface
                 match == CertMatch.DEBUG -> AutobotTheme.inks.amber
                 else -> MaterialTheme.colorScheme.error
             },
@@ -295,7 +298,7 @@ private fun ReleaseNotes(blocks: List<NoteBlock>, modifier: Modifier = Modifier)
                 }
             }
             when (block) {
-                is NoteBlock.Heading -> Text(text, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                is NoteBlock.Heading -> Text(text, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                 is NoteBlock.Bullet -> Row {
                     Text("•  ", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)

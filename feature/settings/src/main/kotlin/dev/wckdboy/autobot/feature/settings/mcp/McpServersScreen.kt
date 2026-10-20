@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.settings.mcp
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -124,14 +127,8 @@ fun McpServersScreen(
         },
     ) { padding ->
         if (state.servers.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    "No MCP servers yet. Tap + to add a Model Context Protocol server (Streamable HTTP).\n" +
-                        "Its tools join agent sessions; every call asks first; a trusted server follows the permission preset instead.",
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                EmptyState("No MCP servers yet. Tap + to add one. Its tools join agent sessions and ask before each call.")
             }
         } else {
             LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
@@ -202,9 +199,9 @@ fun McpServersScreen(
                 TextButton(onClick = {
                     dissolve.dissolve(row.id) { onDelete(row.id) }
                     deleting = null
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { ActionText("Cancel") } },
         )
     }
 }
@@ -277,7 +274,7 @@ private fun McpServerEditorSheet(
                     }
                 }
 
-                Text("Routing", style = MaterialTheme.typography.labelLarge)
+                SectionLabel("Routing")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProviderRouting.entries.forEach { routing ->
                         FilterChip(
@@ -312,7 +309,7 @@ private fun McpServerEditorSheet(
                         InkBusyLabel(test == TestState.Running) { Text("Test connection") }
                     }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    TextButton(onClick = onDismiss) { ActionText("Cancel") }
                     Button(onClick = onSave, enabled = draft.canSave && !saving) { Text("Save") }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -337,7 +334,7 @@ private fun TestResult(test: TestState) {
         TestState.Idle -> Unit
         // The test button carries the ink loader while it runs.
         TestState.Running -> Unit
-        is TestState.Success -> Text(test.message, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+        is TestState.Success -> Text("✓ " + test.message, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         is TestState.Failure -> Text(test.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 }

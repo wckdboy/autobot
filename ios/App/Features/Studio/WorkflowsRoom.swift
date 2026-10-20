@@ -159,7 +159,7 @@ private struct ComfyServerEditor: View {
         let valid = URL(string: trimmed).flatMap { $0.host() }.map { !$0.isEmpty } ?? false
         ScrollView {
             InkStack(alignment: .leading, spacing: 12) {
-                MicroLabel(isNew ? "// new comfyui pc" : "// edit comfyui pc", color: c.primary)
+                MicroLabel(isNew ? "new comfyui pc" : "edit comfyui pc")
                 ConsoleTextField(text: $name, label: "Name")
                 ConsoleTextField(text: $url, placeholder: "https://studio-pc.tailnet.ts.net", label: "Base URL", kind: .url)
                 if let problem {

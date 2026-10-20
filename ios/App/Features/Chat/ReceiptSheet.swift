@@ -68,7 +68,7 @@ struct ReceiptSheet: View {
 
                 if let cascade = receipt.cascade {
                     Hairline().padding(.vertical, 2)
-                    MicroLabel(cascade.role == "cloud" ? "phone first · \(cascade.followUpTarget) follow-up" : "phone first", color: c.primary)
+                    MicroLabel(cascade.role == "cloud" ? "phone first · \(cascade.followUpTarget) follow-up" : "phone first")
                     Text(cascade.summary).textStyle(.bodySmall).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
                     ChatFlow(spacing: 6) {
                         ForEach(Array(cascade.details.enumerated()), id: \.offset) { _, d in Tag(d) }

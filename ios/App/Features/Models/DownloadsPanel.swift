@@ -21,7 +21,7 @@ struct DownloadsPanel: View {
         if !state.isEmpty || app.downloader.forceQuitNotice {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    MicroLabel("downloads", color: c.primary)
+                    MicroLabel("downloads")
                     InfoButton(title: "Downloads", text: "Downloads keep going in the background. Swiping Autobot away stops them until you open it again; they resume where they stopped.")
                     Spacer(minLength: 0)
                     IconAction(symbol: notify ? "bell.fill" : "bell.slash", label: notify ? "Notifications on" : "Notifications off",

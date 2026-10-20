@@ -1,5 +1,13 @@
 package dev.wckdboy.autobot.feature.home.node
 
+import dev.wckdboy.autobot.core.designsystem.component.NodeMark
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -47,7 +55,6 @@ import dev.wckdboy.autobot.core.designsystem.component.Notice
 import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.inkCard
 import dev.wckdboy.autobot.shared.invincible.AgentAction
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 
@@ -101,7 +108,11 @@ fun NodeAgentScreen(
             AutobotTopBar(
                 title = "Agent · ${state.node}",
                 showMark = false,
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                navigation = {
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    // A screen about the node: Invincible's pixel i says which product is speaking.
+                    NodeMark(size = 14.dp)
+                },
                 actions = {
                     IconButton(onClick = onOpenActivity) {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Activity: what the node and the agent did")
@@ -150,12 +161,16 @@ fun NodeAgentScreen(
                     maxLines = 5,
                     enabled = state.info != null,
                 )
-                IconButton(
+                Spacer(Modifier.width(8.dp))
+                // Filled purple when it can send, as in chat.
+                FilledIconButton(
                     onClick = {
                         onSend(draft)
                         draft = ""
                     },
                     enabled = draft.isNotBlank() && !state.running && state.info != null,
+                    shape = MaterialTheme.shapes.extraSmall,
+                    modifier = Modifier.size(52.dp),
                 ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
             }
         }
@@ -169,7 +184,7 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
         is AgentRow.Reply -> ChatBubble(
             BubbleRole.ASSISTANT,
             row.text,
-            footer = row.route?.let { route -> { Text(route, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+            footer = row.route?.let { route -> { Text(route, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         )
         is AgentRow.Note -> Text(
             (if (row.tone == AgentRow.Tone.TOOL) "› " else "✗ ") + row.text,
@@ -192,18 +207,18 @@ private fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAnsw
         is AgentAction.Mcp -> "Use ${a.tool}?" to a.arguments
         is AgentAction.Other -> "Approve?" to row.text
     }.let { (title, detail) -> (row.agent?.let { "$it: $title" } ?: title) to detail }
-    Column(Modifier.fillMaxWidth().inkCard().padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small).padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(detail, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 8.dp))
         when (row.answer) {
-            null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            null -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 PrimaryButton("Allow", { onAnswer(row.id, ApprovalAnswer.ONCE) })
                 GhostButton("Always", { onAnswer(row.id, ApprovalAnswer.ALWAYS) })
                 GhostButton("Deny", { onAnswer(row.id, ApprovalAnswer.DENY) })
             }
-            ApprovalAnswer.ONCE -> Text("Allowed", style = MaterialTheme.typography.labelMedium)
-            ApprovalAnswer.ALWAYS -> Text("Allowed for this conversation", style = MaterialTheme.typography.labelMedium)
-            ApprovalAnswer.DENY -> Text("Denied", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+            ApprovalAnswer.ONCE -> Text("Allowed", style = AutobotTheme.styles.micro)
+            ApprovalAnswer.ALWAYS -> Text("Allowed for this conversation", style = AutobotTheme.styles.micro)
+            ApprovalAnswer.DENY -> Text("Denied", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error)
         }
     }
 }

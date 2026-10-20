@@ -1,23 +1,33 @@
-# Autobot
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="shared/design/brand/autobot-dark.svg">
+  <img alt="autobot" src="shared/design/brand/autobot-light.svg" height="44">
+</picture>
 
-A privacy-first AI agent for Android and iOS. Autobot is built to run models **on the device** (NPU/GPU) and
-treats every network request as something the user has to opt into, can see, and can switch off.
+**Private AI on your phone and your machine.** An agent for Android and iOS that runs models on
+the device (NPU, GPU, CPU) and treats every network request as something you opt into, can see,
+and can switch off. With [Invincible](https://github.com/wckdboy/invincible), your own node, it
+works on a machine you own too.
 
-> Status: **1.8 — private by default, fast on the metal.** Chats, agent and code sessions run on the
-> device through llama.cpp: on Android on the CPU, the Adreno GPU (OpenCL) or the Hexagon NPU, on iOS
-> on Metal, with speculative decoding from a small draft model. Images run through
-> stable-diffusion.cpp, QNN on the Snapdragon NPU or MNN on its GPU (Android), and Core ML on the
-> Apple Neural Engine (iOS). Voice is streaming dictation and spoken answers with barge-in. Cloud
-> providers are optional: chats are redacted before they leave, every answer carries a privacy
-> receipt, and Settings › Usage counts tokens and cost on the phone. "Phone first" lets the on-device
-> model answer before any cloud model, recipes run scheduled agents on the phone, and a PIN with a
-> duress code and wipe-after-failed-unlocks protects the data. Both apps run the same Kotlin
-> Multiplatform core: the agent runtime, network policy, redaction, settings, model management and
-> the encrypted export format.
->
-> **Needs verification on real hardware:** the Snapdragon accelerator paths were built for the
-> 8 Elite Gen 5 (Hexagon V81, Adreno 840) but have not yet been run on one. Models → Compute →
-> `report` produces the diagnostics that would confirm it.
+[Install](#install) · [Privacy](#privacy-stance) · [Your node](#your-own-node-invincible--in-progress) ·
+[Building](#building) · [Releases](https://github.com/wckdboy/autobot/releases) · [Brand](BRAND.md)
+
+## Status
+
+Version 1.10. What runs, and what is not yet verified:
+
+| Part | State |
+| --- | --- |
+| On-device models | Chats, agent and code sessions through llama.cpp: Android on the CPU, the Adreno GPU (OpenCL) or the Hexagon NPU; iOS on Metal; speculative decoding from a small draft model |
+| Images | stable-diffusion.cpp, QNN on the Snapdragon NPU or MNN on its GPU (Android), Core ML on the Apple Neural Engine (iOS) |
+| Voice | Streaming dictation and spoken answers with barge-in |
+| Cloud | Optional. Chats are redacted before they leave, every answer carries a privacy receipt, Settings › Usage counts tokens and cost on the phone; "Phone first" lets the on-device model answer before any cloud model |
+| Protection | A PIN with a duress code and wipe after failed unlocks; recipes run scheduled agents on the phone |
+| Your node | Pairs with Invincible over Noise: the node's agent, approvals, schedules, receipts and audit log in the app |
+| Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
+| Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
+| **Not yet verified** | No independent security review yet |
+
+Autobot and Invincible are made by [Sovware](https://sovware.io).
 
 ## Install
 

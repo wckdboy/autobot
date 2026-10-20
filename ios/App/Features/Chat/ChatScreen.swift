@@ -57,17 +57,17 @@ enum ChatBanners {
     static func list(loaded: Bool, noProviders: Bool, showOffline: Bool, provider: Provider?, needsKey: Bool, local: LocalModel) -> [ChatBanner] {
         guard loaded else { return [] }
         if noProviders {
-            return [ChatBanner(id: "none", text: "No model yet — download one or add a provider.", action: "ADD", target: .providers)]
+            return [ChatBanner(id: "none", text: "No model yet — download one or add a provider.", action: "Add", target: .providers)]
         }
         var out: [ChatBanner] = []
         if showOffline {
-            out.append(ChatBanner(id: "offline", text: "Offline mode: this provider is remote, so the kill switch blocks it.", action: "PRIVACY", target: .privacyCenter))
+            out.append(ChatBanner(id: "offline", text: "Offline mode: this provider is remote, so the kill switch blocks it.", action: "Privacy", target: .privacyCenter))
         }
         if let provider, needsKey, provider.kind != .local, (provider.apiKeyRef ?? "").isEmpty {
-            out.append(ChatBanner(id: "key", text: "\(provider.displayName) has no API key, so messages will fail. Add it in Model providers.", action: "KEY", target: .providers))
+            out.append(ChatBanner(id: "key", text: "\(provider.displayName) has no API key, so messages will fail. Add it in Model providers.", action: "Add key", target: .providers))
         }
         if case .missing(let name) = local {
-            out.append(ChatBanner(id: "local", text: "“\(name)” is not on this phone any more. Download it again, or pick another model.", action: "MODELS", target: .models))
+            out.append(ChatBanner(id: "local", text: "“\(name)” is not on this phone any more. Download it again, or pick another model.", action: "Models", target: .models))
         }
         return out
     }
@@ -810,27 +810,33 @@ private struct ApprovalCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(String(format: "%02d · APPROVAL NEEDED", number)).textStyle(.micro).frame(maxWidth: .infinity, alignment: .leading)
-                Text((privateData.isEmpty ? approval.reason ?? "" : "private data").uppercased()).textStyle(.micro)
+                HStack(spacing: 6) {
+                    // What needs you now: the one purple mark on the card.
+                    Rectangle().fill(AutobotColors.purple).frame(width: 6, height: 6)
+                    Text(String(format: "%02d · Approval needed", number)).textStyle(.micro).foregroundStyle(c.onSurface)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text((privateData.isEmpty ? approval.reason ?? "" : "private data")).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
             }
-            Text(stepTitle(tool.name)).textStyle(.headlineMedium)
-            Text(marked("\(tool.name)(\(approval.summary))")).textStyle(.codeBlock).fixedSize(horizontal: false, vertical: true)
+            Text(stepTitle(tool.name)).textStyle(.headlineMedium).foregroundStyle(c.onSurface)
+            Text(marked("\(tool.name)(\(approval.summary))")).textStyle(.codeBlock).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
             if !privateData.isEmpty {
-                Text(marked(approval.reason ?? "")).textStyle(.bodyMedium).fixedSize(horizontal: false, vertical: true)
+                Text(marked(approval.reason ?? "")).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
-                GhostButton("Deny", accent: c.onPrimary) { onDecide(.rejected) }
+                GhostButton("Deny") { onDecide(.rejected) }
                 PaperButton("Approve") { onDecide(.allowedOnce) }
             }
             Button { onDecide(.allowedForSession) } label: {
-                Text("ALWAYS ALLOW \(tool.name.uppercased()) IN THIS RUN").textStyle(.micro).padding(.vertical, 4)
+                Text("Always allow \(tool.name) in this run").textStyle(.micro).underline(color: c.primary).foregroundStyle(c.onSurface)
+                    .padding(.vertical, 4).frame(minHeight: 44)
             }
             .buttonStyle(PressStyle())
         }
-        .foregroundStyle(c.onPrimary)
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.primary))
+        .background(RoundedRectangle(cornerRadius: AutobotShapes.medium).fill(c.surfaceContainer))
+        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.medium).strokeBorder(c.primary, lineWidth: Tokens.Stroke.border))
     }
 
     private var privateData: [String] { (approval.privateData ?? []).filter { !$0.isEmpty } }
@@ -841,8 +847,8 @@ private struct ApprovalCard: View {
         for fragment in privateData {
             var rest = out.startIndex..<out.endIndex
             while let range = out[rest].range(of: fragment, options: .caseInsensitive) {
-                out[range].backgroundColor = c.onPrimary
-                out[range].foregroundColor = c.primary
+                out[range].backgroundColor = c.primaryContainer
+                out[range].foregroundColor = c.onPrimaryContainer
                 rest = range.upperBound..<out.endIndex
             }
         }
@@ -850,7 +856,7 @@ private struct ApprovalCard: View {
     }
 }
 
-/// `// STOPPED`; errors keep their case (ids, hosts and keys must stay readable) and expand on tap.
+/// `// stopped`; errors keep their case (ids, hosts and keys must stay readable) and expand on tap.
 private struct NoticeRow: View {
     let text: String
     let kind: NoticeKind
@@ -864,7 +870,7 @@ private struct NoticeRow: View {
         case .error: c.error
         }
         if kind == .error {
-            Text("// \(text)")
+            Text(text)
                 .textStyle(.bodySmall)
                 .foregroundStyle(color)
                 .lineLimit(expanded ? nil : 3)
@@ -873,7 +879,7 @@ private struct NoticeRow: View {
                 .contentShape(Rectangle())
                 .onTapGesture { expanded.toggle() }
         } else {
-            Text("// \(text.uppercased())").textStyle(.micro).foregroundStyle(color).lineLimit(3)
+            Text(text.sentenceCased).textStyle(.micro).foregroundStyle(color).lineLimit(3)
         }
     }
 }
@@ -1127,7 +1133,7 @@ struct ThinkSheet: View {
             HStack {
                 MicroLabel(saved.map { "model default · " + $0.chipLabel.replacingOccurrences(of: "think · ", with: "") } ?? "model default · auto")
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button(saved == current ? "CLEAR" : "SET") {
+                Button(saved == current ? "Clear" : "Set") {
                     let next: ThinkingChoice? = saved == current ? nil : current
                     saved = next
                     onDefault(next)
@@ -1165,7 +1171,7 @@ private struct Banner: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(text).textStyle(.bodySmall).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-            TextAction(action, color: c.primary, style: .labelLarge, action: onAction)
+            TextAction(action, style: .labelMedium, action: onAction)
         }
         .padding(.leading, 16)
         .background(c.surfaceContainerHigh)
@@ -1532,13 +1538,10 @@ private struct SpeechStrip: View {
     @State private var pulse: Date?
 
     var body: some View {
-        let pulse = pulse
-        FlowingHalftone(active: true, speed: InkMath.loadingSpeed, dot: c.primary, cell: 6) { date in
-            let rest = Double(Tokens.Motion.flowMinFill)
-            guard let pulse else { return rest }
-            return rest + 0.45 * exp(-max(date.timeIntervalSince(pulse), 0) / 0.9)
-        }
-        .onChange(of: spoken, initial: true) { _, _ in self.pulse = Date() }
+        // App UI v4: a flat running bar, no halftone.
+        InkProgressBar(.indeterminate, height: 2)
+            .frame(maxHeight: .infinity)
+            .onChange(of: spoken, initial: true) { _, _ in self.pulse = Date() }
     }
 }
 

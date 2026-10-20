@@ -109,7 +109,7 @@ struct VideoRoom: View {
                     VideoStage(asset: v)
                 } else {
                     ZStack(alignment: .bottomLeading) {
-                        Color.clear.inkCard(seed: 2.4, fade: .bottomLeading, cornerRadius: 0)
+                        Color.clear
                     }
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .background(c.surfaceContainerLowest)

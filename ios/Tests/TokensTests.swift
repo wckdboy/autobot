@@ -22,7 +22,11 @@ struct TokensTests {
         #expect(Tokens.Palette.ink950 == hex("palette", "ink950"))
         #expect(Tokens.Palette.paper == hex("palette", "paper"))
         #expect(Tokens.Palette.bone100 == hex("palette", "bone100"))
-        #expect((Self.json["palette"] as! [String: Any]).count == 22)
+        #expect(Tokens.Palette.orange == hex("palette", "orange"))
+        #expect(Tokens.Palette.orangeLight == hex("palette", "orangeLight"))
+        #expect(Tokens.Palette.lilac == hex("palette", "lilac"))
+        #expect(Tokens.Palette.lilacDeep == hex("palette", "lilacDeep"))
+        #expect((Self.json["palette"] as! [String: Any]).count == 28)
     }
 
     @Test func schemesMatch() {

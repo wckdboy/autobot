@@ -76,7 +76,7 @@ struct AcceleratorChip: View {
         case .cpu: c.onSurfaceVariant
         case .remote: c.inks.amber
         }
-        Text(accelerator.rawValue.uppercased())
+        Text(accelerator.rawValue.lowercased())
             .textStyle(.labelSmall, weight: 700)
             .foregroundStyle(accent)
             .padding(.horizontal, 8)

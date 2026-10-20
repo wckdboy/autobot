@@ -32,8 +32,8 @@ import dev.wckdboy.autobot.core.designsystem.motion.rememberInkTickers
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkMotion
 
 /**
- * Riso palette: one signal red printed on ink (dark) or paper (light), with warm greys. Red is
- * the brand and "live / on this phone" colour, not an error colour by itself.
+ * The palette: warm greys on ink (dark) or paper (light), and one signal, Autobot's lilac
+ * ([AutobotColors.Lilac]), used sparingly. Red stays in the palette for errors and older art.
  */
 object AutobotColors {
     val Black = Color(0xFF000000)
@@ -59,25 +59,35 @@ object AutobotColors {
     val RedDeep = Color(0xFFB8300F)
     val RedDim = Color(0xFF3A140A)
 
+    /** Autobot's signal: lilac on ink, a deeper lilac on paper (6:1), and a dim fill. */
+    /** The mark: Autobot's pixel a and its icon, never text. */
+    val Purple = Color(0xFF7C5CFF)
+    val Lilac = Color(0xFF9373FF)
+    val LilacDeep = Color(0xFF5A36E6)
+    val LilacDim = Color(0xFF241A4D)
+
+    /** Invincible's signal (the node), on paper and on ink: screens about the node mark it in this. */
+    val Orange = Color(0xFFFF8A1E)
+    val OrangeLight = Color(0xFFFF8A1E)
+
     val Amber = Color(0xFFE3A33B)
     val Cyan = Color(0xFF9DB4B0)
     val Error = Color(0xFFFF6A47)
 
     // Semantic aliases used across features.
-    val Acid = Red
-    val Green = Red
+    val Acid = Lilac
+    val Green = Lilac
     val Signal = Error
     val Uv = Ash200
     val Violet = Ash200
 }
 
 val GraphiteDarkColorScheme: ColorScheme = darkColorScheme(
-    // A shade lighter than the signal red so red text reads on the ink panels (4.5:1); ink on red
-    // blocks, since bone on this red is under 3.5:1. Fills that carry no text keep [AutobotColors.Red].
-    primary = Color(0xFFEB5535),
+    // Lilac reads on ink (5:1); ink on lilac blocks (5:1).
+    primary = AutobotColors.Lilac,
     onPrimary = AutobotColors.Ink950,
-    primaryContainer = AutobotColors.RedDim,
-    onPrimaryContainer = Color(0xFFFFD9CC),
+    primaryContainer = AutobotColors.LilacDim,
+    onPrimaryContainer = Color(0xFFE4DEFF),
     secondary = AutobotColors.Ash200,
     onSecondary = AutobotColors.Ink950,
     secondaryContainer = AutobotColors.Ink700,
@@ -105,16 +115,16 @@ val GraphiteDarkColorScheme: ColorScheme = darkColorScheme(
     outlineVariant = AutobotColors.Line,
     inverseSurface = AutobotColors.Bone100,
     inverseOnSurface = AutobotColors.Ink900,
-    inversePrimary = AutobotColors.RedDeep,
+    inversePrimary = AutobotColors.LilacDeep,
     scrim = AutobotColors.Black,
 )
 
 val GraphiteLightColorScheme: ColorScheme = lightColorScheme(
-    // Red ink on paper: the signal red is 3.4:1 on paper, this is 4.5:1 on every paper panel.
-    primary = Color(0xFFAE2D12),
+    // Deep lilac on paper: 6:1 on paper, 4.5:1 and up on every panel.
+    primary = AutobotColors.LilacDeep,
     onPrimary = AutobotColors.Bone50,
-    primaryContainer = Color(0xFFFFDCD0),
-    onPrimaryContainer = Color(0xFF3A0B00),
+    primaryContainer = Color(0xFFE4DEFF),
+    onPrimaryContainer = Color(0xFF1B1240),
     secondary = Color(0xFF3A3632),
     onSecondary = AutobotColors.Bone50,
     secondaryContainer = Color(0xFFDDD6CB),
@@ -170,9 +180,9 @@ private val Tight = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeight
 
 private val Base = Typography()
 
-private fun display(size: Int, line: Int, weight: Int, tracking: Double = -0.5) = TextStyle(
-    fontFamily = DisplayFontFamily,
-    fontWeight = FontWeight(weight),
+private fun heading(size: Int, line: Int, tracking: Double) = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.SemiBold,
     fontSize = size.sp,
     lineHeight = line.sp,
     letterSpacing = tracking.sp,
@@ -188,23 +198,26 @@ private fun label(size: Double, line: Int, tracking: Double, weight: FontWeight 
     lineHeightStyle = Tight,
 )
 
-/** Display for headlines, sans for reading, mono for every label. */
+/**
+ * Headings in the system sans (semibold, tight), sans for reading, mono for every label. The
+ * condensed display face is kept for the few places that print a single large word.
+ */
 val AutobotTypography = Typography(
-    displayLarge = display(72, 70, 300, -1.0),
-    displayMedium = display(58, 58, 300, -0.8),
-    displaySmall = display(44, 46, 300, -0.5),
-    headlineLarge = display(36, 40, 300),
-    headlineMedium = display(30, 34, 400),
-    headlineSmall = display(25, 29, 400, -0.2),
-    titleLarge = display(22, 26, 500, 0.4),
+    displayLarge = heading(44, 50, -0.8),
+    displayMedium = heading(36, 42, -0.6),
+    displaySmall = heading(30, 36, -0.4),
+    headlineLarge = heading(26, 32, -0.3),
+    headlineMedium = heading(22, 28, -0.2),
+    headlineSmall = heading(19, 24, -0.1),
+    titleLarge = heading(18, 24, 0.0),
     titleMedium = Base.titleMedium.copy(fontWeight = FontWeight.Medium, fontSize = 16.sp, letterSpacing = 0.sp),
     titleSmall = Base.titleSmall.copy(fontWeight = FontWeight.Medium),
     bodyLarge = Base.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.sp, letterSpacing = 0.1.sp),
     bodyMedium = Base.bodyMedium.copy(fontSize = 14.sp, lineHeight = 20.sp),
     bodySmall = Base.bodySmall.copy(fontSize = 12.5.sp, lineHeight = 17.sp),
-    labelLarge = label(12.5, 16, 1.2, FontWeight.SemiBold),
-    labelMedium = label(11.0, 14, 0.9),
-    labelSmall = label(10.0, 13, 1.0),
+    labelLarge = label(13.0, 16, 0.0, FontWeight.SemiBold),
+    labelMedium = label(12.0, 16, 0.0),
+    labelSmall = label(11.0, 14, 0.0),
 )
 
 /** Hard edges: small radii so cards read as printed blocks. */
@@ -220,11 +233,15 @@ val AutobotShapes = Shapes(
 data class AutobotExtraStyles(
     val code: TextStyle,
     val codeBlock: TextStyle,
-    /** Uppercase micro labels: `// SECTION`, field captions. */
+    /** Section labels, captions and meta: sentence-case mono, untracked (`Recent runs`, `Steps`). */
     val micro: TextStyle,
+    /** Button and action labels: sentence-case mono, untracked ("Generate", "New"). */
+    val action: TextStyle,
+    /** Bottom tab labels: small sentence-case mono, untracked. */
+    val tab: TextStyle,
     /** Small numeric telemetry (tok/s, sizes): tabular mono. */
     val readout: TextStyle,
-    /** Big numbers (STEPS 4, SEED 4182): condensed display. */
+    /** Big numbers (STEPS 4, SEED 4182): tabular mono. */
     val number: TextStyle,
 )
 
@@ -233,10 +250,26 @@ val DefaultExtraStyles = AutobotExtraStyles(
     codeBlock = TextStyle(fontFamily = CodeFontFamily, fontSize = 12.sp, lineHeight = 17.sp),
     micro = TextStyle(
         fontFamily = CodeFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.sp,
+    ),
+    action = TextStyle(
+        fontFamily = CodeFontFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 10.5.sp,
-        lineHeight = 13.sp,
-        letterSpacing = 0.7.sp,
+        fontSize = 13.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.sp,
+        lineHeightStyle = Tight,
+    ),
+    tab = TextStyle(
+        fontFamily = CodeFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.5.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.sp,
+        lineHeightStyle = Tight,
     ),
     readout = TextStyle(
         fontFamily = CodeFontFamily,
@@ -245,7 +278,14 @@ val DefaultExtraStyles = AutobotExtraStyles(
         lineHeight = 16.sp,
         fontFeatureSettings = "tnum",
     ),
-    number = display(30, 32, 400, 0.0),
+    number = TextStyle(
+        fontFamily = CodeFontFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 26.sp,
+        lineHeight = 30.sp,
+        fontFeatureSettings = "tnum",
+        lineHeightStyle = Tight,
+    ),
 )
 
 /**
@@ -316,6 +356,11 @@ val LightInks = AutobotInks(amber = Color(0xFF7E5512), cyan = Color(0xFF4B615D),
 /** Extra text styles (mono code, micro labels, readouts, display numbers). */
 object AutobotTheme {
     val styles: AutobotExtraStyles get() = DefaultExtraStyles
+
+    /** Invincible's orange for the current ground: the mark on anything about the node. */
+    val node: Color
+        @Composable @ReadOnlyComposable
+        get() = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) AutobotColors.OrangeLight else AutobotColors.Orange
 
     /** Accent inks for the current ground (follows nested Paper and Darkroom themes). */
     val inks: AutobotInks

@@ -1,5 +1,12 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import dev.wckdboy.autobot.core.designsystem.component.selectionBar
+import androidx.compose.ui.text.font.FontWeight
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import androidx.compose.ui.draw.drawBehind
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.shared.cascade.CascadeLabels
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import dev.wckdboy.autobot.shared.session.CascadeOffer
@@ -102,11 +109,8 @@ import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
 import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.CopyMessageButton
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneStrip
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkLoaderSize
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
@@ -124,7 +128,6 @@ import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
 import dev.wckdboy.autobot.core.designsystem.component.TokenRateLabel
 import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.InkTweenRow
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
@@ -270,12 +273,7 @@ fun ChatScreen(
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     val voiceOn = state.voice != null
-                    Tag(
-                        "voice",
-                        accent = if (voiceOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        filled = voiceOn,
-                        onClick = { actions.setVoiceMode(!voiceOn) },
-                    )
+                    Tag("Voice", filled = voiceOn, onClick = { actions.setVoiceMode(!voiceOn) })
                     // No extra spacer: the bar already spaces its actions, and the title needs the room.
                     RouteTag(state.route, Modifier.clickable { showModels = true })
                     IconButton(onClick = { showSession = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Session settings") }
@@ -284,16 +282,14 @@ fun ChatScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            if (state.showOfflineBanner) Banner("Offline mode: this provider is remote, so the kill switch blocks it.", "PRIVACY", onOpenPrivacyCenter)
-            if (state.loaded && state.providers.isEmpty()) Banner("No model yet.", "ADD", onOpenProviders)
+            if (state.showOfflineBanner) Banner("Offline mode: this provider is remote, so the kill switch blocks it.", "Privacy", onOpenPrivacyCenter)
+            if (state.loaded && state.providers.isEmpty()) Banner("No model yet.", "Add", onOpenProviders)
             state.notice?.let { Banner(it, "OK", actions::dismissNotice) }
 
             val empty = state.loaded && state.items.isEmpty() && !hasLive
             LazyColumn(
                 state = listState,
-                // One ground per screen: with the voice panel up, its own paper is the ground (two fields
-                // with their own grids would meet at the panel's edge).
-                modifier = Modifier.weight(1f).fillMaxWidth().then(if (empty && state.voice == null) Modifier.inkGround(heavyWork = state.running) else Modifier),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -390,7 +386,7 @@ fun ChatScreen(
         NameDialog(
             title = "Rename chat",
             initial = state.title,
-            confirm = "RENAME",
+            confirm = "Rename",
             onDismiss = { renaming = false },
             onConfirm = {
                 actions.rename(it)
@@ -540,8 +536,8 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
             )
         }
         if (live.text.isEmpty() && live.reasoning.isEmpty() && live.toolNames.isEmpty()) {
-            // Nothing to read yet: a tiny halftone strip instead of an empty bubble.
-            HalftoneStrip(Modifier.padding(vertical = 6.dp))
+            // Nothing to read yet: the working pixels instead of an empty bubble.
+            InkLoader(Modifier.padding(vertical = 6.dp))
         } else if (live.text.isNotEmpty()) {
             ChatBubble(
                 role = BubbleRole.ASSISTANT,
@@ -552,7 +548,7 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
         }
         live.toolNames.forEach { name ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                HalftoneStrip(cell = 3.dp)
+                InkLoader(contentDescription = null)
                 Text(stepTitle(name), style = MaterialTheme.typography.titleMedium)
                 MicroLabel("composing")
             }
@@ -573,7 +569,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
         ToolState.OK -> (if (item.undone) "undone" else "✓") to MaterialTheme.colorScheme.onSurfaceVariant
         ToolState.ERROR -> "×" to MaterialTheme.colorScheme.error
         ToolState.DENIED -> "denied" to MaterialTheme.colorScheme.onSurfaceVariant
-        ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "" to MaterialTheme.colorScheme.primary
+        ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "" to AutobotColors.Purple
     }
     Column {
         Row(
@@ -637,8 +633,8 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                 DiffBlock(change)
                 val redoId = item.revertId
                 when {
-                    item.undone && redoId != null -> Tag("↷ redo", accent = MaterialTheme.colorScheme.primary, onClick = { if (!running) actions.redo(redoId) })
-                    !item.undone && change.undoable -> Tag("↶ undo step", accent = MaterialTheme.colorScheme.primary, onClick = { if (!running) actions.undoStep(item.callId) })
+                    item.undone && redoId != null -> Tag("↷ Redo", accent = MaterialTheme.colorScheme.onSurface, onClick = { if (!running) actions.redo(redoId) })
+                    !item.undone && change.undoable -> Tag("↶ Undo step", accent = MaterialTheme.colorScheme.onSurface, onClick = { if (!running) actions.undoStep(item.callId) })
                 }
             }
         } else if (expanded && output != null) {
@@ -650,9 +646,9 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
             )
         }
         if (generating && item.galleryIds.isEmpty()) {
-            // The same plate as the image studio, flowing while the agent's job runs.
-            Box(Modifier.padding(bottom = 6.dp).size(120.dp).background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-                DevelopingHalftone(preview = null, modifier = Modifier.fillMaxSize())
+            // A flat plate while the agent's job runs; the loader says it is working.
+            Box(Modifier.padding(bottom = 6.dp).size(120.dp).background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
+                InkLoader(contentDescription = "Generating")
             }
         }
         if (item.galleryIds.isNotEmpty()) {
@@ -678,7 +674,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                             } else {
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     MicroLabel(PanicCopy.NOT_SAVED)
-                                    Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.primary, onClick = { actions.saveImage(id) })
+                                    Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.saveImage(id) })
                                 }
                             }
                         }
@@ -691,37 +687,40 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
 }
 
 /**
- * The red approval block: `04 · APPROVAL NEEDED · NETWORK ACCESS`, title, args, DENY / APPROVE.
- * When the call would send private data (taint tracking), the header says so and every private
- * fragment is printed in reverse, in the arguments and in the reason.
+ * The approval block: `04 · Approval needed · network access`, title, args, Deny / Approve. A
+ * raised panel marked by a purple rule on its leading edge (it is what needs you now). When the
+ * call would send private data (taint tracking), the header says so and every private fragment
+ * is marked, in the arguments and in the reason.
  */
 @Composable
 private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatActions, ghost: Boolean) {
     val privateData = approval.privateData
-    val mark = SpanStyle(background = MaterialTheme.colorScheme.onPrimary, color = MaterialTheme.colorScheme.primary)
+    val mark = SpanStyle(background = MaterialTheme.colorScheme.primaryContainer, color = MaterialTheme.colorScheme.onPrimaryContainer)
+    val rule = AutobotColors.Purple
     Surface(
-        modifier = Modifier.registerGhost(ghost, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), MaterialTheme.shapes.extraSmall),
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier.registerGhost(ghost, rule.copy(alpha = 0.5f), MaterialTheme.shapes.extraSmall),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.extraSmall,
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row {
-                Text(String.format(Locale.ROOT, "%02d · APPROVAL NEEDED", number), style = AutobotTheme.styles.micro, modifier = Modifier.weight(1f))
-                Text((if (privateData.isEmpty()) approval.reason.orEmpty() else "private data").uppercase(Locale.ROOT), style = AutobotTheme.styles.micro)
+        Column(
+            Modifier.fillMaxWidth().drawBehind { drawRect(rule, size = Size(3.dp.toPx(), size.height)) }.padding(start = 17.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(String.format(Locale.ROOT, "%02d · Approval needed", number), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text(if (privateData.isEmpty()) approval.reason.orEmpty() else "private data", style = AutobotTheme.styles.micro, color = if (privateData.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
             }
             Text(stepTitle(item.name), style = MaterialTheme.typography.headlineMedium)
             Text(highlight("${item.name}(${approval.summary})", privateData, mark), style = AutobotTheme.styles.codeBlock)
             if (privateData.isNotEmpty()) Text(highlight(approval.reason.orEmpty(), privateData, mark), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhostButton("Deny", { actions.approve(item.callId, ApprovalOutcome.REJECTED) }, Modifier.weight(1f), accent = MaterialTheme.colorScheme.onPrimary)
+                GhostButton("Deny", { actions.approve(item.callId, ApprovalOutcome.REJECTED) }, Modifier.weight(1f))
                 PaperButton("Approve", { actions.approve(item.callId, ApprovalOutcome.ALLOWED_ONCE) }, Modifier.weight(1f))
             }
-            Text(
-                "ALWAYS ALLOW ${item.name.uppercase(Locale.ROOT)} IN THIS RUN",
-                style = AutobotTheme.styles.micro,
-                modifier = Modifier.clickable { actions.approve(item.callId, ApprovalOutcome.ALLOWED_FOR_SESSION) }.padding(vertical = 4.dp),
-            )
+            TextButton(onClick = { actions.approve(item.callId, ApprovalOutcome.ALLOWED_FOR_SESSION) }) {
+                ActionText("Always allow ${item.name} in this run", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -738,7 +737,7 @@ private fun highlight(text: String, fragments: List<String>, style: SpanStyle): 
     }
 }
 
-/** `// STOPPED`; errors keep their case (ids, hosts and keys must stay readable) and expand on tap. */
+/** `Stopped`, as written; errors keep their case (ids, hosts and keys must stay readable) and expand on tap. */
 @Composable
 private fun NoticeRow(item: SessionItem.Notice) {
     val color = when (item.kind) {
@@ -749,7 +748,7 @@ private fun NoticeRow(item: SessionItem.Notice) {
     if (item.kind == NoticeKind.ERROR) {
         var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
         Text(
-            "// ${item.text}",
+            "${item.text}",
             modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { expanded = !expanded },
             style = MaterialTheme.typography.bodySmall,
             color = color,
@@ -758,7 +757,7 @@ private fun NoticeRow(item: SessionItem.Notice) {
         )
     } else {
         Text(
-            "// ${item.text.uppercase(Locale.ROOT)}",
+            labelCase(item.text),
             style = AutobotTheme.styles.micro,
             color = color,
             maxLines = 3,
@@ -769,13 +768,14 @@ private fun NoticeRow(item: SessionItem.Notice) {
 
 @Composable
 private fun EmptySession(state: ChatUiState) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        AutobotMark(size = 24.dp)
         SectionLabel(if (state.toolsEnabled) "agent ready · workspace /workspace" else "chat")
-        Text(if (state.toolsEnabled) "What should\nit do?" else "Ask\nanything.", style = MaterialTheme.typography.displaySmall)
+        Text(if (state.toolsEnabled) "What should it do?" else "Ask anything.", style = MaterialTheme.typography.headlineLarge)
     }
 }
 
-/** `POLICY · WORKSPACE · ASKS: DELETE, NETWORK`: what runs without asking, in a few words. */
+/** `Policy · workspace · asks: delete, network`: what runs without asking, in a few words. */
 @Composable
 private fun PolicyLine(
     state: ChatUiState,
@@ -823,7 +823,7 @@ private fun Banner(text: String, action: String, onAction: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-        TextButton(onClick = onAction) { Text(action, color = MaterialTheme.colorScheme.primary) }
+        TextButton(onClick = onAction) { ActionText(action, color = MaterialTheme.colorScheme.onSurface) }
     }
 }
 
@@ -837,14 +837,14 @@ private fun TodoPanel(state: ChatUiState) {
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("plan · $done/${state.todos.size}", Modifier.weight(1f))
-            Tag(if (open) "hide" else "show", onClick = { open = !open })
+            Tag(if (open) "Hide" else "Show", onClick = { open = !open })
         }
         if (open) {
             state.todos.forEach { todo ->
                 Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val (glyph, color) = when (todo.status) {
                         TodoStatus.COMPLETED -> "■" to MaterialTheme.colorScheme.outline
-                        TodoStatus.IN_PROGRESS -> "▶" to MaterialTheme.colorScheme.primary
+                        TodoStatus.IN_PROGRESS -> "▶" to AutobotColors.Purple
                         TodoStatus.PENDING -> "□" to MaterialTheme.colorScheme.onSurfaceVariant
                     }
                     Text(glyph, style = AutobotTheme.styles.code, color = color)
@@ -869,17 +869,17 @@ private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?)
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("agent asks", Modifier.weight(1f))
-            Tag("skip", onClick = { onAnswer(question.callId, null) })
+            Tag("Skip", onClick = { onAnswer(question.callId, null) })
         }
         Text(question.question.question, style = MaterialTheme.typography.titleMedium)
         if (question.question.options.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 question.question.options.forEach { option ->
                     val active = option in picked
-                    Tag(
+                    ChoiceChip(
                         option,
-                        accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        filled = active,
+                        asWritten = true,
+                        selected = active,
                         onClick = {
                             if (question.question.multiSelect) picked = if (active) picked - option else picked + option else onAnswer(question.callId, listOf(option))
                         },
@@ -888,7 +888,7 @@ private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?)
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ConsoleTextField(free, { free = it }, Modifier.weight(1f), placeholder = "or type an answer", singleLine = true)
+            ConsoleTextField(free, { free = it }, Modifier.weight(1f), placeholder = "Or type an answer", singleLine = true)
             PrimaryButton("Send", { onAnswer(question.callId, (picked + listOfNotNull(free.trim().ifBlank { null })).toList()) }, enabled = free.isNotBlank() || picked.isNotEmpty())
         }
     }
@@ -983,7 +983,7 @@ private fun InputBar(
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.weight(1f).focusRequester(focus),
-                    placeholder = if (state.running) "queue a follow-up…" else "message · / for commands",
+                    placeholder = if (state.running) "Queue a follow-up…" else "Message · / for commands",
                     maxLines = 8,
                 )
                 if (state.running && text.isBlank() && state.pendingImages.isEmpty()) {
@@ -1037,35 +1037,21 @@ private fun VoicePanel(
         Column(
             Modifier
                 .hairlineEdge(top = true, bottom = false)
-                // Living paper while the loop waits on the user; still while the phone works.
-                .inkGround(heavyWork = voice.phase == VoicePhase.TRANSCRIBING || voice.phase == VoicePhase.THINKING)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(if (voice.phase == VoicePhase.READY) MaterialTheme.colorScheme.outline else primary, live = voice.phase != VoicePhase.READY)
                 SectionLabel("voice · $label", Modifier.weight(1f))
-                Tag(
-                    "hands-free",
-                    accent = if (voice.handsFree) primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    filled = voice.handsFree,
-                    onClick = { onHandsFree(!voice.handsFree) },
-                )
-                Tag("type", onClick = onType)
+                Tag("Hands-free", filled = voice.handsFree, onClick = { onHandsFree(!voice.handsFree) })
+                Tag("Type", onClick = onType)
             }
             if (voice.phase == VoicePhase.LISTENING || voice.phase == VoicePhase.TRANSCRIBING) LiveWords(words, Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (voice.phase == VoicePhase.SPEAKING) {
-                        // A slow flow strip while the answer is read aloud, on plain paper: its 6dp
-                        // screen over the ground's 14dp one read as two misaligned dot grids.
-                        HalftoneField(
-                            Modifier.fillMaxWidth().height(36.dp).background(MaterialTheme.colorScheme.background),
-                            cell = 6.dp,
-                            flowing = true,
-                            fill = 0.8f,
-                            speed = 1.5f,
-                        )
+                        // Read aloud: the working pixels on a flat strip, as tall as the meter.
+                        Box(Modifier.fillMaxWidth().height(36.dp), contentAlignment = Alignment.CenterStart) { InkLoader(contentDescription = "Speaking") }
                     } else {
                         LevelMeter(levels, Modifier.fillMaxWidth().height(36.dp), live = voice.phase == VoicePhase.LISTENING)
                     }
@@ -1227,7 +1213,7 @@ private fun ModelSheet(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             SectionLabel("route", Modifier.inkStagger(0))
-            if (state.providers.isEmpty()) TextButton(onClick = onOpenProviders) { Text("ADD A PROVIDER") }
+            if (state.providers.isEmpty()) TextButton(onClick = onOpenProviders) { ActionText("Add a provider") }
             state.providers.forEach { option ->
                 Row(Modifier.fillMaxWidth().inkStagger(1).clickable(role = Role.RadioButton) { onSelectProvider(option.id) }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = option.id == state.selectedProviderId, onClick = null)
@@ -1242,7 +1228,7 @@ private fun ModelSheet(
             Row(Modifier.inkStagger(2), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("model", Modifier.weight(1f))
                 selected?.let { MicroLabel(it.modelsLabel) }
-                if (selected?.canRefresh == true) TextButton(onClick = onRefreshModels) { Text("REFRESH") }
+                if (selected?.canRefresh == true) TextButton(onClick = onRefreshModels) { ActionText("Refresh") }
             }
             ConsoleTextField(model, { model = it }, Modifier.fillMaxWidth().inkStagger(3), label = "Model id · type to search", singleLine = true, mono = true)
             selected?.let { option ->
@@ -1255,7 +1241,8 @@ private fun ModelSheet(
                         Text(
                             (if (active) "● " else "") + m.id,
                             style = AutobotTheme.styles.code,
-                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (active) FontWeight.SemiBold else null,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -1288,15 +1275,15 @@ private fun SessionSheet(
             SectionLabel("chat", Modifier.inkStagger(0))
             Row(Modifier.inkStagger(1), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                TextButton(onClick = onRename) { Text("RENAME") }
+                TextButton(onClick = onRename) { ActionText("Rename") }
             }
             Row(Modifier.inkStagger(2), verticalAlignment = Alignment.CenterVertically) {
                 Text("Pin to top", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 Switch(checked = state.pinned, onCheckedChange = onPin)
             }
             Row(Modifier.inkStagger(3), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onArchive(!state.archived) }) { Text(if (state.archived) "UNARCHIVE" else "ARCHIVE") }
-                TextButton(onClick = onDelete) { Text("DELETE CHAT", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { onArchive(!state.archived) }) { ActionText(if (state.archived) "Unarchive" else "Archive") }
+                TextButton(onClick = onDelete) { ActionText("Delete chat", color = MaterialTheme.colorScheme.error) }
             }
             SectionLabel("session", Modifier.inkStagger(4))
             Row(Modifier.inkStagger(5), verticalAlignment = Alignment.CenterVertically) {
@@ -1315,7 +1302,7 @@ private fun SessionSheet(
                     Text("Compact context", style = MaterialTheme.typography.titleMedium)
                     Text("Summarize older turns now (also automatic near the limit).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TextButton(onClick = onCompact, enabled = !state.running) { Text("COMPACT") }
+                TextButton(onClick = onCompact, enabled = !state.running) { ActionText("Compact") }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val files = state.changes.sumOf { it.files.size }
@@ -1327,7 +1314,7 @@ private fun SessionSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = onChanges) { Text("VIEW") }
+                TextButton(onClick = onChanges) { ActionText("View") }
             }
         }
     }
@@ -1341,13 +1328,15 @@ private fun SessionSheet(
 @Composable
 private fun ThinkChip(setting: ThinkingSetting, onTap: () -> Unit, onMore: () -> Unit) {
     val active = setting.mode != ThinkingMode.OFF
-    val color = if (active) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
+    val color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         Modifier
-            .border(1.dp, color.copy(alpha = 0.6f))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+            .clip(MaterialTheme.shapes.medium)
+            .selectionBar(active)
             .combinedClickable(onClickLabel = "Change thinking", onLongClickLabel = "Thinking budget", onLongClick = onMore, onClick = onTap)
             .semantics { contentDescription = "Thinking ${setting.mode.name.lowercase()}" + (setting.budget?.let { ", budget $it tokens" } ?: "") }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
     ) { MicroLabel("\u2234 " + ThinkingLabels.chip(setting), color = color) }
 }
 
@@ -1357,13 +1346,15 @@ private fun ThinkChip(setting: ThinkingSetting, onTap: () -> Unit, onMore: () ->
  */
 @Composable
 private fun RedactChip(on: Boolean, onTap: () -> Unit) {
-    val color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    val color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         Modifier
-            .border(1.dp, color.copy(alpha = 0.6f))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+            .clip(MaterialTheme.shapes.medium)
+            .selectionBar(on)
             .clickable(onClickLabel = if (on) "Stop redacting" else "Redact personal data", onClick = onTap)
             .semantics { contentDescription = if (on) "Redaction on: names, emails and numbers are hidden from the cloud" else "Redaction off" }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         MicroLabel(
             if (on) "\u25AE redact" else "redact off",
@@ -1379,27 +1370,28 @@ private fun RedactChip(on: Boolean, onTap: () -> Unit) {
 @Composable
 private fun CascadeChip(policy: CascadePolicy, onTap: () -> Unit) {
     val on = policy.localFirst
-    val color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+    val color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         Modifier
-            .border(1.dp, color.copy(alpha = 0.6f))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
+            .clip(MaterialTheme.shapes.medium)
+            .selectionBar(on)
             .clickable(onClickLabel = "Change phone first", onClick = onTap)
             .semantics { contentDescription = "Phone first: ${policy.title}. ${policy.detail}" }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
     ) { MicroLabel(if (on) "\u25AE " + policy.chip else policy.chip, color = color) }
 }
 
 /** Under the phone's answer when the judge was not convinced: why, and "Ask <cloud model>". */
 @Composable
 private fun CascadeOfferRow(offer: CascadeOffer, model: String, onAsk: () -> Unit) {
-    val red = MaterialTheme.colorScheme.primary
     Column(
-        Modifier.fillMaxWidth().border(1.dp, red.copy(alpha = 0.45f)).padding(horizontal = 12.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall).padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        MicroLabel("\u25AE phone first", color = red)
+        MicroLabel("\u25AE phone first")
         Text(offer.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Tag(CascadeLabels.ask(model), accent = red, filled = true, onClick = onAsk)
+        Tag(CascadeLabels.ask(model), accent = MaterialTheme.colorScheme.onSurface, onClick = onAsk)
     }
 }
 
@@ -1410,7 +1402,7 @@ private fun CascadeSheet(policy: CascadePolicy, model: String, onNode: Boolean, 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SectionLabel("phone first", Modifier.inkStagger(0))
-            Segmented(CascadePolicy.entries, policy, onPick, { it.title.lowercase() }, Modifier.fillMaxWidth().inkStagger(1))
+            Segmented(CascadePolicy.entries, policy, onPick, { it.title }, Modifier.fillMaxWidth().inkStagger(1))
             Text(policy.detail, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.inkStagger(2))
             Text(
                 CascadeLabels.sheetNote(model, onNode),
@@ -1460,9 +1452,9 @@ private fun ThinkSheet(
                     MicroLabel(state.thinkingDefault?.let { ThinkingLabels.chip(it) } ?: "auto")
                 }
                 if (state.thinkingDefault == setting || (state.thinkingDefault == null && setting == ThinkingSetting.AUTO)) {
-                    TextButton(onClick = { onDefault(null) }, enabled = state.thinkingDefault != null) { Text("CLEAR") }
+                    TextButton(onClick = { onDefault(null) }, enabled = state.thinkingDefault != null) { ActionText("Clear") }
                 } else {
-                    TextButton(onClick = { onDefault(setting) }) { Text("SET") }
+                    TextButton(onClick = { onDefault(setting) }) { ActionText("Set") }
                 }
             }
         }

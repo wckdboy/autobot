@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.feature.models
 
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,7 +22,6 @@ import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.inkCard
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.models.DownloadQueue
@@ -37,25 +38,19 @@ import dev.wckdboy.autobot.core.models.formatBytes
 @Composable
 internal fun DownloadsPanel(state: DownloadsState, actions: ModelsActions) {
     Column(
-        // The one living surface on the models screen (not its rows): a quiet breathing field.
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall).inkCard().padding(12.dp),
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.extraSmall).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            MicroLabel("downloads", color = MaterialTheme.colorScheme.primary)
+            MicroLabel("downloads")
             InfoButton("Downloads", "Downloads keep going when you leave Autobot. Pause and cancel them from the notification.", Modifier.weight(1f))
-            Tag(
-                if (state.wifiOnly) "wi-fi only" else "any network",
-                accent = if (state.wifiOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                filled = state.wifiOnly,
-                onClick = { actions.setWifiOnly(!state.wifiOnly) },
-            )
+            ChoiceChip(if (state.wifiOnly) "Wi-Fi only" else "Any network", selected = state.wifiOnly, onClick = { actions.setWifiOnly(!state.wifiOnly) })
         }
         state.block?.let { MicroLabel(it.label, color = AutobotTheme.inks.amber) }
         state.active?.let { p ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(p.title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                TextButton(onClick = { actions.pause(p.id) }) { Text("PAUSE") }
+                TextButton(onClick = { actions.pause(p.id) }) { ActionText("Pause") }
             }
             InkProgressBar(p.fraction.takeIf { p.total > 0 }, Modifier.fillMaxWidth().height(3.dp))
             MicroLabel(
@@ -88,11 +83,11 @@ private fun QueueRow(model: InstalledModel, status: String, actions: ModelsActio
             )
         }
         when (model.status) {
-            ModelStatus.QUEUED -> Tag("pause", onClick = { actions.pause(model.id) })
-            ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
-            ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
+            ModelStatus.QUEUED -> Tag("Pause", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.pause(model.id) })
+            ModelStatus.PAUSED -> Tag("Resume", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.resume(model.id) })
+            ModelStatus.FAILED -> Tag("Retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
             else -> Unit
         }
-        Tag("cancel", onClick = { actions.remove(model.id) })
+        Tag("Cancel", onClick = { actions.remove(model.id) })
     }
 }

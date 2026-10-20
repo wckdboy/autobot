@@ -1,5 +1,9 @@
 package dev.wckdboy.autobot.feature.home.node
 
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
+import dev.wckdboy.autobot.core.designsystem.component.NodeMark
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,7 +49,7 @@ import dev.wckdboy.autobot.shared.invincible.NodeActivityWords
 import java.text.DateFormat
 import java.util.Date
 
-private val TABS = listOf("requests", "actions", "board", "memory")
+private val TABS = listOf("Requests", "Actions", "Board", "Memory")
 
 /** What the node answered, what the agent did, and what it remembers: from the node's own logs. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,23 +67,15 @@ fun NodeActivitySheet(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NodeMark()
                 SectionLabel("activity on ${state.node}", Modifier.weight(1f))
                 IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh") }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TABS.forEachIndexed { i, name ->
                     val waiting = state.activity?.waiting?.size ?: 0
-                    Tag(
-                        if (name == "board" && waiting > 0) "board · $waiting" else name,
-                        Modifier.semantics {
-                            role = Role.Tab
-                            selected = tab == i
-                        },
-                        accent = MaterialTheme.colorScheme.primary,
-                        filled = tab == i,
-                        onClick = { tab = i },
-                    )
+                    ChoiceChip(if (name == "Board" && waiting > 0) "Board · $waiting" else name, selected = tab == i, onClick = { tab = i })
                 }
             }
             state.activityProblem?.let { Notice(it, tone = NoticeTone.WARNING) }
@@ -112,7 +108,7 @@ private fun Requests(activity: NodeActivity) {
                     r.receipt.let { if (it.verified) "signed ✓" else "not verified" },
                     NodeActivityWords.left(r),
                 ).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
+                style = AutobotTheme.styles.micro,
                 fontFamily = FontFamily.Monospace,
                 color = if (r.receipt.egress.isEmpty() && r.receipt.verified) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             )
@@ -132,7 +128,7 @@ private fun Actions(activity: NodeActivity) {
             Text(a.action, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, maxLines = 3)
             Text(
                 "${format.format(Date(a.at * 1000))} · ${NodeActivityWords.decided(a)} · ${a.session}",
-                style = MaterialTheme.typography.labelSmall,
+                style = AutobotTheme.styles.micro,
                 color = if (a.ran) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             )
         }
@@ -161,7 +157,7 @@ private fun Board(activity: NodeActivity, onAnswer: (String, String, () -> Unit)
             }
             if (task.waiting) {
                 var answer by rememberSaveable(task.id) { mutableStateOf("") }
-                Text("${task.agent} asks: ${task.question.orEmpty()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                Text("${task.agent} asks: ${task.question.orEmpty()}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                 ConsoleTextField(answer, { answer = it }, Modifier.fillMaxWidth(), placeholder = "Your answer", minLines = 1, maxLines = 4)
                 PrimaryButton("Answer", { onAnswer(task.id, answer) { answer = "" } }, Modifier.fillMaxWidth(), enabled = answer.isNotBlank())
             }

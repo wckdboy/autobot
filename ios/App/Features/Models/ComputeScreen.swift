@@ -51,7 +51,7 @@ struct ComputeScreen: View {
                     }
                     if let running {
                         VStack(alignment: .leading, spacing: 6) {
-                            MicroLabel("benchmarking · \(running.hasSuffix("…") ? String(running.dropLast()) : running)", color: c.primary, lines: 2)
+                            MicroLabel("benchmarking · \(running.hasSuffix("…") ? String(running.dropLast()) : running)", lines: 2)
                             InkProgressBar(fraction: Double(benchStep.done) / Double(max(benchStep.total, 1)), height: 2, running: true)
                         }
                     }
@@ -148,7 +148,7 @@ private struct ModelCompute: View {
         let isText = model.engine == .llama
         let order: [Backend] = [.auto, .cpu, .gpu, .npu]
         Panel(title: model.title) {
-            Tag("benchmark", accent: c.primary, filled: !running || benchmarking, busy: benchmarking, action: running ? nil : onBenchmark)
+            Tag("benchmark", accent: c.primary, busy: benchmarking, action: running ? nil : onBenchmark)
         } content: {
             Segmented(options: order, selected: model.backend, label: { b in
                 if b == .auto, let fastest { "auto · \(fastest.label)" } else { b.label }

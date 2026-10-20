@@ -19,11 +19,17 @@ enum Tokens {
         static let ink850: UInt32 = 0x1A1A1A
         static let ink900: UInt32 = 0x141414
         static let ink950: UInt32 = 0x0E0E0E
+        static let lilac: UInt32 = 0x9373FF
+        static let lilacDeep: UInt32 = 0x5A36E6
+        static let lilacDim: UInt32 = 0x241A4D
         static let line: UInt32 = 0x2F2F2E
+        static let orange: UInt32 = 0xFF8A1E
+        static let orangeLight: UInt32 = 0xFF8A1E
         static let paper: UInt32 = 0xEFEAE2
         static let paperInk: UInt32 = 0x141414
         static let paperLine: UInt32 = 0xCFC8BC
         static let paperMuted: UInt32 = 0x615C56
+        static let purple: UInt32 = 0x7C5CFF
         static let red: UInt32 = 0xE8401C
         static let redDeep: UInt32 = 0xB8300F
         static let redDim: UInt32 = 0x3A140A
@@ -70,13 +76,13 @@ enum Tokens {
         error: 0xFF6A47,
         errorContainer: 0x3D130B,
         inverseOnSurface: 0x141414,
-        inversePrimary: 0xB8300F,
+        inversePrimary: 0x5A36E6,
         inverseSurface: 0xF1ECE4,
         onBackground: 0xF1ECE4,
         onError: 0x0E0E0E,
         onErrorContainer: 0xFFD9CF,
         onPrimary: 0x0E0E0E,
-        onPrimaryContainer: 0xFFD9CC,
+        onPrimaryContainer: 0xE4DEFF,
         onSecondary: 0x0E0E0E,
         onSecondaryContainer: 0xF1ECE4,
         onSurface: 0xF1ECE4,
@@ -84,8 +90,8 @@ enum Tokens {
         onTertiary: 0x0E0E0E,
         outline: 0x4B4945,
         outlineVariant: 0x2F2F2E,
-        primary: 0xEB5535,
-        primaryContainer: 0x3A140A,
+        primary: 0x9373FF,
+        primaryContainer: 0x241A4D,
         scrim: 0x000000,
         secondary: 0xC9C3BA,
         secondaryContainer: 0x292929,
@@ -112,7 +118,7 @@ enum Tokens {
         onError: 0xFFFFFF,
         onErrorContainer: 0x410E0B,
         onPrimary: 0xF6F2EC,
-        onPrimaryContainer: 0x3A0B00,
+        onPrimaryContainer: 0x1B1240,
         onSecondary: 0xF6F2EC,
         onSecondaryContainer: 0x141414,
         onSurface: 0x141414,
@@ -120,8 +126,8 @@ enum Tokens {
         onTertiary: 0xFFFFFF,
         outline: 0xA8A096,
         outlineVariant: 0xCFC8BC,
-        primary: 0xAE2D12,
-        primaryContainer: 0xFFDCD0,
+        primary: 0x5A36E6,
+        primaryContainer: 0xE4DEFF,
         scrim: 0x000000,
         secondary: 0x3A3632,
         secondaryContainer: 0xDDD6CB,
@@ -188,19 +194,19 @@ enum Tokens {
         static let bodySmall = TypeStyle(font: .sans, size: 12.5, lineHeight: 17.0, weight: 400.0, letterSpacing: 0.4, trim: false, tabular: false)
         static let code = TypeStyle(font: .mono, size: 13.0, lineHeight: 18.0, weight: 400.0, letterSpacing: 0.0, trim: false, tabular: false)
         static let codeBlock = TypeStyle(font: .mono, size: 12.0, lineHeight: 17.0, weight: 400.0, letterSpacing: 0.0, trim: false, tabular: false)
-        static let displayLarge = TypeStyle(font: .display, size: 72.0, lineHeight: 70.0, weight: 300.0, letterSpacing: -1.0, trim: true, tabular: false)
-        static let displayMedium = TypeStyle(font: .display, size: 58.0, lineHeight: 58.0, weight: 300.0, letterSpacing: -0.8, trim: true, tabular: false)
-        static let displaySmall = TypeStyle(font: .display, size: 44.0, lineHeight: 46.0, weight: 300.0, letterSpacing: -0.5, trim: true, tabular: false)
-        static let headlineLarge = TypeStyle(font: .display, size: 36.0, lineHeight: 40.0, weight: 300.0, letterSpacing: -0.5, trim: true, tabular: false)
-        static let headlineMedium = TypeStyle(font: .display, size: 30.0, lineHeight: 34.0, weight: 400.0, letterSpacing: -0.5, trim: true, tabular: false)
-        static let headlineSmall = TypeStyle(font: .display, size: 25.0, lineHeight: 29.0, weight: 400.0, letterSpacing: -0.2, trim: true, tabular: false)
-        static let labelLarge = TypeStyle(font: .mono, size: 12.5, lineHeight: 16.0, weight: 600.0, letterSpacing: 1.2, trim: true, tabular: false)
-        static let labelMedium = TypeStyle(font: .mono, size: 11.0, lineHeight: 14.0, weight: 500.0, letterSpacing: 0.9, trim: true, tabular: false)
-        static let labelSmall = TypeStyle(font: .mono, size: 10.0, lineHeight: 13.0, weight: 500.0, letterSpacing: 1.0, trim: true, tabular: false)
-        static let micro = TypeStyle(font: .mono, size: 10.5, lineHeight: 13.0, weight: 500.0, letterSpacing: 0.7, trim: false, tabular: false)
-        static let number = TypeStyle(font: .display, size: 30.0, lineHeight: 32.0, weight: 400.0, letterSpacing: 0.0, trim: true, tabular: false)
+        static let displayLarge = TypeStyle(font: .sans, size: 44.0, lineHeight: 50.0, weight: 600.0, letterSpacing: -0.8, trim: true, tabular: false)
+        static let displayMedium = TypeStyle(font: .sans, size: 36.0, lineHeight: 42.0, weight: 600.0, letterSpacing: -0.6, trim: true, tabular: false)
+        static let displaySmall = TypeStyle(font: .sans, size: 30.0, lineHeight: 36.0, weight: 600.0, letterSpacing: -0.4, trim: true, tabular: false)
+        static let headlineLarge = TypeStyle(font: .sans, size: 26.0, lineHeight: 32.0, weight: 600.0, letterSpacing: -0.3, trim: true, tabular: false)
+        static let headlineMedium = TypeStyle(font: .sans, size: 22.0, lineHeight: 28.0, weight: 600.0, letterSpacing: -0.2, trim: true, tabular: false)
+        static let headlineSmall = TypeStyle(font: .sans, size: 19.0, lineHeight: 24.0, weight: 600.0, letterSpacing: -0.1, trim: true, tabular: false)
+        static let labelLarge = TypeStyle(font: .mono, size: 13.0, lineHeight: 16.0, weight: 600.0, letterSpacing: 0.0, trim: true, tabular: false)
+        static let labelMedium = TypeStyle(font: .mono, size: 12.0, lineHeight: 16.0, weight: 500.0, letterSpacing: 0.0, trim: true, tabular: false)
+        static let labelSmall = TypeStyle(font: .mono, size: 11.0, lineHeight: 14.0, weight: 500.0, letterSpacing: 0.0, trim: true, tabular: false)
+        static let micro = TypeStyle(font: .mono, size: 12.0, lineHeight: 16.0, weight: 500.0, letterSpacing: 0.0, trim: false, tabular: false)
+        static let number = TypeStyle(font: .mono, size: 26.0, lineHeight: 30.0, weight: 500.0, letterSpacing: 0.0, trim: true, tabular: true)
         static let readout = TypeStyle(font: .mono, size: 12.5, lineHeight: 16.0, weight: 500.0, letterSpacing: 0.0, trim: false, tabular: true)
-        static let titleLarge = TypeStyle(font: .display, size: 22.0, lineHeight: 26.0, weight: 500.0, letterSpacing: 0.4, trim: true, tabular: false)
+        static let titleLarge = TypeStyle(font: .sans, size: 18.0, lineHeight: 24.0, weight: 600.0, letterSpacing: 0.0, trim: true, tabular: false)
         static let titleMedium = TypeStyle(font: .sans, size: 16.0, lineHeight: 24.0, weight: 500.0, letterSpacing: 0.0, trim: false, tabular: false)
         static let titleSmall = TypeStyle(font: .sans, size: 14.0, lineHeight: 20.0, weight: 500.0, letterSpacing: 0.1, trim: false, tabular: false)
     }

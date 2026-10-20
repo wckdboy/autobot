@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.models
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -59,7 +60,6 @@ import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
@@ -137,7 +137,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
 
     Scaffold(
         topBar = {
-            AutobotTopBar(title = "Models", actions = { TextButton(onClick = onOpenCompute) { Text("COMPUTE", style = MaterialTheme.typography.labelMedium) } })
+            AutobotTopBar(title = "Models", mark = true, actions = { TextButton(onClick = onOpenCompute) { ActionText("Compute", color = MaterialTheme.colorScheme.onSurfaceVariant) } })
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
@@ -164,7 +164,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
             if (state.installed.isNotEmpty()) {
                 item { SectionLabel("installed · ${state.installed.size}") }
                 items(state.installed, key = { "i-${it.id}" }) { model ->
-                    // Removing a model dissolves its row into halftone before it goes.
+                    // Removing a model fades and collapses its row before it goes.
                     Column(Modifier.inkDissolve(dissolve, model.id)) {
                         InstalledRow(model, actions, onRemove = { dissolve.dissolve(model.id) { actions.remove(model.id) } })
                     }
@@ -219,7 +219,6 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                         item(key = "hf-empty") {
                             SearchEmpty("Hugging Face", state.offline, state.hf.searched, state.hf.failure, state.hf.query, onOpenNetwork, actions::searchHf)
                         }
-                        item(key = "hf-paper") { EmptyResults() }
                     }
                     items(state.hf.results, key = { "hf-${it.id}" }) { m ->
                         RunRow(
@@ -235,7 +234,6 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                         item(key = "cv-empty") {
                             SearchEmpty("Civitai", state.offline, state.civitai.searched, state.civitai.failure, state.civitai.query, onOpenNetwork) { actions.searchCivitai(reset = true) }
                         }
-                        item(key = "cv-paper") { EmptyResults() }
                     }
                     items(state.civitai.results, key = { "cv-${it.id}" }) { m -> CivitaiRow(m, actions, state.installedIds()) { actions.installCivitai(m) } }
                     // A failed "more" says so under the results it could not extend.
@@ -245,7 +243,7 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                         }
                     }
                     if (state.civitai.nextCursor != null) {
-                        item { TextButton(onClick = { actions.searchCivitai(reset = false) }) { Text("MORE") } }
+                        item { TextButton(onClick = { actions.searchCivitai(reset = false) }) { ActionText("More") } }
                     }
                 }
             }
@@ -257,15 +255,6 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
             RepoSheet(repo, state, actions)
         }
     }
-}
-
-/**
- * No search results yet: a patch of living paper under the notice (as on iOS). Not the whole list:
- * the ground ran behind the device header, the installed rows and the search field's text.
- */
-@Composable
-private fun EmptyResults() {
-    Spacer(Modifier.fillMaxWidth().height(180.dp).inkGround())
 }
 
 /**
@@ -288,22 +277,22 @@ private fun SearchEmpty(
             "Offline mode is on, so the kill switch blocks $hub. Choose a network mode to search and download models.",
             modifier,
             tone = NoticeTone.WARNING,
-            action = "network",
+            action = "Network",
             onAction = onOpenNetwork,
         )
         failure?.blocked == true -> Notice(
             "The kill switch blocked $hub: ${failure.message}",
             modifier,
             tone = NoticeTone.WARNING,
-            action = "network",
+            action = "Network",
             onAction = onOpenNetwork,
         )
-        failure != null -> Notice("$hub search failed: ${failure.message}", modifier, tone = NoticeTone.ERROR, action = "retry", onAction = onRetry)
+        failure != null -> Notice("$hub search failed: ${failure.message}", modifier, tone = NoticeTone.ERROR, action = "Retry", onAction = onRetry)
         searched -> Notice(
             if (query.isBlank()) "$hub returned no models for this filter." else "No models on $hub match “${query.trim()}”. Try another name or filter.",
             modifier,
         )
-        else -> Notice("Search $hub above, or tap search to list popular models.", modifier, action = "search", onAction = onRetry)
+        else -> Notice("Search $hub above, or tap Search to list popular models.", modifier, action = "Search", onAction = onRetry)
     }
 }
 
@@ -369,15 +358,15 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsActions, onRemove
         // "ready" is stamped in when a download finishes while you watch.
         Box(Modifier.stamp(model.status, enabled = model.status == ModelStatus.READY)) {
             when (model.status) {
-                ModelStatus.READY -> Tag("ready", accent = MaterialTheme.colorScheme.primary, filled = true)
+                ModelStatus.READY -> Tag("ready")
                 // Progress is shown once, in the downloads panel; the row offers what a tap does.
-                ModelStatus.DOWNLOADING -> Tag("pause", accent = MaterialTheme.colorScheme.primary, onClick = { actions.pause(model.id) })
+                ModelStatus.DOWNLOADING -> Tag("Pause", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.pause(model.id) })
                 ModelStatus.QUEUED -> Tag("queued", onClick = { actions.pause(model.id) })
-                ModelStatus.PAUSED -> Tag("resume", accent = MaterialTheme.colorScheme.primary, onClick = { actions.resume(model.id) })
-                ModelStatus.FAILED -> Tag("retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
+                ModelStatus.PAUSED -> Tag("Resume", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.resume(model.id) })
+                ModelStatus.FAILED -> Tag("Retry", accent = MaterialTheme.colorScheme.error, onClick = { actions.resume(model.id) })
             }
         }
-        Tag(if (confirm) "sure?" else "×", accent = MaterialTheme.colorScheme.onSurfaceVariant, onClick = {
+        Tag(if (confirm) "Remove?" else "×", accent = MaterialTheme.colorScheme.onSurfaceVariant, onClick = {
             if (confirm) onRemove() else confirm = true
         })
     }
@@ -404,7 +393,7 @@ private fun CatalogRow(plan: ModelPlan, fit: Fit?, installed: Boolean, onGet: ()
         if (installed) {
             Tag("added", accent = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
+            Tag("Get", accent = MaterialTheme.colorScheme.onSurface, onClick = onGet)
         }
     }
 }
@@ -414,14 +403,14 @@ private fun HfSearch(state: ModelsUiState, actions: ModelsActions, onOpenAccount
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MicroLabel(state.accounts.huggingFaceUser?.let { "signed in · $it" } ?: "anonymous · gated models need a token", Modifier.weight(1f))
-            Tag("account", onClick = onOpenAccounts)
+            Tag("Account", accent = MaterialTheme.colorScheme.onSurface, onClick = onOpenAccounts)
         }
         Segmented(HfScope.entries, state.hf.scope, actions::setHfScope, { it.label }, Modifier.fillMaxWidth())
         ConsoleTextField(
             state.hf.query,
             actions::setHfQuery,
             Modifier.fillMaxWidth(),
-            placeholder = "search gguf repos (qwen, gemma, phi…)",
+            placeholder = "Search GGUF repos (qwen, gemma, phi…)",
             singleLine = true,
             mono = true,
             keyboardOptions = PromptKeyboardOptions.copy(imeAction = ImeAction.Search),
@@ -445,19 +434,19 @@ private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsActions
             val n = f.path.lowercase()
             (n.endsWith(".gguf") || n.endsWith(".safetensors") || n.endsWith(".ckpt") || n.endsWith(".zip")) && "mmproj" !in n
         }
-        if (files.isEmpty()) MicroLabel("no model files in this repo")
+        if (files.isEmpty()) MicroLabel("No model files in this repo.")
         LazyColumn(Modifier.heightIn(max = 460.dp)) {
             items(files, key = { it.path }) { f ->
                 val kind = state.hf.scope.kind
                 val fit = state.device?.fit(kind, f.sizeBytes, dev.wckdboy.autobot.core.models.engineFor(kind, dev.wckdboy.autobot.core.models.formatOf(f.path, repo.id.substringBefore('/'))))
                 RunRow(f.path.substringAfterLast('/'), "${formatBytes(f.sizeBytes)}${if (f.sha256 != null) " · sha-256 known" else ""}") {
                     fit?.let { Tag(it.label, accent = if (it == Fit.GOOD) MaterialTheme.colorScheme.onSurfaceVariant else AutobotTheme.inks.amber) }
-                    Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = { actions.installHfFile(repo, f.path) })
+                    Tag("Get", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.installHfFile(repo, f.path) })
                 }
             }
         }
         if (files.any { dev.wckdboy.autobot.core.models.formatOf(it.path, repo.id.substringBefore('/')) == ModelFormat.LOCAL_DREAM }) {
-            MicroLabel("local dream packages can't run on autobot's engines — use local dream's host mode as an image backend", color = AutobotTheme.inks.amber)
+            MicroLabel("Local Dream packages can't run on Autobot's engines. Use Local Dream's host mode as an image backend.", color = AutobotTheme.inks.amber)
         }
     }
 }
@@ -474,14 +463,14 @@ private fun CivitaiSearch(state: ModelsUiState, actions: ModelsActions, onOpenAc
                 ).joinToString(" · "),
                 Modifier.weight(1f),
             )
-            Tag("account", onClick = onOpenAccounts)
+            Tag("Account", accent = MaterialTheme.colorScheme.onSurface, onClick = onOpenAccounts)
         }
         Segmented(CivitaiScope.entries, state.civitai.scope, actions::setCivitaiScope, { it.label }, Modifier.fillMaxWidth())
         ConsoleTextField(
             state.civitai.query,
             actions::setCivitaiQuery,
             Modifier.fillMaxWidth(),
-            placeholder = "search sd 1.5 / sdxl / pony / illustrious",
+            placeholder = "Search SD 1.5, SDXL, Pony, Illustrious",
             singleLine = true,
             mono = true,
             keyboardOptions = PromptKeyboardOptions.copy(imeAction = ImeAction.Search),
@@ -516,7 +505,7 @@ private fun CivitaiRow(model: CivitaiModel, actions: ModelsActions, installed: S
         when {
             version?.earlyAccess == true -> Tag("early access", accent = AutobotTheme.inks.amber)
             version != null && "civitai:${version.id}" in installed -> Tag("added")
-            else -> Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
+            else -> Tag("Get", accent = MaterialTheme.colorScheme.onSurface, onClick = onGet)
         }
     }
 }
@@ -531,8 +520,8 @@ private fun NpuOfferRow(offer: NpuOffer, arch: String?, installed: Boolean, onGe
     ) {
         when {
             installed -> Tag("added", accent = MaterialTheme.colorScheme.onSurfaceVariant)
-            file == null -> Tag("no build", accent = MaterialTheme.colorScheme.error)
-            else -> Tag("get", accent = MaterialTheme.colorScheme.primary, filled = true, onClick = onGet)
+            file == null -> Tag("no build")
+            else -> Tag("Get", accent = MaterialTheme.colorScheme.onSurface, onClick = onGet)
         }
     }
 }

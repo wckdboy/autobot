@@ -166,7 +166,7 @@ fun Transport(player: BytePlayer, modifier: Modifier = Modifier, extra: @Composa
             colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
         )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhostButton(if (player.playing) "Pause" else "Play", player::toggle, accent = MaterialTheme.colorScheme.primary)
+            GhostButton(if (player.playing) "Pause" else "Play", player::toggle)
             Text("${duration(player.positionMs)} / ${duration(player.durationMs)}", style = AutobotTheme.styles.readout)
             Box(Modifier.weight(1f))
             Tag(if (player.loop) "loop on" else "loop off", accent = if (player.loop) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = player.loop, onClick = { player.loop = !player.loop })

@@ -157,9 +157,11 @@ struct SettingsScreen: View {
                 HStack(spacing: 8) {
                     ForEach(lockTimeoutOptions, id: \.millis) { option in
                         let active = selected == option.millis
-                        Tag(option.label, accent: active ? c.primary : c.onSurfaceVariant, filled: active) {
+                        // The shared v4 selection (onSurface over the purple bar).
+                        Tag(option.label, accent: active ? c.onSurface : c.onSurfaceVariant, filled: active) {
                             app.settings.setLockTimeoutMillis(option.millis)
                         }
+                        .accessibilityAddTraits(active ? .isSelected : [])
                     }
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)

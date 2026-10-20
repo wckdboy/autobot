@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Uppercase, tracked mono caption: `// SAMPLER`, `CTX`, `SEED`.
+/// Sentence-case mono caption, untracked: `Sampler`, `Seed`, `Installed · 2`.
 struct MicroLabel: View {
     let text: String
     var color: Color? = nil
@@ -15,7 +15,7 @@ struct MicroLabel: View {
     }
 
     var body: some View {
-        Text(text.uppercased())
+        Text(text.sentenceCased)
             .textStyle(.micro)
             .foregroundStyle(color ?? c.onSurfaceVariant)
             .textLines(lines)
@@ -75,7 +75,10 @@ struct Panel<Trailing: View, Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             if title != nil || hasTrailing {
                 HStack(spacing: 8) {
-                    if let accent { Rectangle().fill(accent).frame(width: Tokens.Spacing.panelAccent, height: Tokens.Spacing.panelAccent) }
+                    // v4: no decorative squares; only a warning or an error keeps its mark.
+                    if let accent, accent == AutobotColors.amber || accent == c.error || accent == c.inks.amber {
+                        Rectangle().fill(accent).frame(width: Tokens.Spacing.panelAccent, height: Tokens.Spacing.panelAccent)
+                    }
                     if let title { MicroLabel(title).frame(maxWidth: .infinity, alignment: .leading) }
                     trailing()
                 }
@@ -115,7 +118,12 @@ struct Readout: View {
     }
 }
 
-/// Square-cornered tag, e.g. `[TOOLS]`, `LORA 0.80`.
+/**
+ Square-cornered tag, e.g. `tools`, `lora 0.80`. Information tags stay lowercase mono; a tag with
+ an [action] is a small button, so its label is sentence case. [filled] in a neutral or the primary
+ accent marks a selection (the shared v4 selection, as on Android: onSurface medium text over a
+ 2 pt purple bar); in another accent (amber, the error red) it is a solid block.
+ */
 struct Tag: View {
     let text: String
     var accent: Color? = nil
@@ -135,12 +143,16 @@ struct Tag: View {
 
     var body: some View {
         let tint = accent ?? c.onSurfaceVariant
-        // Filled tags are solid blocks; ink or bone text, whichever reads better on the fill (ink
-        // on the signal red and amber, where bone is under 3.5:1).
-        let textColor = !filled ? tint : (tint.luminance() > 0.18 ? AutobotColors.paperInk : AutobotColors.bone100)
+        let selection = filled && [c.primary, c.onSurface, c.onSurfaceVariant, c.secondary].contains(tint)
+        // Solid blocks take ink or bone text, whichever reads better on the fill (ink on the
+        // amber and the error red, where bone is under 3.5:1).
+        let textColor = selection ? c.onSurface
+            : !filled ? (tint == c.primary ? c.onSurface : tint)
+            : (tint.luminance() > 0.18 ? AutobotColors.paperInk : AutobotColors.bone100)
         let label = InkBusyLabel(busy: busy, size: .inline, color: textColor) {
-            Text(text.uppercased())
-                .textStyle(.micro)
+            // A meta chip (`forge · desktop`) stays lowercase even when it is tappable.
+            Text(action == nil || text.contains(" · ") ? text : text.sentenceCased)
+                .textStyle(.micro, weight: selection ? 600 : nil)
                 .textLines(1)
                 .foregroundStyle(textColor)
         }
@@ -148,8 +160,16 @@ struct Tag: View {
         .padding(.vertical, Tokens.Spacing.tagPaddingVertical)
         .background {
             let shape = RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
-            if filled { shape.fill(tint) } else { shape.strokeBorder(tint.opacity(0.55), lineWidth: Tokens.Stroke.border) }
+            if selection {
+                shape.strokeBorder(c.outline, lineWidth: Tokens.Stroke.border)
+            } else if filled {
+                shape.fill(tint)
+            } else {
+                // An outlined tag in the primary is a quiet action: onSurface text in a stronger hairline.
+                shape.strokeBorder(tint == c.primary ? c.outline : c.outlineVariant, lineWidth: Tokens.Stroke.border)
+            }
         }
+        .selectionBar(selection)
         .fixedSize()
         if let action {
             Button(action: action) { label.contentShape(Rectangle()) }.buttonStyle(PressStyle()).disabled(busy)
@@ -280,7 +300,7 @@ struct ValueSlider: View {
         VStack(spacing: 0) {
             HStack {
                 MicroLabel(label).frame(maxWidth: .infinity, alignment: .leading)
-                Text(format(value)).textStyle(.readout).foregroundStyle(c.primary)
+                Text(format(value)).textStyle(.readout).foregroundStyle(c.onSurface)
             }
             RisoSlider(value: $value, range: range, step: step, enabled: enabled)
         }
@@ -302,8 +322,12 @@ struct AdaptiveRow<Content: View>: View {
     }
 }
 
-/// Single-select segmented row: `[ TXT2IMG | IMG2IMG | INPAINT ]`. The selection block slides
-/// with ease-out and leaves a one-frame registration ghost.
+/**
+ Single-select segmented row: `[ txt2img | img2img | inpaint ]` in sentence-case mono. The
+ selection is the shared v4 selection (as on Android): onSurface text in medium weight over a
+ 2 pt purple bar; the rest onSurfaceVariant, inside a 1 pt outlineVariant hairline with 4 pt
+ corners. The bar slides with ease-out.
+ */
 struct Segmented<T: Hashable>: View {
     let options: [T]
     let selected: T
@@ -313,7 +337,6 @@ struct Segmented<T: Hashable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicType
     @Namespace private var marker
-    @State private var ghost = InkSelectionGhost()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -321,20 +344,23 @@ struct Segmented<T: Hashable>: View {
                 if index > 0 { Rectangle().fill(c.outlineVariant).frame(width: Tokens.Stroke.hairline).frame(maxHeight: .infinity) }
                 let isSelected = option == selected
                 Button { onSelect(option) } label: {
-                    Text(label(option).uppercased())
-                        .textStyle(.micro)
+                    Text(label(option).sentenceCased)
+                        .textStyle(.micro, weight: isSelected ? 600 : nil)
                         // At accessibility sizes a label wraps (the control grows) before it shrinks.
                         .lineLimit(dynamicType.isAccessibilitySize ? 3 : 1)
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.7)
-                        .foregroundStyle(isSelected ? c.onPrimary : c.onSurfaceVariant)
+                        .foregroundStyle(isSelected ? c.onSurface : c.onSurfaceVariant)
                         .padding(.vertical, dynamicType.isAccessibilitySize ? 6 : 0)
                         .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.segmentedHeight)
                         .background {
-                            if ghost.key == AnyHashable(option) {
-                                Rectangle().fill(c.primary.opacity(0.35)).offset(x: Tokens.Motion.registerOffset, y: Tokens.Motion.registerOffset)
+                            if isSelected {
+                                VStack(spacing: 0) {
+                                    Spacer(minLength: 0)
+                                    Rectangle().fill(AutobotColors.purple).frame(height: SelectionBar.height).padding(.horizontal, SelectionBar.segmentInset)
+                                }
+                                .matchedGeometryEffect(id: "selection", in: marker)
                             }
-                            if isSelected { Rectangle().fill(c.primary).matchedGeometryEffect(id: "selection", in: marker) }
                         }
                         .contentShape(Rectangle())
                 }
@@ -344,21 +370,43 @@ struct Segmented<T: Hashable>: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .animation(reduceMotion ? .inkReduced : .inkSlide, value: selected)
-        .onChange(of: selected) { old, _ in ghost.moved(from: AnyHashable(old), reduceMotion: reduceMotion) }
-        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.small))
-        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
+        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.medium))
+        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.medium).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
     }
 }
 
+/// The shared v4 selection mark: a 2 pt purple bar along the bottom edge.
+enum SelectionBar {
+    static let height: CGFloat = 2
+    /// Inset from a segment's sides.
+    static let segmentInset: CGFloat = 12
+}
+
+private struct SelectionBarModifier: ViewModifier {
+    let selected: Bool
+    var inset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .bottom) {
+            if selected { Rectangle().fill(AutobotColors.purple).frame(height: SelectionBar.height).padding(.horizontal, inset) }
+        }
+    }
+}
+
+extension View {
+    /// Draws the 2 pt purple selection bar along the bottom edge while [selected] (layout unchanged).
+    func selectionBar(_ selected: Bool, inset: CGFloat = 0) -> some View { modifier(SelectionBarModifier(selected: selected, inset: inset)) }
+}
+
 enum BlockStatus: String, CaseIterable {
-    case pending = "PENDING", running = "RUNNING", ok = "OK", error = "ERROR", denied = "DENIED"
+    case pending = "pending", running = "running", ok = "ok", error = "error", denied = "denied"
 
     /// The status ink on [c]'s ground (text and dot).
     func color(_ c: AutobotScheme) -> Color {
         switch self {
         case .pending: c.inks.amber
-        case .running: c.inks.uv
-        case .ok: c.primary
+        case .running: c.primary
+        case .ok: c.onSurfaceVariant
         case .error: c.inks.signal
         case .denied: c.onSurfaceVariant
         }
@@ -390,7 +438,7 @@ struct TerminalBlock<Actions: View>: View {
                     .foregroundStyle(c.onSurfaceVariant)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                MicroLabel(status.rawValue, color: status.color(c))
+                MicroLabel(status == .ok ? "✓ done" : status == .error ? "✗ failed" : status.rawValue, color: status.color(c))
             }
             .padding(.horizontal, Tokens.Spacing.terminalPaddingHorizontal)
             .padding(.vertical, Tokens.Spacing.terminalPaddingVertical)

@@ -35,31 +35,30 @@ enum Route: String, CaseIterable, Sendable {
     }
 }
 
-/// `● LOCAL · CPU` (filled red) / `◐ PC · LAN` / `○ CLOUD · API` (outlined).
+/**
+ `● local · cpu` / `◐ pc · lan` / `○ cloud · api`: a quiet hairline tag; the glyph says where
+ (filled: on this phone). Not in the signal colour: where a run goes is information, not an alarm.
+ */
 struct RouteTag: View {
     let route: Route
     @Environment(\.scheme) private var c
 
     var body: some View {
-        Text("\(route.glyph) \(route.label)".uppercased())
+        Text("\(route.glyph) \(route.label)")
             .textStyle(.micro)
             .textLines(1)
-            .foregroundStyle(route.local ? c.onPrimary : c.onSurface)
+            .foregroundStyle(c.onSurfaceVariant)
             .padding(.horizontal, Tokens.Spacing.tagPaddingHorizontal)
             .padding(.vertical, Tokens.Spacing.tagPaddingVertical)
             .background {
-                let shape = RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
-                if route.local {
-                    shape.fill(c.primary)
-                } else {
-                    shape.strokeBorder(c.outline, lineWidth: Tokens.Stroke.border)
-                }
+                RoundedRectangle(cornerRadius: AutobotShapes.extraSmall)
+                    .strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border)
             }
             .fixedSize()
     }
 }
 
-/// Red `// SECTION · DETAIL` line.
+/// A quiet `Section · detail` caption: sentence-case mono, untracked, onSurfaceVariant.
 struct SectionLabel: View {
     let text: String
     var color: Color? = nil
@@ -71,16 +70,17 @@ struct SectionLabel: View {
     }
 
     var body: some View {
-        Text("// \(text.uppercased())")
+        Text(text.sentenceCased)
             .textStyle(.micro)
-            .foregroundStyle(color ?? c.primary)
+            .foregroundStyle(color ?? c.onSurfaceVariant)
             .textLines(2, accessibility: 4)
+            .accessibilityAddTraits(.isHeader)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-/// Full-width red block button with a mono caps label.
+/// Full-width block in the scheme's primary (a screen's primary action), sentence-case mono label.
 struct PrimaryButton: View {
     let text: String
     var enabled = true
@@ -101,7 +101,7 @@ struct PrimaryButton: View {
         let lit = enabled || busy
         Button(action: action) {
             InkBusyLabel(busy: busy, color: c.onPrimary) {
-                Text(text.uppercased())
+                Text(text.sentenceCased)
                     .textStyle(.labelLarge)
                     .textLines(1)
             }
@@ -143,7 +143,7 @@ struct GhostButton: View {
         let lit = enabled || busy
         Button(action: action) {
             InkBusyLabel(busy: busy, color: accent ?? c.primary) {
-                Text(text.uppercased())
+                Text(text.sentenceCased)
                     .textStyle(.labelLarge)
                     .textLines(1)
             }
@@ -161,10 +161,11 @@ struct GhostButton: View {
     }
 }
 
-/// Cream block button (APPROVE on red cards).
+/// The approve button on an approval card: the card's primary action, so a primary block.
 struct PaperButton: View {
     let text: String
     let action: () -> Void
+    @Environment(\.scheme) private var c
 
     init(_ text: String, action: @escaping () -> Void) {
         self.text = text
@@ -173,19 +174,23 @@ struct PaperButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(text.uppercased())
+            Text(text.sentenceCased)
                 .textStyle(.labelLarge)
                 .textLines(1)
                 .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.ghostButtonMinHeight)
-                .foregroundStyle(AutobotColors.paperInk)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(AutobotColors.bone100))
+                .foregroundStyle(c.onPrimary)
+                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.primary))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
     }
 }
 
-/// Small mono text button (`ALL →`, `TUNE`, `OK`): Material's TextButton in the riso type.
+/**
+ Small mono text button (`All`, `Tune`, `OK`), sentence case. Plain ones read as links: onSurface
+ with a purple underline (the signal stays small); a [color] other than the primary (an error red
+ for Delete) tints the label instead.
+ */
 struct TextAction: View {
     let text: String
     var color: Color? = nil
@@ -206,13 +211,15 @@ struct TextAction: View {
     }
 
     var body: some View {
+        let link = color == nil || color == c.primary
         Button(action: action) {
             InkBusyLabel(busy: busy, size: .inline, color: color ?? c.primary) {
-                Text(text.uppercased())
+                Text(text.sentenceCased)
                     .textStyle(style)
+                    .underline(link && enabled, color: c.primary)
                     .textLines(1)
             }
-            .foregroundStyle(enabled ? (color ?? c.primary) : c.onSurface.opacity(0.38))
+            .foregroundStyle(enabled ? (link ? c.onSurface : color ?? c.onSurface) : c.onSurface.opacity(0.38))
             .padding(.horizontal, 12)
             .frame(minHeight: 40)
             .contentShape(Rectangle())
@@ -229,16 +236,85 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-/// The brand mark (halftone "a" on red).
+/// The lab's mark: a small solid square in the product's signal (Autobot: the scheme's primary).
+/// The products' symbols, as pixels: Autobot's a and Invincible's i (BRAND.md).
+enum Glyph {
+    static let a = [".####.", "....##", ".#####", "##..##", "##..##", ".#####"]
+    static let i = ["##", "..", "##", "##", "##", "##"]
+}
+
+/// A pixel symbol [size] points tall: square cells, no smoothing.
+struct PixelSymbol: View {
+    let rows: [String]
+    let color: Color
+    var size: CGFloat = 12
+
+    var body: some View {
+        let cell = size / CGFloat(rows.count)
+        Canvas { ctx, _ in
+            for (y, row) in rows.enumerated() {
+                for (x, ch) in row.enumerated() where ch == "#" {
+                    ctx.fill(Path(CGRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell + 0.5, height: cell + 0.5)), with: .color(color))
+                }
+            }
+        }
+        .frame(width: cell * CGFloat(rows[0].count), height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Autobot's symbol, the pixel a, in its purple.
 struct AutobotMark: View {
+    var size: CGFloat = 12
+    var color: Color? = nil
+    @Environment(\.scheme) private var c
+
+    var body: some View { PixelSymbol(rows: Glyph.a, color: color ?? AutobotColors.purple, size: size) }
+}
+
+/// Invincible's symbol, the pixel i, in its orange: on anything about the node.
+struct NodeMark: View {
+    var size: CGFloat = 12
+    @Environment(\.scheme) private var c
+
+    var body: some View { PixelSymbol(rows: Glyph.i, color: c.node, size: size) }
+}
+
+/// The pixel a and the lowercase mono name: Autobot's wordmark.
+struct Wordmark: View {
+    var name = "autobot"
+    var color: Color? = nil
+    @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    /// JetBrains Mono semibold, 17 pt at the default text size.
+    static let style = Tokens.TypeStyle(font: .mono, size: 17, lineHeight: 22, weight: 600, letterSpacing: 0, trim: true, tabular: false)
+
+    var body: some View {
+        HStack(spacing: 8) {
+            AutobotMark(size: 14, color: color)
+            Text(name)
+                .font(Font(AutobotFonts.uiFont(Self.style, dynamicType: dynamicType)))
+                .foregroundStyle(c.onBackground)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(name.prefix(1).uppercased() + name.dropFirst())
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The app icon (the pixel a in purple on white), for the places that show the icon itself.
+struct AppIconImage: View {
     var size: CGFloat = Tokens.Spacing.markSize
 
     var body: some View {
-        Image("AutobotMark")
-            .resizable()
-            .interpolation(.high)
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(Color.white)
+            PixelSymbol(rows: Glyph.a, color: AutobotColors.purple, size: size * 0.5)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 
@@ -309,10 +385,65 @@ extension View {
     func compactActionFrame() -> some View { modifier(CompactActionFrame()) }
 }
 
-/// Top bar: mark + condensed wordmark (or a title) and trailing actions.
+/**
+ The small solid purple square that ends a top-level title ("Models▪"), as on the sites' h1:
+ 0.3 em, on the baseline, 0.15 em after the last letter. [fontSize] is the title's point size.
+ */
+struct TitleMark: View {
+    var fontSize: CGFloat = 18
+
+    var body: some View {
+        Rectangle()
+            .fill(AutobotColors.purple)
+            .frame(width: (fontSize * 0.3).rounded(), height: (fontSize * 0.3).rounded())
+            .accessibilityHidden(true)
+    }
+}
+
+/// A screen title in sentence case, ending in the [TitleMark] when [mark] is set.
+struct ScreenTitle: View {
+    let text: String
+    var style: AutobotType = .titleLarge
+    var mark = true
+    @Environment(\.scheme) private var c
+    @Environment(\.dynamicTypeSize) private var dynamicType
+
+    init(_ text: String, style: AutobotType = .titleLarge, mark: Bool = true) {
+        self.text = text
+        self.style = style
+        self.mark = mark
+    }
+
+    var body: some View {
+        let size = AutobotFonts.uiFont(style.token, dynamicType: dynamicType).pointSize
+        HStack(alignment: .lastTextBaseline, spacing: (size * 0.15).rounded()) {
+            Text(text)
+                .textStyle(style)
+                .foregroundStyle(c.onBackground)
+                .textLines(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            if mark {
+                // Its bottom on the text baseline.
+                TitleMark(fontSize: size).alignmentGuide(.lastTextBaseline) { d in d[.bottom] }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The default top bar title: the bar shows the wordmark instead.
+let wordmarkTitle = "autobot"
+
+/**
+ Top bar: the `■ autobot` wordmark on Home, a sentence-case title elsewhere, and trailing actions.
+ A top-level screen (no back button) ends its title in the purple [TitleMark]; [titleMark] overrides.
+ */
 struct AutobotTopBar<Actions: View>: View {
-    var title: String = "AUTOBOT"
+    var title: String = wordmarkTitle
     var showMark = true
+    var titleMark: Bool? = nil
     var onBack: (() -> Void)? = nil
     @ViewBuilder var actions: () -> Actions
     @Environment(\.scheme) private var c
@@ -321,16 +452,13 @@ struct AutobotTopBar<Actions: View>: View {
         HStack(spacing: Tokens.Spacing.topBarGap) {
             if let onBack {
                 IconAction(symbol: "arrow.left", label: "Back", action: onBack)
-            } else if showMark {
-                AutobotMark()
             }
-            Text(title.uppercased())
-                .textStyle(.titleLarge)
-                .foregroundStyle(c.onBackground)
-                .textLines(1)
-                .truncationMode(.tail)
-                .titleGhost(c.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if title == wordmarkTitle {
+                Wordmark().frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScreenTitle(title, mark: titleMark ?? (onBack == nil))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             actions()
         }
         .padding(.leading, onBack == nil ? Tokens.Spacing.topBarPaddingStart : 4)
@@ -344,8 +472,8 @@ struct AutobotTopBar<Actions: View>: View {
 }
 
 extension AutobotTopBar where Actions == EmptyView {
-    init(title: String = "AUTOBOT", showMark: Bool = true, onBack: (() -> Void)? = nil) {
-        self.init(title: title, showMark: showMark, onBack: onBack, actions: { EmptyView() })
+    init(title: String = wordmarkTitle, showMark: Bool = true, titleMark: Bool? = nil, onBack: (() -> Void)? = nil) {
+        self.init(title: title, showMark: showMark, titleMark: titleMark, onBack: onBack, actions: { EmptyView() })
     }
 }
 
@@ -381,7 +509,11 @@ extension View {
     }
 }
 
-/// A mode tile on the Run screen: `03` / big title / model / route tag.
+/**
+ A mode tile on the Run screen: where it runs, the title and the model. Flat: no index, no dot
+ field, no art behind the words. [art] (a recent image) sits above the text, never behind it.
+ [index], [living] and [seed] are kept for callers and no longer drawn.
+ */
 struct ModeCard<Background: View>: View {
     let index: String
     let title: String
@@ -390,62 +522,45 @@ struct ModeCard<Background: View>: View {
     let action: () -> Void
     @ViewBuilder var art: () -> Background
     var hasArt = true
-    /// A living card background (motion spec v3 §2) when there is no art; [seed] keeps
-    /// neighbouring cards out of lockstep.
     var living = false
     var seed = 0.0
     @Environment(\.scheme) private var c
 
     var body: some View {
-        let card = c.surfaceContainerHigh
         Button(action: action) {
-            ZStack(alignment: .topLeading) {
-                card
+            VStack(alignment: .leading, spacing: 0) {
+                // Where it runs, at the top: the titles below line up across cards with or without one.
+                if let route {
+                    RouteTag(route: route)
+                    Spacer().frame(height: 10)
+                }
                 if hasArt {
-                    art()
-                    // Fade the art into the card colour so the title stays legible over dense dots.
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: Tokens.Halftone.modeCardFadeStart),
-                            .init(color: card.opacity(Tokens.Halftone.modeCardFadeMidAlpha), location: Tokens.Halftone.modeCardFadeMid),
-                            .init(color: card, location: 1),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom,
-                    )
-                } else if living {
-                    // Dots thin out under the title (bottom-left).
-                    InkCardField(seed: seed, fade: UnitPoint(x: 0.2, y: 0.95))
-                }
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .center) {
-                        // No dots behind text or numbers: each label clears the field under it.
-                        Text(index)
-                            .textStyle(.micro)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .inkClearance(card)
-                        Spacer(minLength: 0)
-                        if let route { RouteTag(route: route).inkClearance(card) }
-                    }
+                    Color.clear
+                        .overlay { art() }
+                        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.bottom, 12)
+                        .accessibilityHidden(true)
+                } else {
                     Spacer(minLength: 0)
-                    Text(title)
-                        .textStyle(.headlineMedium)
-                        .foregroundStyle(c.onSurface)
-                        .lineLimit(1)
-                        .inkClearance(card)
-                    if subtitle.lowercased() != title.lowercased() {
-                        Text(subtitle)
-                            .textStyle(.micro)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                            .truncationMode(.tail)
-                            .inkClearance(card)
-                    }
                 }
-                .padding(Tokens.Spacing.cardPadding)
+                Text(title)
+                    .textStyle(.titleLarge)
+                    .foregroundStyle(c.onSurface)
+                    .lineLimit(1)
+                if subtitle.lowercased() != title.lowercased() {
+                    Spacer().frame(height: 2)
+                    Text(subtitle)
+                        .textStyle(.micro)
+                        .foregroundStyle(c.onSurfaceVariant)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .truncationMode(.tail)
+                }
             }
-            .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(c.surfaceContainer))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -559,5 +674,65 @@ struct BigReadout: View {
         } else {
             content
         }
+    }
+}
+
+/**
+ An empty state (App UI v4): the purple pixel a, one plain sentence, at most one action.
+ */
+struct EmptyState: View {
+    let text: String
+    var actionLabel: String? = nil
+    var action: (() -> Void)? = nil
+    var markSize: CGFloat = 24
+    @Environment(\.scheme) private var c
+
+    init(_ text: String, actionLabel: String? = nil, markSize: CGFloat = 24, action: (() -> Void)? = nil) {
+        self.text = text
+        self.actionLabel = actionLabel
+        self.markSize = markSize
+        self.action = action
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            AutobotMark(size: markSize)
+            Text(text)
+                .textStyle(.bodyMedium)
+                .foregroundStyle(c.onSurfaceVariant)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let actionLabel, let action {
+                TextAction(actionLabel, action: action)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .padding(.horizontal, Tokens.Spacing.gutter)
+    }
+}
+
+/**
+ An empty canvas (App UI v4): flat, the pixel a small and centred at low emphasis, and a one-line
+ hint. Sits on the canvas' own surfaceContainer.
+ */
+struct EmptyCanvas: View {
+    var hint: String? = nil
+    @Environment(\.scheme) private var c
+
+    var body: some View {
+        VStack(spacing: 10) {
+            AutobotMark(size: 18, color: AutobotColors.purple.opacity(0.55))
+            if let hint {
+                Text(hint)
+                    .textStyle(.micro)
+                    .foregroundStyle(c.onSurfaceVariant)
+                    .multilineTextAlignment(.center)
+                    .textLines(2)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }

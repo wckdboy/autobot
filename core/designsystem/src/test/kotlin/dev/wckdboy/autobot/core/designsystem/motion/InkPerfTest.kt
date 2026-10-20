@@ -1,5 +1,7 @@
 package dev.wckdboy.autobot.core.designsystem.motion
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -27,9 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneField
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneStrip
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkLoaderBlock
@@ -40,10 +39,6 @@ import dev.wckdboy.autobot.core.designsystem.component.RunRow
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
-import dev.wckdboy.autobot.core.designsystem.component.ProvideInkAmbient
-import dev.wckdboy.autobot.core.designsystem.component.ambientTouch
-import dev.wckdboy.autobot.core.designsystem.component.inkCard
-import dev.wckdboy.autobot.core.designsystem.component.rememberInkAmbient
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
@@ -152,7 +147,7 @@ private fun ChatHarness(text: MutableState<String>) {
                 Column(Modifier.inkEnter(true)) {
                     ThinkingDisclosure("Planning the answer\nchecking the calendar", isThinking = true)
                     ChatBubble(BubbleRole.ASSISTANT, text.value, isStreaming = true)
-                    Row { HalftoneStrip(cell = 3.dp); MicroLabel("composing") }
+                    Row { InkLoader(); MicroLabel("composing") }
                 }
             }
             items(30, key = { it }) { i ->
@@ -211,10 +206,9 @@ private fun GalleryHarness() {
 @Composable
 private fun ImagineHarness(progress: MutableFloatState) {
     PaperTheme {
-        val ambient = rememberInkAmbient(heavyWork = true)
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).ambientTouch(ambient)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             Segmented(listOf("txt2img", "img2img", "inpaint"), "txt2img", {}, { it }, Modifier.fillMaxWidth())
-            DevelopingHalftone(preview = null, modifier = Modifier.fillMaxWidth().aspectRatio(1f), progress = progress.floatValue)
+            DevelopingPreview(null, Modifier.fillMaxWidth().aspectRatio(1f))
             InkProgressBar(progress.floatValue, Modifier.fillMaxWidth().height(2.dp), state = InkBarState.Running)
             PrimaryButton("Generate", {}, Modifier.fillMaxWidth(), busy = true)
             for (i in 0 until 6) MicroLabel("section $i", Modifier.inkStagger(i))
@@ -224,18 +218,15 @@ private fun ImagineHarness(progress: MutableFloatState) {
 
 @Composable
 private fun HomeHarness(cards: Boolean) {
-    val ambient = rememberInkAmbient()
-    ProvideInkAmbient(ambient) {
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).ambientTouch(ambient)) {
-            HalftoneField(Modifier.fillMaxWidth().height(220.dp), cell = 8.dp, ambient = ambient)
-            if (cards) {
-                for (i in 0 until 3) {
-                    Box(Modifier.fillMaxWidth().height(110.dp).padding(4.dp).background(MaterialTheme.colorScheme.surfaceContainer).inkCard()) {
-                        Text("Card $i")
-                    }
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        EmptyCanvas(Modifier.fillMaxWidth().height(220.dp), hint = "Nothing made yet")
+        if (cards) {
+            for (i in 0 until 3) {
+                Box(Modifier.fillMaxWidth().height(110.dp).padding(4.dp).background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    Text("Card $i")
                 }
             }
-            for (i in 0 until 4) RunRow("Recent run $i", "IMAGE · 12 S")
         }
+        for (i in 0 until 4) RunRow("Recent run $i", "image · 12 s")
     }
 }

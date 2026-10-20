@@ -24,7 +24,13 @@ struct RemoteScreen: View {
                         // The Autobot Agent on each paired node: tasks run there, approvals come here.
                         SectionLabel("agents · my node")
                         ForEach(nodes) { n in
-                            RunRow(title: "Agent on \(n.displayName)", subtitle: "tasks run on that machine · you approve", action: { nav.push(.nodeAgent(providerId: n.id)) }) {
+                            RunRow(
+                                title: "Agent on \(n.displayName)",
+                                subtitle: "tasks run on that machine · you approve",
+                                action: { nav.push(.nodeAgent(providerId: n.id)) },
+                                // The node's own mark: Invincible's orange square.
+                                leading: { NodeMark() },
+                            ) {
                                 RouteTag(route: routeOf(n))
                             }
                         }

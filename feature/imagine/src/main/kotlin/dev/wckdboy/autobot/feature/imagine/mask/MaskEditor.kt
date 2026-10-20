@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.imagine.mask
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -92,12 +93,12 @@ fun MaskEditorDialog(
 
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest).statusBarsPadding().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                MicroLabel("// Mask", Modifier.padding(start = 8.dp).weight(1f), color = MaterialTheme.colorScheme.primary)
+                MicroLabel("Mask", Modifier.padding(start = 8.dp).weight(1f))
                 MicroLabel(
                     if (mask.inverted) "inverted · ${counted(mask.strokes.size, "stroke")}" else counted(mask.strokes.size, "stroke"),
                     Modifier.padding(end = 8.dp),
                 )
-                TextButton(onClick = { scale = 1f; offset = Offset.Zero }) { Text("FIT") }
+                TextButton(onClick = { scale = 1f; offset = Offset.Zero }) { ActionText("Fit") }
                 IconButton(onClick = onDismiss) { Icon(Icons.Filled.Check, contentDescription = "Done", tint = MaterialTheme.colorScheme.primary) }
             }
             Hairline()
@@ -214,7 +215,7 @@ fun MaskEditorDialog(
                     }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = onClear, enabled = mask.strokes.isNotEmpty() || mask.inverted) {
-                        Text("CLEAR", color = MaterialTheme.colorScheme.error)
+                        ActionText("Clear", color = MaterialTheme.colorScheme.error)
                     }
                 }
                 MicroLabel("1 finger paint · 2 fingers zoom/pan · painted = repainted")

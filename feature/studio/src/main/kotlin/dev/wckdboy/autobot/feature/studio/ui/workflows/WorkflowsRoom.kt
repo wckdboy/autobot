@@ -156,7 +156,7 @@ private fun BackendSheet(
     val draft = initial.copy(name = name.trim().ifBlank { "ComfyUI" }, baseUrl = url.trim(), routing = routing.name, authHeader = header.trim().ifBlank { null })
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MicroLabel(if (isNew) "// new comfyui backend" else "// edit comfyui backend", color = MaterialTheme.colorScheme.primary)
+            MicroLabel(if (isNew) "new comfyui backend" else "edit comfyui backend")
             ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
             ConsoleTextField(
                 url, { url = it }, Modifier.fillMaxWidth(), label = "Base URL", singleLine = true, mono = true,

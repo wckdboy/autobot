@@ -96,7 +96,7 @@ class ChatListScreenTest {
         // The view model hides the chat and offers to undo (the deletion is only committed later).
         update(state(item("c1", "Trip plans")).copy(pendingDeletion = PendingDeletion(7L, listOf("c2"), "Deleted “Groceries”")))
         compose.onNodeWithText("Deleted “Groceries”").assertIsDisplayed()
-        compose.onNodeWithText("UNDO").performClick()
+        compose.onNodeWithText("Undo").performClick()
         assertEquals("undo(7)", calls.last())
     }
 
@@ -111,26 +111,25 @@ class ChatListScreenTest {
     @Test
     fun aSearchWithoutMatchesSaysSo() {
         show(ChatListUiState(query = "kubernetes", loading = false, total = 3))
-        compose.onNodeWithText("NO MATCHES").assertIsDisplayed()
-        compose.onNodeWithText("TITLES AND MESSAGES ON THIS DEVICE WERE SEARCHED").assertIsDisplayed()
+        compose.onNodeWithText("No chats on this phone match that search.").assertIsDisplayed()
     }
 
     @Test
     fun countsArePluralisedCorrectly() {
         val update = show(state(item("c1", "Trip plans"), total = 1))
-        compose.onNodeWithText("1 SESSION").assertIsDisplayed()
+        compose.onNodeWithText("1 session").assertIsDisplayed()
         update(state(item("c1", "Trip plans"), item("c2", "Groceries"), total = 2).copy(live = 1))
-        compose.onNodeWithText("2 SESSIONS · 1 LIVE").assertIsDisplayed()
+        compose.onNodeWithText("2 sessions · 1 live").assertIsDisplayed()
         // Nothing to count: the empty state says "no sessions", the header does not repeat it.
         update(ChatListUiState(loading = false, total = 0))
-        compose.onAllNodesWithText("0 SESSIONS", substring = true).assertCountEquals(0)
+        compose.onAllNodesWithText("0 sessions", substring = true).assertCountEquals(0)
     }
 
     @Test
     fun noProviderSaysSoAndLinksToProviders() {
         show(state(item("c1", "Trip plans")).copy(hasProviders = false))
-        compose.onNodeWithText("NO MODEL YET").assertIsDisplayed()
-        compose.onNodeWithText("ADD PROVIDER").performClick()
+        compose.onNodeWithText("No model yet.").assertIsDisplayed()
+        compose.onNodeWithText("Add provider").performClick()
         assertEquals(1, openedProviders)
     }
 

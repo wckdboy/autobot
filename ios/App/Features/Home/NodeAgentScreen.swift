@@ -458,7 +458,7 @@ struct NodeActivitySheet: View {
                         Text(result.split(separator: "\n").first.map(String.init) ?? "").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).lineLimit(3)
                     }
                     if task.waiting {
-                        Text("\(task.agent) asks: \(task.question ?? "")").textStyle(.bodyMedium).foregroundStyle(c.primary).fixedSize(horizontal: false, vertical: true)
+                        Text("\(task.agent) asks: \(task.question ?? "")").textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
                         ConsoleTextField(text: Binding(get: { answers[task.id] ?? "" }, set: { answers[task.id] = $0 }), placeholder: "Your answer", minLines: 1, maxLines: 4)
                         PrimaryButton("Answer", enabled: !(answers[task.id] ?? "").trimmingCharacters(in: .whitespaces).isEmpty) {
                             let text = answers[task.id] ?? ""

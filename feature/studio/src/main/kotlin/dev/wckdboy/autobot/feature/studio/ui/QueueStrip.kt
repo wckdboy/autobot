@@ -31,7 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
@@ -92,20 +92,13 @@ private fun Plate(job: StudioJob, output: StudioAsset?, modifier: Modifier = Mod
             when (job.state) {
                 JobState.RUNNING -> {
                     val preview = rememberDecoded(job.preview?.bytes, 256)
-                    DevelopingHalftone(
-                        preview = preview,
-                        modifier = Modifier.fillMaxSize(),
-                        cell = 3.dp,
-                        progress = job.progress,
-                        loading = job.steps == 0,
-                        seed = job.createdAt.toFloat() % 97f,
-                    )
+                    DevelopingPreview(preview, Modifier.fillMaxSize())
                     if (job.steps == 0) InkLoader(Modifier.align(Alignment.Center), contentDescription = null)
                 }
                 JobState.DONE -> if (output != null) {
                     AssetPlate(output, Modifier.fillMaxSize())
                 } else {
-                    Text("✓", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary)
+                    Text("✓", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 JobState.FAILED -> Text(
                     "✕",
@@ -149,7 +142,7 @@ private fun AssetPlate(asset: StudioAsset, modifier: Modifier) {
     val loader = LocalAssetLoader.current
     val image by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, asset.id) { value = loader.thumbnail(asset.id) }
     val img = image
-    if (img != null) PrintReveal(img, modifier, contentDescription = null, key = asset.id, cell = 3.dp) else AssetThumb(asset, modifier)
+    if (img != null) PrintReveal(img, modifier, contentDescription = null, key = asset.id) else AssetThumb(asset, modifier)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -166,12 +159,12 @@ private fun JobSheet(job: StudioJob, actions: ShellActions, onDismiss: () -> Uni
                 modifier = Modifier.inkStagger(1),
             )
             MicroLabel(StudioRecipes.summary(job.recipe), Modifier.inkStagger(2))
-            job.status?.let { MicroLabel(it, color = MaterialTheme.colorScheme.primary) }
+            job.status?.let { MicroLabel(it) }
             if (job.state == JobState.RUNNING && job.steps > 0) MicroLabel("step ${job.step} / ${job.steps}")
             job.error?.let { Text(jobError(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!job.state.isFinished) {
-                    GhostButton("Cancel", { actions.cancelJob(job.id); onDismiss() }, Modifier.weight(1f), accent = MaterialTheme.colorScheme.primary)
+                    GhostButton("Cancel", { actions.cancelJob(job.id); onDismiss() }, Modifier.weight(1f))
                 }
                 if (job.state == JobState.FAILED || job.state == JobState.CANCELLED) {
                     PrimaryButton("Retry", { actions.retryJob(job.id); onDismiss() }, Modifier.weight(1f))

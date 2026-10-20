@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.settings.vault
 
+import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -192,10 +195,10 @@ fun VaultScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("VAULT", style = MaterialTheme.typography.titleMedium) },
+                title = { Text("Vault") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
-                    if (state.documents.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) { Text("Delete all") }
+                    if (state.documents.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) { ActionText("Delete all") }
                 },
             )
         },
@@ -219,7 +222,7 @@ fun VaultScreen(
                     overlineContent = { Text("Embedding model") },
                     headlineContent = { Text(state.model ?: "None installed") },
                     supportingContent = if (state.model == null) null else ({ Text("Text, Markdown and PDF (Android 15+)", color = muted) }),
-                    trailingContent = { TextButton(onClick = onOpenModels) { Text("Models") } },
+                    trailingContent = { TextButton(onClick = onOpenModels) { ActionText("Models") } },
                 )
             }
             if (state.index.running) {
@@ -229,11 +232,11 @@ fun VaultScreen(
                             Text(
                                 state.index.name?.let { "Indexing $it · ${state.index.done}/${state.index.total}" } ?: "Reading files…",
                                 modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.labelMedium,
+                                style = AutobotTheme.styles.micro,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            TextButton(onClick = onCancel) { Text("Stop") }
+                            TextButton(onClick = onCancel) { ActionText("Stop") }
                         }
                         InkProgressBar(state.index.fraction, Modifier.fillMaxWidth().height(3.dp))
                     }
@@ -287,18 +290,13 @@ fun VaultScreen(
                 Text(
                     "${counted(state.documents.size, "document")} · ${state.documents.sumOf { it.chunks }} / ${VaultRules.MAX_CHUNKS} passages",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = AutobotTheme.styles.micro,
                     color = muted,
                 )
             }
             if (state.documents.isEmpty()) {
                 item(key = "empty") {
-                    Text(
-                        "No files yet. Tap + to add notes, Markdown or PDFs.",
-                        modifier = Modifier.padding(32.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = muted,
-                    )
+                    EmptyState("No files yet. Tap + to add notes, Markdown or PDFs.", Modifier.fillMaxWidth())
                 }
             }
             items(state.documents, key = { it.id }, contentType = { "doc" }) { doc ->
@@ -331,9 +329,9 @@ fun VaultScreen(
                 TextButton(onClick = {
                     onDeleteAll()
                     confirmDeleteAll = false
-                }) { Text("Delete all", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText("Delete all", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { ActionText("Cancel") } },
         )
     }
 
@@ -342,7 +340,7 @@ fun VaultScreen(
             onDismissRequest = onDismissProblems,
             title = { Text("Some files were not added") },
             text = { Text(state.index.problems.joinToString("\n")) },
-            confirmButton = { TextButton(onClick = onDismissProblems) { Text("OK") } },
+            confirmButton = { TextButton(onClick = onDismissProblems) { ActionText("OK") } },
         )
     }
 }

@@ -7,6 +7,19 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
+        <!-- Launch screen: the purple a on ink (no icon plate). -->
+        <item name="android:windowSplashScreenBackground">@color/graphite_950</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/graphite_950</item>
+    </style>
+
+    <!-- The same on paper: chosen for the next launch when the app is set to light (MainActivity). -->
+    <style name="Theme.Autobot.Paper">
+        <item name="android:windowBackground">@color/paper</item>
+        <item name="android:colorBackground">@color/paper</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowSplashScreenBackground">@color/paper</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/paper</item>
     </style>
 
     <!-- Home screen launcher widget (RemoteViews). -->

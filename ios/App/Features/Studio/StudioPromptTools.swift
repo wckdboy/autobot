@@ -30,7 +30,7 @@ struct PromptBox: View {
             HStack(spacing: 6) {
                 if let expansion {
                     let n = expansion.total
-                    MicroLabel(n > 64 ? "wildcards · \(n) prompts · first 64" : "wildcards · \(n) prompt\(n == 1 ? "" : "s")", color: c.primary)
+                    MicroLabel(n > 64 ? "wildcards · \(n) prompts · first 64" : "wildcards · \(n) prompt\(n == 1 ? "" : "s")")
                         .accessibilityLabel("Wildcards expand to \(n) prompts")
                 } else {
                     MicroLabel("~\(PromptSyntax.estimateTokens(prompt)) tokens")
@@ -253,13 +253,13 @@ struct GridResultView: View {
                     GridRow {
                         if run.yLabel != nil { Color.clear.frame(width: 44, height: 1) }
                         ForEach(run.columns.indices, id: \.self) { i in
-                            Text(run.columns[i]).textStyle(.micro).foregroundStyle(c.primary).lineLimit(1).frame(width: cellSide(cols))
+                            Text(run.columns[i]).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).lineLimit(1).frame(width: cellSide(cols))
                         }
                     }
                     ForEach(run.jobIds.indices, id: \.self) { r in
                         GridRow {
                             if run.yLabel != nil {
-                                Text(run.rows.indices.contains(r) ? run.rows[r] : "").textStyle(.micro).foregroundStyle(c.primary).lineLimit(2).frame(width: 44)
+                                Text(run.rows.indices.contains(r) ? run.rows[r] : "").textStyle(.micro).foregroundStyle(c.onSurfaceVariant).lineLimit(2).frame(width: 44)
                             }
                             ForEach(run.jobIds[r], id: \.self) { id in
                                 GridCell(jobId: id, onOpen: onOpen).frame(width: cellSide(cols), height: cellSide(cols))

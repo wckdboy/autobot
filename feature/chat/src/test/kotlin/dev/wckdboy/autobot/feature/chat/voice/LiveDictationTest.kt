@@ -77,8 +77,12 @@ class LiveDictationTest {
         // ~2.6 s of speech heard before the stop.
         assertTrue(final, final.isNotBlank())
         // Live passes run as partial passes (shorter encoder context); the last one, final, does not.
-        assertTrue(engine.partial.toString(), engine.partial.dropLast(1).isNotEmpty() && engine.partial.dropLast(1).all { it })
-        assertEquals(false, engine.partial.last())
+        // When the last live pass already covered all the speech there is no final pass (finish()
+        // returns null): that depends on where the stop lands against the pass under way.
+        val passes = engine.partial.toList()
+        val live = if (passes.last()) passes else passes.dropLast(1)
+        assertTrue(passes.toString(), live.isNotEmpty() && live.all { it })
+        assertEquals(passes.toString(), if (passes.last()) 0 else 1, passes.count { !it })
     }
 
     @Test

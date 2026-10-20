@@ -51,14 +51,14 @@ class SettingsStructureTest {
         }
         // The tab's title, in the tab header style (upper-cased like Models and Remote).
         // (not "SYSTEM": that is now only the theme option)
-        compose.onNodeWithText("SETTINGS").assertIsDisplayed()
-        for (section in SettingsSections) compose.onNodeWithText("// ${section.uppercase()}").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Settings").assertIsDisplayed()
+        for (section in SettingsSections) compose.onNodeWithText(section).performScrollTo().assertIsDisplayed()
         for (row in listOf("Privacy Center", "App lock", "Redact before cloud", "Phone first", "Panic wipe", "Memory", "Memory notes", "Vault", "Web search", "Fallback on limit", "Usage", "MCP servers", "Export & import", "Delete all chats")) {
             compose.onNodeWithText(row).performScrollTo().assertIsDisplayed()
         }
         compose.onNodeWithText("Direct").performScrollTo().assertIsDisplayed()
         // Providers, image backends and accounts live on the Remote tab only.
-        for (gone in listOf("// CONNECTIONS", "Model providers", "Image backends")) compose.onAllNodesWithText(gone).assertCountEquals(0)
+        for (gone in listOf("CONNECTIONS", "Model providers", "Image backends")) compose.onAllNodesWithText(gone).assertCountEquals(0)
         compose.onNodeWithText("Autobot 1.6.4 (16)").performScrollTo().performClick()
         assertEquals(true, aboutOpened)
     }
@@ -82,7 +82,7 @@ class SettingsStructureTest {
         compose.onNodeWithText("Version 1.6.4 (16)").assertIsDisplayed()
         compose.onNodeWithText("Built 2026-10-16").assertIsDisplayed()
         compose.onNodeWithText(AboutLinks.PRIVACY).assertIsDisplayed()
-        compose.onNodeWithText("// WHAT'S NEW IN 1.6.4").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("What's new in 1.6.4").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Living cards match iPhone.").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("All releases").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("9a13 78ac", substring = true).performScrollTo().assertIsDisplayed()
@@ -103,9 +103,9 @@ class SettingsStructureTest {
         }
         compose.onNodeWithText("Note 4").performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("Note 5").assertCountEquals(0)
-        compose.onNodeWithText("SHOW ALL").performScrollTo().performClick()
+        compose.onNodeWithText("Show all").performScrollTo().performClick()
         compose.onNodeWithText("Note 6").performScrollTo().assertIsDisplayed()
-        compose.onAllNodesWithText("SHOW ALL").assertCountEquals(0)
+        compose.onAllNodesWithText("Show all").assertCountEquals(0)
         // Links that leave the app say so.
         compose.onAllNodesWithText("github.com ↗").assertCountEquals(2)
     }

@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.chat
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -73,8 +74,8 @@ fun NameDialog(
                 if (error != null && value.text.isNotEmpty()) MicroLabel(error, color = MaterialTheme.colorScheme.error)
             }
         },
-        confirmButton = { TextButton(onClick = submit, enabled = error == null) { Text(confirm) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } },
+        confirmButton = { TextButton(onClick = submit, enabled = error == null) { ActionText(confirm) } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }
 
@@ -105,7 +106,7 @@ fun FolderPickerDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
     )
 }
 
@@ -118,7 +119,7 @@ private fun FolderOption(label: String, checked: Boolean, accent: Boolean = fals
         Text(
             label,
             style = MaterialTheme.typography.bodyLarge,
-            color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         if (checked) Icon(Icons.Filled.Check, contentDescription = "Current", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))

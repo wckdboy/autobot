@@ -18,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
@@ -27,7 +28,7 @@ enum class NoticeTone { INFO, WARNING, ERROR }
 
 /**
  * Why something is empty or not working, and the one tap that fixes it ("Offline mode is on ·
- * NETWORK", "Search failed · RETRY"). Use it in place of a silent empty list or an endless spinner.
+ * Network", "Search failed · Retry"). Use it in place of a silent empty list or an endless spinner.
  */
 @Composable
 fun Notice(
@@ -56,7 +57,7 @@ fun Notice(
         Box(Modifier.width(3.dp).fillMaxHeight().background(bar))
         Text(text, Modifier.weight(1f).padding(vertical = 10.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
         if (action != null && onAction != null) {
-            TextButton(onClick = onAction) { Text(action.uppercase(Locale.ROOT), color = accent, style = MaterialTheme.typography.labelMedium) }
+            TextButton(onClick = onAction) { Text(action, color = MaterialTheme.colorScheme.onSurface, style = AutobotTheme.styles.action, textDecoration = TextDecoration.Underline) }
         } else {
             Spacer(Modifier.width(2.dp))
         }

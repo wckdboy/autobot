@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launch screen's mark: Autobot's pixel a in its purple, on the scheme's own ground
+     (no icon plate), the same geometry as the launcher icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF7C5CFF"
+        android:pathData="M42,36h24v6h-24zM60,42h12v6h-12zM42,48h30v6h-30zM36,54h12v6h-12zM60,54h12v6h-12zM36,60h12v6h-12zM60,60h12v6h-12zM42,66h30v6h-30z" />
+</vector>

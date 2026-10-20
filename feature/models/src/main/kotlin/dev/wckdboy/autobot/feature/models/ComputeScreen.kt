@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.models
 
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
@@ -310,8 +311,9 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
                 navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
                 actions = {
                     Tag(
-                        if (state.running != null) "busy" else "report",
+                        if (state.running != null) "busy" else "Report",
                         Modifier.padding(end = 12.dp),
+                        accent = MaterialTheme.colorScheme.onSurface,
                         onClick = { viewModel.report { report = it } }.takeIf { state.running == null },
                     )
                 },
@@ -339,7 +341,7 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
             system?.let { s -> item { SystemModelRow(s, onDownload = viewModel::downloadSystemModel) } }
             item {
                 state.running?.let {
-                    MicroLabel("benchmarking · $it", color = MaterialTheme.colorScheme.primary)
+                    MicroLabel("benchmarking · $it")
                     // The benchmark reports phases, not a fraction: the indeterminate ink bar.
                     InkProgressBar(null, Modifier.fillMaxWidth().padding(vertical = 6.dp).height(2.dp))
                 }
@@ -350,7 +352,7 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
             }
             items(state.models, key = { it.model.id }) { cm -> ModelCompute(cm, state, viewModel) }
             if (state.models.isEmpty()) {
-                item { MicroLabel("no runnable models yet — get one in the Models tab", maxLines = WRAP) }
+                item { MicroLabel("No runnable models yet. Get one in the Models tab.", maxLines = WRAP) }
             }
         }
     }
@@ -396,9 +398,9 @@ private fun ReportDialog(text: String, onDismiss: () -> Unit) {
             TextButton(onClick = {
                 clipboard.setText(AnnotatedString(text))
                 onDismiss()
-            }) { Text("Copy") }
+            }) { ActionText("Copy") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Close") } },
     )
 }
 
@@ -410,7 +412,7 @@ private fun SystemModelRow(status: SystemModelStatus, onDownload: () -> Unit) {
         accent = if (status.usable) MaterialTheme.colorScheme.primary else null,
         trailing = {
             if (status.availability == SystemAvailability.DOWNLOADABLE) {
-                Tag("download", accent = MaterialTheme.colorScheme.primary, onClick = onDownload)
+                Tag("Download", accent = MaterialTheme.colorScheme.onSurface, onClick = onDownload)
             }
         },
     ) {
@@ -426,7 +428,7 @@ private fun SystemModelRow(status: SystemModelStatus, onDownload: () -> Unit) {
 
 @Composable
 private fun DeviceCard(label: String, value: String?, present: Boolean, modifier: Modifier = Modifier) {
-    Panel(modifier, title = label, accent = if (present) MaterialTheme.colorScheme.primary else null) {
+    Panel(modifier, title = label) {
         // Still probing the device: an inline loader instead of a placeholder.
         if (value == null) InkLoader(Modifier.padding(vertical = 2.dp)) else Text(value, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = if (present) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -438,7 +440,7 @@ private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: Compu
     val m = cm.model
     val isText = m.engine == EngineKind.LLAMA
     Panel(title = m.title, trailing = {
-        Tag(if (state.running != null) "busy" else "benchmark", accent = MaterialTheme.colorScheme.primary, filled = state.running == null, onClick = { actions.benchmark(m) }.takeIf { state.running == null })
+        Tag(if (state.running != null) "busy" else "Benchmark", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.benchmark(m) }.takeIf { state.running == null })
     }) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (isText) {

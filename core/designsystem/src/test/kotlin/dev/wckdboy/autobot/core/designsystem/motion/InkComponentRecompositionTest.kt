@@ -13,8 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
-import dev.wckdboy.autobot.core.designsystem.component.HalftoneStrip
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
@@ -23,8 +21,6 @@ import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.StatusDot
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
-import dev.wckdboy.autobot.core.designsystem.component.inkCard
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import java.time.Duration
@@ -88,12 +84,7 @@ class InkComponentRecompositionTest {
             "PrimaryButton(busy)" to { PrimaryButton("Send", {}, busy = true) },
             "StatusDot(live)" to { StatusDot(AutobotColors.Acid, live = true) },
             "InkProgressBar(indeterminate)" to { InkProgressBar(null, Modifier.fillMaxWidth().height(3.dp)) },
-            "InkProgressBar(running)" to { InkProgressBar(0.4f, Modifier.fillMaxWidth().height(3.dp), state = InkBarState.Running) },
-            "HalftoneStrip" to { HalftoneStrip() },
-            "DevelopingHalftone" to { DevelopingHalftone(null, Modifier.size(120.dp), progress = 0.3f) },
             "ThinkingDisclosure(thinking)" to { ThinkingDisclosure("Planning\nchecking the calendar", isThinking = true) },
-            "inkGround" to { Box(Modifier.size(200.dp).inkGround()) },
-            "inkCard" to { Box(Modifier.size(200.dp).inkCard()) },
         )
         val results = components.map { (name, content) -> name to measure(content) }
         val control = measure { ClockReader() }

@@ -26,9 +26,7 @@ struct PinLockScreen: View {
         let enabled = !busy && !waiting
         VStack(spacing: 14) {
             Spacer()
-            Image(systemName: "lock.fill")
-                .font(.system(size: 40, weight: .regular))
-                .foregroundStyle(c.primary)
+            AutobotMark(size: 36)
             SectionLabel(PanicCopy.shared.LOCKED)
             Text(PanicCopy.shared.ENTER_PIN).textStyle(.headlineSmall).foregroundStyle(c.onSurface)
             dots

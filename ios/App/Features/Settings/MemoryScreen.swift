@@ -36,12 +36,7 @@ struct MemoryScreen: View {
                         .padding(.horizontal, Tokens.Spacing.gutter)
                         .padding(.vertical, 8)
                     if notes.isEmpty {
-                        Text(total == 0 ? "No notes yet" : "No matches")
-                            .textStyle(.bodyMedium)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding(32)
+                        EmptyState(total == 0 ? "No notes yet. Add one with +, or let the agent remember facts." : "No notes match.")
                     } else {
                         ForEach(notes) { note in row(note).transition(.inkDissolve) }
                             .padding(.horizontal, Tokens.Spacing.gutter)
@@ -76,7 +71,7 @@ struct MemoryScreen: View {
                         MicroLabel("\(note.id) · \(relativeTime(note.updatedAt))")
                         Text(note.text).textStyle(.bodyMedium).foregroundStyle(c.onSurface).lineLimit(4).multilineTextAlignment(.leading)
                         if !note.tags.isEmpty {
-                            Text(note.tags.map { "#\($0)" }.joined(separator: " ")).textStyle(.micro).foregroundStyle(c.primary)
+                            Text(note.tags.map { "#\($0)" }.joined(separator: " ")).textStyle(.micro).foregroundStyle(c.onSurfaceVariant)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

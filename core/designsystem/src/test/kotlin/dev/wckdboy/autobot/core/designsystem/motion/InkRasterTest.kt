@@ -18,18 +18,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.DevelopingHalftone
+import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import dev.wckdboy.autobot.core.designsystem.component.InkBarState
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
 import dev.wckdboy.autobot.core.designsystem.component.InkLoaderSize
 import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.inkCard
-import dev.wckdboy.autobot.core.designsystem.component.inkGround
-import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.time.Duration
-import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.sqrt
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -41,23 +36,17 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 /**
- * The ink components rendered to pixels (Robolectric's native Skia) at several sizes and
- * densities. Dots are found as blobs of ink; each blob's coverage-weighted centroid and area
- * (r = √(area/π)) are compared with the geometry: centres on an exact pitch (spacing deviation
- * < 0.5 px), symmetric margins and vertical centring within 0.5 px, radii within 0.5 px of the
- * token formulas, and no dot cut by the bounds.
+ * The progress components rendered to pixels (Robolectric's native Skia) at several sizes and
+ * densities. They are flat (APP-UI v4: no halftones or dot fields): a bar is a track filled from
+ * the start to the progress, within a pixel; a loader is three equal square pixels, centred in
+ * its box; a preview panel without a picture is one flat colour.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w2000dp-h2000dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class InkRasterTest {
-    private class Blob(val x: Double, val y: Double, val r: Double)
-
     private val ink = Color(0xFFFF0000)
-
-    /** Edge coverage above this means a dot is cut; a dot that only grazes the edge leaves a fainter fringe. */
-    private val EDGE = 0.5
     private val densities = listOf(1f, 2f, 2.625f, 3.5f)
 
     /** Renders [content] at exactly [w]×[h] px with [density] and returns its pixels. */
@@ -91,203 +80,64 @@ class InkRasterTest {
         return Array(b.height) { y -> DoubleArray(b.width) { x -> val c = px[y * b.width + x]; ((c ushr 24 and 0xFF) / 255.0) * ((c ushr 16 and 0xFF) / 255.0) / full } }
     }
 
-    /** True when ink reaches the left/right edge (or, with [vertical], the top/bottom one). */
-    private fun touchesEdge(cov: Array<DoubleArray>, vertical: Boolean = true): Boolean {
-        val h = cov.size
-        val w = cov[0].size
-        // A dot that only grazes the edge leaves a faint antialiased fringe there; a cut one fills edge pixels.
-        val sides = (0 until h).any { cov[it][0] > EDGE || cov[it][w - 1] > EDGE }
-        val ends = vertical && (0 until w).any { cov[0][it] > EDGE || cov[h - 1][it] > EDGE }
-        return sides || ends
-    }
-
-    /**
-     * Each expected dot measured from the pixels of its own cell (every pixel goes to its nearest
-     * expected centre): coverage-weighted centroid and r = √(area/π). Antialiased neighbours that
-     * touch at small sizes are still told apart.
-     */
-    private fun measure(cov: Array<DoubleArray>, centres: List<Pair<Float, Float>>): List<Blob> {
-        val sums = Array(centres.size) { DoubleArray(3) }
-        for (y in cov.indices) for (x in cov[0].indices) {
-            val c = cov[y][x]
-            if (c < 0.01) continue
-            val cx = x + 0.5
-            val cy = y + 0.5
-            var best = -1
-            var bestD = Double.MAX_VALUE
-            for ((i, e) in centres.withIndex()) {
-                val d = (e.first - cx) * (e.first - cx) + (e.second - cy) * (e.second - cy)
-                if (d < bestD) { bestD = d; best = i }
-            }
-            sums[best][0] += c
-            sums[best][1] += c * cx
-            sums[best][2] += c * cy
-        }
-        return sums.map { (a, sx, sy) -> if (a == 0.0) Blob(Double.NaN, Double.NaN, 0.0) else Blob(sx / a, sy / a, sqrt(a / PI)) }
-    }
-
-    /** Checks measured dots against expected centres and radii; returns how many were compared. */
-    private fun check(what: String, b: Bitmap, full: Double, expected: List<Triple<Float, Float, Float>>, verticalEdges: Boolean = true): Int {
-        val cov = coverage(b, full)
-        assertTrue("$what: a dot touches the bounds", !touchesEdge(cov, verticalEdges))
-        val found = measure(cov, expected.map { it.first to it.second })
-        var compared = 0
-        for ((i, e) in expected.withIndex()) {
-            val (x, y, r) = e
-            if (r < 1.5f) continue
-            val blob = found[i]
-            assertTrue("$what: centre (${blob.x}, ${blob.y}) vs ($x, $y), r=$r", abs(blob.x - x) < 0.5 && abs(blob.y - y) < 0.5)
-            assertTrue("$what: radius ${blob.r} vs $r at ($x, $y)", abs(blob.r - r) < 0.5)
-            compared++
-        }
-        return compared
-    }
-
-    /** Spacing deviation and margin symmetry of the measured centres of one row of equal dots. */
-    private fun checkRow(what: String, b: Bitmap, full: Double, centres: List<Pair<Float, Float>>, length: Int) {
-        val row = measure(coverage(b, full), centres)
-        val gaps = row.zipWithNext { a, c -> c.x - a.x }
-        val mean = gaps.average()
-        val dev = sqrt(gaps.sumOf { (it - mean) * (it - mean) } / gaps.size)
-        assertTrue("$what: spacing deviation $dev px", dev < 0.5)
-        val left = row.first().x - row.first().r
-        val right = length - row.last().x - row.last().r
-        assertTrue("$what: margins $left vs $right", abs(left - right) < 0.5)
-        row.forEach { assertTrue("$what: dot at y=${it.y}", abs(it.y - centres[0].second) < 0.5) }
+    /** The last column with ink in the middle row (-1 for none). */
+    private fun inkedTo(cov: Array<DoubleArray>): Int {
+        val row = cov[cov.size / 2]
+        return row.indexOfLast { it > 0.5 }
     }
 
     @Test
-    fun barsAreExactAtEveryProgressSizeAndDensity() {
-        for (d in densities) for (wDp in listOf(120, 333)) for (hDp in listOf(3, 6)) {
+    fun barsFillToTheProgressAtEverySizeAndDensity() {
+        for (d in densities) for (wDp in listOf(120, 333)) for (hDp in listOf(2, 6)) {
             val w = Math.round(wDp * d)
             val h = Math.round(hDp * d)
-            val bar = DotGeometry.bar(w.toFloat(), h.toFloat(), DotGeometry.BAR_MIN_DOT_DP * d)
-            for (p in listOf(0.25f, 0.5f, 1f)) {
+            for (p in listOf(0f, 0.25f, 0.5f, 1f)) {
                 val bitmap = render(w, h, d) { InkProgressBar(p, Modifier.size((w / d).dp, (h / d).dp), state = InkBarState.Idle, color = ink, track = Color.Transparent) }
-                val expected = (0 until bar.slots.count).map { Triple(bar.slots.at(it), bar.cy, DotGeometry.barRadius(bar, it, p)) }
-                val thin = bar.full * 2f >= h // the dot is as tall as the bar, or (min dot size) taller
-                val n = check("bar d=$d ${wDp}x$hDp p=$p", bitmap, 1.0, expected, verticalEdges = !thin)
-                assertTrue("bar d=$d p=$p compared nothing", n > 0)
-                if (p == 1f && !thin) checkRow("bar d=$d ${wDp}x$hDp full", bitmap, 1.0, expected.map { it.first to it.second }, w)
+                val cov = coverage(bitmap, 1.0)
+                val head = inkedTo(cov) + 1
+                assertTrue("bar d=$d ${wDp}x$hDp p=$p: filled to $head of $w", abs(head - p * w) <= 1.0)
+                // Flat: every row of the bar is filled the same, top to bottom.
+                if (p > 0f) for (y in cov.indices) assertTrue("bar d=$d p=$p row $y", cov[y][0] > 0.5 && cov[y][(head - 1).coerceAtLeast(0)] > 0.5)
             }
-            // Indeterminate, at wave time 0 (reduced motion holds the clock).
             val wave = render(w, h, d) { InkProgressBar(null, Modifier.size((w / d).dp, (h / d).dp), color = ink, track = Color.Transparent) }
-            val thin = bar.full * 2f >= h
-            check("wave d=$d ${wDp}x$hDp", wave, 1.0, (0 until bar.slots.count).map { Triple(bar.slots.at(it), bar.cy, DotGeometry.barWaveRadius(bar, it, 0f)) }, verticalEdges = !thin)
+            assertTrue("indeterminate d=$d ${wDp}x$hDp drew nothing at its start", inkedTo(coverage(wave, 1.0)) < w)
         }
     }
 
     @Test
-    fun loadersAreCentredInTheirBox() {
+    fun loadersAreThreeSquarePixelsCentredInTheirBox() {
         for (d in densities) for (size in InkLoaderSize.entries) {
-            val w = Math.round(size.pitch.value * size.cols * d)
+            val w = Math.round(size.pitch.value * 3 * d)
             val h = Math.round(size.height.value * d)
-            val g = DotGeometry.loader(w.toFloat(), h.toFloat(), size.pitch.value * d, size.cols, size.rows, 0.42f)
             val bitmap = render(w, h, d) { InkLoader(size = size, color = ink, contentDescription = null) }
-            val expected = (0 until size.rows).flatMap { r ->
-                (0 until size.cols).map { c -> Triple(g.x.at(c), g.y.at(r), g.full * InkMath.waveScale(InkMath.dotWave((c + r).toFloat(), 0f))) }
-            }
-            check("loader $size d=$d", bitmap, 1.0, expected)
-        }
-    }
-
-    @Test
-    fun livingCardsFollowTheWaveFormula() {
-        val opacity = Motion.cardDotOpacity.toDouble()
-        for (d in densities) for ((wDp, hDp) in listOf(320 to 120, 200 to 200)) {
-            val w = Math.round(wDp * d)
-            val h = Math.round(hDp * d)
-            val card = DotGeometry.card(w.toFloat(), h.toFloat(), Motion.cardDotPitch * d)
-            val bitmap = render(w, h, d) { Box(Modifier.size((w / d).dp, (h / d).dp).inkCard(dot = ink)) }
-            val expected = (0 until card.y.count).flatMap { r ->
-                (0 until card.x.count).map { c ->
-                    val x = card.x.at(c)
-                    val y = card.y.at(r)
-                    val base = DotGeometry.cardBase(card.x.pitch, x, y, w.toFloat(), h.toFloat())
-                    Triple(x, y, DotGeometry.cardRadius(base, x.toDouble(), y.toDouble(), 0.0, card.wavelength).toFloat())
-                }
-            }
-            val n = check("card d=$d ${wDp}x$hDp", bitmap, opacity, expected)
-            assertTrue("card d=$d compared only $n dots", n >= 10)
-        }
-    }
-
-    /**
-     * The paper is one plate: every inked pixel is the dot colour (a second, offset copy of the
-     * field in the primary read as a doubled, misprinted grid at rest), and the dots sit on the
-     * ground's own whole-pixel grid.
-     */
-    @Test
-    fun paperGroundIsASinglePlateOnItsGrid() {
-        for (d in densities) {
-            val w = Math.round(320 * d)
-            val h = Math.round(200 * d)
-            val bitmap = render(w, h, d) { Box(Modifier.size((w / d).dp, (h / d).dp).inkGround(dot = ink)) }
             val px = IntArray(w * h).also { bitmap.getPixels(it, 0, w, 0, 0, w, h) }
-            val foreign = px.count { c -> (c ushr 24 and 0xFF) > 0 && ((c ushr 8 and 0xFF) > 8 || (c and 0xFF) > 8) }
-            assertTrue("ground d=$d: $foreign pixels in another ink than the dots'", foreign == 0)
-            val cell = InkMath.cappedCell(w.toFloat(), h.toFloat(), 14 * d)
-            assertOnGrid("ground d=$d", coverage(bitmap, Motion.ambientOpacity.toDouble()), DotGeometry.ground(w.toFloat(), h.toFloat(), cell, 0.6f * 0.75f))
+            val inked = { x: Int, y: Int -> (px[y * w + x] ushr 24 and 0xFF) > 0 }
+            // Columns with ink form three runs of the same width.
+            val cols = (0 until w).map { x -> (0 until h).any { y -> inked(x, y) } }
+            val runs = mutableListOf<IntRange>()
+            var start = -1
+            cols.forEachIndexed { x, on ->
+                if (on && start < 0) start = x
+                if (!on && start >= 0) { runs += start until x; start = -1 }
+            }
+            if (start >= 0) runs += start until w
+            assertTrue("loader $size d=$d: ${runs.size} pixels", runs.size == 3)
+            assertTrue("loader $size d=$d: unequal pixels $runs", runs.map { it.count() }.distinct().size == 1)
+            val rows = (0 until h).filter { y -> (0 until w).any { x -> inked(x, y) } }
+            assertTrue("loader $size d=$d: square", abs(rows.size - runs[0].count()) <= 1)
+            assertTrue("loader $size d=$d: centred vertically", abs(rows.first() - (h - 1 - rows.last())) <= 1)
+            assertTrue("loader $size d=$d: centred horizontally", abs(runs.first().first - (w - 1 - runs.last().last)) <= 1)
         }
-    }
-
-    /**
-     * The proof plate (develop, print and halftone images share its grid) has a square,
-     * whole-pixel pitch, centred, like every other field, so it never beats against a stretched
-     * or sub-pixel grid. Includes slots large enough for the dot cap to grow the pitch.
-     */
-    @Test
-    fun proofPlateSitsOnAWholePixelGrid() {
-        for (d in densities) for ((wDp, hDp) in listOf(170 to 170, 361 to 361, 170 to 255)) {
-            val w = Math.round(wDp * d)
-            val h = Math.round(hDp * d)
-            val bitmap = render(w, h, d) { DevelopingHalftone(null, Modifier.size((w / d).dp, (h / d).dp), dot = ink, progress = 0.3f, fieldAlpha = 1f) }
-            val cell = InkMath.cappedCell(w.toFloat(), h.toFloat(), 5 * d)
-            val grid = DotGeometry.ground(w.toFloat(), h.toFloat(), cell, 0.62f)
-            assertTrue("proof d=$d ${wDp}x$hDp: square pitch", grid.x.pitch == grid.y.pitch)
-            assertTrue("proof d=$d ${wDp}x$hDp: dot cap", grid.x.count * grid.y.count <= InkMath.MAX_DOTS)
-            assertOnGrid("proof d=$d ${wDp}x$hDp", coverage(bitmap, 1.0), grid)
-        }
-    }
-
-    /** Every resolvable dot's centroid (pixels assigned to their nearest grid centre) is within 0.5 px of its centre. */
-    private fun assertOnGrid(what: String, cov: Array<DoubleArray>, grid: DotGeometry.Ground) {
-        val n = grid.x.count * grid.y.count
-        val sums = Array(n) { DoubleArray(3) }
-        var stray = 0.0
-        for (y in cov.indices) for (x in cov[0].indices) {
-            val c = cov[y][x]
-            if (c < 0.01) continue
-            val cx = x + 0.5
-            val cy = y + 0.5
-            val col = Math.round((cx - grid.x.first) / grid.x.pitch).toInt()
-            val row = Math.round((cy - grid.y.first) / grid.y.pitch).toInt()
-            if (col !in 0 until grid.x.count || row !in 0 until grid.y.count) { stray += c; continue }
-            val s = sums[row * grid.x.count + col]
-            s[0] += c
-            s[1] += c * cx
-            s[2] += c * cy
-        }
-        assertTrue("$what: ink outside the grid ($stray px)", stray < 1.0)
-        var compared = 0
-        for (i in 0 until n) {
-            val (a, sx, sy) = sums[i]
-            if (sqrt(a / PI) < 1.5) continue
-            val ex = grid.x.at(i % grid.x.count)
-            val ey = grid.y.at(i / grid.x.count)
-            assertTrue("$what: dot $i at (${sx / a}, ${sy / a}) vs ($ex, $ey)", abs(sx / a - ex) < 0.5 && abs(sy / a - ey) < 0.5)
-            compared++
-        }
-        assertTrue("$what: compared only $compared dots", compared >= 10)
     }
 
     @Test
-    fun paperGroundStaysInsideItsBox() {
+    fun previewWithoutAPictureIsFlat() {
         for (d in densities) {
-            val w = Math.round(320 * d)
-            val h = Math.round(160 * d)
-            val bitmap = render(w, h, d) { Box(Modifier.size((w / d).dp, (h / d).dp).inkGround(dot = ink)) }
-            assertTrue("ground d=$d: a dot is cut by the bounds", !touchesEdge(coverage(bitmap, Motion.ambientOpacity.toDouble())))
+            val w = Math.round(170 * d)
+            val h = Math.round(120 * d)
+            val bitmap = render(w, h, d) { DevelopingPreview(null, Modifier.size((w / d).dp, (h / d).dp)) }
+            val px = IntArray(w * h).also { bitmap.getPixels(it, 0, w, 0, 0, w, h) }
+            assertTrue("preview d=$d: ${px.distinct().size} colours", px.distinct().size == 1)
         }
     }
 }
