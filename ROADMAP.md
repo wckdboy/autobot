@@ -95,6 +95,15 @@ session exported on Android opens on iOS.
   Foundation Models on iOS 26+; Gemini Nano via AICore on Android only where it does not pull Google
   Play Services into the default build) when no downloaded model fits or loads, always labelled.
 
+- **Generative UI (A2UI v1.0)**, first in the phone chats: the agent answers with native forms,
+  lists and cards (Compose on Android, SwiftUI on iOS) instead of only text. *(shared core in
+  `:shared/a2ui`: JSONL/array message parser with version routing, a catalog-driven validator
+  that passes all 157 v1.0 spec cases and reports A2UI error codes with JSON Pointer paths for
+  the model to fix its output, surface state with bindings, templates and the basic catalog's
+  functions, input write-back, `action` messages, `openUrl` http(s) only, size limits. Still to
+  do: the Compose and SwiftUI renderers, the agent tool, wiring into chats; `callRendererFunction`
+  and custom catalogs' functions)*
+
 **Exit:** an agent can use an MCP server, delegate to a subagent and recall a memory, offline
 where possible, on both platforms.
 
