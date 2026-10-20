@@ -18,25 +18,25 @@ struct MemoryScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Memory", onBack: { nav.back() }) {
                 if total > 0 {
-                    IconAction(symbol: "trash", label: "Delete all notes", tint: c.onSurfaceVariant, size: 18) { confirmDeleteAll = true }
+                    IconAction(symbol: "trash", label: MemoryWords.shared.DELETE_ALL, tint: c.onSurfaceVariant, size: 18) { confirmDeleteAll = true }
                 }
-                IconAction(symbol: "plus", label: "Add note", tint: c.primary) { editor = NoteDraft() }
+                IconAction(symbol: "plus", label: MemoryWords.shared.ADD, tint: c.primary) { editor = NoteDraft() }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     SwitchRow(
-                        title: "Use in chats",
+                        title: MemoryWords.shared.USE_IN_CHATS,
                         isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
-                        info: "The agent recalls relevant notes and can save new ones. Notes stay encrypted on this phone.",
+                        info: MemoryWords.shared.USE_INFO,
                     )
-                    ConsoleTextField(text: $query, placeholder: "search notes or #tag", kind: .mono)
+                    ConsoleTextField(text: $query, placeholder: MemoryWords.shared.SEARCH, kind: .mono)
                         .padding(.horizontal, Tokens.Spacing.gutter)
                         .padding(.vertical, 6)
-                    SectionLabel("notes · \(total) / \(MemoryRules.shared.MAX_NOTES)")
+                    SectionLabel(MemoryWords.shared.count(total: Int32(total)))
                         .padding(.horizontal, Tokens.Spacing.gutter)
                         .padding(.vertical, 8)
                     if notes.isEmpty {
-                        EmptyState(total == 0 ? "No notes yet. Add one with +, or let the agent remember facts." : "No notes match.")
+                        EmptyState(MemoryWords.shared.empty(total: Int32(total)))
                     } else {
                         ForEach(notes) { note in row(note).transition(.inkDissolve) }
                             .padding(.horizontal, Tokens.Spacing.gutter)

@@ -1,5 +1,8 @@
 package dev.wckdboy.autobot.feature.studio.ui.image
 
+import dev.wckdboy.autobot.shared.studio.StudioRoomWords
+import androidx.compose.material3.TextButton
+import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import dev.wckdboy.autobot.core.diffusion.Aspect
@@ -132,14 +135,10 @@ fun ImageRoom(
             state.error?.let { ErrorLine(it, actions::dismissError) }
             state.catalogError?.let { ErrorLine("${state.backend?.name}: $it", actions::dismissError) }
             if (state.loaded && state.backends.isEmpty()) {
-                EmptyRoom(
-                    "no image engine yet",
-                    "Run one on this phone or on a PC.",
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PrimaryButton("Get a model", onOpenModels, Modifier.weight(1f))
-                        GhostButton("Add a pc", onOpenBackends, Modifier.weight(1f))
-                    }
+                // One primary action; a PC is the quiet second path (as in Imagine).
+                EmptyRoom(StudioRoomWords.imageNoEngine) {
+                    PrimaryButton(StudioRoomWords.imageNoEngine.action!!, onOpenModels, Modifier.fillMaxWidth())
+                    TextButton(onClick = onOpenBackends) { ActionText("Use a PC instead") }
                 }
             }
             val grid = state.grid

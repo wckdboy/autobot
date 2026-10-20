@@ -66,7 +66,7 @@ class LargeTextTest {
     )
 
     private fun auditList(width: Int, scale: Float) = LargeTextAudit.render(compose, "chat-list", width, scale) {
-        Themed { ChatListScreen(list, listActions, onOpenChat = {}, onOpenProviders = {}, onOpenPrivacyCenter = {}) }
+        Themed { ChatListScreen(list, listActions, onOpenChat = {}, onOpenProviders = {}) }
     }
 
     // The composer is pinned to the bottom: rendered at a real phone's height.

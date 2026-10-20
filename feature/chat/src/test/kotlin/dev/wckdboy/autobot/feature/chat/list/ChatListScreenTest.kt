@@ -57,7 +57,7 @@ class ChatListScreenTest {
         compose.setContent {
             AutobotTheme {
                 CompositionLocalProvider(LocalInkMotion provides InkMotion(reduced = true)) {
-                    ChatListScreen(state, actions, onOpenChat = {}, onOpenProviders = { openedProviders++ }, onOpenPrivacyCenter = {})
+                    ChatListScreen(state, actions, onOpenChat = {}, onOpenProviders = { openedProviders++ })
                 }
             }
         }
@@ -111,18 +111,38 @@ class ChatListScreenTest {
     @Test
     fun aSearchWithoutMatchesSaysSo() {
         show(ChatListUiState(query = "kubernetes", loading = false, total = 3))
-        compose.onNodeWithText("No chats on this phone match that search.").assertIsDisplayed()
+        compose.onNodeWithText("No chats match that search.").assertIsDisplayed()
     }
 
     @Test
-    fun countsArePluralisedCorrectly() {
+    fun theHeaderCountsOnlyWhatRuns() {
         val update = show(state(item("c1", "Trip plans"), total = 1))
-        compose.onNodeWithText("1 session").assertIsDisplayed()
+        // The list shows how many there are: the header does not repeat it.
+        compose.onAllNodesWithText("session", substring = true).assertCountEquals(0)
         update(state(item("c1", "Trip plans"), item("c2", "Groceries"), total = 2).copy(live = 1))
-        compose.onNodeWithText("2 sessions · 1 live").assertIsDisplayed()
-        // Nothing to count: the empty state says "no sessions", the header does not repeat it.
-        update(ChatListUiState(loading = false, total = 0))
-        compose.onAllNodesWithText("0 sessions", substring = true).assertCountEquals(0)
+        compose.onNodeWithText("1 live").assertIsDisplayed()
+    }
+
+    @Test
+    fun newStartsTheDefaultChatAndTheLockAnIncognitoOne() {
+        val started = mutableListOf<Boolean?>()
+        compose.setContent {
+            AutobotTheme {
+                CompositionLocalProvider(LocalInkMotion provides InkMotion(reduced = true)) {
+                    ChatListScreen(state(item("c1", "Trip plans")), ChatListActions(newChat = { started += it }), onOpenChat = {}, onOpenProviders = {})
+                }
+            }
+        }
+        compose.onNodeWithText("New").performClick()
+        compose.onNodeWithContentDescription("New incognito chat").performClick()
+        assertEquals(listOf(null, true), started)
+    }
+
+    @Test
+    fun everyChatIncognitoByDefaultLeavesOnlyNew() {
+        show(state(item("c1", "Trip plans")).copy(incognito = true))
+        compose.onAllNodesWithContentDescription("New incognito chat").assertCountEquals(0)
+        compose.onNodeWithText("New").assertIsDisplayed()
     }
 
     @Test

@@ -52,7 +52,7 @@ struct ImagineScreen: View {
             AutobotTopBar(title: "Image", onBack: { nav.back() }) {
                 if let route = m.route { RouteTag(route: route) }
                 IconAction(.image, label: "Gallery") { nav.push(.gallery()) }
-                TextAction("Studio", color: c.primary) { nav.enterStudio(.image) }
+                TextAction("Studio") { nav.enterStudio(.image) }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -176,7 +176,7 @@ struct ImagineScreen: View {
                     Tag(chip.label, accent: active ? c.primary : c.onSurfaceVariant, filled: active) { m.selectChip(chip) }
                         .accessibilityAddTraits(active ? .isSelected : [])
                 }
-                Tag("+ model", accent: c.primary) { nav.switchTo(.models) }
+                Tag("+ Model", accent: c.primary) { nav.switchTo(.models) }
                     .accessibilityLabel("Get a model")
             }
         }

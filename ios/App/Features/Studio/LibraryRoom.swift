@@ -49,7 +49,7 @@ struct LibraryRoom: View {
             .padding(.horizontal, Tokens.Spacing.gutter)
             .padding(.vertical, 8)
             if assets.isEmpty {
-                StudioEmpty(title: favorites ? "no favourites here" : "nothing here yet", text: "Everything the Studio makes lands in its project, encrypted on this iPhone, with the recipe that made it.")
+                StudioEmpty(favorites ? StudioRoomWords.shared.libraryNoFavourites : StudioRoomWords.shared.libraryEmpty)
                 Spacer()
             } else {
                 ScrollView {

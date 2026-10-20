@@ -3,11 +3,14 @@ package dev.wckdboy.autobot.feature.settings
 import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.settings.SettingsWords
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +50,7 @@ import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import dev.wckdboy.autobot.core.designsystem.component.NavRow
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.Segmented
@@ -211,13 +215,13 @@ fun SettingsRoute(
     if (confirmDeleteChats) {
         AlertDialog(
             onDismissRequest = { confirmDeleteChats = false },
-            title = { Text("Delete all chats?") },
-            text = { Text("Every session is removed from this phone. Folders, memory and files stay.") },
+            title = { Text(SettingsWords.DELETE_ALL_TITLE) },
+            text = { Text(SettingsWords.DELETE_ALL_TEXT) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteAllChats()
                     confirmDeleteChats = false
-                }) { ActionText("Delete all", color = MaterialTheme.colorScheme.error) }
+                }) { ActionText(SettingsWords.DELETE_ALL_CONFIRM, color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { ActionText("Cancel") } },
         )
@@ -315,7 +319,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             SectionHeader(privacy)
-            NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel, info = "Network mode, the kill switch and the log of every request.")
+            NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
             // An app PIN always locks: the wipe and the duress PIN depend on it.
             val pinLocks = state.panic.hasPin
             SwitchRow(
@@ -338,14 +342,14 @@ fun SettingsScreen(
                 }
             }
             PanicRows(state.panic, onOpenPanic, onPinBiometrics, onWipeModels)
-            SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = "New chats are kept in memory only, never written to disk.")
+            SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = SettingsWords.INCOGNITO)
             SwitchRow(
                 "Redact before cloud",
                 state.redactCloud,
                 onRedactCloud,
-                info = "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
+                info = SettingsWords.REDACT,
             )
-            ChoiceTitle("Phone first")
+            ChoiceTitle("Phone first", info = SettingsWords.cascade)
             Segmented(
                 CascadePolicy.entries,
                 state.cascade,
@@ -353,41 +357,35 @@ fun SettingsScreen(
                 { it.title },
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
             )
-            Text(
-                state.cascade.detail + " " + CASCADE_SCOPE,
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             NavRow(
                 "Panic wipe",
                 onPanicWipe,
                 titleColor = MaterialTheme.colorScheme.error,
-                info = "Erases keys, chats, providers and settings, then closes the app.",
+                info = SettingsWords.PANIC_WIPE,
                 chevron = false,
             )
             Divider()
 
             SectionHeader(agent)
-            SwitchRow("Memory", state.memoryEnabled, onMemoryEnabled, info = "The agent recalls and saves notes, kept encrypted on this phone.")
+            SwitchRow("Memory", state.memoryEnabled, onMemoryEnabled, info = SettingsWords.MEMORY)
             NavRow("Memory notes", onOpenMemory)
             NavRow("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
             NavRow(
                 "Web search",
                 onOpenWebSearch,
                 value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
-                info = "Used by sessions with agent tools on. Only the query is sent, through your network route.",
+                info = SettingsWords.WEB_SEARCH,
             )
-            if (state.searchProvider != SearchProvider.NONE && state.offline) Note("Offline mode blocks searches", MaterialTheme.colorScheme.error)
+            if (state.searchProvider != SearchProvider.NONE && state.offline) Note(SettingsWords.OFFLINE_BLOCKS_SEARCH, MaterialTheme.colorScheme.error)
             SwitchRow(
                 "Fallback on limit",
                 state.quotaFallback,
                 onQuotaFallback,
-                info = "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
+                info = SettingsWords.QUOTA_FALLBACK,
             )
-            NavRow("Usage", onOpenUsage, info = "Tokens, cost and subscription windows, counted on this phone from each provider's reports.")
+            NavRow("Usage", onOpenUsage)
             NavRow("MCP servers", onOpenMcpServers)
-            NavRow("Recipes", onOpenRecipes, info = "Scheduled on-device agents: a prompt that runs on this phone's model at set times.")
+            NavRow("Recipes", onOpenRecipes)
             Divider()
 
             SectionHeader(appearance)
@@ -422,10 +420,13 @@ private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
 private fun Note(text: String, color: androidx.compose.ui.graphics.Color) =
     Text(text, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = color)
 
-/** The title over a choice row (Lock after, Phone first, Theme): a row title without a row. */
+/** The title over a choice row (Lock after, Phone first, Theme): a row title without a row, its ⓘ after it. */
 @Composable
-private fun ChoiceTitle(text: String) {
-    Text(text, Modifier.padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+private fun ChoiceTitle(text: String, info: String? = null) {
+    Row(Modifier.padding(start = 16.dp, end = 16.dp, top = if (info == null) 12.dp else 0.dp, bottom = if (info == null) 4.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        if (info != null) InfoButton(text, info)
+    }
 }
 
 /** `Privacy & security`: the app's section label (as on iOS). */
@@ -446,6 +447,3 @@ private fun SettingsScreenPreview() {
         )
     }
 }
-
-/** What "Phone first" covers, under its choice (the same words on iOS). */
-internal const val CASCADE_SCOPE = "For plain chats on a cloud model; chats can choose their own."

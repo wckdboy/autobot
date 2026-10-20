@@ -16,9 +16,6 @@ import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.model.Conversation
 import dev.wckdboy.autobot.core.models.ModelLibrary
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
-import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
-import dev.wckdboy.autobot.core.network.NetworkPolicy
-import dev.wckdboy.autobot.feature.chat.toPrivacyStatus
 import dev.wckdboy.autobot.shared.chats.ChatEntry
 import dev.wckdboy.autobot.shared.chats.ChatFilter
 import dev.wckdboy.autobot.shared.chats.ChatMatch
@@ -94,8 +91,8 @@ data class ChatListUiState(
     val selection: Set<String> = emptySet(),
     /** The latest deletion that can still be undone. */
     val pendingDeletion: PendingDeletion? = null,
+    /** Settings › Incognito by default: New starts an incognito chat. */
     val incognito: Boolean = false,
-    val privacyStatus: PrivacyStatus = PrivacyStatus.OFFLINE,
     val hasProviders: Boolean = true,
     val loading: Boolean = true,
     /** A failed action ("Couldn't start a chat: Storage is full"), shown once. */
@@ -124,12 +121,9 @@ class ChatListViewModel @Inject constructor(
     private val chats: ChatLibrary,
     private val settingsRepository: SettingsRepository,
     private val savedState: SavedStateHandle,
-    networkPolicy: NetworkPolicy,
     library: ModelLibrary,
 ) : ViewModel() {
 
-    /** `null` until the user toggles; falls back to the persisted default. */
-    private val incognitoOverride = MutableStateFlow<Boolean?>(null)
     private val filter = savedState.getStateFlow(KEY_FILTER, ChatFilter.All.key)
     private val query = savedState.getStateFlow(KEY_QUERY, "")
     private val selection = MutableStateFlow<Set<String>>(emptySet())
@@ -137,7 +131,6 @@ class ChatListViewModel @Inject constructor(
     private val events = Channel<ChatListEvent>(Channel.BUFFERED)
     val navigationEvents: Flow<ChatListEvent> = events.receiveAsFlow()
 
-    private val inputs = combine(settingsRepository.settings, incognitoOverride, networkPolicy.mode) { s, o, m -> Triple(s, o, m) }
 
     /** The query once typing pauses: the list (and the search) follow this, not every keystroke. */
     private val settledQuery = query.debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MS }.distinctUntilChanged()
@@ -173,7 +166,7 @@ class ChatListViewModel @Inject constructor(
     /** Provider names and on-device model titles, so rows read "This phone · Qwen3.5 0.8B", not an id. */
     private val names = combine(providers.observeProviders(), library.models) { p, m -> p.associate { it.id to it.displayName } to m.associate { it.id to it.title } }
 
-    val uiState: StateFlow<ChatListUiState> = combine(data, names, view, inputs) { d, (providerNames, modelTitles), v, (settings, override, mode) ->
+    val uiState: StateFlow<ChatListUiState> = combine(data, names, view, settingsRepository.settings) { d, (providerNames, modelTitles), v, settings ->
         val hidden = d.pending.flatMapTo(HashSet()) { it.ids }
         val visible = d.list.filter { it.id !in hidden }
         val byId = visible.associateBy { it.id }
@@ -224,8 +217,7 @@ class ChatListViewModel @Inject constructor(
             query = v.query,
             selection = v.selection.filterTo(LinkedHashSet()) { it in shown },
             pendingDeletion = d.pending.lastOrNull(),
-            incognito = override ?: settings.incognitoByDefault,
-            privacyStatus = mode.toPrivacyStatus(),
+            incognito = settings.incognitoByDefault,
             hasProviders = providerNames.isNotEmpty(),
             loading = false,
         )
@@ -233,10 +225,6 @@ class ChatListViewModel @Inject constructor(
 
     init {
         chats.prepareSearch()
-    }
-
-    fun setIncognito(enabled: Boolean) {
-        incognitoOverride.value = enabled
     }
 
     fun consumeMessage() {
@@ -247,11 +235,12 @@ class ChatListViewModel @Inject constructor(
     private fun safely(what: String, block: suspend CoroutineScope.() -> Unit) =
         viewModelScope.launchSafely({ e -> message.value = "$what: ${userMessage(e)}" }, block)
 
-    fun newChat() {
+    /** A new chat: incognito when [incognito] is true, else as Settings › Incognito by default says. */
+    fun newChat(incognito: Boolean? = null) {
         safely("Couldn't start a chat") {
             val provider = providers.observeProviders().first().firstOrNull()
             val conversation = conversations.createConversation(
-                incognito = uiState.value.incognito,
+                incognito = incognito ?: settingsRepository.settings.first().incognitoByDefault,
                 providerId = provider?.id,
                 model = provider?.defaultModel,
             )

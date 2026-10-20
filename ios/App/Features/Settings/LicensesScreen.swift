@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One notice in the Licenses screen; [file] is a text resource in `Resources/Licenses`.
-private struct Notice: Identifiable {
+private struct LicenseNotice: Identifiable {
     let id: String
     let title: String
     let detail: String
@@ -9,17 +9,17 @@ private struct Notice: Identifiable {
     let file: String
 }
 
-private let notices: [Notice] = [
-    Notice(id: "autobot", title: "Autobot", detail: "Copyright 2026 wckdboy", license: "Apache-2.0", file: "Apache-2.0"),
-    Notice(id: "harness", title: "DeepSeek Harness", detail: "Architecture of the agent runtime (plugins, session log, loop, tools, permissions, compaction) · Copyright (c) 2026 DeepSeek", license: "MIT", file: "DeepSeek-Harness-MIT"),
-    Notice(id: "llama", title: "llama.cpp (incl. ggml)", detail: "On-device chat on Metal and the CPU · Copyright (c) 2023-2026 The ggml authors", license: "MIT", file: "llama.cpp-MIT"),
-    Notice(id: "whisper", title: "whisper.cpp", detail: "On-device dictation · Copyright (c) 2023-2026 The ggml authors", license: "MIT", file: "whisper.cpp-MIT"),
-    Notice(id: "mlsd", title: "ml-stable-diffusion", detail: "Core ML Stable Diffusion on the Neural Engine · Copyright (c) 2024 Apple Inc.", license: "MIT", file: "ml-stable-diffusion-MIT"),
-    Notice(id: "mlsd-ack", title: "ml-stable-diffusion acknowledgements", detail: "Third-party notices of the Core ML pipeline", license: "various", file: "ml-stable-diffusion-ACKNOWLEDGEMENTS"),
-    Notice(id: "stable-audio", title: "Stable Audio Open Small", detail: "Powered by Stability AI · on-device text to audio (downloaded, not bundled) · This Stability AI Model is licensed under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved", license: "Stability AI Community", file: "StableAudio-Stability-AI-Community"),
-    Notice(id: "kotlin", title: "Kotlin, kotlinx.coroutines, kotlinx.serialization, Okio", detail: "Shared agent runtime (Kotlin Multiplatform) · JetBrains s.r.o., Square, Inc. and contributors", license: "Apache-2.0", file: "Apache-2.0"),
-    Notice(id: "antonio", title: "Antonio", detail: "Display typeface · Vernon Adams", license: "OFL-1.1", file: "Antonio-OFL"),
-    Notice(id: "jbmono", title: "JetBrains Mono", detail: "Label and code typeface · JetBrains", license: "OFL-1.1", file: "JetBrainsMono-OFL"),
+private let notices: [LicenseNotice] = [
+    LicenseNotice(id: "autobot", title: "Autobot", detail: "Copyright 2026 wckdboy", license: "Apache-2.0", file: "Apache-2.0"),
+    LicenseNotice(id: "harness", title: "DeepSeek Harness", detail: "Architecture of the agent runtime (plugins, session log, loop, tools, permissions, compaction) · Copyright (c) 2026 DeepSeek", license: "MIT", file: "DeepSeek-Harness-MIT"),
+    LicenseNotice(id: "llama", title: "llama.cpp (incl. ggml)", detail: "On-device chat on Metal and the CPU · Copyright (c) 2023-2026 The ggml authors", license: "MIT", file: "llama.cpp-MIT"),
+    LicenseNotice(id: "whisper", title: "whisper.cpp", detail: "On-device dictation · Copyright (c) 2023-2026 The ggml authors", license: "MIT", file: "whisper.cpp-MIT"),
+    LicenseNotice(id: "mlsd", title: "ml-stable-diffusion", detail: "Core ML Stable Diffusion on the Neural Engine · Copyright (c) 2024 Apple Inc.", license: "MIT", file: "ml-stable-diffusion-MIT"),
+    LicenseNotice(id: "mlsd-ack", title: "ml-stable-diffusion acknowledgements", detail: "Third-party notices of the Core ML pipeline", license: "various", file: "ml-stable-diffusion-ACKNOWLEDGEMENTS"),
+    LicenseNotice(id: "stable-audio", title: "Stable Audio Open Small", detail: "Powered by Stability AI · on-device text to audio (downloaded, not bundled) · This Stability AI Model is licensed under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved", license: "Stability AI Community", file: "StableAudio-Stability-AI-Community"),
+    LicenseNotice(id: "kotlin", title: "Kotlin, kotlinx.coroutines, kotlinx.serialization, Okio", detail: "Shared agent runtime (Kotlin Multiplatform) · JetBrains s.r.o., Square, Inc. and contributors", license: "Apache-2.0", file: "Apache-2.0"),
+    LicenseNotice(id: "antonio", title: "Antonio", detail: "Display typeface · Vernon Adams", license: "OFL-1.1", file: "Antonio-OFL"),
+    LicenseNotice(id: "jbmono", title: "JetBrains Mono", detail: "Label and code typeface · JetBrains", license: "OFL-1.1", file: "JetBrainsMono-OFL"),
 ]
 
 /// Autobot's licence and the notices of the software built into the iOS app. Models are not

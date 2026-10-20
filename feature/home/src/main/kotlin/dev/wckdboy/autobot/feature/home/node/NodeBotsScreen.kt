@@ -48,6 +48,7 @@ import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.debug.DemoMode
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
 import dev.wckdboy.autobot.core.designsystem.component.EmptyState
 import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import dev.wckdboy.autobot.core.designsystem.component.InkLoader
@@ -310,11 +311,7 @@ fun NodeBotScreen(
             AutobotTopBar(
                 title = "Bot · ${state.name}",
                 showMark = false,
-                navigation = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    // About the node: Invincible's pixel i.
-                    NodeMark(size = 14.dp)
-                },
+                navigation = { BackButton(onBack) },
                 actions = { IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh") } },
             )
         },
@@ -336,8 +333,11 @@ fun NodeBotScreen(
             }
             item(key = "head") {
                 Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(bot.name, style = MaterialTheme.typography.headlineSmall, maxLines = linesFor(1, 2), overflow = TextOverflow.Ellipsis)
-                    if (bot.persona.isNotEmpty()) Text(bot.persona, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // The name is in the bar; the head says who it is, after Invincible's pixel i (about the node), as on iOS.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NodeMark(size = 14.dp)
+                        if (bot.persona.isNotEmpty()) Text(bot.persona, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     SectionLabel("on ${state.node} · ${NodeBots.meta(bot, state.now)}")
                 }
             }

@@ -142,7 +142,8 @@ fun StudioScreen(
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
                 AutobotTopBar(
-                    title = "Studio",
+                    // "Studio · Image": the room is in the title, as on iOS.
+                    title = "Studio · ${room.label}",
                     navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Leave the Studio") } },
                     actions = { shell.project?.let { Tag(it.name, accent = MaterialTheme.colorScheme.onSurface, onClick = { room = StudioRoom.LIBRARY }, asWritten = true) } },
                 )

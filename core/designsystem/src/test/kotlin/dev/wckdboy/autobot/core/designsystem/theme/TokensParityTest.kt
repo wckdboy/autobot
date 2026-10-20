@@ -133,4 +133,12 @@ class TokensParityTest {
             assertEquals("motion.$name", value.jsonPrimitive.double, Motion.all.getValue(name).toDouble(), 0.0001)
         }
     }
+
+    @Test
+    fun rowsAndGuttersMatchTheTokens() {
+        val spacing = group("spacing")
+        // iOS reads these from the generated tokens; Compose keeps them as constants beside its rows.
+        assertEquals(spacing.getValue("rowMinHeight").jsonPrimitive.int, dev.wckdboy.autobot.core.designsystem.component.RowMinHeight.value.toInt())
+        assertEquals(spacing.getValue("gutter").jsonPrimitive.int, dev.wckdboy.autobot.core.designsystem.component.RowGutter.value.toInt())
+    }
 }

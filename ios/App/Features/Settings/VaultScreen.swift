@@ -17,20 +17,20 @@ struct VaultScreen: View {
         VStack(spacing: 0) {
             AutobotTopBar(title: "Vault", onBack: { nav.back() }) {
                 if !vault.documents.isEmpty {
-                    IconAction(symbol: "trash", label: "Delete all documents", tint: c.onSurfaceVariant, size: 18) { confirmDeleteAll = true }
+                    IconAction(symbol: "trash", label: VaultWords.shared.DELETE_ALL, tint: c.onSurfaceVariant, size: 18) { confirmDeleteAll = true }
                 }
                 if vault.modelId != nil && !vault.running {
-                    IconAction(symbol: "plus", label: "Add files", tint: c.primary) { picking = true }
+                    IconAction(symbol: "plus", label: VaultWords.shared.ADD, tint: c.primary) { picking = true }
                 }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     SwitchRow(
-                        title: "Agent search",
+                        title: VaultWords.shared.AGENT_SEARCH,
                         isOn: Binding(get: { settings.vaultEnabled }, set: { app.settings.setVaultEnabled($0) }),
-                        info: "The agent can look up passages in your files (vault_search). Text, Markdown, PDF and photos (on-device OCR) are indexed on this phone, encrypted, never uploaded.",
+                        info: VaultWords.shared.AGENT_SEARCH_INFO,
                     )
-                    NavigationRow(title: "Embedding model", value: model?.title ?? "None") { nav.switchTo(.models) }
+                    NavigationRow(title: VaultWords.shared.EMBEDDING_MODEL, value: model?.title ?? VaultWords.shared.NO_MODEL) { nav.switchTo(.models) }
                     if let progress = vault.progress {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
@@ -44,15 +44,12 @@ struct VaultScreen: View {
                         .padding(.horizontal, Tokens.Spacing.gutter)
                         .padding(.vertical, 10)
                     } else if vault.stale > 0 {
-                        VStack(alignment: .leading, spacing: 8) {
-                            MicroLabel("\(vault.stale) document(s) use another embedding model and are not searched until re-indexed (from the stored text, no files needed)", lines: 3)
-                            GhostButton("Re-index") { vault.reindex() }
-                        }
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.vertical, 10)
+                        Notice(VaultWords.shared.stale(count: Int32(vault.stale)), tone: .warning, action: VaultWords.shared.REINDEX) { vault.reindex() }
+                            .padding(.horizontal, Tokens.Spacing.gutter)
+                            .padding(.vertical, 8)
                     }
                     if !vault.documents.isEmpty {
-                        ConsoleTextField(text: $query, placeholder: "search your files", kind: .mono, onSubmit: { vault.search(query) })
+                        ConsoleTextField(text: $query, placeholder: VaultWords.shared.SEARCH, kind: .mono, onSubmit: { vault.search(query) })
                             .padding(.horizontal, Tokens.Spacing.gutter)
                             .padding(.vertical, 6)
                             .onChange(of: query) { _, q in if q.isEmpty { vault.clearResults() } }
@@ -64,7 +61,7 @@ struct VaultScreen: View {
                     }
                     if let results = vault.results {
                         if results.isEmpty && !vault.searching {
-                            Text("No passages match.").textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
+                            Text(VaultWords.shared.NO_MATCH).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
                         }
                         ForEach(Array(results.enumerated()), id: \.offset) { _, hit in
                             VStack(alignment: .leading, spacing: 3) {
@@ -76,22 +73,22 @@ struct VaultScreen: View {
                             Hairline()
                         }
                     }
-                    SectionLabel("documents · \(vault.documents.count) · \(vault.documents.reduce(0) { $0 + Int($1.chunks) }) / \(VaultRules.shared.MAX_CHUNKS) passages")
+                    SectionLabel(VaultWords.shared.count(documents: Int32(vault.documents.count), passages: Int32(vault.documents.reduce(0) { $0 + Int($1.chunks) })))
                         .padding(.horizontal, Tokens.Spacing.gutter)
                         .padding(.vertical, 8)
                     if vault.documents.isEmpty {
-                        Text("No files yet. Tap + to add notes, Markdown, PDFs or photos: they are split into passages and embedded on this phone.")
-                            .textStyle(.bodyMedium)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding(32)
+                        // Files need an embedding model; without one there is no "+" to point at.
+                        if vault.modelId == nil {
+                            EmptyState(VaultWords.shared.empty(hasModel: false), actionLabel: "Models") { nav.switchTo(.models) }
+                        } else {
+                            EmptyState(VaultWords.shared.empty(hasModel: true))
+                        }
                     } else {
                         ForEach(vault.documents, id: \.id) { doc in row(doc) }
                             .padding(.horizontal, Tokens.Spacing.gutter)
                     }
                 }
-                .padding(.bottom, 96)
+                .padding(.bottom, 24)
             }
         }
         .background(c.background)

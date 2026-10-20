@@ -29,7 +29,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -392,6 +397,18 @@ fun AutobotTopBar(
             }
         }
     }
+}
+
+/** A top bar's back arrow (its [AutobotTopBar] `navigation`). */
+@Composable
+fun BackButton(onBack: () -> Unit) {
+    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+}
+
+/** A top bar's "+" in lilac: the screen's way to add one more (a note, a server, a recipe), as on iOS. */
+@Composable
+fun AddButton(label: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick) { Icon(Icons.Filled.Add, contentDescription = label, tint = MaterialTheme.colorScheme.primary) }
 }
 
 /** The default top bar title: shows the wordmark instead. */

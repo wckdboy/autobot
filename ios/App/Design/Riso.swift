@@ -187,9 +187,8 @@ struct PaperButton: View {
 }
 
 /**
- Small mono text button (`All`, `Tune`, `OK`), sentence case. Plain ones read as links: onSurface
- with a purple underline (the signal stays small); a [color] other than the primary (an error red
- for Delete) tints the label instead.
+ Small mono text button (`All`, `Tune`, `OK`), sentence case, in lilac like Android's text
+ buttons; a [color] (an error red for Delete, ash for a quiet one) tints the label instead.
  */
 struct TextAction: View {
     let text: String
@@ -211,15 +210,14 @@ struct TextAction: View {
     }
 
     var body: some View {
-        let link = color == nil || color == c.primary
+        // As Android's text buttons: the label in lilac (or [color]), no underline.
         Button(action: action) {
             InkBusyLabel(busy: busy, size: .inline, color: color ?? c.primary) {
                 Text(text.sentenceCased)
                     .textStyle(style)
-                    .underline(link && enabled, color: c.primary)
                     .textLines(1)
             }
-            .foregroundStyle(enabled ? (link ? c.onSurface : color ?? c.onSurface) : c.onSurface.opacity(0.38))
+            .foregroundStyle(enabled ? color ?? c.primary : c.onSurface.opacity(0.38))
             .padding(.horizontal, 12)
             .frame(minHeight: 40)
             .contentShape(Rectangle())
@@ -712,8 +710,9 @@ struct EmptyState: View {
                 .foregroundStyle(c.onSurfaceVariant)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            // A hairline block button, as Android's empty states.
             if let actionLabel, let action {
-                TextAction(actionLabel, action: action)
+                GhostButton(actionLabel, action: action).fixedSize()
             }
         }
         .frame(maxWidth: .infinity)

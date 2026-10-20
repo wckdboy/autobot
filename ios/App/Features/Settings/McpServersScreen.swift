@@ -48,26 +48,22 @@ struct McpServersScreen: View {
                 IconAction(symbol: "plus", label: "Add MCP server", tint: c.primary) { editor = McpServerDraft() }
             }
             if servers.isEmpty {
-                VStack(spacing: 10) {
+                VStack(spacing: 0) {
                     Spacer()
-                    Text("No MCP servers yet. Tap + to add a Model Context Protocol server (Streamable HTTP).\nIts tools join agent sessions; every call asks first; a trusted server follows the permission preset instead.")
-                        .textStyle(.bodyMedium)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .multilineTextAlignment(.center)
-                    PrimaryButton("Add MCP server") { editor = McpServerDraft() }.frame(maxWidth: 260)
+                    // One line and one action, as on Android; what a trusted server does is on its switch in the editor.
+                    EmptyState("No MCP servers yet.", actionLabel: "Add MCP server") { editor = McpServerDraft() }
                     Spacer()
                 }
-                .padding(32)
+                .frame(maxWidth: .infinity)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        SectionLabel("remote tools · \(servers.count)").padding(.vertical, 8)
                         if let error { MicroLabel(error, color: c.error, lines: 3) }
                         ForEach(servers) { s in row(s).transition(.inkDissolve) }
                     }
                     .animation(.inkDissolve, value: servers.map(\.id))
                     .padding(.horizontal, Tokens.Spacing.gutter)
-                    .padding(.bottom, 96)
+                    .padding(.bottom, 24)
                 }
             }
         }
@@ -174,7 +170,8 @@ private struct McpServerEditorSheet: View {
     }
 
     var body: some View {
-        ScrollView {
+        // The shared form: the focused field scrolls into view and Save stays above the keyboard.
+        KeyboardForm {
             InkStack(alignment: .leading, spacing: 12) {
                 SectionLabel(draft.isNew ? "add mcp server" : "edit mcp server")
 
@@ -226,15 +223,13 @@ private struct McpServerEditorSheet: View {
 
                 testResult
                 if let error { MicroLabel(error, color: c.error, lines: 3) }
-
-                HStack(spacing: 8) {
-                    GhostButton("Test connection", accent: c.onSurface, enabled: draft.urlValid && test != .running, busy: test == .running, action: testConnection)
-                    PrimaryButton("Save", enabled: draft.canSave && !saving, action: save)
-                }
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+        } footer: {
+            HStack(spacing: 8) {
+                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss)
+                GhostButton("Test connection", accent: c.onSurface, enabled: draft.urlValid && test != .running, busy: test == .running, action: testConnection)
+                PrimaryButton("Save", enabled: draft.canSave && !saving, action: save)
+            }
         }
         .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])

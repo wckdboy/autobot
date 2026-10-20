@@ -24,10 +24,8 @@ struct SettingsScreen: View {
                         header(section.title)
                         ForEach(section.rows) { row($0) }
                     }
-                    MicroLabel(AboutInfo.privacyStatement.lowercased(), lines: 2)
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.top, 8)
-                        .padding(.bottom, 24)
+                    // The privacy statement is on About, as on Android.
+                    Spacer().frame(height: 24)
                 }
             }
         }
@@ -36,9 +34,9 @@ struct SettingsScreen: View {
         .sheet(isPresented: $showSearch) { WebSearchSheet { showSearch = false } }
         .risoAlert(
             $confirmDeleteChats,
-            title: "Delete all chats?",
-            message: "Every session is removed from this phone. Folders, memory and files stay.",
-            confirm: "Delete all",
+            title: SettingsWords.shared.DELETE_ALL_TITLE,
+            message: SettingsWords.shared.DELETE_ALL_TEXT,
+            confirm: SettingsWords.shared.DELETE_ALL_CONFIRM,
         ) { app.chats.deleteAll() }
         .panicWipeAlert(isPresented: $showWipe)
         .sheet(item: $panicDialog, onDismiss: refreshPanic) { dialog in
@@ -85,38 +83,38 @@ struct SettingsScreen: View {
             SwitchRow(
                 title: title,
                 isOn: Binding(get: { settings.incognitoByDefault }, set: { app.settings.setIncognitoByDefault($0) }),
-                info: "New chats are kept in memory only, never written to disk.",
+                info: SettingsWords.shared.INCOGNITO,
             )
         case .redactCloud:
             SwitchRow(
                 title: title,
                 isOn: Binding(get: { settings.redactCloud }, set: { app.settings.setRedactCloud($0) }),
-                info: "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
+                info: SettingsWords.shared.REDACT,
             )
         case .cascade:
             CascadeSettingRow(title: title, policy: settings.cascade) { app.settings.setCascade($0) }
         case .panicWipe:
-            DestructiveRow(title: title, info: "Destroys every key and all data on this phone, then closes the app.") { showWipe = true }
+            DestructiveRow(title: title, info: SettingsWords.shared.PANIC_WIPE) { showWipe = true }
         case .memory:
             SwitchRow(
                 title: title,
                 isOn: Binding(get: { settings.memoryEnabled }, set: { app.settings.setMemoryEnabled($0) }),
-                info: "The agent recalls and saves notes, kept encrypted on this phone.",
+                info: SettingsWords.shared.MEMORY,
             )
         case .memoryNotes:
             NavigationRow(title: title) { nav.push(.memory) }
         case .vault:
             NavigationRow(title: title, value: settings.vaultEnabled ? "On" : "Off") { nav.push(.vault) }
         case .webSearch:
-            NavigationRow(title: title, value: settings.webSearchOn ? WebSearchDraft.label(settings.searchProvider) : "Off") { showSearch = true }
+            NavigationRow(title: title, value: settings.webSearchOn ? WebSearchDraft.label(settings.searchProvider) : "Off", info: SettingsWords.shared.WEB_SEARCH) { showSearch = true }
             if settings.webSearchOn && settings.mode == .offline {
-                note("Offline mode blocks searches", color: c.error)
+                note(SettingsWords.shared.OFFLINE_BLOCKS_SEARCH, color: c.error)
             }
         case .quotaFallback:
             SwitchRow(
                 title: title,
                 isOn: Binding(get: { settings.quotaFallback }, set: { app.settings.setQuotaFallback($0) }),
-                info: "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
+                info: SettingsWords.shared.QUOTA_FALLBACK,
             )
         case .usage:
             NavigationRow(title: title) { nav.push(.usage) }
@@ -125,10 +123,13 @@ struct SettingsScreen: View {
         case .recipes:
             NavigationRow(title: title) { nav.push(.recipes) }
         case .theme:
-            Segmented(options: ThemeMode.allCases, selected: settings.themeMode, label: { $0.rawValue.capitalized }) {
-                app.settings.setThemeMode($0)
+            VStack(alignment: .leading, spacing: 8) {
+                ChoiceTitle(title)
+                Segmented(options: ThemeMode.allCases, selected: settings.themeMode, label: { $0.rawValue.capitalized }) {
+                    app.settings.setThemeMode($0)
+                }
+                .accessibilityLabel(title)
             }
-            .accessibilityLabel(title)
             .padding(.horizontal, Tokens.Spacing.gutter)
             .padding(.vertical, 8)
         case .amoled:
@@ -148,9 +149,7 @@ struct SettingsScreen: View {
 
     private func lockTimeouts(_ selected: Int64) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Lock after")
-                .textStyle(.bodyMedium)
-                .foregroundStyle(c.onSurfaceVariant)
+            ChoiceTitle("Lock after")
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.top, 4)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -194,28 +193,41 @@ struct SettingsScreen: View {
     }
 }
 
-/// Settings → "Phone first": off, ask, auto or never for plain chats on a cloud model, with the
-/// chosen option's line (the shared `CascadePolicy` words, as on Android).
+/// Settings → "Phone first": off, ask, auto or never for plain chats on a cloud model; what each
+/// does sits behind the ⓘ (the shared `SettingsWords.cascade`, as on Android).
 private struct CascadeSettingRow: View {
     let title: String
     let policy: String
     let onSelect: (String) -> Void
-    @Environment(\.scheme) private var c
-
-    /// What "Phone first" covers (the same words on Android).
-    static let scope = "For plain chats on a cloud model; chats can choose their own."
 
     var body: some View {
         let options = CascadePolicy.entries.map(\.name)
         let chosen = CascadePolicy.companion.parse(value: policy) ?? CascadePolicy.off
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-            Segmented(options: options, selected: chosen.name, label: { (CascadePolicy.companion.parse(value: $0)?.title ?? $0).lowercased() }) { onSelect($0) }
+            ChoiceTitle(title, info: SettingsWords.shared.cascade)
+            Segmented(options: options, selected: chosen.name, label: { CascadePolicy.companion.parse(value: $0)?.title ?? $0 }) { onSelect($0) }
                 .accessibilityLabel(title)
-            Text(chosen.detail + " " + Self.scope).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, Tokens.Spacing.gutter)
         .padding(.vertical, 8)
+    }
+}
+
+/// The title over a choice row (Lock after, Phone first, Theme): a row title without a row, its ⓘ after it.
+private struct ChoiceTitle: View {
+    let text: String
+    var info: String? = nil
+    @Environment(\.scheme) private var c
+
+    init(_ text: String, info: String? = nil) {
+        self.text = text
+        self.info = info
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(text).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
+            if let info { InfoButton(title: text, text: info).padding(.vertical, -12).padding(.leading, -6) }
+        }
     }
 }

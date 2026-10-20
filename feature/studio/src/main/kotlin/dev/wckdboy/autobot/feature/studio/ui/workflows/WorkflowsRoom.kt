@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.studio.ui.workflows
 
+import dev.wckdboy.autobot.shared.studio.StudioRoomWords
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
@@ -107,12 +108,7 @@ fun WorkflowsRoom(
 private fun Backends(state: WorkflowsState, actions: WorkflowsActions, onEdit: (ComfyBackendConfig) -> Unit, onAdd: (String) -> Unit) {
     SectionLabel("comfyui backends", Modifier.semantics { heading() })
     if (state.loaded && state.backends.isEmpty()) {
-        EmptyRoom(
-            "workflows run on your pc",
-            "ComfyUI workflows (video with LTX-Video / Wan, audio with Stable Audio / ACE-Step, ControlNet, face and detail passes) run on a PC " +
-                "with a GPU. Run ComfyUI there, then reach it over https (a reverse proxy or a tailnet name), or over loopback through a tunnel. " +
-                "Cleartext http only works to loopback. Requests follow your network mode, kill switch and route, and land in the audit log.",
-        )
+        EmptyRoom(StudioRoomWords.workflowsNoPc)
     }
     state.backends.forEach { b ->
         val result = state.tests[b.id]

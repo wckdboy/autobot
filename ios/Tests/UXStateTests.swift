@@ -15,8 +15,9 @@ struct CountLabelTests {
         #expect(counted(2, "memory note") == "2 memory notes")
         #expect(counted(1, "child", "children") == "1 child")
         #expect(counted(3, "child", "children") == "3 children")
-        #expect(LiveCountLabel.text(total: 1, live: 0) == "1 session")
-        #expect(LiveCountLabel.text(total: 12, live: 3) == "12 sessions · 3 live")
+        // The chat list's header counts only what runs; the list shows how many chats there are.
+        #expect(LiveCountLabel.text(live: 0) == nil)
+        #expect(LiveCountLabel.text(live: 3) == "3 live")
         #expect(ChatListModel.deletedLabel(count: 1, title: "Trip") == "Deleted “Trip”")
         #expect(ChatListModel.deletedLabel(count: 1, title: nil) == "Chat deleted")
         #expect(ChatListModel.deletedLabel(count: 4, title: "x") == "Deleted 4 chats")
@@ -220,11 +221,12 @@ struct ChatListStateTests {
     }
 
     @Test func emptyStatesSayWhyTheListIsEmpty() {
-        #expect(ChatListModel.emptyState(query: "lisbon", filter: ChatFilterAll.shared).title == "no matches")
-        #expect(ChatListModel.emptyState(query: "  ", filter: ChatFilterArchived.shared).title == "archive is empty")
-        #expect(ChatListModel.emptyState(query: "", filter: ChatFilterPinned.shared).title == "nothing pinned")
-        #expect(ChatListModel.emptyState(query: "", filter: ChatFilterFolder(id: "x")).title == "empty folder")
-        #expect(ChatListModel.emptyState(query: "", filter: ChatFilterAll.shared).title == "no sessions")
+        // One line each, the same words as Android (shared `ChatListWords`).
+        #expect(ChatListModel.emptyText(query: "lisbon", filter: ChatFilterAll.shared) == "No chats match that search.")
+        #expect(ChatListModel.emptyText(query: "  ", filter: ChatFilterArchived.shared) == "No archived chats.")
+        #expect(ChatListModel.emptyText(query: "", filter: ChatFilterPinned.shared) == "Nothing pinned.")
+        #expect(ChatListModel.emptyText(query: "", filter: ChatFilterFolder(id: "x")) == "This folder is empty.")
+        #expect(ChatListModel.emptyText(query: "", filter: ChatFilterAll.shared) == "No chats yet.")
     }
 }
 
@@ -381,4 +383,16 @@ struct UnreachableServerTests {
         #expect(result.message == "The agent runtime was stopped")
     }
     #endif
+}
+
+/// Labels read the same on both platforms: Android's `labelCase` spells abbreviations anywhere in a label.
+struct LabelCaseParityTests {
+    @Test func abbreviationsAreSpelledAnywhereInALabel() {
+        #expect("models · api & lan".sentenceCased == "Models · API & LAN")
+        #expect("prices · usd per 1m tokens".sentenceCased == "Prices · USD per 1m tokens")
+        #expect("cost · usd".sentenceCased == "Cost · USD")
+        // Paths, hosts and names written in lowercase stay as they are.
+        #expect("huggingface.co/api/models".sentenceCased == "huggingface.co/api/models")
+        #expect("txt2img · dpm++".sentenceCased == "Txt2img · dpm++")
+    }
 }

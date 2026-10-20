@@ -1,6 +1,14 @@
 package dev.wckdboy.autobot.feature.settings.mcp
 
+import dev.wckdboy.autobot.core.designsystem.component.AddButton
+import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
 import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.component.GhostButton
+import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
+import dev.wckdboy.autobot.core.designsystem.component.Hairline
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
@@ -24,14 +32,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -43,7 +49,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -115,64 +120,23 @@ fun McpServersScreen(
     val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("MCP servers") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = "Add MCP server") }
+            AutobotTopBar(title = "MCP servers", navigation = { BackButton(onBack) }) {
+                AddButton(MCP_ADD, onAdd)
+            }
         },
     ) { padding ->
         if (state.servers.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState("No MCP servers yet. Tap + to add one. Its tools join agent sessions and ask before each call.")
+                EmptyState(MCP_EMPTY, action = MCP_ADD, onAction = onAdd)
             }
         } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+            LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 8.dp, bottom = 24.dp)) {
                 // A failed enable/disable from the list (an editor shows its own).
                 if (state.editor == null) {
-                    state.error?.let { item { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+                    state.error?.let { item { Text(it, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
                 }
                 items(state.servers, key = { it.id }, contentType = { "mcp" }) { row ->
-                    ListItem(
-                        modifier = Modifier.inkDissolve(dissolve, row.id).clickable { onEdit(row.id) },
-                        headlineContent = { Text(row.name) },
-                        supportingContent = {
-                            Column {
-                                Text(
-                                    listOfNotNull(
-                                        row.host,
-                                        row.routing.label,
-                                        if (row.trusted) "trusted · follows preset" else "asks each call",
-                                        "token ✓".takeIf { row.hasToken },
-                                    ).joinToString(" · "),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                row.status?.let {
-                                    Text(
-                                        it,
-                                        color = if (row.unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        },
-                        overlineContent = { Text(row.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        trailingContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Switch(checked = row.enabled, onCheckedChange = { onEnabled(row.id, it) })
-                                IconButton(onClick = { deleting = row }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
-                                }
-                            }
-                        },
-                    )
+                    ServerRow(row, Modifier.inkDissolve(dissolve, row.id), onEdit = { onEdit(row.id) }, onEnabled = { onEnabled(row.id, it) }, onDelete = { deleting = row })
                 }
             }
         }
@@ -305,18 +269,44 @@ private fun McpServerEditorSheet(
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = { if (test != TestState.Running) onTest() }, enabled = draft.urlValid) {
-                        InkBusyLabel(test == TestState.Running) { Text("Test connection") }
-                    }
-                    Spacer(Modifier.weight(1f))
+                    // The design system's buttons, as on iOS: Cancel, Test (ghost), Save (the one primary).
                     TextButton(onClick = onDismiss) { ActionText("Cancel") }
-                    Button(onClick = onSave, enabled = draft.canSave && !saving) { Text("Save") }
+                    GhostButton("Test connection", { onTest() }, Modifier.weight(1f), enabled = draft.urlValid, busy = test == TestState.Running)
+                    PrimaryButton("Save", onSave, Modifier.weight(1f), enabled = draft.canSave && !saving)
                 }
                 Spacer(Modifier.height(8.dp))
             }
         }
     }
 }
+
+/** A server: its URL, name, how it is reached, and what the agent saw of it (as on iOS). */
+@Composable
+private fun ServerRow(row: McpServerRow, modifier: Modifier, onEdit: () -> Unit, onEnabled: (Boolean) -> Unit, onDelete: () -> Unit) {
+    Column(modifier) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).clickable(onClick = onEdit).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(row.url, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(row.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(row.host, row.routing.label, if (row.trusted) "trusted · follows preset" else "asks each call", "token ✓".takeIf { row.hasToken }).joinToString(" · "),
+                    style = AutobotTheme.styles.micro,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                row.status?.let { Text(it, style = AutobotTheme.styles.micro, color = if (row.unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            }
+            Switch(checked = row.enabled, onCheckedChange = onEnabled, modifier = Modifier.semantics { contentDescription = "Enable ${row.name}" })
+            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Hairline()
+    }
+}
+
+/** The MCP screen's empty line and its add action (the same words on iOS). */
+internal const val MCP_EMPTY = "No MCP servers yet."
+internal const val MCP_ADD = "Add MCP server"
 
 @Composable
 private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {

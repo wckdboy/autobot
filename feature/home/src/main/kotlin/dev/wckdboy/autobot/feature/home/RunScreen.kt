@@ -167,13 +167,11 @@ fun RunScreen(
                         Spacer(Modifier.height(22.dp))
                     }
                 }
-                // Nothing run yet: no empty section (the cards above are the way in).
-                if (state.recent.isNotEmpty()) {
-                    item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SectionLabel("Recent runs", Modifier.weight(1f))
-                            TextButton(onClick = onOpenAllRuns) { ActionText("All", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
+                // Always there: "All" is the way to every chat, archived ones too, even with nothing recent.
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionLabel("Recent runs", Modifier.weight(1f))
+                        TextButton(onClick = onOpenAllRuns) { ActionText("All", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
                 items(state.recent, key = { it.key }) { run ->

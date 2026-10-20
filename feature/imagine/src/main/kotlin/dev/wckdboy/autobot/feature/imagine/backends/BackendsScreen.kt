@@ -26,8 +26,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
+import dev.wckdboy.autobot.core.designsystem.component.BackButton
+import dev.wckdboy.autobot.core.designsystem.component.GhostButton
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -124,10 +127,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-                title = { Text("Image backends") },
-            )
+            AutobotTopBar(title = "Image backends", navigation = { BackButton(onBack) })
         },
     ) { padding ->
         Column(
@@ -151,9 +151,7 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { viewModel.test(backend) }, enabled = state.testing == null, shape = MaterialTheme.shapes.small) {
-                            InkBusyLabel(state.testing == backend.id) { ActionText("Test") }
-                        }
+                        GhostButton("Test", { viewModel.test(backend) }, enabled = state.testing == null || state.testing == backend.id, busy = state.testing == backend.id)
                         result?.let {
                             MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
                         }
@@ -162,15 +160,13 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
             }
 
             Panel(title = "Add backend") {
-                Text(
-                    "Loopback works offline; other servers need HTTPS.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // One line and an ⓘ, as on iOS.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Loopback or HTTPS", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    InfoButton("Backends", "Loopback backends keep working in Offline mode. Anything else must be HTTPS and follows your network mode and kill switch.")
+                }
                 DiffusionBackendRepository.PRESETS.forEach { (kind, url) ->
-                    OutlinedButton(onClick = { editing = viewModel.newBackend(kind, url) }, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
-                        Text("${kind.label}  ·  $url", style = AutobotTheme.styles.micro)
-                    }
+                    GhostButton("${kind.label} · $url", { editing = viewModel.newBackend(kind, url) }, Modifier.fillMaxWidth())
                 }
             }
         }

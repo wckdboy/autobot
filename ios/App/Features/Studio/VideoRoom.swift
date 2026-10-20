@@ -77,12 +77,7 @@ struct VideoRoom: View {
     var body: some View {
         if model.workflows.isEmpty || app.studio.comfyServers.isEmpty {
             ScrollView {
-                StudioEmpty(
-                    title: "video runs on your pc",
-                    text: "Generating video isn't practical on a phone with today's open models. The Studio runs video on your own PC with ComfyUI (LTX-Video, Wan 2.x …): "
-                        + (app.studio.comfyServers.isEmpty ? "add the PC, then import a video workflow saved in API format." : "import a video workflow saved in API format."),
-                    action: app.studio.comfyServers.isEmpty ? "Add a ComfyUI PC" : "Import a workflow",
-                ) { nav.studio = .workflows }
+                StudioEmpty(app.studio.comfyServers.isEmpty ? StudioRoomWords.shared.videoNoPc : StudioRoomWords.shared.videoNoWorkflow) { nav.studio = .workflows }
                 if !model.videos.isEmpty { library.padding(.horizontal, Tokens.Spacing.gutter) }
             }
         } else {
