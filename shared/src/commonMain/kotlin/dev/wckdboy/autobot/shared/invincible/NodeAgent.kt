@@ -52,6 +52,20 @@ sealed interface AgentEvent {
 
 enum class ApprovalAnswer(val wire: String) { ONCE("once"), ALWAYS("always"), DENY("deny") }
 
+/**
+ * A question the agent is waiting on now (spec/agent.md, `GET /v1/agent/approvals`), in [session];
+ * [agent] is the team member asking, when it is not the main agent. Times in Unix seconds.
+ */
+data class PendingApproval(
+    val id: String,
+    val session: String,
+    val text: String,
+    val action: AgentAction,
+    val agent: String? = null,
+    val askedAt: Long,
+    val expiresAt: Long? = null,
+)
+
 data class AgentInfo(val name: String, val model: String, val workdir: String, val approvals: String, val private: Boolean)
 
 data class AgentSession(val id: String, val modified: Long)
@@ -123,6 +137,41 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         })
         awaitClose { running.cancel() }
     }.buffer(64)
+
+    /**
+     * The questions waiting for the owner now, oldest first; null from a node too old to list them
+     * (it answers 404), so the caller can tell "none" from "unknown".
+     */
+    suspend fun approvals(): List<PendingApproval>? = try {
+        json.parseToJsonElement(request("GET", "/approvals")).jsonObject["approvals"]?.jsonArray.orEmpty().mapNotNull {
+            val o = it as? JsonObject ?: return@mapNotNull null
+            PendingApproval(
+                id = o.text("id") ?: return@mapNotNull null,
+                session = o.text("session").orEmpty(),
+                text = o.text("text").orEmpty(),
+                action = action(o["action"]),
+                agent = o.text("agent"),
+                askedAt = (o["asked_at"] as? JsonPrimitive)?.longOrNull ?: 0,
+                expiresAt = (o["expires_at"] as? JsonPrimitive)?.longOrNull,
+            )
+        }
+    } catch (e: NodeAgentException) {
+        if (e.status == 404) null else throw e
+    }
+
+    /** Answers a question with "no, and do this instead: [text]"; false when it was no longer waiting. */
+    suspend fun answerInstead(id: String, text: String): Boolean {
+        require(text.isNotBlank()) { "Say what to do instead." }
+        return try {
+            request("POST", "/approvals/$id", buildJsonObject {
+                put("answer", "instead")
+                put("text", text.trim())
+            }.toString())
+            true
+        } catch (e: NodeAgentException) {
+            if (e.status == 404) false else throw e
+        }
+    }
 
     /** Answers a question; false when it was no longer waiting (answered or expired). */
     suspend fun answer(id: String, answer: ApprovalAnswer): Boolean = try {

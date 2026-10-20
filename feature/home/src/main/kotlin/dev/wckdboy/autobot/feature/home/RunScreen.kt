@@ -52,8 +52,11 @@ fun RunRoute(
     onOpenAllRuns: () -> Unit,
     onOpenGalleryItem: (String) -> Unit,
     onOpenModels: () -> Unit,
-    /** The agent on a paired node; [open] is a sheet to open there (`activity`, `board`), or null. */
-    onOpenNodeAgent: (providerId: String, open: String?) -> Unit = { _, _ -> },
+    /**
+     * The agent on a paired node; [open] is a sheet to open there (`activity`, `board`), or null;
+     * [session] a conversation to open instead of this device's (where approvals wait).
+     */
+    onOpenNodeAgent: (providerId: String, open: String?, session: String?) -> Unit = { _, _, _ -> },
     viewModel: RunViewModel = hiltViewModel(),
     digestModel: NodeDigestViewModel = hiltViewModel(),
 ) {
@@ -72,11 +75,12 @@ fun RunRoute(
         digest = digest,
         onDigestNeedsYou = { d ->
             digestModel.markSeen()
-            onOpenNodeAgent(d.providerId, NODE_SHEET_BOARD)
+            // Approvals hold a turn: the agent, in their conversation when they share one. Else the board's questions.
+            if (d.digest.opensBoard) onOpenNodeAgent(d.providerId, NODE_SHEET_BOARD, null) else onOpenNodeAgent(d.providerId, null, d.digest.approvalSession)
         },
         onDigestDetails = { d ->
             digestModel.markSeen()
-            onOpenNodeAgent(d.providerId, NODE_SHEET_ACTIVITY)
+            onOpenNodeAgent(d.providerId, NODE_SHEET_ACTIVITY, null)
         },
         onDigestDismiss = digestModel::markSeen,
     )

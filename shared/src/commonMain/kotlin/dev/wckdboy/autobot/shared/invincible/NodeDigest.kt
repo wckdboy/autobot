@@ -63,6 +63,8 @@ data class NodeDigest(
     val runs: List<NodeDigestRun> = emptyList(),
     /** Board tasks waiting for the owner's answer now (whenever they started waiting). */
     val waiting: List<BoardTask> = emptyList(),
+    /** Approvals the agent is waiting on now, oldest first; null when the node cannot list them (older nodes). */
+    val approvals: List<PendingApproval>? = null,
     /** Board tasks that failed since [since]. */
     val failedTasks: List<BoardTask> = emptyList(),
     /** Why the agent's part is missing (it is not running); null when it answered. */
@@ -79,7 +81,20 @@ data class NodeDigest(
      * Something happened since [since] (a question that started waiting counts; one the owner saw
      * already does not bring the card back on its own, though the card counts it when it shows).
      */
-    val hasNews: Boolean get() = requests > 0 || actions > 0 || runs.isNotEmpty() || waiting.any { it.updated > since } || failedTasks.isNotEmpty()
+    val hasNews: Boolean get() = requests > 0 || actions > 0 || runs.isNotEmpty() || waiting.any { it.updated > since } ||
+        approvals.orEmpty().any { it.askedAt > since } || failedTasks.isNotEmpty()
+
+    /** Approvals waiting now (none when the node cannot say). */
+    val approvalsWaiting: Int get() = approvals?.size ?: 0
+
+    /**
+     * Where "what needs you" opens: approvals first (they hold a turn), then the board's questions.
+     * With approvals, the conversation they wait in when they are all in one ([approvalSession]).
+     */
+    val opensBoard: Boolean get() = approvalsWaiting == 0 && waiting.isNotEmpty()
+
+    /** The one conversation every waiting approval is in (the oldest one's); null when they span several, or none waits. */
+    val approvalSession: String? get() = approvals.orEmpty().map { it.session }.distinct().singleOrNull()?.takeIf { it.isNotEmpty() }
 
     /** The newest result chat of a recipe that ran, to open from the card. */
     val newestChat: String? get() = runs.firstOrNull { it.chat != null }?.chat
@@ -191,9 +206,11 @@ object NodeDigests {
         val requests = agent.requests(crypto, node, receiptKey, limit = MAX_ENTRIES, since = since)
         val activity: NodeActivity
         var schedules = emptyList<AgentSchedule>()
+        var approvals: List<PendingApproval>? = null
         activity = try {
             val board = orEmptyOn404 { agent.board() }
             schedules = orEmptyOn404 { agent.schedules() }
+            approvals = agent.approvals()
             NodeActivity(requests, agent.actions(limit = MAX_ENTRIES, since = since), emptyList(), emptyList(), board = board)
         } catch (e: CancellationException) {
             throw e
@@ -201,7 +218,7 @@ object NodeDigests {
             if (e.status == 0) throw e
             NodeActivity(requests, emptyList(), emptyList(), emptyList(), agentProblem = e.message)
         }
-        return compute(activity, runs(providerId, recipes, schedules), since, exceptDevice)
+        return compute(activity, runs(providerId, recipes, schedules), since, exceptDevice).copy(approvals = approvals?.sortedBy { it.askedAt })
     }
 
     private suspend fun <T> orEmptyOn404(block: suspend () -> List<T>): List<T> = try {
@@ -230,7 +247,10 @@ object NodeDigests {
         runs = listOf(NodeDigestRun("Morning brief", now - 95 * 60, ok = true, chat = null)),
         waiting = listOf(
             BoardTask("b2", "p1", "writer", "Draft the release notes", "blocked", listOf("b1"), null, "Markdown or plain text?", now - 40 * 60),
-            BoardTask("b4", "p1", "researcher", "Check the mirrors", "blocked", emptyList(), null, "Include the EU mirror?", now - 30 * 60),
+        ),
+        approvals = listOf(
+            PendingApproval("a1", "cron-backups", "run: rsync -a ~/photos /mnt/backup", AgentAction.Command("rsync -a ~/photos /mnt/backup"), askedAt = now - 50 * 60),
+            PendingApproval("a2", "cron-backups", "write 2 KB to /etc/fstab", AgentAction.Write("/etc/fstab", 2_048, inside = false), askedAt = now - 20 * 60),
         ),
     )
 }
@@ -310,11 +330,14 @@ object NodeDigestWords {
         }
     }
 
-    /** What needs the owner first, as the card's primary action: "2 questions waiting"; null when nothing does. */
-    fun needsYou(d: NodeDigest): String? = when (val n = d.waiting.size) {
-        0 -> null
-        1 -> "1 question waiting"
-        else -> "$n questions waiting"
+    /**
+     * What needs the owner first, as the card's primary action: "2 approvals waiting",
+     * "1 question waiting", or both, "2 approvals, 1 question waiting"; null when nothing does.
+     */
+    fun needsYou(d: NodeDigest): String? {
+        val approvals = d.approvalsWaiting.takeIf { it > 0 }?.let { plural(it, "approval") }
+        val questions = d.waiting.size.takeIf { it > 0 }?.let { plural(it, "question") }
+        return listOfNotNull(approvals, questions).takeIf { it.isNotEmpty() }?.joinToString(", ", postfix = " waiting")
     }
 
     /** The whole card for a screen reader: "While you were away on studio-mac. 12 requests, …". */

@@ -160,7 +160,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenAllRuns = { navigate(ChatList) },
                             onOpenGalleryItem = { navigate(Gallery(it)) },
                             onOpenModels = { switchTo(Models) },
-                            onOpenNodeAgent = { id, open -> navigate(NodeAgent(id, open)) },
+                            onOpenNodeAgent = { id, open, session -> navigate(NodeAgent(id, open, session)) },
                         )
                     }
                     entry<Models> {
@@ -184,7 +184,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenNodeAgent = { navigate(NodeAgent(it)) },
                         )
                     }
-                    entry<NodeAgent> { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open) }
+                    entry<NodeAgent> { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open, session = key.session) }
                     entry<Settings> {
                         SettingsRoute(
                             onBack = null,

@@ -185,7 +185,7 @@ class NodeDigestTest {
         val d = NodeDigests.sample(now = 100_000)
         assertEquals(
             "While you were away on studio-mac. 12 requests, all on your node · 18.2k tokens. 3 actions: 2 by the rules, 1 approved by you. " +
-                "Morning brief ran. All 12 receipts verified. 2 questions waiting.",
+                "Morning brief ran. All 12 receipts verified. 2 approvals, 1 question waiting.",
             NodeDigestWords.spoken(d, "studio-mac"),
         )
         assertTrue(NodeDigestWords.lines(NodeDigests.sample(100_000, failedReceipt = true)).first().tone == NodeDigestLine.Tone.ERROR)
@@ -287,6 +287,9 @@ class NodeDigestTest {
                 "/v1/agent/actions" to """{"actions":[{"at":155,"session":"cron-t1","kind":"command","action":"run: df -h","ran":true,"by":"policy"}]}""",
                 "/v1/agent/board" to """{"tasks":[{"id":"b1","plan":"p1","agent":"writer","goal":"Write","status":"blocked","depends_on":[],"question":"Markdown?","updated":5}]}""",
                 "/v1/agent/schedules" to """{"schedules":[{"id":"t1","when":"@daily","task":"check disk","telegram":false,"next":null,"last":{"at":170,"ok":true,"result":"ok"}}]}""",
+                "/v1/agent/approvals" to """{"approvals":[
+                    {"id":"a2","session":"cron-t1","text":"run: rm x","action":{"kind":"command","command":"rm x"},"asked_at":160,"expires_at":760},
+                    {"id":"a1","session":"cron-t1","text":"write","action":{"kind":"write","path":"/etc/x","bytes":3,"inside":false},"agent":"coder","asked_at":150}]}""",
             ),
         )
         val d = NodeDigests.fetch(NodeAgent(node), JvmNodeCrypto, "studio", null, "node-1", since = 100, recipes = emptyList(), exceptDevice = "My-Phone")
@@ -300,6 +303,14 @@ class NodeDigestTest {
         assertEquals(listOf("b1"), d.waiting.map { it.id })
         assertEquals(listOf(NodeDigestRun("check disk", 170, true)), d.runs)
         assertNull(d.agentProblem)
+        // Approvals, oldest first, with what they ask.
+        assertEquals(listOf("a1", "a2"), d.approvals!!.map { it.id })
+        assertEquals(AgentAction.Write("/etc/x", 3, inside = false), d.approvals!![0].action)
+        assertEquals("coder", d.approvals!![0].agent)
+        assertEquals(760L, d.approvals!![1].expiresAt)
+        assertEquals("cron-t1", d.approvalSession)
+        assertEquals("2 approvals, 1 question waiting", NodeDigestWords.needsYou(d))
+        assertFalse(d.opensBoard)
     }
 
     @Test
@@ -308,6 +319,8 @@ class NodeDigestTest {
         val d = NodeDigests.fetch(NodeAgent(node), JvmNodeCrypto, "studio", null, "node-1", since = 100, recipes = emptyList())
         assertEquals(2, d.requests)
         assertTrue(d.waiting.isEmpty())
+        // No approvals endpoint: unknown, not none.
+        assertNull(d.approvals)
         assertNull(d.agentProblem)
     }
 
@@ -317,5 +330,57 @@ class NodeDigestTest {
         assertEquals(2, d.requests)
         assertEquals(0, d.actions)
         assertTrue(d.agentProblem!!.contains("autobot serve"))
+    }
+
+    private fun approval(id: String, session: String, at: Long) = PendingApproval(id, session, "run: ls", AgentAction.Command("ls"), askedAt = at)
+
+    @Test
+    fun whatNeedsYouFirstCombinesApprovalsAndQuestions() {
+        val q = task("b1", "blocked", 5)
+        fun words(approvals: List<PendingApproval>?, questions: List<BoardTask>) =
+            NodeDigestWords.needsYou(NodeDigest(100, waiting = questions, approvals = approvals))
+        assertEquals("1 approval waiting", words(listOf(approval("a", "s", 1)), emptyList()))
+        assertEquals("2 approvals waiting", words(listOf(approval("a", "s", 1), approval("b", "s", 2)), emptyList()))
+        assertEquals("1 approval, 1 question waiting", words(listOf(approval("a", "s", 1)), listOf(q)))
+        assertEquals("1 question waiting", words(null, listOf(q)))
+        assertEquals("1 question waiting", words(emptyList(), listOf(q)))
+        assertNull(words(emptyList(), emptyList()))
+    }
+
+    @Test
+    fun approvalsOpenTheirConversationWhenThereIsOne() {
+        assertEquals("s1", NodeDigest(0, approvals = listOf(approval("a", "s1", 1), approval("b", "s1", 2))).approvalSession)
+        assertNull(NodeDigest(0, approvals = listOf(approval("a", "s1", 1), approval("b", "s2", 2))).approvalSession)
+        assertNull(NodeDigest(0).approvalSession)
+        assertTrue(NodeDigest(0, waiting = listOf(task("b1", "blocked", 5))).opensBoard)
+        assertFalse(NodeDigest(0, waiting = listOf(task("b1", "blocked", 5)), approvals = listOf(approval("a", "s1", 1))).opensBoard)
+    }
+
+    @Test
+    fun aNewApprovalIsNewsAnOldOneAloneIsNot() {
+        assertTrue(NodeDigest(100, approvals = listOf(approval("a", "s", 150))).hasNews)
+        assertFalse(NodeDigest(100, approvals = listOf(approval("a", "s", 50))).hasNews)
+    }
+
+    @Test
+    fun answeringInsteadSendsTheText() = runBlocking {
+        val bodies = mutableListOf<String?>()
+        val node = object : HttpTransport {
+            override fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable {
+                bodies += request.body
+                if (request.url.endsWith("/gone")) {
+                    sink.onResponse(404, emptyMap(), """{"error":{"message":"no","type":"not_found"}}""")
+                } else {
+                    sink.onResponse(200, emptyMap(), null)
+                    sink.onLine("""{"ok":true}""")
+                    sink.onComplete()
+                }
+                return Cancellable {}
+            }
+        }
+        assertTrue(NodeAgent(node).answerInstead("a1", "  Back up to the NAS instead "))
+        assertEquals("""{"answer":"instead","text":"Back up to the NAS instead"}""", bodies.last())
+        assertFalse(NodeAgent(node).answerInstead("gone", "x"))
+        assertTrue(runCatching { NodeAgent(node).answerInstead("a1", " ") }.isFailure)
     }
 }

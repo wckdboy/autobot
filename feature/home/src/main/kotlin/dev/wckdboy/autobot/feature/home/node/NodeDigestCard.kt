@@ -78,8 +78,8 @@ fun NodeDigestCard(
                 ActionText("Details", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (isLargeText()) {
-            // Large text: the action gets the whole width, Details goes under it.
+        if (isLargeText() || (needsYou?.length ?: 0) > STACK_AT) {
+            // Large text, or a long action ("2 approvals, 1 question waiting"): it gets the whole width, Details goes under it.
             Column(Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (needsYou != null) PaperButton(needsYou, onNeedsYou, Modifier.fillMaxWidth())
                 details()
@@ -123,3 +123,6 @@ private fun DigestLine(line: NodeDigestLine) {
         NodeDigestLine.Tone.PLAIN -> Text(line.text, spoken, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurface)
     }
 }
+
+/** An action label longer than this takes the card's whole width (the mono label would be cut beside Details). */
+private const val STACK_AT = 20

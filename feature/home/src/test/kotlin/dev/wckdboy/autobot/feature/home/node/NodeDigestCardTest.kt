@@ -37,7 +37,7 @@ class NodeDigestCardTest {
         compose.onNodeWithText(useUnmergedTree = true, text = "12 requests, all on your node · 18.2k tokens").assertIsDisplayed()
         compose.onNodeWithText(useUnmergedTree = true, text = "3 actions: 2 by the rules, 1 approved by you").assertIsDisplayed()
         compose.onNodeWithText(useUnmergedTree = true, text = "Morning brief ran").assertIsDisplayed()
-        compose.onNodeWithText("2 questions waiting").performClick()
+        compose.onNodeWithText("2 approvals, 1 question waiting").performClick()
         compose.onNodeWithContentDescription("Details: the node's activity").performClick()
         compose.onNodeWithContentDescription("Dismiss: mark as seen").performClick()
         assertEquals(listOf("needs", "details", "dismiss"), clicks)

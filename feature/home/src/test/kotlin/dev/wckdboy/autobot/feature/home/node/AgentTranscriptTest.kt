@@ -36,4 +36,26 @@ class AgentTranscriptTest {
         assertEquals(ApprovalAnswer.DENY, (answered[1] as AgentRow.Question).answer)
         assertEquals(rows - rows[1], answered - answered[1])
     }
+
+    @Test
+    fun somethingElseIsKeptOnTheQuestion() {
+        val rows = listOf(AgentRow.Question("k1", "a1", "run: rm x", AgentAction.Command("rm x")))
+        val after = AgentTranscript.instead(rows, "a1", "Move it to the trash")
+        val q = after[0] as AgentRow.Question
+        assertEquals("Move it to the trash", q.instead)
+        assertEquals(null, q.answer)
+        assertEquals(true, q.answered)
+    }
+
+    @Test
+    fun approvalsWaitingOnTheNodeBecomeCardsOnce() {
+        val rows = listOf<AgentRow>(AgentRow.User("u", "hi"), AgentRow.Question("k1", "a1", "run: ls", AgentAction.Command("ls")))
+        val waiting = listOf(
+            dev.wckdboy.autobot.shared.invincible.PendingApproval("a1", "app-x", "run: ls", AgentAction.Command("ls"), askedAt = 1),
+            dev.wckdboy.autobot.shared.invincible.PendingApproval("a2", "cron-t1", "write", AgentAction.Write("/etc/x", 3, false), agent = "coder", askedAt = 2),
+        )
+        val after = AgentTranscript.waiting(rows, waiting) { "w-${it.id}" }
+        assertEquals(3, after.size)
+        assertEquals(AgentRow.Question("w-a2", "a2", "write", AgentAction.Write("/etc/x", 3, false), agent = "coder"), after[2])
+    }
 }
