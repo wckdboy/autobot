@@ -599,7 +599,8 @@ Release builds are configured for reproducibility:
 - the Baseline Profile is committed text (`app/src/fossRelease/generated/baselineProfiles/`), so
   builds need no device; two clean builds give the same APK
 
-**Baseline Profile and startup.** The classes and methods that cold start and the four tabs run
+**Baseline Profile and startup.** The classes and methods that cold start, the four tabs, all
+chats, a new chat and a Settings page run
 ship precompiled (ART applies the profile through profileinstaller, also for sideloaded installs),
 and the startup part orders the primary dex. Regenerate it after large UI changes, with an API 33+
 emulator or phone attached:
@@ -693,7 +694,7 @@ bot (`NodeDigests.sampleWithBots`).
 | Past the welcome | `--ez skip_welcome true` | `-AutobotSkipWelcome` |
 | Chat opens with the keyboard up | (tap the field) | `-AutobotKeyboard` |
 
-Screens: `run`, `sessions`, `chat`, `agent`, `phone-first`, `imagine`, `gallery`, `viewer`,
+Screens: `run`, `sessions`, `chat`, `agent`, `phone-first`, `ui` (a generative UI form; Android), `imagine`, `gallery`, `viewer`,
 `backends`, `models`, `compute`, `accounts`, `remote`, `providers`, `node` (a chat with its agent), `settings`, `privacy`,
 `bot` (the node's ops bot), `about`, `licenses`, `memory`, `vault`, `usage`, `recipes`, `mcp`, `studio`,
 `studio-<room>`.
