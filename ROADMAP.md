@@ -99,6 +99,31 @@ session exported on Android opens on iOS.
   Foundation Models on iOS 26+; Gemini Nano via AICore on Android only where it does not pull Google
   Play Services into the default build) when no downloaded model fits or loads, always labelled.
 
+- **Generative UI (A2UI v1.0)**, first in the phone chats: the agent answers with native forms,
+  lists and cards (Compose on Android, SwiftUI on iOS) instead of only text. *(shared core in
+  `:shared/a2ui`: JSONL/array message parser with version routing, a catalog-driven validator
+  that passes all 157 v1.0 spec cases and reports A2UI error codes with JSON Pointer paths for
+  the model to fix its output, surface state with bindings, templates and the basic catalog's
+  functions, input write-back, `action` messages, `openUrl` http(s) only, size limits. Android
+  (in review): the `show_ui` tool with a compact prompt (Settings `generative_ui`, on by default,
+  in the phone's chats), invalid UI returned to the model to fix (3 tries a turn), surfaces stored
+  with the chat and replayed (`A2uiTranscript`), actions as the next user turn (the sent form
+  locks, read-only with its input, until the agent updates it; only interactive chats get the
+  tool, not subagents or recipes), and `:core:a2ui`,
+  a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
+  video and audio open in the browser). iOS (in review): the SwiftUI renderer (system controls,
+  Liquid Glass, the brand purple tint) in the phone chats over the same shared tool, replay and
+  lock rules, images on tap through the policy-bound client. Both on the native kits (Material 3
+  Expressive, NativeKit), with a Generative UI switch in Settings › Agent on both. Still to do:
+  an in-app media player, `callRendererFunction` and custom catalogs' functions)*
+  An eval (`:shared:a2uiEval`, 33 phone-chat tasks) measures the on-device risk. With the first
+  `show_ui` (a string argument holding the JSON) Qwen3 4B/1.7B and Llama 3.2 3B got valid UI
+  within 3 tries in 0-6% of tasks. `show_ui` now takes `messages` as a JSON array, repairs what
+  has one reading in front of the strict validator (`A2uiIntake`: unclosed brackets, a missing
+  envelope, version or catalogId, Button labels, inlined children, ChoicePicker strings, a
+  misplaced dataModel, a missing root) and tells the model what it repaired; errors say what to
+  fix (`A2uiFeedback`). Qwen3 4B Instruct: 2/31 → 22/31, Qwen3 1.7B: 1/31 → 10/31.
+
 **Exit:** an agent can use an MCP server, delegate to a subagent and recall a memory, offline
 where possible, on both platforms.
 

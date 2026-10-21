@@ -39,6 +39,8 @@ import dev.wckdboy.autobot.core.data.ConversationRepository
 import dev.wckdboy.autobot.core.data.GalleryRepository
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
+import dev.wckdboy.autobot.core.a2ui.A2uiChatState
+import dev.wckdboy.autobot.shared.a2ui.A2uiActionResult
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.model.Provider
 import dev.wckdboy.autobot.core.data.model.ProviderKind
@@ -270,6 +272,7 @@ class ChatViewModel @AssistedInject constructor(
     handoff: ChatHandoff,
     @ApplicationContext private val appContext: Context,
     networkPolicy: NetworkPolicy,
+    a2uiImages: ChatA2uiImages,
 ) : ViewModel(), ChatActions {
 
     @AssistedFactory
@@ -510,6 +513,25 @@ class ChatViewModel @AssistedInject constructor(
     val uiState: StateFlow<ChatUiState> = baseState
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isIncognito = conversations.isIncognito(conversationId)))
+
+    /** Generative UI: the `show_ui` surfaces of this chat, replayed from the transcript on screen. */
+    override val a2ui = A2uiChatState(a2uiImages) { uiState.value.items }
+
+    override fun a2uiAction(action: A2uiActionResult) {
+        when (action) {
+            is A2uiActionResult.SendEvent -> {
+                if (!uiState.value.running) ChatTiming.sent()
+                // The form locks at the tap; the logged turn keeps it locked (also after a restart).
+                a2ui.onAction(action)
+                viewModelScope.launchSafely({ e ->
+                    a2ui.transcript.unmarkSubmitted(action.surfaceId)
+                    failed(e)
+                }) { host.sendA2uiAction(conversationId, action) }
+            }
+            is A2uiActionResult.Refused -> notice.value = action.reason
+            else -> Unit
+        }
+    }
 
     /** The composer's text: kept here, not in the saved instance state, so a huge paste cannot overflow it. */
     override var draft: String = savedState.get<String>(KEY_DRAFT).orEmpty()
@@ -1003,7 +1025,11 @@ class ChatViewModel @AssistedInject constructor(
     }
 
     override fun stop() {
-        viewModelScope.launchSafely(::failed) { host.agent(conversationId).cancel() }
+        viewModelScope.launchSafely(::failed) {
+            host.agent(conversationId).cancel()
+            // Cancelling drops queued turns: a form sent behind the running turn is editable again.
+            a2ui.transcript.clearPending()
+        }
     }
 
     override fun approve(callId: String, outcome: ApprovalOutcome) = host.answerApproval(conversationId, callId, outcome)

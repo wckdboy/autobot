@@ -57,6 +57,12 @@ data class AppSettings(
      * is installed and the pair fits ([SpeculativeMode.AUTO]), speeds replies up with the same text.
      */
     val speculativeMode: SpeculativeMode = SpeculativeMode.AUTO,
+    /**
+     * Generative UI: in the phone's chats the agent may show forms, choices and cards (A2UI,
+     * the `show_ui` tool) instead of long text. On by default; nothing loads from the network
+     * until the user taps an image.
+     */
+    val generativeUi: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_LOCK_TIMEOUT_MILLIS = 60_000L
@@ -90,6 +96,7 @@ object SettingsSchema {
     const val REDACT_CLOUD = "redact_cloud"
     const val CASCADE = "cascade"
     const val SPECULATIVE = "speculative_decoding"
+    const val GENERATIVE_UI = "generative_ui"
 
     /** Lock timeouts offered in Settings; anything else read from storage is clamped to these bounds. */
     val LOCK_TIMEOUTS_MILLIS = listOf(0L, 30_000L, 60_000L, 300_000L, 900_000L)
@@ -123,6 +130,7 @@ object SettingsSchema {
         REDACT_CLOUD to settings.redactCloud.toString(),
         CASCADE to settings.cascade.name,
         SPECULATIVE to settings.speculativeMode.id,
+        GENERATIVE_UI to settings.generativeUi.toString(),
     )
 
     fun decode(values: Map<String, String>): AppSettings {
@@ -147,6 +155,7 @@ object SettingsSchema {
             redactCloud = bool(REDACT_CLOUD, defaults.redactCloud),
             cascade = CascadePolicy.parse(values[CASCADE]) ?: defaults.cascade,
             speculativeMode = speculativeMode(values[SPECULATIVE]),
+            generativeUi = bool(GENERATIVE_UI, defaults.generativeUi),
         )
     }
 }

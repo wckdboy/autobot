@@ -57,6 +57,8 @@ enum Destination: Hashable {
     case nodeAgent(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil, bot: String? = nil)
     /// One bot on a paired node (bots mode): its state, channels, sessions and approvals.
     case nodeBot(providerId: String, name: String)
+    /// The A2UI renderer's debug preview (contact form, component gallery); `-AutobotOpen a2ui` only.
+    case a2uiPreview
 }
 
 /// The Creative Studio's rooms (its own tabs while the Studio is open).
@@ -117,6 +119,7 @@ final class Navigator {
             case "usage": tab = .settings; path = [.usage]
             case "recipes": tab = .settings; path = [.recipes]
             case "studio": studio = .image
+            case "a2ui": path = [.a2uiPreview]
             default:
                 if args[i + 1].hasPrefix("studio-") { studio = StudioRoom(rawValue: String(args[i + 1].dropFirst(7))) }
             }
@@ -260,6 +263,7 @@ struct AutobotNavHost: View {
         case .nodeAgent(let providerId, let open, let session, let bot):
             NodeAgentScreen(providerId: providerId, open: open, session: session, bot: bot).id("\(providerId)/\(session ?? "")/\(bot ?? "")")
         case .nodeBot(let providerId, let name): NodeBotScreen(providerId: providerId, name: name).id("\(providerId)/bot/\(name)")
+        case .a2uiPreview: A2uiPreviewScreen()
         }
     }
 }

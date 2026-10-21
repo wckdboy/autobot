@@ -104,6 +104,8 @@ struct SettingsScreen: View {
             }
         case .quotaFallback:
             InfoToggle(title: title, info: SettingsWords.shared.QUOTA_FALLBACK, isOn: Binding(get: { settings.quotaFallback }, set: { app.settings.setQuotaFallback($0) }))
+        case .generativeUi:
+            InfoToggle(title: title, info: SettingsWords.shared.GENERATIVE_UI, isOn: Binding(get: { settings.generativeUi }, set: { app.settings.setGenerativeUi($0) }))
         case .usage:
             PushRow(title: title) { nav.push(.usage) }
         case .mcpServers:

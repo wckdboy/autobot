@@ -53,6 +53,7 @@ class SettingsRepository @Inject constructor(
                 // Off unless chosen; a damaged value is off too.
                 cascade = CascadePolicy.parse(prefs[Keys.CASCADE]) ?: AppSettings().cascade,
                 speculativeMode = SettingsSchema.speculativeMode(prefs[Keys.SPECULATIVE]),
+                generativeUi = prefs[Keys.GENERATIVE_UI] ?: AppSettings().generativeUi,
             )
         }
         .distinctUntilChanged()
@@ -72,6 +73,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setRedactCloud(enabled: Boolean) = edit { it[Keys.REDACT_CLOUD] = enabled }
     suspend fun setCascade(policy: CascadePolicy) = edit { it[Keys.CASCADE] = policy.name }
     suspend fun setSpeculativeMode(mode: SpeculativeMode) = edit { it[Keys.SPECULATIVE] = mode.id }
+    suspend fun setGenerativeUi(enabled: Boolean) = edit { it[Keys.GENERATIVE_UI] = enabled }
 
     /** How the chat list is sorted. */
     val chatSort: Flow<ChatSort> = dataStore.data
@@ -118,6 +120,7 @@ class SettingsRepository @Inject constructor(
         val REDACT_CLOUD = booleanPreferencesKey(SettingsSchema.REDACT_CLOUD)
         val CASCADE = stringPreferencesKey(SettingsSchema.CASCADE)
         val SPECULATIVE = stringPreferencesKey(SettingsSchema.SPECULATIVE)
+        val GENERATIVE_UI = booleanPreferencesKey(SettingsSchema.GENERATIVE_UI)
 
         /** Device-local view preference, not part of [AppSettings] (and not exported). */
         val CHAT_SORT = stringPreferencesKey("chat_sort")

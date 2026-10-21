@@ -226,6 +226,8 @@ struct ChatScreen: View {
                 .scrollDismissesKeyboard(.interactively)
                 // The bottom stack rides on the keyboard; the transcript's end stays right above it.
                 .safeAreaInset(edge: .bottom, spacing: 0) { bottomStack(session: session, transcript: transcript, settings: settings, running: running, planShown: planShown) }
+                // Generative UI follows every new transcript: a sent form locks, an updated one unlocks.
+                .onChange(of: transcript, initial: true) { _, t in model.a2ui.sync(t) }
                 .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isLive) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: planShown) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
@@ -339,7 +341,7 @@ struct ChatScreen: View {
             if let voice = model.voice {
                 VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
             } else {
-                InputBar(model: model, running: running, onSend: send, onStop: { app.agent.cancel(conversationId) }).equatable()
+                InputBar(model: model, running: running, onSend: send, onStop: stop).equatable()
             }
         }
         // One glass panel floats over the transcript's end: the plan, a question, the chips and the composer.
@@ -385,6 +387,12 @@ struct ChatScreen: View {
         Task { await app.agent.send(conversationId, text: input, images: images) }
     }
 
+    /// Stops the agent; queued turns are dropped, so a form sent behind the running turn unlocks.
+    private func stop() {
+        app.agent.cancel(conversationId)
+        model.a2ui.stopped()
+    }
+
     private func runCommand(_ input: String) -> Bool {
         let parts = input.dropFirst().split(maxSplits: 1, whereSeparator: { $0.isWhitespace }).map(String.init)
         let arg = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
@@ -406,7 +414,7 @@ struct ChatScreen: View {
                 app.agent.setRoute(conversationId, providerId: provider.id, model: arg)
             }
         case "stop":
-            app.agent.cancel(conversationId)
+            stop()
         default:
             return false
         }
@@ -480,6 +488,9 @@ private struct TranscriptRow: View, Equatable {
                 ApprovalCard(number: number, tool: tool, approval: approval) { outcome in
                     app.agent.answerApproval(conversationId, callId: tool.callId, outcome: outcome)
                 }
+            } else if tool.a2ui != nil {
+                // Generative UI (A2UI): a `show_ui` call draws its surfaces in place of its step row.
+                A2uiToolSurfaces(chat: model.a2ui, conversationId: conversationId, itemKey: tool.key) { model.notice = $0 }
             } else {
                 StepRow(
                     number: number, tool: tool, model: model, running: running,

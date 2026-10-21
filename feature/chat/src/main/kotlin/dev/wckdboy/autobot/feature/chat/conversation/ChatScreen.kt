@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
+import dev.wckdboy.autobot.core.a2ui.A2uiToolSurfaces
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -285,6 +286,9 @@ fun ChatScreen(
     // content block: a derived state read there re-runs it, and every row, on each frame.
     val hasLive = remember { derivedStateOf { currentLive() != null } }.value
     val newest = state.items.lastOrNull()?.key to hasLive
+    // Generative UI follows every new transcript: a sent form locks, an updated one unlocks,
+    // even when its own row is not recomposed.
+    LaunchedEffect(state.items) { actions.a2ui?.sync() }
     LaunchedEffect(newest) {
         if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }
@@ -530,6 +534,9 @@ private fun TranscriptRow(
             }
             is SessionItem.Tool -> if (approval != null) {
                 ApprovalCard(stepNumber, item, approval, actions, ghost)
+            } else if (item.a2ui != null && actions.a2ui != null) {
+                // Generative UI (A2UI): a `show_ui` call draws its surfaces in place of its step row.
+                A2uiToolSurfaces(actions.a2ui!!, item.key, actions::a2uiAction)
             } else {
                 StepRow(stepNumber, item, actions, onOpenImage, running)
             }

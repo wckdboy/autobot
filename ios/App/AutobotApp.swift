@@ -77,16 +77,20 @@ struct RootView: View {
             if let inbox = SharedInbox.defaultRoot { Task.detached(priority: .utility) { SharedInbox.sweep(root: inbox) } }
             if app.lock.state == .unlocked { await app.unlockData() }
             #if DEBUG
-            // `-AutobotOpen chat|agent|phone-first` (UI work): open the newest plain / tool session,
-            // or the demo's "phone first" chat.
+            // `-AutobotOpen chat|agent|phone-first|a2ui-chat` (UI work): open the newest plain / tool
+            // session, or the demo's "phone first" or generated-UI chat.
             let args = ProcessInfo.processInfo.arguments
-            if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count, ["chat", "agent", "phone-first"].contains(args[i + 1]) {
+            if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count, ["chat", "agent", "phone-first", "a2ui-chat"].contains(args[i + 1]) {
                 app.conversations.conversations.forEach { _ = app.agent.session($0.id) }
                 try? await Task.sleep(for: .milliseconds(1500))
                 let wantTools = args[i + 1] == "agent"
-                let phoneFirst = args[i + 1] == "phone-first"
-                if let c = app.conversations.conversations.first(where: {
-                    phoneFirst ? $0.title == "Who wrote Stiller?" : app.agent.session($0.id).state.toolsEnabled == wantTools
+                let titled: String? = switch args[i + 1] {
+                case "phone-first": "Who wrote Stiller?"
+                case "a2ui-chat": DemoSeed.generativeUiTitle
+                default: nil
+                }
+                if let c = app.conversations.conversations.first(where: { c0 in
+                    titled.map { t in c0.title == t } ?? (app.agent.session(c0.id).state.toolsEnabled == wantTools)
                 }) {
                     nav.push(.chat(conversationId: c.id))
                 }

@@ -25,6 +25,7 @@ Version 1.12. What runs, and what is not yet verified:
 | Your node | Pairs with Invincible over Noise: the node's agent, approvals, schedules, receipts and audit log in the app |
 | Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
 | Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
+| Generative UI | In review: in the phone chats the agent can call `show_ui` (A2UI v1.0, shared core in `:shared`) to show forms, choices and cards, drawn with Material 3 Expressive on Android (`:core:a2ui`) and SwiftUI system controls with Liquid Glass on iOS, in the app's purple; kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. Settings › Agent › Generative UI turns it off (on by default) |
 | **Not yet verified** | No independent security review yet |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).
@@ -135,13 +136,14 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:core:designsystem` | Material 3 Expressive theme in the brand purple (MaterialKolor scheme) with the brand's two marks: the pixel a (`AutobotMark`, `Wordmark`, Invincible's `NodeMark`) and the purple pixel dot after a top-level title. One kit of standard Material components (`Standard*.kt`): `AppBar`/`TitleWithDot`, list items (`NavListItem`, `SwitchItem`, `InfoItem`, `ActionListItem`), `SectionCard`, `TonalLabel`, `RouteChip`, `NoticeCard`, `EmptyContent`, `Loading`, `JobProgress`, `EmptyPicture`, `Field`, `SearchField`, `Choices`, `SliderField`, `StepperField`, `DropdownField`, the chat composer (`MessageComposer`, `SendIconButton`, `StopIconButton`), chat markdown (code blocks on `surfaceContainerHigh`, tonal inline code) and Material Symbols for the Run modes. Every screen uses it: Chat, Run, Remote and the node screens, Settings, Models, Image, Studio, the lock screens and the welcome. The riso kit is gone |
 | `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
 | `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
+| `:core:a2ui` | The Compose renderer of A2UI v1.0: `A2uiSurfaceView(host, surfaceId, onAction)` draws the basic catalog with Material 3 in the app theme, writes inputs back through the host, asks before opening links; `A2uiChatState` / `A2uiToolSurfaces` for a chat's `show_ui` surfaces |
 | `:core:models` | Android side of model management: `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face / Civitai clients and NPU package plans over the shared hubs, `FileFetcher` (OkHttp bytes for the shared download state machine), `ModelDownloader` + user-initiated transfer job, `ModelLibrary`, accounts |
 | `:engine:llama` | llama.cpp (MIT) via JNI in the `:llm` process: chat templates, tool-call parsing, KV prefix reuse, runtime CPU variant selection |
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
 | `:engine:npu` | `:npu` process: Qualcomm QNN runtime for precompiled context binaries on the Hexagon NPU, MNN (Apache-2.0) for text encoders and GPU diffusion; SD 1.5 / SDXL pipeline (CLIP BPE, Euler / Euler a / DPM++ 2M / LCM, CFG, img2img, inpaint, v-prediction), tiled 4× upscaler |
 | `:engine:speech` | whisper.cpp (MIT) in the `:asr` process: on-device dictation |
 | `:engine:systemllm` | Gemini Nano through ML Kit GenAI (AICore) as the system model; only in the opt-in `playServices` flavor (brings GMS and ML Kit telemetry, see [System model fallback](#system-model-fallback)) |
-| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, host tools (`HostTool`), the MCP client (`mcp`), on-device model routing with the OS-model fallback (`SystemModels`, `LocalChatRouter`), OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, network policy (`NetworkMode`, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`), `SettingsSchema`, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), the `.autobot` backup format, `DiagnosticsReport`, and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
+| `:shared` | Kotlin Multiplatform code both apps run: provider adapter, workspace tools (okio), `AGENTS.md`/skills, `web_fetch`, host tools (`HostTool`), the MCP client (`mcp`), on-device model routing with the OS-model fallback (`SystemModels`, `LocalChatRouter`), OpenAI wire format + SSE decoding, on-device engine codec, provider presets, session → transcript projection, network policy (`NetworkMode`, `RouteResolver`, `KillSwitch`, `Loopback`, `AuditLog`), `SettingsSchema`, model management (catalogs incl. Core ML, fit rules, Hugging Face / Civitai requests and parsing, resumable SHA-256 download state machine, remote zip directory), the `.autobot` backup format, `DiagnosticsReport`, the A2UI v1.0 generative UI core (`a2ui`: message parser, catalog-driven validator with LLM-readable errors, surface state, render tree, input write-back and actions, the `show_ui` tool with lenient intake and the replay rules, drawn by `:core:a2ui` and the iOS renderer), and `AgentBridge` (the Swift-facing facade, shipped as `AutobotShared.xcframework`) |
 | `:agent:core` | Kotlin Multiplatform (JVM + iOS) port of the DeepSeek Harness runtime: Cordis-style `Context` (services, hooks, reversible effects, injecting plugins), append-only session log + `deriveMessages`, ReAct step/turn loop, tool pipeline, permission presets + fail-closed approvals, retry, tool-result pruning, compaction |
 | `:agent:runtime` | Android host: `AgentHost`, provider → `LlmAdapter` bridge (DeepSeek `reasoning_content` echo), encrypted session store, `/workspace` sandbox with `read`/`write`/`edit`/`glob`/`grep`/`delete`, `web_fetch`, `AGENTS.md` instructions, skills |
 | `:core:diffusion` | `DiffusionEngine` API, A1111/Forge engine (`/sdapi/v1`), local HTTP+SSE engine, backend registry |
@@ -641,6 +643,33 @@ The shared core's tests run on the JVM; the iOS suite re-runs the network, setti
 rules through the Kotlin framework, and decrypts `shared/backup/testvector.autobot` (written on the
 JVM) with CryptoKit to prove both platforms read the same format. CI (`.github/workflows/ci.yml`)
 runs the Android/shared suites on Linux and the iOS suites on macOS for every push and pull request.
+
+### A2UI eval
+
+How often a model produces valid A2UI through `show_ui`, the risk on small on-device models. 33
+phone-chat requests (`shared/src/jvmTest/resources/a2ui/eval/tasks.json`: time slots, RSVPs,
+validated forms, chips, lists templated over data, dates, tabs, cards with actions, two that
+should stay in text) go to any OpenAI-compatible endpoint with the app's system prompt and the
+`show_ui` schema; the real `ShowUiTool` and validator answer each call, invalid UI goes back to
+the model up to 3 times, and the first valid UI is checked against the task's expectations
+(component types, inputs bound to the data model, the button's context carrying the inputs,
+checks, templates).
+
+```sh
+./gradlew :shared:a2uiEval -Pmodel=qwen3:4b-instruct                          # Ollama on :11434
+./gradlew :shared:a2uiEval -Pendpoint=http://localhost:8080/v1 -Pmodel=local    # llama.cpp server
+./gradlew :shared:a2uiEval -Pendpoint=https://api.example.com/v1 -Pkey-env=API_KEY -Pmodel=...
+```
+
+`-Ponly=id,id` picks tasks, `-Pextra='{"chat_template_kwargs":{"enable_thinking":false}}'` is
+merged into each request. It writes `build/a2ui-eval/`: `report.md` (a table per model and per
+task, the most common validator errors) and, per model, every request and the tool's answer as
+JSONL. Calls a model writes as text instead of a tool call are recovered and counted
+(`-Psalvage=false` to not). `show_ui` declares `messages` as a JSON array of message objects;
+`-Pargs=string` declares the old string form instead (the tool accepts both), and
+`-Pprompt=<file>` swaps `A2uiPrompt.text` for another guidance text. The scoring runs in `:shared:jvmTest` on canned output.
+Ollama drops tool calls whose JSON does not parse (they show as `no-call`); llama.cpp's server
+reports them, which the eval counts as `malformed-call`.
 
 ### Demo data and screenshots
 

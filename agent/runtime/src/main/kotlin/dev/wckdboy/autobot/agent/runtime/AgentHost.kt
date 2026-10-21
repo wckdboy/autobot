@@ -56,6 +56,9 @@ import dev.wckdboy.autobot.providers.remote.ProviderFactory
 import dev.wckdboy.autobot.providers.remote.RouteTarget
 import dev.wckdboy.autobot.shared.chats.ChatNames
 import dev.wckdboy.autobot.providers.remote.vault.OnDeviceVault
+import dev.wckdboy.autobot.shared.a2ui.A2uiActionResult
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
+import dev.wckdboy.autobot.shared.a2ui.a2uiPlugin
 import dev.wckdboy.autobot.shared.mcp.McpHub
 import dev.wckdboy.autobot.shared.mcp.McpServerStatus
 import dev.wckdboy.autobot.shared.memory.memoryPlugin
@@ -300,6 +303,8 @@ class AgentHost @Inject constructor(
         toggle(settings.settings.map { it.memoryEnabled }) { memoryPlugin(memory.memory) }
         toggle(settings.settings.map { it.vaultEnabled }) { vaultPlugin(vault.vault) }
         toggle(settings.settings.map { it.searchProvider != SearchProvider.NONE }) { webSearchPlugin(searchTransport) { search.config() } }
+        // Generative UI (on by default): `show_ui` and its prompt in the phone's chats (A2UI).
+        toggle(settings.settings.map { it.generativeUi }) { a2uiPlugin() }
 
         root.intercept(Hooks.ApprovalRequest) { request, _ ->
             board.await(
@@ -451,6 +456,14 @@ class AgentHost @Inject constructor(
             conversations.updateConversation(c.copy(title = title, updatedAt = System.currentTimeMillis()))
         }
         agent.followup(prompt, images)
+    }
+
+    /**
+     * A tap on a generated UI ([A2uiChat]): the action goes to [conversationId]'s agent as the
+     * next user turn (queued behind a running one), shown in the transcript in words.
+     */
+    suspend fun sendA2uiAction(conversationId: String, action: A2uiActionResult.SendEvent) {
+        agent(conversationId).queueTurn(A2uiChat.actionMessage(action))
     }
 
     /**
