@@ -242,6 +242,8 @@ struct ChatScreen: View {
                 // One ground per screen: with the voice panel up, its own paper is the ground (two fields
                 // with their own grids would meet at the panel's edge).
                 .inkGround(app.dataLoaded && transcript.items.isEmpty && !isLive && model.voice == nil, fade: UnitPoint(x: 0.3, y: 0.15))
+                // Generative UI follows every new transcript: a sent form locks, an updated one unlocks.
+                .onChange(of: transcript, initial: true) { _, t in model.a2ui.sync(t) }
                 .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isLive) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: planShown) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
@@ -337,7 +339,7 @@ struct ChatScreen: View {
             if let voice = model.voice {
                 VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
             } else {
-                InputBar(model: model, running: running, onSend: send, onStop: { app.agent.cancel(conversationId) }).equatable()
+                InputBar(model: model, running: running, onSend: send, onStop: stop).equatable()
             }
         }
         .background(c.background)
@@ -382,6 +384,12 @@ struct ChatScreen: View {
         Task { await app.agent.send(conversationId, text: input, images: images) }
     }
 
+    /// Stops the agent; queued turns are dropped, so a form sent behind the running turn unlocks.
+    private func stop() {
+        app.agent.cancel(conversationId)
+        model.a2ui.stopped()
+    }
+
     private func runCommand(_ input: String) -> Bool {
         let parts = input.dropFirst().split(maxSplits: 1, whereSeparator: { $0.isWhitespace }).map(String.init)
         let arg = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
@@ -403,7 +411,7 @@ struct ChatScreen: View {
                 app.agent.setRoute(conversationId, providerId: provider.id, model: arg)
             }
         case "stop":
-            app.agent.cancel(conversationId)
+            stop()
         default:
             return false
         }

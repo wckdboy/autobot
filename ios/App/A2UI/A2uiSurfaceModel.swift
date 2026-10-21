@@ -10,7 +10,9 @@ enum A2uiAction: Equatable, Sendable {
     /// Send [messageJson] (a renderer-to-agent `action` message) to the agent that owns the
     /// surface; attach [dataModelJson] as `a2uiRendererDataModel` metadata when it is set.
     /// [userMessage] is the text to show in the chat for the user's action, when the agent gave one.
-    case send(surfaceId: String, name: String, messageJson: String, dataModelJson: String?, userMessage: String?)
+    /// [snapshotJson] is the surface's whole data model at the tap (obscured fields left out): what
+    /// the chat keeps with the turn so the sent form shows its input after a restart.
+    case send(surfaceId: String, name: String, messageJson: String, dataModelJson: String?, userMessage: String?, snapshotJson: String)
     /// Open this http(s) link — only after the user confirmed it ([A2uiSurfaceView] asks).
     case openUrl(URL)
     /// A local function ran; nothing else to do.
@@ -21,7 +23,7 @@ enum A2uiAction: Equatable, Sendable {
     init(_ result: A2uiActionResult) {
         switch result {
         case let r as A2uiActionResult.SendEvent:
-            self = .send(surfaceId: r.surfaceId, name: r.name, messageJson: r.messageJson, dataModelJson: r.dataModelJson, userMessage: r.userMessage)
+            self = .send(surfaceId: r.surfaceId, name: r.name, messageJson: r.messageJson, dataModelJson: r.dataModelJson, userMessage: r.userMessage, snapshotJson: r.snapshotJson)
         case let r as A2uiActionResult.OpenUrl:
             // The core only returns http(s); check again before the system sees it.
             if let url = URL(string: r.url), let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host() != nil {
@@ -107,6 +109,13 @@ final class A2uiSurfaceModel {
     /// Fires [node]'s action (a Button tap). The core resolves the context and checks.
     func dispatch(_ node: RenderNode) -> A2uiAction {
         A2uiAction(host.dispatch(node: node))
+    }
+
+    /// Read-only (a sent form): the host refuses input and agent events. Changes re-render the
+    /// surface, so reading it next to [root] stays current.
+    var isReadOnly: Bool {
+        _ = revision
+        return host.isReadOnly(surfaceId: surfaceId)
     }
 
     /// The surface's data model as JSON text (debugging, tests).

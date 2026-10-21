@@ -189,7 +189,8 @@ enum DemoSeed {
      Generative UI in a chat (`-AutobotOpen a2ui-chat` opens it): the agent showed a booking form
      with `show_ui` (the A2UI messages kept in the result's `meta.a2ui`, as the shared tool stores
      them), the user picked and pressed "Book" (a user turn whose `display` is the action's label),
-     and the agent answered; then it showed a second form that waits for input.
+     and the agent answered (the sent form stays locked, "Sent"); then it showed a second form with
+     an image that loads only on a tap.
      */
     private static func seedGenerativeUi(_ app: AppContainer, sessions: SessionStore, now: Int64) {
         var c = app.conversations.create(incognito: false, providerId: "demo-deepseek", model: "deepseek-chat", title: generativeUiTitle)
@@ -211,7 +212,7 @@ enum DemoSeed {
         }
         let catalog = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
         let booking = #"[{"version":"v1.0","createSurface":{"surfaceId":"booking","catalogId":"\#(catalog)","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["title","name","when","size","note","book"]},{"id":"title","component":"Text","text":"**Table at Lupo** · Friday"},{"id":"name","component":"TextField","label":"Name","value":{"@path":"/b/name"}},{"id":"when","component":"ChoicePicker","label":"Time","options":[{"label":"19:00","value":"19:00"},{"label":"19:30","value":"19:30"},{"label":"20:00","value":"20:00"}],"value":{"@path":"/b/time"},"variant":"mutuallyExclusive","displayStyle":"chips"},{"id":"size","component":"Slider","label":"Guests","value":{"@path":"/b/guests"},"min":1,"max":8},{"id":"note","component":"CheckBox","label":"Window table if possible","value":{"@path":"/b/window"}},{"id":"book","component":"Button","variant":"primary","child":"book_t","action":{"event":{"name":"bookTable","context":{"name":{"@path":"/b/name"},"time":{"@path":"/b/time"},"guests":{"@path":"/b/guests"}}}}},{"id":"book_t","component":"Text","text":"Book"}],"dataModel":{"b":{"name":"Mara","time":["19:30"],"guests":4,"window":true}}}}]"#
-        let dessert = #"[{"version":"v1.0","createSurface":{"surfaceId":"dessert","catalogId":"\#(catalog)","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["q","pick","go"]},{"id":"q","component":"Text","text":"**Pre-order dessert?** Lupo's tiramisu sells out by nine."},{"id":"pick","component":"ChoicePicker","label":"Desserts","options":[{"label":"Tiramisu","value":"tiramisu"},{"label":"Panna cotta","value":"panna"},{"label":"Affogato","value":"affogato"}],"value":{"@path":"/d"},"variant":"multipleSelection","displayStyle":"checkbox"},{"id":"go","component":"Button","variant":"primary","child":"go_t","action":{"event":{"name":"preorderDessert","context":{"picked":{"@path":"/d"}}}}},{"id":"go_t","component":"Text","text":"Add to booking"}],"dataModel":{"d":["tiramisu"]}}}]"#
+        let dessert = #"[{"version":"v1.0","createSurface":{"surfaceId":"dessert","catalogId":"\#(catalog)","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["photo","q","pick","go"]},{"id":"photo","component":"Image","url":"https://images.example.org/lupo/tiramisu.jpg","description":"Lupo's tiramisu","variant":"mediumFeature"},{"id":"q","component":"Text","text":"**Pre-order dessert?** Lupo's tiramisu sells out by nine."},{"id":"pick","component":"ChoicePicker","label":"Desserts","options":[{"label":"Tiramisu","value":"tiramisu"},{"label":"Panna cotta","value":"panna"},{"label":"Affogato","value":"affogato"}],"value":{"@path":"/d"},"variant":"multipleSelection","displayStyle":"checkbox"},{"id":"go","component":"Button","variant":"primary","child":"go_t","action":{"event":{"name":"preorderDessert","context":{"picked":{"@path":"/d"}}}}},{"id":"go_t","component":"Text","text":"Add to booking"}],"dataModel":{"d":["tiramisu"]}}}]"#
 
         add(.turnStart(turn: 1))
         add(.userMessage(text: "Book a table for dinner on Friday, somewhere near the office."))
@@ -221,7 +222,9 @@ enum DemoSeed {
 
         add(.turnStart(turn: 2))
         let action = ##"[UI action] The user used the UI you showed (surface 'booking').\n<a2ui_action>\n{\"version\":\"v1.0\",\"action\":{\"name\":\"bookTable\",\"surfaceId\":\"booking\",\"sourceComponentId\":\"book\",\"context\":{\"name\":\"Mara\",\"time\":[\"19:30\"],\"guests\":4}}}\n</a2ui_action>"##
-        raw(#"{"type":"user/message","text":"\#(action)","display":"Book table"}"#)
+        // The action's turn records the surface and its input (`meta.a2ui`): the booking form shows locked, "Sent".
+        let sentModel = #"{"b":{"name":"Mara","time":["19:30"],"guests":4,"window":true}}"#
+        raw(#"{"type":"user/message","text":"\#(action)","display":"Book table","meta":{"a2ui":{"surfaceId":"booking","action":"bookTable","dataModel":\#(sentModel)}}}"#)
         add(.assistantMessage(.init(turn: 2, step: 1, text: "Booked: **Lupo**, Friday 19:30, four guests, under Mara. A window table is noted as a wish.", model: "deepseek-chat")))
         showUi(turn: 2, step: 2, id: "ui2", dessert)
         add(.turnEnd(turn: 2, reason: .completed, detail: nil))

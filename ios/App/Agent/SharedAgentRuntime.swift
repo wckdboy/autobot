@@ -198,10 +198,15 @@ final class SharedAgentRuntime: AgentRuntime {
 
     func cancel(_ id: String) { bridge.cancel(sessionId: id) }
 
-    func sendA2uiAction(_ id: String, _ action: A2uiAction) {
-        guard case let .send(surfaceId, name, messageJson, dataModelJson, userMessage) = action else { return }
+    func sendA2uiAction(_ id: String, _ action: A2uiAction) async -> Bool {
+        guard case let .send(surfaceId, name, messageJson, dataModelJson, userMessage, snapshotJson) = action else { return false }
         _ = session(id)
-        bridge.sendA2uiAction(sessionId: id, surfaceId: surfaceId, name: name, messageJson: messageJson, dataModelJson: dataModelJson, userMessage: userMessage)
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            bridge.sendA2uiAction(
+                sessionId: id, surfaceId: surfaceId, name: name, messageJson: messageJson, dataModelJson: dataModelJson,
+                userMessage: userMessage, snapshotJson: snapshotJson,
+            ) { @Sendable sent in done.resume(returning: sent.boolValue) }
+        }
     }
 
     func answerApproval(_ id: String, callId: String, outcome: ApprovalOutcome) {

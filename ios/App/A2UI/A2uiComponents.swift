@@ -68,6 +68,7 @@ struct A2uiRemoteImage: View {
 
     @Environment(\.a2uiImageLoader) private var loader
     @Environment(\.a2uiImagesOnTap) private var onTap
+    @Environment(\.a2uiImageHint) private var hint
     @State private var image: UIImage?
     @State private var failed = false
     /// How often the user asked for this image (only counts with [onTap]; a retry asks again).
@@ -116,6 +117,7 @@ struct A2uiRemoteImage: View {
                     Image(systemName: "photo").font(.title2)
                     Text(host).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     Text(failed ? "Couldn't load · retry" : "Load image").font(.caption.weight(.semibold))
+                    if let hint { Text(hint).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center) }
                 }
                 .padding(8)
                 Image(systemName: "photo.badge.arrow.down").font(.title3)
@@ -343,6 +345,7 @@ struct A2uiButtonView: View {
     let node: RenderNode
     @Environment(\.a2uiContext) private var context
     @Environment(\.a2uiTapOverride) private var tapOverride
+    @Environment(\.a2uiReadOnly) private var readOnly
 
     var body: some View {
         let error = node.firstError
@@ -357,7 +360,8 @@ struct A2uiButtonView: View {
                 .frame(minHeight: 22)
             }
             .a2uiButtonStyle(node.variant("default"))
-            .disabled(!node.isValid && tapOverride == nil)
+            // A sent form's buttons that would message the agent are off; local ones (links, a modal's trigger) still work.
+            .disabled((!node.isValid || (readOnly && node.action?.eventName != nil)) && tapOverride == nil)
             .accessibilityHint(error ?? "")
             if let error, tapOverride == nil {
                 Text(error).font(.caption).foregroundStyle(.secondary)

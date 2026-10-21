@@ -76,7 +76,7 @@ struct A2uiRendererTests {
     @Test func dispatchSendsTheEvent() throws {
         let model = try contact()
         let button = try #require(model.node(id: "submit_button"))
-        guard case let .send(surfaceId, name, json, dataModel, _) = model.dispatch(button) else {
+        guard case let .send(surfaceId, name, json, dataModel, _, _) = model.dispatch(button) else {
             Issue.record("expected an event"); return
         }
         #expect(surfaceId == "contact_form_1")
@@ -101,7 +101,7 @@ struct A2uiRendererTests {
         model.set(try #require(model.node(id: "f_name")), string: "Ada")
         let enabled = try #require(model.node(id: "b_submit"))
         #expect(enabled.isValid)
-        guard case let .send(_, name, json, _, _) = model.dispatch(enabled) else {
+        guard case let .send(_, name, json, _, _, _) = model.dispatch(enabled) else {
             Issue.record("expected an event"); return
         }
         #expect(name == "submitGallery")

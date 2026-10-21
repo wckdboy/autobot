@@ -84,7 +84,7 @@ struct A2uiPreviewScreen: View {
     /// The action as the chat would send it (pretty-printed JSON), or what happened instead.
     static func describe(_ action: A2uiAction) -> String {
         switch action {
-        case .send(_, _, let json, let dataModel, _):
+        case .send(_, _, let json, let dataModel, _, _):
             return pretty(json) + (dataModel.map { "\n\n// a2uiRendererDataModel\n" + pretty($0) } ?? "")
         case .openUrl(let url): return "opened \(url.absoluteString)"
         case .done: return "done (local function)"

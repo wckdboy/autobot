@@ -42,6 +42,7 @@ struct A2uiSurfaceView: View {
             }
         }
         .environment(\.a2uiContext, context)
+        .environment(\.a2uiReadOnly, model.isReadOnly)
         .modifier(A2uiOptionalTint(tint: tint))
         .alert(
             "Open this link?",
@@ -125,6 +126,10 @@ extension EnvironmentValues {
     @Entry var a2uiImageLoader: A2uiImageLoader? = nil
     /// Images wait for the user's tap before anything is fetched (the chat; Android does the same).
     @Entry var a2uiImagesOnTap = false
+    /// Why images wait for a tap, under the placeholder (`A2uiChat.imageHint`: the route a load would take).
+    @Entry var a2uiImageHint: String? = nil
+    /// The surface is read-only (a sent form, [A2uiHost.isReadOnly]): inputs and agent buttons are disabled.
+    @Entry var a2uiReadOnly = false
     /// The leaf margin (catalog guide §3); 0 inside a Button's label.
     @Entry var a2uiMargin: CGFloat = 4
     @Entry var a2uiTapOverride: A2uiTapOverride? = nil

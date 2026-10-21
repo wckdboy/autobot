@@ -107,8 +107,10 @@ session exported on Android opens on iOS.
   locks, read-only with its input, until the agent updates it; only interactive chats get the
   tool, not subagents or recipes), and `:core:a2ui`,
   a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
-  video and audio open in the browser). Still to do: the SwiftUI renderer, an in-app media
-  player, a Settings switch, `callRendererFunction` and custom catalogs' functions)*
+  video and audio open in the browser). iOS (in review): the SwiftUI renderer (system controls,
+  Liquid Glass) in the phone chats over the same shared tool, replay and lock rules, images on
+  tap through the policy-bound client. Still to do: an in-app media player, a Settings switch,
+  `callRendererFunction` and custom catalogs' functions)*
 
 **Exit:** an agent can use an MCP server, delegate to a subagent and recall a memory, offline
 where possible, on both platforms.

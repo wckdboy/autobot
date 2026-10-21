@@ -25,7 +25,7 @@ Version 1.12. What runs, and what is not yet verified:
 | Your node | Pairs with Invincible over Noise: the node's agent, approvals, schedules, receipts and audit log in the app |
 | Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
 | Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
-| Generative UI | In progress: the shared A2UI v1.0 core is in `:shared`; on Android (in review) the phone chats' agent can call `show_ui` to show forms, choices and cards drawn with Material 3 (`:core:a2ui`), kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. The SwiftUI renderer comes next |
+| Generative UI | In progress: the shared A2UI v1.0 core is in `:shared`; on Android (in review) the phone chats' agent can call `show_ui` to show forms, choices and cards drawn with Material 3 (`:core:a2ui`), kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. On iOS (in review) the same, drawn with SwiftUI system controls |
 | **Not yet verified** | No independent security review yet |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).

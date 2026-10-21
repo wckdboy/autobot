@@ -34,6 +34,8 @@ private struct A2uiFieldLabel: View {
 
 struct A2uiTextFieldView: View {
     let node: RenderNode
+    /// A sent form (the chat): its inputs show what was sent and take no edits.
+    @Environment(\.a2uiReadOnly) private var readOnly
     @Environment(\.a2uiContext) private var context
     @State private var edited = false
 
@@ -75,6 +77,7 @@ struct A2uiTextFieldView: View {
             .accessibilityLabel(label ?? placeholder)
             A2uiCheckMessage(node: node, show: edited)
         }
+        .disabled(readOnly)
         .a2uiLeaf()
     }
 }
@@ -84,6 +87,8 @@ struct A2uiTextFieldView: View {
 /// iOS has no checkbox toggle style: a switch with the label.
 struct A2uiCheckBoxView: View {
     let node: RenderNode
+    /// A sent form (the chat): its inputs show what was sent and take no edits.
+    @Environment(\.a2uiReadOnly) private var readOnly
     @Environment(\.a2uiContext) private var context
     @State private var edited = false
 
@@ -100,6 +105,7 @@ struct A2uiCheckBoxView: View {
                 .disabled(node.binding(name: "value") == nil)
             A2uiCheckMessage(node: node, show: edited)
         }
+        .disabled(readOnly)
         .a2uiLeaf()
     }
 }
@@ -108,6 +114,8 @@ struct A2uiCheckBoxView: View {
 
 struct A2uiChoicePickerView: View {
     let node: RenderNode
+    /// A sent form (the chat): its inputs show what was sent and take no edits.
+    @Environment(\.a2uiReadOnly) private var readOnly
     @Environment(\.a2uiContext) private var context
     @State private var filter = ""
     @State private var edited = false
@@ -172,6 +180,7 @@ struct A2uiChoicePickerView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label ?? "Choices")
+        .disabled(readOnly)
         .a2uiLeaf()
     }
 
@@ -192,6 +201,8 @@ struct A2uiChoicePickerView: View {
 
 struct A2uiSliderView: View {
     let node: RenderNode
+    /// A sent form (the chat): its inputs show what was sent and take no edits.
+    @Environment(\.a2uiReadOnly) private var readOnly
     @Environment(\.a2uiContext) private var context
 
     var body: some View {
@@ -222,6 +233,7 @@ struct A2uiSliderView: View {
             .accessibilityValue(shown)
             .disabled(node.binding(name: "value") == nil)
         }
+        .disabled(readOnly)
         .a2uiLeaf()
     }
 }
@@ -230,6 +242,8 @@ struct A2uiSliderView: View {
 
 struct A2uiDateTimeView: View {
     let node: RenderNode
+    /// A sent form (the chat): its inputs show what was sent and take no edits.
+    @Environment(\.a2uiReadOnly) private var readOnly
     @Environment(\.a2uiContext) private var context
 
     var body: some View {
@@ -259,6 +273,7 @@ struct A2uiDateTimeView: View {
             }
         }
         .disabled(node.binding(name: "value") == nil)
+        .disabled(readOnly)
         .a2uiLeaf()
     }
 }

@@ -1328,12 +1328,26 @@ class AgentBridge(
     /**
      * A tap on a generated UI ([A2uiChat]): the action goes to [sessionId]'s agent as the next
      * user turn (queued behind a running one); the model reads the A2UI `action` message, the
-     * transcript shows [userMessage] or the action's name in words. The fields are those of the
-     * [A2uiActionResult.SendEvent] the host's dispatch returned.
+     * transcript shows [userMessage] or the action's name in words, and the turn's meta keeps
+     * [snapshotJson] (the surface's input, which locks it on replay). The fields are those of the
+     * [A2uiActionResult.SendEvent] the host's dispatch returned ([A2uiTranscriptItems.sendEvent]).
+     * [callback] answers once: false when the chat's agent could not be reached (unlock the form).
      */
-    fun sendA2uiAction(sessionId: String, surfaceId: String, name: String, messageJson: String, dataModelJson: String?, userMessage: String?) {
-        val event = A2uiActionResult.SendEvent(surfaceId, name, messageJson, dataModelJson, userMessage)
-        withAgent(sessionId) { it.queueTurn(A2uiChat.actionMessage(event)) }
+    fun sendA2uiAction(
+        sessionId: String,
+        surfaceId: String,
+        name: String,
+        messageJson: String,
+        dataModelJson: String?,
+        userMessage: String?,
+        snapshotJson: String,
+        callback: (Boolean) -> Unit,
+    ) {
+        val event = A2uiActionResult.SendEvent(surfaceId, name, messageJson, dataModelJson, userMessage, snapshotJson)
+        withAgent(sessionId, missing = { callback(false) }) {
+            it.queueTurn(A2uiChat.actionMessage(event))
+            callback(true)
+        }
     }
 
     /** Delivers [text] at the next step boundary of the running turn. */
@@ -1656,13 +1670,13 @@ class AgentBridge(
      * Runs [block] on the session's agent. A call made right after [open] (e.g. "chat" turning
      * tools off) waits for the agent [open] is still creating instead of being dropped.
      */
-    private fun withAgent(sessionId: String, block: suspend (Agent) -> Unit) {
+    private fun withAgent(sessionId: String, missing: () -> Unit = {}, block: suspend (Agent) -> Unit) {
         scope.launch {
             val agent = mutex.withLock { used(sessionId) }
                 // Closed to save memory ([evictIdle]): reopen it from the store.
                 ?: mutex.withLock { routes[sessionId] }?.let { (provider, model) -> agent(sessionId, provider, model) }
                 ?: withTimeoutOrNull(OPEN_WAIT_MS) { created.map { it[sessionId] }.filterNotNull().first() }
-                ?: return@launch
+                ?: return@launch missing()
             try {
                 block(agent)
             } catch (e: CancellationException) {
@@ -1670,6 +1684,7 @@ class AgentBridge(
             } catch (t: Throwable) {
                 // e.g. the store failing to log a settings change: the call is dropped, the bridge lives.
                 println("AgentBridge: ${t::class.simpleName}: ${t.message}")
+                missing()
             }
         }
     }

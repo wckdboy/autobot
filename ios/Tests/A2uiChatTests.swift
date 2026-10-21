@@ -1,6 +1,7 @@
 #if canImport(AutobotShared)
 import AutobotShared
 import Foundation
+import Synchronization
 import Testing
 @testable import Autobot
 
@@ -47,13 +48,115 @@ struct A2uiChatSurfacesTests {
         chat.sync([showUiItem("t1_0", rsvp)])
         let model = try #require(chat.surfaces("t1_0").first)
         model.set(try #require(model.node(id: "name")), string: "Mara")
-        guard case let .send(surfaceId, name, messageJson, _, userMessage) = model.dispatch(try #require(model.node(id: "go"))) else {
+        guard case let .send(surfaceId, name, messageJson, _, userMessage, _) = model.dispatch(try #require(model.node(id: "go"))) else {
             Issue.record("the button did not send")
             return
         }
         #expect(surfaceId == "rsvp" && name == "rsvpYes" && userMessage == nil)
         #expect(messageJson.contains("Mara"))
         #expect(A2uiChat.shared.humanize(name: name) == "Rsvp yes")
+    }
+}
+
+/// A runtime that only records the actions handed to it (or refuses them).
+@MainActor
+private final class ActionSink: AgentRuntime {
+    var accept = true
+    var sent: [A2uiAction] = []
+    var running: Set<String> { [] }
+    var supportsTools: Bool { true }
+    func sendA2uiAction(_ conversationId: String, _ action: A2uiAction) async -> Bool {
+        sent.append(action)
+        return accept
+    }
+    func session(_ conversationId: String) -> Autobot.AgentSession { fatalError("unused") }
+    func existingSession(_ conversationId: String) -> Autobot.AgentSession? { nil }
+    func close(_ conversationId: String) {}
+    func preview(_ conversationId: String, state: ChatSessionState) {}
+    func send(_ conversationId: String, text: String, images: [String]) async {}
+    func cancel(_ conversationId: String) {}
+    func answerApproval(_ conversationId: String, callId: String, outcome: Autobot.ApprovalOutcome) {}
+    func answerQuestion(_ conversationId: String, callId: String, answers: [String]?) {}
+    func setToolsEnabled(_ conversationId: String, _ enabled: Bool) {}
+    func setPermission(_ conversationId: String, _ preset: Autobot.PermissionPreset) {}
+    func setRoute(_ conversationId: String, providerId: String, model: String) {}
+    func providersChanged(_ providers: [Provider]) {}
+    func compact(_ conversationId: String) {}
+    func discard(_ conversationId: String) {}
+    func shutdown() {}
+}
+
+/// Sent forms lock, as on Android (`A2uiChatSurfaceTest`): at the tap, kept by the logged turn,
+/// restored with their input in a reopened chat, unlocked by a failed send, a stop or a new stream.
+@MainActor
+struct A2uiChatLockTests {
+    private func tapGo(_ chat: A2uiChatSurfaces, name: String = "Mara") throws -> A2uiAction {
+        let model = try #require(chat.surfaces("t1_0").first)
+        model.set(try #require(model.node(id: "name")), string: name)
+        return model.dispatch(try #require(model.node(id: "go")))
+    }
+
+    private func sent(_ action: A2uiAction) -> A2uiSent? {
+        guard case let .send(surfaceId, name, _, _, _, snapshot) = action else { return nil }
+        return A2uiSent(surfaceId: surfaceId, action: name, label: A2uiChat.shared.humanize(name: name), dataModel: snapshot)
+    }
+
+    @Test func aTapLocksAtOnceAndTheLoggedTurnKeepsItLocked() async throws {
+        let chat = A2uiChatSurfaces()
+        let sink = ActionSink()
+        chat.sync([showUiItem("t1_0", rsvp)])
+        let action = try tapGo(chat)
+        await chat.send(action, conversationId: "c", runtime: sink)
+        let model = try #require(chat.surfaces("t1_0").first)
+        #expect(sink.sent == [action])
+        #expect(chat.isLocked("rsvp") && model.isReadOnly)
+        #expect(chat.note("rsvp") == A2uiChatSurfaces.sending)
+        // Locked: no more input, no second send.
+        #expect(!model.set(try #require(model.node(id: "name")), string: "Bob"))
+        if case .send = model.dispatch(try #require(model.node(id: "go"))) { Issue.record("a sent form sent again") }
+
+        // The turn arrives in the transcript: "Sent", still locked.
+        let s = try #require(sent(action))
+        chat.sync([showUiItem("t1_0", rsvp), .user(key: "e7", text: s.label, images: [])], sent: ["e7": s])
+        #expect(chat.note("rsvp") == A2uiChatSurfaces.sent)
+        #expect(model.isReadOnly && model.dataModelJson?.contains("Mara") == true)
+    }
+
+    @Test func aReopenedChatShowsTheSentInputLocked() throws {
+        let first = A2uiChatSurfaces()
+        first.sync([showUiItem("t1_0", rsvp)])
+        let s = try #require(sent(try tapGo(first, name: "Ines")))
+        let items: [Autobot.SessionItem] = [showUiItem("t1_0", rsvp), .user(key: "e7", text: s.label, images: [])]
+
+        let reopened = A2uiChatSurfaces()
+        reopened.sync(items, sent: ["e7": s])
+        let model = try #require(reopened.surfaces("t1_0").first)
+        #expect(model.isReadOnly && reopened.note("rsvp") == A2uiChatSurfaces.sent)
+        #expect(model.node(id: "name")?.string(name: "value") == "Ines")
+    }
+
+    @Test func aFailedSendOrAStopUnlocksAndANewStreamUnlocksASentForm() async throws {
+        let chat = A2uiChatSurfaces()
+        let sink = ActionSink()
+        sink.accept = false
+        chat.sync([showUiItem("t1_0", rsvp)])
+        await chat.send(try tapGo(chat), conversationId: "c", runtime: sink)
+        #expect(!chat.isLocked("rsvp") && chat.note("rsvp") == nil)
+
+        sink.accept = true
+        let action = try tapGo(chat)
+        await chat.send(action, conversationId: "c", runtime: sink)
+        #expect(chat.isLocked("rsvp"))
+        chat.stopped()
+        #expect(!chat.isLocked("rsvp"))
+
+        // Sent and logged, then the agent updates the form: editable again.
+        let s = try #require(sent(action))
+        let update = #"[{"version":"v1.0","updateDataModel":{"surfaceId":"rsvp","path":"/name","value":"Mara (2)"}}]"#
+        chat.sync([showUiItem("t1_0", rsvp), .user(key: "e7", text: s.label, images: [])], sent: ["e7": s])
+        #expect(chat.isLocked("rsvp"))
+        chat.sync([showUiItem("t1_0", rsvp), .user(key: "e7", text: s.label, images: []), showUiItem("t9_0", update)], sent: ["e7": s])
+        #expect(!chat.isLocked("rsvp"))
     }
 }
 
@@ -108,7 +211,7 @@ struct A2uiChatBridgeTests {
         LlmStub.serve(host) { call in
             // The system prompt explains <a2ui_action>; the user turn starts with "[UI action]".
             if (call.messages.last?["content"] as? String)?.hasPrefix("[UI action]") == true { return (200, [LlmStub.text("See you Friday, Mara."), LlmStub.finish()]) }
-            if call.lastRole == "tool" { return (200, [LlmStub.finish()]) }
+            if call.lastRole == "tool" { return (200, [LlmStub.text("Over to you."), LlmStub.finish()]) }
             return (200, LlmStub.toolCall(id: "ui1", name: "show_ui", arguments: ["messages": rsvp]))
         }
         let bridge = makeBridge()
@@ -118,7 +221,8 @@ struct A2uiChatBridgeTests {
         bridge.send(sessionId: "s-ui", text: "Ask me about Friday", images: [])
 
         // The tool step arrives in the Swift transcript with its stream, and draws a surface.
-        #expect(await waitFor { recorder.latest?.items.contains { if case .tool(let t) = $0 { t.a2ui != nil } else { false } } == true && !recorder.running })
+        let shown = await waitFor { recorder.latest?.items.contains { if case .tool(let t) = $0 { t.a2ui != nil } else { false } } == true && !recorder.running }
+        #expect(shown, "\(recorder.transcripts.last ?? "no transcript")")
         #expect(LlmStub.calls(host).first.map(Self.offersShowUi) == true)
         let items = try #require(recorder.latest?.items)
         let chat = A2uiChatSurfaces()
@@ -129,17 +233,26 @@ struct A2uiChatBridgeTests {
 
         // A tap: the shared action message as the next turn, the label in the transcript.
         model.set(try #require(model.node(id: "name")), string: "Mara")
-        guard case let .send(surfaceId, name, messageJson, dataModelJson, userMessage) = model.dispatch(try #require(model.node(id: "go"))) else {
+        guard case let .send(surfaceId, name, messageJson, dataModelJson, userMessage, snapshotJson) = model.dispatch(try #require(model.node(id: "go"))) else {
             Issue.record("the button did not send")
             return
         }
-        bridge.sendA2uiAction(sessionId: "s-ui", surfaceId: surfaceId, name: name, messageJson: messageJson, dataModelJson: dataModelJson, userMessage: userMessage)
+        let handed = Mutex<Bool?>(nil)
+        bridge.sendA2uiAction(sessionId: "s-ui", surfaceId: surfaceId, name: name, messageJson: messageJson, dataModelJson: dataModelJson, userMessage: userMessage, snapshotJson: snapshotJson) { @Sendable ok in
+            handed.withLock { $0 = ok.boolValue }
+        }
         #expect(await waitFor { recorder.answers.contains("See you Friday, Mara.") && !recorder.running })
+        #expect(handed.withLock { $0 } == true)
         #expect(recorder.prompts == ["Ask me about Friday", "Rsvp yes"])
+        // The turn records the surface and its input (never sent to the model): the form locks.
+        let logged = try #require(recorder.latest)
+        #expect(logged.projection.a2uiSent.values.map(\.surfaceId) == ["rsvp"])
+        chat.sync(logged)
+        #expect(chat.note("rsvp") == A2uiChatSurfaces.sent && model.isReadOnly)
         let sent = try #require(LlmStub.calls(host).last { ($0.messages.last?["content"] as? String)?.hasPrefix("[UI action]") == true })
         #expect(sent.mentions("Mara") && sent.mentions("rsvpYes"))
         handle.cancel()
-        bridge.shutdown {}
+        bridge.shutdown { @Sendable in }
 
         // Reload: another runtime reads the chat back from the encrypted log and the surface returns.
         let again = makeBridge()
@@ -147,10 +260,12 @@ struct A2uiChatBridgeTests {
         let reopened = again.openStream(sessionId: "s-ui", providerId: "p", model: "stub-model", listener: reloaded, textDeltas: true)
         #expect(await waitFor { reloaded.prompts.count == 2 })
         let fresh = A2uiChatSurfaces()
-        fresh.sync(try #require(reloaded.latest?.items))
-        #expect(fresh.surfaces(key).first?.node(id: "go") != nil)
+        fresh.sync(try #require(reloaded.latest))
+        let restored = try #require(fresh.surfaces(key).first)
+        #expect(restored.node(id: "go") != nil && restored.isReadOnly)
+        #expect(restored.node(id: "name")?.string(name: "value") == "Mara")
         reopened.cancel()
-        again.shutdown {}
+        again.shutdown { @Sendable in }
         secrets.delete(keyRef)
     }
 
@@ -174,7 +289,7 @@ struct A2uiChatBridgeTests {
         #expect(await waitFor { recorder.answers.count == 3 && !recorder.running })
         #expect(LlmStub.calls(host).last.map(Self.offersShowUi) == false)
         handle.cancel()
-        bridge.shutdown {}
+        bridge.shutdown { @Sendable in }
         secrets.delete(keyRef)
     }
 }

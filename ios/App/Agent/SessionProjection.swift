@@ -396,6 +396,9 @@ struct SessionProjection: Codable, Equatable, Sendable {
     var changes: [ChangeGroup] = []
     /// "Ask <cloud model>" under the phone's latest answer, when the cascade's judge offered the cloud.
     var cascadeOffer: CascadeOffer? = nil
+    /// User turns sent from a generated UI (Kotlin `SessionItem.User.a2ui`), by item key: kept
+    /// beside [items] so the `.user` case stays as it is. [A2uiChatSurfaces] locks those forms.
+    var a2uiSent: [String: A2uiSent] = [:]
 
     init(items: [SessionItem] = [], todos: [TodoItem] = [], lastUsage: TokenUsage? = nil, contextWindow: Int? = nil, changes: [ChangeGroup] = [], cascadeOffer: CascadeOffer? = nil) {
         (self.items, self.todos, self.lastUsage, self.contextWindow, self.changes, self.cascadeOffer) = (items, todos, lastUsage, contextWindow, changes, cascadeOffer)
@@ -409,6 +412,33 @@ struct SessionProjection: Codable, Equatable, Sendable {
         contextWindow = try c.decodeIfPresent(Int.self, forKey: .contextWindow)
         changes = try c.decodeIfPresent([ChangeGroup].self, forKey: .changes) ?? []
         cascadeOffer = try? c.decodeIfPresent(CascadeOffer.self, forKey: .cascadeOffer)
+        if let sent = try? c.decodeIfPresent([String: A2uiSent].self, forKey: .a2uiSent) {
+            a2uiSent = sent
+        } else {
+            let probes = (try? c.decodeIfPresent([A2uiSent.Probe].self, forKey: .items)) ?? []
+            a2uiSent = Dictionary(probes.compactMap { p in p.a2ui.map { (p.key, $0) } }, uniquingKeysWith: { _, last in last })
+        }
+    }
+}
+
+/// A user turn sent from a generated-UI surface (Kotlin `A2uiSubmission`): the surface, the event
+/// name, the label the transcript shows and the surface's data model as sent (JSON text).
+struct A2uiSent: Codable, Equatable, Sendable {
+    var surfaceId: String
+    var action: String
+    var label: String
+    var dataModel: String?
+
+    /// A projection item read for its key and a user turn's `a2ui` only (a tool's `a2ui` is a string: skipped).
+    struct Probe: Decodable {
+        let key: String
+        let a2ui: A2uiSent?
+        private enum K: String, CodingKey { case type, key, a2ui }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: K.self)
+            key = (try? c.decode(String.self, forKey: .key)) ?? ""
+            a2ui = (try? c.decode(String.self, forKey: .type)) == "user" ? try? c.decodeIfPresent(A2uiSent.self, forKey: .a2ui) : nil
+        }
     }
 }
 

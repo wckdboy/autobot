@@ -225,8 +225,9 @@ protocol AgentRuntime: AnyObject {
     /// "Ask <cloud model>": sends the prompt of the phone's offered answer to the chat's cloud model.
     func escalate(_ conversationId: String)
     /// A tap on a generated UI (`show_ui`, A2UI): a `.send` action becomes the chat's next user
-    /// turn (queued behind a running one), shown in the transcript as its label.
-    func sendA2uiAction(_ conversationId: String, _ action: A2uiAction)
+    /// turn (queued behind a running one), shown in the transcript as its label. False when it
+    /// could not be handed to the chat's agent (the form unlocks again).
+    func sendA2uiAction(_ conversationId: String, _ action: A2uiAction) async -> Bool
 }
 
 /// The chat's Think switch, as the shared `ThinkingSetting`: `mode` is OFF, AUTO or ON; `budget`
@@ -273,7 +274,7 @@ extension AgentRuntime {
     func setCascade(_ conversationId: String, _ policy: String) {}
     func escalate(_ conversationId: String) {}
     /// No tools, no generated UI.
-    func sendA2uiAction(_ conversationId: String, _ action: A2uiAction) {}
+    func sendA2uiAction(_ conversationId: String, _ action: A2uiAction) async -> Bool { false }
 }
 
 /// Runtimes without file tools have nothing to undo.
