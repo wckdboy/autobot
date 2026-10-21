@@ -260,11 +260,8 @@ struct DownloadsPanelStateTests {
 /// The Studio's rooms and queue labels.
 struct StudioStateTests {
     @Test func roomsAndJobStates() {
-        #expect(StudioRoom.image.surface == .darkroom)
-        #expect(StudioRoom.video.surface == .darkroom)
-        #expect(StudioRoom.library.surface == .paper)
-        #expect(StudioRoom.audio.surface == .app)
-        #expect(StudioRoom.workflows.surface == .app)
+        // Every room follows the app's theme now; each is a tab with its own title.
+        #expect(StudioRoom.allCases.map(\.label) == ["image", "audio", "video", "workflows", "library"])
         #expect(JobState.queued.label == "queued")
         #expect(JobState.running.label == "running")
         #expect(JobState.done.label == "done")

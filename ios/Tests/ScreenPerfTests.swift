@@ -8,7 +8,7 @@ import UIKit
 /**
  Scrolling and idle cost of the list screens (Models, Sessions, Studio Library, Imagine) and of
  screens hidden under the Studio, measured in the simulator: process and main-thread CPU per
- second, 60 Hz frame pacing (hitches = frames later than 1.5 intervals) and InkProbe counts per
+ second, 60 Hz frame pacing (hitches = frames later than 1.5 intervals) and RenderProbe counts per
  second (screen/row body evaluations, ink ticks and draws, thumbnail decodes).
  Skipped unless `AUTOBOT_PERF_DIR` is set (`TEST_RUNNER_AUTOBOT_PERF_DIR=…`); writes screens.json.
  */
@@ -66,7 +66,7 @@ struct ScreenPerfTests {
         results.append(try await measure("sessions-scroll", ChatListScreen(), app, nav, seconds: 6, scroll: true))
         let session = StudioSession(app: app)
         results.append(try await measure("library-scroll", LibraryRoom(session: session), app, nav, seconds: 6, scroll: true))
-        results.append(try await measure("imagine-idle", ImagineScreen().paperTheme(), app, nav, seconds: 3))
+        results.append(try await measure("imagine-idle", ImagineScreen(), app, nav, seconds: 3))
         // The app's Run tab under an open Studio (its living cards must not keep ticking).
         nav.reset(.run, [])
         nav.studio = .workflows
@@ -96,7 +96,7 @@ struct ScreenPerfTests {
 
         let scrollView = scroll ? Self.scrollView(in: window) : nil
         let pacer = Pacer()
-        InkProbe.reset()
+        RenderProbe.reset()
         let cpu0 = Self.processCpu(), main0 = Self.mainThreadCpu()
         let start = CACurrentMediaTime()
         pacer.onFrame = { now in
@@ -110,7 +110,7 @@ struct ScreenPerfTests {
         pacer.stop()
         let wall = CACurrentMediaTime() - start
         let cpu = Self.processCpu() - cpu0, main = Self.mainThreadCpu() - main0
-        let counts = InkProbe.snapshot().mapValues { Double($0) / wall }
+        let counts = RenderProbe.snapshot().mapValues { Double($0) / wall }
         window.isHidden = true
         window.rootViewController = nil
         return Result(scenario: name, seconds: wall, cpuMsPerSec: cpu * 1000 / wall, mainCpuMsPerSec: main * 1000 / wall,

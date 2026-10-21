@@ -433,7 +433,7 @@ struct WorkflowDetail: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) } }
             }
-            .risoAlert($confirmDelete, title: "Delete workflow?", message: "Assets it made stay in the library.", confirm: "Delete") {
+            .confirmAlert($confirmDelete, title: "Delete workflow?", message: "Assets it made stay in the library.", confirm: "Delete") {
                 studio.deleteWorkflow(w.id)
                 onDone()
             }

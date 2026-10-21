@@ -51,7 +51,7 @@ struct MemoryScreen: View {
                 editor = nil
             }
         }
-        .risoAlert($confirmDeleteAll, title: "Delete all notes?", message: "All \(total) memory notes are deleted from this phone. This cannot be undone.", confirm: "Delete all") {
+        .confirmAlert($confirmDeleteAll, title: "Delete all notes?", message: "All \(total) memory notes are deleted from this phone. This cannot be undone.", confirm: "Delete all") {
             app.memory.deleteAll()
         }
         .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {

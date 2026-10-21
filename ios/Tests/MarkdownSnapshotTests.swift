@@ -37,7 +37,7 @@ struct MarkdownSnapshotTests {
                     PromptLine(text: "When is the next train to **Berlin**?")
                     ChatBubble(text: MarkdownSnapshotTests.sample)
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
+                .padding(.horizontal)
                 .padding(.top, 8)
             }
             .background(Color(.systemBackground).ignoresSafeArea())

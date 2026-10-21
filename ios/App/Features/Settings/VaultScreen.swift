@@ -91,7 +91,7 @@ struct VaultScreen: View {
         .fileImporter(isPresented: $picking, allowedContentTypes: VaultImport.contentTypes, allowsMultipleSelection: true) { result in
             if case .success(let urls) = result, !urls.isEmpty { vault.add(urls) }
         }
-        .risoAlert($confirmDeleteAll, title: "Empty the vault?", message: "All \(counted(vault.documents.count, "document")) and their index are deleted from this phone. Your original files are not touched.", confirm: "Delete all") {
+        .confirmAlert($confirmDeleteAll, title: "Empty the vault?", message: "All \(counted(vault.documents.count, "document")) and their index are deleted from this phone. Your original files are not touched.", confirm: "Delete all") {
             vault.clear()
         }
         .alert("Some files were not added", isPresented: Binding(get: { !vault.problems.isEmpty && !vault.running }, set: { if !$0 { vault.problems = [] } })) {

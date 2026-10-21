@@ -104,7 +104,7 @@ struct NodeFeaturesTests {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
-        window.rootViewController = UIHostingController(rootView: Ground(content: view).environment(\.inkStill, true).autobotTheme(mode))
+        window.rootViewController = UIHostingController(rootView: Ground(content: view).autobotTheme(mode))
         window.makeKeyAndVisible()
         try await Task.sleep(for: .milliseconds(800))
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
@@ -114,8 +114,7 @@ struct NodeFeaturesTests {
 
     private struct Ground<Content: View>: View {
         let content: Content
-        @Environment(\.scheme) private var c
-        var body: some View { content.background(c.background.ignoresSafeArea()) }
+        var body: some View { content.background(Color(.systemBackground).ignoresSafeArea()) }
     }
 
     @Test func theNoKeyBannerSaysWhatAndroidSays() {

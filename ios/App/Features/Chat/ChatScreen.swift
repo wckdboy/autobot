@@ -155,7 +155,7 @@ struct ChatScreen: View {
     }
 
     var body: some View {
-        let _ = InkProbe.hit("body.chat")
+        let _ = RenderProbe.hit("body.chat")
         // A previewed (or already open) session shows at once, before .task opens it.
         let session = opened ?? app.agent.existingSession(conversationId)
         let transcript = session?.transcript ?? Self.emptyTranscript
@@ -581,7 +581,7 @@ private struct LiveMessage: View {
     let live: LiveState
 
     var body: some View {
-        let _ = InkProbe.hit("body.liveMessage")
+        let _ = RenderProbe.hit("body.liveMessage")
         let _ = ChatTiming.shown(live.text)
         VStack(alignment: .leading, spacing: 6) {
             if !live.reasoning.isEmpty {
@@ -655,7 +655,7 @@ private struct StepRow: View {
     }
 
     var body: some View {
-        let _ = InkProbe.hit("body.stepRow")
+        let _ = RenderProbe.hit("body.stepRow")
         let (mark, markColor): (String, Color) = switch tool.state {
         case .ok: (tool.isUndone ? "undone" : "✓", .secondary)
         case .error: ("×", .red)
@@ -1584,7 +1584,8 @@ private final class LevelBars {
             let index = levels.count - Self.slots + i
             heard[i] = index >= 0
             let target = index >= 0 ? Double(min(max(levels[index], 0), 1)) : 0
-            shown[i] = ease ? InkMath.approach(shown[i], target, dt: dt, timeConstant: 0.07) : target
+            // Exponential approach: a time constant of 70 ms, whatever the frame rate.
+            shown[i] = ease ? target + (shown[i] - target) * exp(-dt / 0.07) : target
         }
     }
 }

@@ -4,11 +4,11 @@ import UIKit
 @testable import Autobot
 
 /**
- Dynamic Type: the type roles follow the iOS text-size curve (exactly the token size at the
- default `.large`, capped for display type), icons and tap targets grow with them, and the shared
- controls hold a phone's width at the largest accessibility size, growing taller instead of
- running off the side. With `AUTOBOT_SNAPSHOT_DIR` set the main screens are also rendered at
- AX5 into PNGs for review by eye.
+ Dynamic Type: the screens use the system text styles, which follow the iOS text-size curve by
+ themselves; what is checked here is that the app's own pieces (the native kit's rows and chips,
+ the title with its dot, the wordmark) hold a phone's width at the largest accessibility size,
+ growing taller instead of running off the side, and that the brand marks grow with the text.
+ With `AUTOBOT_SNAPSHOT_DIR` set the main screens are also rendered at AX5 into PNGs for review.
  */
 @Suite(.serialized, .timeLimit(.minutes(5)))
 @MainActor
@@ -17,52 +17,18 @@ struct DynamicTypeAuditTests {
     /// The narrowest phone the app supports (iPhone SE / mini width).
     private let width: CGFloat = 375
 
-    // MARK: Type scale
-
-    @Test func defaultSizeIsTheTokenSize() {
-        for style in AutobotType.allCases {
-            #expect(AutobotFonts.scale(for: style.token.size, .large) == 1)
-            #expect(AutobotFonts.uiFont(style.token, dynamicType: .large).pointSize == AutobotFonts.uiFont(style.token).pointSize)
-        }
-        #expect(AutobotFonts.iconScale(.large) == 1)
-    }
-
-    @Test func typeGrowsWithEachStepAndNeverGrowsBelowDefault() {
-        let sizes: [DynamicTypeSize] = [.xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge,
-                                        .accessibility1, .accessibility2, .accessibility3, .accessibility4, .accessibility5]
-        for style in AutobotType.allCases {
-            let points = sizes.map { AutobotFonts.uiFont(style.token, dynamicType: $0).pointSize }
-            for (a, b) in zip(points, points.dropFirst()) { #expect(a <= b, "\(style) shrinks between steps: \(points)") }
-            #expect(points.first! <= style.token.size, "\(style) grows at xSmall")
-            #expect(points.last! > style.token.size, "\(style) does not grow at AX5")
-        }
-    }
-
-    @Test func readingTypeReachesAccessibilitySizesAndDisplayTypeIsCapped() {
-        // Body text at AX5 follows iOS (about 3×); hero lines stop at 1.2× so a screen keeps its content.
-        let body = AutobotFonts.uiFont(AutobotType.bodyLarge.token, dynamicType: .accessibility5).pointSize
-        #expect(body >= AutobotType.bodyLarge.token.size * 2.5)
-        for style in AutobotType.allCases {
-            let s = AutobotFonts.scale(for: style.token.size, .accessibility5)
-            #expect(s <= AutobotFonts.maxScale(for: style.token.size) + 0.001, "\(style) passes its cap: \(s)")
-        }
-        #expect(AutobotFonts.iconScale(.accessibility5) <= 1.6)
-        #expect(AutobotFonts.iconScale(.accessibility5) > 1.2)
-    }
-
     // MARK: Controls hold the width
 
-    @Test func sharedControlsFitAPhoneAtAX5() {
+    @Test func nativeKitFitsAPhoneAtAX5() {
         let checks: [(String, AnyView)] = [
-            ("segmented", AnyView(Segmented(options: ["Immediately", "30 seconds", "1 minute", "5 minutes"], selected: "1 minute", label: { $0 }, onSelect: { _ in }))),
-            ("navigation row", AnyView(NavigationRow(title: "Privacy Center and on-device data", value: "Offline") {})),
-            ("text field", AnyView(ConsoleTextField(text: .constant(""), placeholder: "message · / for commands"))),
-            ("icon actions", AnyView(HStack(spacing: 0) {
-                IconAction(.mic, label: "Dictate") {}
-                IconAction(.image, label: "Attach image") {}
-                IconAction(.layers, label: "Layers") {}
-                IconAction(.mic, label: "Voice") {}
+            ("labeled slider", AnyView(LabeledSlider("Denoising strength", value: .constant(0.55), in: 0 ... 1))),
+            ("menu row", AnyView(Form { MenuRow("Sampler", value: "DPM++ 2M Karras", options: ["DPM++ 2M Karras", "Euler a"]) { _ in } })),
+            ("form field", AnyView(Form { FormField("Base URL", text: .constant(""), prompt: "https://pc.local:7860", kind: .url) })),
+            ("notice", AnyView(NoticeBanner(message: "Forge · desktop unreachable · Offline mode: network access is disabled") {})),
+            ("chips", AnyView(ImagineTagFlow(spacing: 6) {
+                ForEach(["1:1 · 1024×1024", "16:9 · 1368×768", "9:16 · 768×1368", "4:3 · 1176×880"], id: \.self) { Text($0).chipLook(active: false) }
             })),
+            ("tags", AnyView(HStack { RouteBadge(route: .pcLan); CapsuleTag("3 live") })),
         ]
         for (name, view) in checks {
             let large = fit(view, .large)
@@ -72,20 +38,22 @@ struct DynamicTypeAuditTests {
         }
     }
 
-    @Test func segmentedGrowsTallerInsteadOfClipping() {
-        let view = Segmented(options: ["Immediately", "30 seconds", "1 minute", "5 minutes"], selected: "1 minute", label: { $0 }, onSelect: { _ in })
+    @Test func chipsWrapTallerInsteadOfClipping() {
+        let view = ImagineTagFlow(spacing: 6) {
+            ForEach(["1:1 · 1024×1024", "16:9 · 1368×768", "9:16 · 768×1368", "4:3 · 1176×880"], id: \.self) { Text($0).chipLook(active: false) }
+        }
         #expect(fit(view, .accessibility5).height > fit(view, .large).height)
     }
 
-    @Test func iconActionsKeepA44PointTarget() {
-        for size in [DynamicTypeSize.xSmall, .large, .accessibility5] {
-            let s = fit(IconAction(.mic, label: "Dictate") {}, size)
-            #expect(s.width >= 44 && s.height >= 44, "IconAction is \(s) at \(size)")
-        }
+    @Test func titleDotAndWordmarkGrowWithTheText() {
+        let title = TitleWithDot("Gallery")
+        #expect(fit(title, .accessibility5).height > fit(title, .large).height)
+        #expect(fit(Wordmark(), .accessibility3).width > fit(Wordmark(), .large).width)
+        #expect(fit(Wordmark(), .accessibility5).width <= width)
     }
 
     private func fit(_ view: some View, _ size: DynamicTypeSize) -> CGSize {
-        let host = UIHostingController(rootView: view.environment(\.inkStill, true).autobotTheme(.dark).dynamicTypeSize(size))
+        let host = UIHostingController(rootView: view.autobotTheme(.dark).dynamicTypeSize(size))
         return host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
     }
 
@@ -107,6 +75,7 @@ struct DynamicTypeAuditTests {
             ("welcome", AnyView(WelcomeScreen(onSetUp: {}, onPairPc: {}, onAddApiKey: {}))),
             ("backends", AnyView(BackendsScreen())),
             ("gallery", AnyView(GalleryScreen())),
+            ("imagine", AnyView(ImagineScreen())),
             ("models", AnyView(ModelsScreen())),
             ("studio", AnyView(StudioScreen())),
         ]
@@ -119,7 +88,7 @@ struct DynamicTypeAuditTests {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = .dark
-        let root = view.background(Color.black.ignoresSafeArea()).environment(app).environment(nav).environment(\.inkStill, true)
+        let root = view.background(Color.black.ignoresSafeArea()).environment(app).environment(nav)
             .autobotTheme(.dark).dynamicTypeSize(.accessibility5)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()

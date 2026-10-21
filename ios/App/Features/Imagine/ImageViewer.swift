@@ -106,10 +106,10 @@ struct ImageViewer: View {
         .sheet(isPresented: $showInfo) {
             if let item { ImageInfoSheet(item: item, pixels: pixels) { message = $0 }.presentationDetents([.medium, .large]) }
         }
-        .risoAlert($confirmSave, title: "Save unencrypted copy?",
+        .confirmAlert($confirmSave, title: "Save unencrypted copy?",
                    message: "A plain image will be added to your photo library, where other apps and backups can read it.",
                    confirm: "Save", destructive: false) { save() }
-        .risoAlert($confirmDelete, title: "Delete image?", message: "The encrypted file and its parameters are removed. This cannot be undone.",
+        .confirmAlert($confirmDelete, title: "Delete image?", message: "The encrypted file and its parameters are removed. This cannot be undone.",
                    confirm: "Delete") { delete() }
     }
 

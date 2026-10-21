@@ -58,7 +58,7 @@ struct UsageScreen: View {
                 editingWindow = nil
             } onCancel: { editingWindow = nil }
         }
-        .risoAlert($confirmClear, title: "Clear usage history?", message: "The counted tokens are removed from this phone. Prices and windows stay.", confirm: "Clear") {
+        .confirmAlert($confirmClear, title: "Clear usage history?", message: "The counted tokens are removed from this phone. Prices and windows stay.", confirm: "Clear") {
             app.usage.clearHistory()
         }
     }

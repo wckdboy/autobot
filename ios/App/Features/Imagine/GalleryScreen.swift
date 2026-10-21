@@ -43,7 +43,7 @@ struct GalleryScreen: View {
     @State private var openedInitial = false
 
     var body: some View {
-        let _ = InkProbe.hit("body.gallery")
+        let _ = RenderProbe.hit("body.gallery")
         let all = app.gallery.items
         let items = all.filter { item in
             (!favoritesOnly || item.favorite) &&

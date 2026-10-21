@@ -59,23 +59,12 @@ enum Destination: Hashable {
     case nodeBot(providerId: String, name: String)
 }
 
-/// The Creative Studio's rooms (its own bar while the Studio is open).
+/// The Creative Studio's rooms (its own tabs while the Studio is open).
 enum StudioRoom: String, CaseIterable, Hashable {
     case image, audio, video, workflows, library
 
     var label: String { rawValue }
-
-    /// Darkroom for image and video, paper for the library, the app's theme elsewhere.
-    var surface: StudioSurface {
-        switch self {
-        case .image, .video: .darkroom
-        case .library: .paper
-        case .audio, .workflows: .app
-        }
-    }
 }
-
-enum StudioSurface { case darkroom, paper, app }
 
 /// A stack of screens per tab; [path] is the selected tab's.
 @MainActor

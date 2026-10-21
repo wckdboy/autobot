@@ -450,7 +450,7 @@ struct AssetThumb: View {
     @State private var peaks: [Float] = []
 
     var body: some View {
-        let _ = InkProbe.hit("body.assetThumb")
+        let _ = RenderProbe.hit("body.assetThumb")
         // A recycled cell shows its cached thumbnail in the first frame (no blank flash, no reload).
         let shown = image ?? (asset.type == .audio ? nil : StudioThumbs.get(asset.id))
         ZStack {
@@ -472,7 +472,7 @@ struct AssetThumb: View {
             if asset.type == .audio {
                 peaks = await app.studio.waveform(asset)
             } else if StudioThumbs.get(asset.id) == nil {
-                InkProbe.hit("studio.thumbLoad")
+                RenderProbe.hit("studio.thumbLoad")
                 image = await app.studio.thumbnail(asset)
             }
         }

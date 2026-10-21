@@ -86,7 +86,7 @@ struct AccountsScreen: View {
             .formStyle(.grouped)
             .scrollDismissesKeyboard(.interactively)
         }
-        .risoAlert(
+        .confirmAlert(
             $confirmMature,
             title: "Are you 18 or older?",
             message: "Mature models and their (blurred) previews will appear in Civitai results. Content flagged as depicting minors or real people is never shown.",

@@ -28,7 +28,7 @@ struct SettingsScreen: View {
         }
         .sheet(isPresented: $showBackup) { BackupSheet() }
         .sheet(isPresented: $showSearch) { WebSearchSheet { showSearch = false } }
-        .risoAlert(
+        .confirmAlert(
             $confirmDeleteChats,
             title: SettingsWords.shared.DELETE_ALL_TITLE,
             message: SettingsWords.shared.DELETE_ALL_TEXT,

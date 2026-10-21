@@ -19,7 +19,7 @@ struct LibraryRoom: View {
     @State private var pair: ComparePair?
 
     var body: some View {
-        let _ = InkProbe.hit("body.library")
+        let _ = RenderProbe.hit("body.library")
         let studio = app.studio
         let types: Set<AssetType> = switch type {
         case "image": [.image]
@@ -196,10 +196,10 @@ private struct AssetDetail: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Close") { onClose(.done) } } }
         }
-        .risoAlert($confirmExport, title: "Export unencrypted copy?",
+        .confirmAlert($confirmExport, title: "Export unencrypted copy?",
                    message: a.type == .audio ? "The clip is saved where you choose, outside Autobot's encryption." : "A copy is saved to your photo library, outside Autobot's encryption.",
                    confirm: "Export", destructive: false) { export(a) }
-        .risoAlert($confirmDelete, title: "Delete \(a.type.name.lowercased())?", message: "The encrypted file and its recipe are removed. This cannot be undone.", confirm: "Delete") {
+        .confirmAlert($confirmDelete, title: "Delete \(a.type.name.lowercased())?", message: "The encrypted file and its recipe are removed. This cannot be undone.", confirm: "Delete") {
             studio.deleteAsset(a.id)
             onClose(.done)
         }

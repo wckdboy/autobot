@@ -301,7 +301,7 @@ struct ModelsScreen: View {
     @State private var model = ModelsModel()
 
     var body: some View {
-        let _ = InkProbe.hit("body.models")
+        let _ = RenderProbe.hit("body.models")
         let installedIds = Set(app.library.models.map(\.id))
         @Bindable var model = model
         VStack(spacing: 0) {

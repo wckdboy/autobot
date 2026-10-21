@@ -94,7 +94,7 @@ struct ReleaseSurfacesSnapshotTests {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
-        let root = Background(content: view).environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(mode)
+        let root = Background(content: view).environment(app).environment(nav).autobotTheme(mode)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         try await Task.sleep(for: .milliseconds(dir == nil ? 300 : 1500))
@@ -109,7 +109,6 @@ struct ReleaseSurfacesSnapshotTests {
 
     private struct Background<Content: View>: View {
         let content: Content
-        @Environment(\.scheme) private var c
-        var body: some View { content.background(c.background.ignoresSafeArea()) }
+        var body: some View { content.background(Color(.systemBackground).ignoresSafeArea()) }
     }
 }

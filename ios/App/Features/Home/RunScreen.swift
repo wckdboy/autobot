@@ -118,7 +118,7 @@ struct RunScreen: View {
     @State private var digest = NodeDigestModel()
 
     var body: some View {
-        let _ = InkProbe.hit("body.run")
+        let _ = RenderProbe.hit("body.run")
         let state = RunState(app: app, device: device)
         List {
             Section {

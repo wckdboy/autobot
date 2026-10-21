@@ -89,7 +89,7 @@ struct ChatListScreen: View {
     }
 
     var body: some View {
-        let _ = InkProbe.hit("body.chatList")
+        let _ = RenderProbe.hit("body.chatList")
         let m = model
         let loaded = app.dataLoaded
         list(m)
@@ -535,7 +535,7 @@ private struct ConversationRow: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool { a.item == b.item && a.selecting == b.selecting && a.selected == b.selected }
 
     var body: some View {
-        let _ = InkProbe.hit("body.conversationRow")
+        let _ = RenderProbe.hit("body.conversationRow")
         let minute = MinuteTicker.shared.now
         Button(action: onClick) {
             HStack(spacing: 12) {

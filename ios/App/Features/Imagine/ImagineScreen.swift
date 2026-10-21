@@ -21,7 +21,7 @@ struct ImagineScreen: View {
     @State private var viewer: ImageViewerTarget?
 
     var body: some View {
-        let _ = InkProbe.hit("body.imagine")
+        let _ = RenderProbe.hit("body.imagine")
         Group {
             if let model {
                 content(model)

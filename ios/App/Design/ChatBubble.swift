@@ -16,7 +16,7 @@ struct ChatBubble<Footer: View>: View {
     @State private var link: URL?
 
     var body: some View {
-        let _ = InkProbe.hit("body.chatBubble")
+        let _ = RenderProbe.hit("body.chatBubble")
         let blocks = MarkdownCache.shared.blocks(text)
         VStack(alignment: .leading, spacing: 8) {
             MarkdownBlocks(blocks: blocks)

@@ -127,8 +127,8 @@ func decodeImage(_ data: Data, maxSide: CGFloat? = nil) async -> UIImage? {
     }.value
 }
 
-/// Riso confirmation dialog (Material AlertDialog look): title, text, actions.
-struct RisoAlert: ViewModifier {
+/// A system confirmation alert: title, text, a confirm action (destructive by default) and Cancel.
+struct ConfirmAlert: ViewModifier {
     @Binding var isPresented: Bool
     let title: String
     let message: String
@@ -147,7 +147,7 @@ struct RisoAlert: ViewModifier {
 }
 
 extension View {
-    func risoAlert(_ isPresented: Binding<Bool>, title: String, message: String, confirm: String, destructive: Bool = true, onConfirm: @escaping () -> Void) -> some View {
-        modifier(RisoAlert(isPresented: isPresented, title: title, message: message, confirm: confirm, destructive: destructive, onConfirm: onConfirm))
+    func confirmAlert(_ isPresented: Binding<Bool>, title: String, message: String, confirm: String, destructive: Bool = true, onConfirm: @escaping () -> Void) -> some View {
+        modifier(ConfirmAlert(isPresented: isPresented, title: title, message: message, confirm: confirm, destructive: destructive, onConfirm: onConfirm))
     }
 }
