@@ -172,6 +172,8 @@ final class SettingsStore {
     func setMemoryEnabled(_ enabled: Bool) { update { $0.memoryEnabled = enabled } }
     func setVaultEnabled(_ enabled: Bool) { update { $0.vaultEnabled = enabled } }
     func setQuotaFallback(_ enabled: Bool) { update { $0.quotaFallback = enabled } }
+    /// Generative UI (`show_ui` in the phone's chats, Settings `generative_ui`); on by default.
+    func setGenerativeUi(_ enabled: Bool) { update { $0.generativeUi = enabled } }
     func setRedactCloud(_ enabled: Bool) { update { $0.redactCloud = enabled } }
     func setCascade(_ policy: String) { update { $0.cascade = policy } }
     func setSpeculativeMode(_ id: String) { update { $0.speculativeMode = SettingsSchema.shared.speculativeMode(value: id).id } }

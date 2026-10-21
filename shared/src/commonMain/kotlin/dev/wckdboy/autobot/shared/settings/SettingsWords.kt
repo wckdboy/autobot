@@ -14,6 +14,7 @@ object SettingsWords {
     const val WEB_SEARCH = "Used by chats with agent tools on. Only the query is sent, through your network route."
     const val OFFLINE_BLOCKS_SEARCH = "Offline mode blocks searches"
     const val QUOTA_FALLBACK = "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so."
+    const val GENERATIVE_UI = "Lets the on-device agent show forms and choices in phone chats."
     const val DELETE_ALL_TITLE = "Delete all chats?"
     const val DELETE_ALL_TEXT = "Every chat is removed from this phone. Folders, memory and files stay."
     const val DELETE_ALL_CONFIRM = "Delete all"

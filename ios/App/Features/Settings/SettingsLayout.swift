@@ -24,7 +24,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var rows: [SettingsRow] {
         switch self {
         case .privacy: [.privacyCenter, .appLock, .appPin, .incognito, .redactCloud, .cascade, .panicWipe]
-        case .agent: [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .usage, .mcpServers, .recipes]
+        case .agent: [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .generativeUi, .usage, .mcpServers, .recipes]
         case .appearance: [.theme, .amoled]
         case .data: [.exportImport, .deleteAll]
         case .about: [.about]
@@ -34,7 +34,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 enum SettingsRow: String, CaseIterable, Identifiable {
     case privacyCenter, appLock, appPin, incognito, redactCloud, cascade, panicWipe
-    case memory, memoryNotes, vault, webSearch, quotaFallback, usage, mcpServers, recipes
+    case memory, memoryNotes, vault, webSearch, quotaFallback, generativeUi, usage, mcpServers, recipes
     case theme, amoled
     case exportImport, deleteAll
     case about
@@ -56,6 +56,7 @@ enum SettingsRow: String, CaseIterable, Identifiable {
         case .vault: "Vault"
         case .webSearch: "Web search"
         case .quotaFallback: "Fallback on limit"
+        case .generativeUi: "Generative UI"
         case .usage: "Usage"
         case .mcpServers: "MCP servers"
         case .recipes: "Recipes"

@@ -89,6 +89,8 @@ data class SettingsUiState(
     val memoryEnabled: Boolean = false,
     val vaultEnabled: Boolean = false,
     val quotaFallback: Boolean = false,
+    /** Generative UI (`show_ui`, Settings `generative_ui`): on by default. */
+    val generativeUi: Boolean = true,
     val redactCloud: Boolean = true,
     val cascade: CascadePolicy = CascadePolicy.DEFAULT,
     val searchProvider: SearchProvider = SearchProvider.NONE,
@@ -136,6 +138,7 @@ class SettingsViewModel @Inject constructor(
             memoryEnabled = it.memoryEnabled,
             vaultEnabled = it.vaultEnabled,
             quotaFallback = it.quotaFallback,
+            generativeUi = it.generativeUi,
             redactCloud = it.redactCloud,
             cascade = it.cascade,
             searchProvider = it.searchProvider,
@@ -153,6 +156,7 @@ class SettingsViewModel @Inject constructor(
     fun setIncognitoByDefault(enabled: Boolean) = launch { settings.setIncognitoByDefault(enabled) }
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
+    fun setGenerativeUi(enabled: Boolean) = launch { settings.setGenerativeUi(enabled) }
     fun setRedactCloud(enabled: Boolean) = launch { settings.setRedactCloud(enabled) }
     fun setCascade(policy: CascadePolicy) = launch { settings.setCascade(policy) }
 
@@ -264,6 +268,7 @@ fun SettingsRoute(
         onOpenVault = onOpenVault,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
+        onGenerativeUi = viewModel::setGenerativeUi,
         onRedactCloud = viewModel::setRedactCloud,
         onCascade = viewModel::setCascade,
         onOpenUsage = onOpenUsage,
@@ -298,6 +303,7 @@ fun SettingsScreen(
     onOpenVault: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
+    onGenerativeUi: (Boolean) -> Unit = {},
     onRedactCloud: (Boolean) -> Unit = {},
     onCascade: (CascadePolicy) -> Unit = {},
     onOpenUsage: () -> Unit = {},
@@ -368,6 +374,7 @@ fun SettingsScreen(
                     NoticeCard(SettingsWords.OFFLINE_BLOCKS_SEARCH, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), tone = NoticeTone.ERROR)
                 }
                 SwitchItem("Fallback on limit", state.quotaFallback, onQuotaFallback, info = SettingsWords.QUOTA_FALLBACK)
+                SwitchItem("Generative UI", state.generativeUi, onGenerativeUi, info = SettingsWords.GENERATIVE_UI)
                 NavListItem("Usage", onOpenUsage)
                 NavListItem("MCP servers", onOpenMcpServers)
                 NavListItem("Recipes", onOpenRecipes)

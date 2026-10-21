@@ -2,6 +2,9 @@ package dev.wckdboy.autobot.feature.settings
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -56,7 +59,7 @@ class SettingsStructureTest {
         // (not "SYSTEM": that is now only the theme option)
         compose.onNodeWithText("Settings").assertIsDisplayed()
         for (section in SettingsSections) compose.onNodeWithText(section).performScrollTo().assertIsDisplayed()
-        for (row in listOf("Privacy Center", "App lock", "Redact before cloud", "Phone first", "Panic wipe", "Memory", "Memory notes", "Vault", "Web search", "Fallback on limit", "Usage", "MCP servers", "Export & import", "Delete all chats")) {
+        for (row in listOf("Privacy Center", "App lock", "Redact before cloud", "Phone first", "Panic wipe", "Memory", "Memory notes", "Vault", "Web search", "Fallback on limit", "Generative UI", "Usage", "MCP servers", "Export & import", "Delete all chats")) {
             compose.onNodeWithText(row).performScrollTo().assertIsDisplayed()
         }
         compose.onNodeWithText("Direct").performScrollTo().assertIsDisplayed()
@@ -81,6 +84,27 @@ class SettingsStructureTest {
         compose.onAllNodesWithText(CascadePolicy.OFF.detail, substring = true).assertCountEquals(0)
         compose.onNodeWithContentDescription("About Phone first").performScrollTo().performClick()
         compose.onNodeWithText(SettingsWords.cascade).assertIsDisplayed()
+    }
+
+    @Test
+    fun generativeUiSwitchIsOnByDefaultAndExplainsItself() {
+        var turned: Boolean? = null
+        compose.setContent {
+            Themed {
+                SettingsScreen(
+                    state = SettingsUiState(),
+                    onBack = null, onOpenPrivacyCenter = {}, onThemeMode = {}, onAmoled = {},
+                    onDynamicColor = {}, onAppLock = {}, onLockTimeout = {}, onIncognitoByDefault = {},
+                    onGenerativeUi = { turned = it },
+                )
+            }
+        }
+        assertEquals(true, SettingsUiState().generativeUi)
+        compose.onNode(hasText("Generative UI") and isToggleable())
+            .performScrollTo().assertIsOn().performClick()
+        assertEquals(false, turned)
+        compose.onNodeWithContentDescription("About Generative UI").performScrollTo().performClick()
+        compose.onNodeWithText(SettingsWords.GENERATIVE_UI).assertIsDisplayed()
     }
 
     @Test

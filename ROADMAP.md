@@ -112,9 +112,10 @@ session exported on Android opens on iOS.
   tool, not subagents or recipes), and `:core:a2ui`,
   a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
   video and audio open in the browser). iOS (in review): the SwiftUI renderer (system controls,
-  Liquid Glass) in the phone chats over the same shared tool, replay and lock rules, images on
-  tap through the policy-bound client. Still to do: an in-app media player, a Settings switch,
-  `callRendererFunction` and custom catalogs' functions)*
+  Liquid Glass, the brand purple tint) in the phone chats over the same shared tool, replay and
+  lock rules, images on tap through the policy-bound client. Both on the native kits (Material 3
+  Expressive, NativeKit), with a Generative UI switch in Settings › Agent on both. Still to do:
+  an in-app media player, `callRendererFunction` and custom catalogs' functions)*
   An eval (`:shared:a2uiEval`, 33 phone-chat tasks) measures the on-device risk. With the first
   `show_ui` (a string argument holding the JSON) Qwen3 4B/1.7B and Llama 3.2 3B got valid UI
   within 3 tries in 0-6% of tasks. `show_ui` now takes `messages` as a JSON array, repairs what
