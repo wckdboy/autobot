@@ -83,7 +83,7 @@ private struct ListView: View {
 
     var body: some View {
         let last = start + items.count - 1
-        let markerWidth: CGFloat = ordered ? CGFloat(String(last).count) * digit + 14 : 18
+        let markerWidth: CGFloat = items.contains { $0.task != nil } ? digit * 2 + 10 : ordered ? CGFloat(String(last).count) * digit + 14 : 18
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 HStack(alignment: .firstTextBaseline, spacing: 0) {

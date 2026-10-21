@@ -18,7 +18,6 @@ private let notices: [LicenseNotice] = [
     LicenseNotice(id: "mlsd-ack", title: "ml-stable-diffusion acknowledgements", detail: "Third-party notices of the Core ML pipeline", license: "various", file: "ml-stable-diffusion-ACKNOWLEDGEMENTS"),
     LicenseNotice(id: "stable-audio", title: "Stable Audio Open Small", detail: "Powered by Stability AI · on-device text to audio (downloaded, not bundled) · This Stability AI Model is licensed under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved", license: "Stability AI Community", file: "StableAudio-Stability-AI-Community"),
     LicenseNotice(id: "kotlin", title: "Kotlin, kotlinx.coroutines, kotlinx.serialization, Okio", detail: "Shared agent runtime (Kotlin Multiplatform) · JetBrains s.r.o., Square, Inc. and contributors", license: "Apache-2.0", file: "Apache-2.0"),
-    LicenseNotice(id: "antonio", title: "Antonio", detail: "Display typeface · Vernon Adams", license: "OFL-1.1", file: "Antonio-OFL"),
     LicenseNotice(id: "jbmono", title: "JetBrains Mono", detail: "Label and code typeface · JetBrains", license: "OFL-1.1", file: "JetBrainsMono-OFL"),
 ]
 

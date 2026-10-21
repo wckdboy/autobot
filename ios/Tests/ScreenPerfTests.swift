@@ -9,7 +9,7 @@ import UIKit
  Scrolling and idle cost of the list screens (Models, Sessions, Studio Library, Imagine) and of
  screens hidden under the Studio, measured in the simulator: process and main-thread CPU per
  second, 60 Hz frame pacing (hitches = frames later than 1.5 intervals) and RenderProbe counts per
- second (screen/row body evaluations, ink ticks and draws, thumbnail decodes).
+ second (screen/row body evaluations, thumbnail decodes).
  Skipped unless `AUTOBOT_PERF_DIR` is set (`TEST_RUNNER_AUTOBOT_PERF_DIR=…`); writes screens.json.
  */
 @MainActor

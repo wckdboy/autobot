@@ -39,10 +39,7 @@ targets:
       - path: App
         excludes:
           - "**/.DS_Store"
-      # Fonts are referenced from the Android design system (single source, not copied).
-      - path: ../core/designsystem/src/main/res/font/antonio.ttf
-        group: App/Resources/Fonts
-        buildPhase: resources
+      # The wordmark's font is referenced from the Android design system (single source, not copied).
       - path: ../core/designsystem/src/main/res/font/jetbrains_mono.ttf
         group: App/Resources/Fonts
         buildPhase: resources
@@ -97,7 +94,6 @@ targets:
               # A pairing code for "My node" (Invincible): opens the pairing sheet, never pairs by itself.
               - invincible
         UIAppFonts:
-          - antonio.ttf
           - jetbrains_mono.ttf
         UILaunchScreen:
           UIColorName: LaunchBackground

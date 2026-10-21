@@ -180,7 +180,7 @@ enum DemoSeed {
         try? sessions.appendJSON(c.id, lines.enumerated().map { (seq: Int64($0.offset), json: $0.element) })
     }
 
-    /// A soft abstract image (gradients and a disc) so halftone previews have something to sample.
+    /// A soft abstract image (gradients and a disc) so previews and thumbnails have something to show.
     private static func render(seed: Int, side: CGFloat = 512) -> Data? {
         let palettes: [[UIColor]] = [
             [.init(red: 0.93, green: 0.45, blue: 0.30, alpha: 1), .init(red: 0.15, green: 0.18, blue: 0.22, alpha: 1)],

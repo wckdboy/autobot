@@ -145,7 +145,6 @@ struct ChatScreen: View {
     @State private var showChanges = false
     @State private var showThink = false
     @State private var showCascade = false
-    /// Which transcript items are new since the screen loaded (they ink in).
 
     /// The chat's model when it runs on this device through llama.cpp (not Apple Intelligence).
     private var localModelToPrepare: String? {
@@ -737,7 +736,7 @@ private struct StepRow: View {
                     .textSelection(.enabled)
             }
             if tool.name == "generate_image" && (tool.state == .running || !tool.galleryIds.isEmpty) {
-                // The agent's job draws the same ink plate as Imagine, then prints its first image.
+                // The agent's job: a spinner and the latent preview, then its first image.
                 HStack(alignment: .top, spacing: 6) {
                     VStack(alignment: .leading, spacing: 4) {
                         AgentProof(tool: tool, model: model).onTapGesture { if let id = tool.galleryIds.first { open(id) } }
@@ -1515,7 +1514,7 @@ private struct VoicePanel: View {
 }
 
 /**
- The words heard so far, live: settled words in ink, the still-changing tail faded. Observes
+ The words heard so far, live: settled words in the primary colour, the still-changing tail faded. Observes
  [words] on its own, so each transcription re-renders this line only. Shows the newest
  [maxChars] characters; nothing until a word is heard.
  */
@@ -1540,7 +1539,7 @@ private struct LiveWordsLine: View {
     }
 }
 
-/// Microphone peaks as riso bars, newest on the right, easing toward each new peak (no jitter);
+/// Microphone peaks as bars, newest on the right, easing toward each new peak (no jitter);
 /// a flat rule when not listening.
 private struct LevelMeter: View {
     /// Observed here only: ~10 updates a second re-render the meter, not the chat screen.
