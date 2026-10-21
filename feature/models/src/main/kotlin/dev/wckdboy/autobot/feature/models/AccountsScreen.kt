@@ -5,10 +5,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.ui.semantics.Role
+import dev.wckdboy.autobot.core.designsystem.component.Choices
 import dev.wckdboy.autobot.core.designsystem.component.AppBar
 import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.Centered
@@ -182,15 +180,7 @@ fun AccountsRoute(onBack: () -> Unit, viewModel: AccountsViewModel = hiltViewMod
                         OutlinedButton(onClick = viewModel::signOutCivitai) { Text("Remove key") }
                     }
                     Text("Host", style = MaterialTheme.typography.labelLarge)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        CivitaiHost.entries.forEachIndexed { i, host ->
-                            SegmentedButton(
-                                selected = state.accounts.civitaiHost == host,
-                                onClick = { viewModel.setHost(host) },
-                                shape = SegmentedButtonDefaults.itemShape(i, CivitaiHost.entries.size),
-                            ) { Text(host.host) }
-                        }
-                    }
+                    Choices(CivitaiHost.entries, state.accounts.civitaiHost, viewModel::setHost, Modifier.fillMaxWidth()) { it.host }
                     Row(
                         Modifier.fillMaxWidth().toggleable(
                             value = state.accounts.showMature,

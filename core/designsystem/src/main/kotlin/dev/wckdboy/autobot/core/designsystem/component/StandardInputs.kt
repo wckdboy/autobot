@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -23,8 +25,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 
 /*
@@ -98,8 +103,10 @@ fun SearchField(value: String, onValueChange: (String) -> Unit, placeholder: Str
 }
 
 /**
- * A single choice among a few short options: Material's segmented buttons. At a large font, where
- * the segments would break their words, the options wrap as [ChoiceChips] instead.
+ * A single choice among a few short options: Material's segmented buttons, without the check
+ * mark (the fill says which). A label stays on one line and steps its size down before it would
+ * break a word ("Workspace-writ / e" on a phone); at a large font, where the segments would
+ * break their words anyway, the options wrap as [ChoiceChips] instead.
  */
 @Composable
 fun <T> Choices(options: List<T>, selected: T, onSelect: (T) -> Unit, modifier: Modifier = Modifier, label: (T) -> String) {
@@ -114,11 +121,27 @@ fun <T> Choices(options: List<T>, selected: T, onSelect: (T) -> Unit, modifier: 
                 onClick = { onSelect(option) },
                 shape = SegmentedButtonDefaults.itemShape(index, options.size),
                 icon = {},
-                label = { Text(label(option)) },
+                label = { SegmentLabel(label(option)) },
             )
         }
     }
 }
+
+/** One segment's label: one line, shrinking (down to [SEGMENT_MIN]) rather than wrapping. */
+@Composable
+internal fun SegmentLabel(text: String) {
+    val style = LocalTextStyle.current
+    Text(
+        text,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center,
+        autoSize = if (style.fontSize.isSp) TextAutoSize.StepBased(minFontSize = SEGMENT_MIN, maxFontSize = style.fontSize, stepSize = 0.5.sp) else null,
+    )
+}
+
+private val SEGMENT_MIN = 10.sp
 
 /**
  * A single choice among options too many or too long for segments: Material filter chips that
