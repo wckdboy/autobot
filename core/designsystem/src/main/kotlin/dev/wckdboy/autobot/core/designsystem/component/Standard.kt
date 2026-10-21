@@ -37,8 +37,9 @@ import androidx.compose.ui.unit.sp
  *
  * - Standard.kt: titles, labels, chips, widths, the long press.
  * - StandardLists.kt: the app bar, list items, cards, figures.
- * - StandardFeedback.kt: notices, empty states, loading.
+ * - StandardFeedback.kt: notices, empty states, loading, progress.
  * - StandardInputs.kt: fields, search, single choices.
+ * - StandardControls.kt: sliders, steppers, dropdowns.
  * - StandardComposer.kt: the chat composer.
  */
 

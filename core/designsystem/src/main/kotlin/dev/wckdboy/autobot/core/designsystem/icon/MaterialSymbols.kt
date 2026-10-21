@@ -33,4 +33,7 @@ object MaterialSymbols {
 
     /** Stacked layers: the Studio (SF Symbols `square.stack`). */
     val Stacks: ImageVector by lazy { symbol("Stacks", "M480,560L40,320L480,80L920,320L480,560ZM480,720L63,493L147,447L480,629L813,447L897,493L480,720ZM480,880L63,653L147,607L480,789L813,607L897,653L480,880ZM480,469L753,320L480,171L207,320L480,469ZM480,320L480,320L480,320L480,320L480,320Z") }
+
+    /** remove: the minus of a stepper. */
+    val Remove: ImageVector by lazy { symbol("Remove", "M200,520L200,440L760,440L760,520L200,520Z") }
 }

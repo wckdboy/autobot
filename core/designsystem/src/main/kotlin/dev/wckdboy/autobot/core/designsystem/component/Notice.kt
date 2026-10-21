@@ -23,7 +23,6 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import java.util.Locale
 
-enum class NoticeTone { INFO, WARNING, ERROR }
 
 /**
  * Why something is empty or not working, and the one tap that fixes it ("Offline mode is on ·
