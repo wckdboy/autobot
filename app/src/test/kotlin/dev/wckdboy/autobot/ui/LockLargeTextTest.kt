@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.ui
 
 import android.app.Application
+import android.content.ComponentName
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createComposeRule
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.Themed
@@ -9,6 +11,10 @@ import dev.wckdboy.autobot.shared.panic.PanicCopy
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -23,8 +29,19 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [35], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class LockLargeTextTest {
+    private val compose = createComposeRule()
+
+    // The app's manifest does not declare the compose test host (ui-test-manifest merges only
+    // into libraries' test manifests): register it before the compose rule launches it.
     @get:Rule
-    val compose = createComposeRule()
+    val rules: RuleChain = RuleChain.outerRule(
+        object : ExternalResource() {
+            override fun before() {
+                val app = RuntimeEnvironment.getApplication()
+                shadowOf(app.packageManager).addActivityIfNotPresent(ComponentName(app, ComponentActivity::class.java))
+            }
+        },
+    ).around(compose)
 
     private val warned = LockStatus(failures = 8, remaining = 2, warn = true, waitMillis = 0)
 
