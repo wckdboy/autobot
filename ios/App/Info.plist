@@ -55,16 +55,26 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCalendarsUsageDescription</key>
+	<string>The harness can add calendar events when you approve each request.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo for the agent on your node. It is downscaled on this phone and sent without its location.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>The harness can look up contacts you ask about, one request at a time, with your approval.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unlock Autobot with Face ID. Your conversations are encrypted on this device.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Reach image backends and model servers you configure on your own network.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>The harness can answer where you are when you ask, and only when you approve.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Dictation is transcribed on this phone. Audio is never stored or sent anywhere.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Export saves an unencrypted copy of an image you choose to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>The harness can read a photo you choose, and only after you approve that request.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>The harness can add reminders when you approve each request.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>antonio.ttf</string>
