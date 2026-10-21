@@ -469,7 +469,7 @@ struct BlankChatRegressionTests {
         let nav = Navigator()
         let conversation = app.conversations.create(incognito: true, providerId: nil, model: "m")
         #expect(app.agent.existingSession(conversation.id) == nil)
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: ChatScreen(conversationId: conversation.id).environment(app).environment(nav).autobotTheme(.dark))
         window.makeKeyAndVisible()

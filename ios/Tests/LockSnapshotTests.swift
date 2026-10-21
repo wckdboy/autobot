@@ -31,7 +31,7 @@ struct LockSnapshotTests {
     }
 
     private func snapshot(_ view: some View, _ mode: Autobot.ThemeMode, _ name: String) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
         window.rootViewController = UIHostingController(rootView: view.autobotTheme(mode))

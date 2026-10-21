@@ -80,10 +80,76 @@ struct ScreenPerfTests {
         }
     }
 
+    /// The process footprint after every screen was shown once in the navigation host (demo-sized
+    /// data), and after leaving them all: what stays resident once the screens are gone.
+    @Test(.timeLimit(.minutes(5))) func memoryAcrossScreens() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["AUTOBOT_PERF_DIR"] else { return }
+        let app = AppContainer()
+        await app.unlockData()
+        let nav = Navigator()
+        var chat = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
+        chat.title = "Memory transcript"
+        app.conversations.update(chat)
+        app.agent.preview(chat.id, state: MotionPerfTests.richState(chat.id))
+        let scene = try await TestScene.first()
+        let others = scene.windows.filter { !$0.isHidden }
+        others.forEach { $0.isHidden = true }
+        defer { others.forEach { $0.isHidden = false } }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: AutobotNavHost().environment(\.scenePhase, .active).environment(app).environment(nav).autobotTheme(.dark))
+        window.makeKeyAndVisible()
+        try await Task.sleep(for: .milliseconds(1000))
+        let start = Self.footprintMB()
+        let stops: [(Autobot.Tab, [Destination])] = [
+            (.run, [.chatList]), (.run, [.chat(conversationId: chat.id)]), (.run, [.imagine()]), (.run, [.gallery()]),
+            (.models, []), (.models, [.compute]), (.models, [.accounts]), (.remote, []), (.remote, [.providers]),
+            (.settings, []), (.settings, [.privacyCenter]), (.settings, [.about]), (.settings, [.licenses]), (.settings, [.memory]),
+            (.settings, [.vault]), (.settings, [.usage]), (.settings, [.recipes]), (.settings, [.mcpServers]),
+        ]
+        var peak = start
+        var steps: [String] = []
+        var afterPasses: [Double] = []
+        // Twice: what the first pass leaves is caches; what a second pass adds again is a leak.
+        for _ in 0 ..< 2 {
+            for (tab, path) in stops {
+                let before = Self.footprintMB()
+                nav.reset(tab, path)
+                try await Task.sleep(for: .milliseconds(600))
+                let now = Self.footprintMB()
+                peak = max(peak, now)
+                steps.append(String(format: "%@%@ %+.1f", tab.rawValue, path.first.map { "/\(String(describing: $0).prefix(24))" } ?? "", now - before))
+            }
+            nav.studio = .image
+            try await Task.sleep(for: .milliseconds(800))
+            peak = max(peak, Self.footprintMB())
+            nav.studio = nil
+            for tab in Autobot.Tab.allCases { nav.reset(tab, []) }
+            nav.tab = .run
+            try await Task.sleep(for: .milliseconds(1500))
+            afterPasses.append(Self.footprintMB())
+        }
+        let end = afterPasses.last ?? 0
+        print("PERF memory steps", steps.joined(separator: " | "))
+        window.isHidden = true
+        window.rootViewController = nil
+        let line = String(format: "PERF memory start=%.1fMB peak=%.1fMB afterPass1=%.1fMB afterPass2=%.1fMB", start, peak, afterPasses.first ?? 0, end)
+        print(line)
+        try line.write(to: URL(fileURLWithPath: "\(dir)/memory.txt"), atomically: true, encoding: .utf8)
+    }
+
+    static func footprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return kr == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+    }
+
     // MARK: Harness
 
     private func measure(_ name: String, _ view: some View, _ app: AppContainer, _ nav: Navigator, seconds: Double, scroll: Bool = false) async throws -> Result {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let others = scene.windows.filter { !$0.isHidden }
         others.forEach { $0.isHidden = true }
         defer { others.forEach { $0.isHidden = false } }

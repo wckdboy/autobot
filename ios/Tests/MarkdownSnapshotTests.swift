@@ -15,7 +15,7 @@ struct MarkdownSnapshotTests {
     @Test(.timeLimit(.minutes(2))) func renderRichAnswer() async throws {
         guard let dir else { return }
         for mode in [ThemeMode.dark, .light] {
-            let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+            let scene = try await TestScene.first()
             let window = UIWindow(windowScene: scene)
             window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
             let root = Sample().autobotTheme(mode)

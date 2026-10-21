@@ -52,7 +52,7 @@ struct ChatSnapshotTests {
     }
 
     private func snapshot(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ mode: ThemeMode, _ path: String) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
         let root = RootBackground(content: view).environment(app).environment(nav).autobotTheme(mode)
