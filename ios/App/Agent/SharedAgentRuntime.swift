@@ -198,6 +198,12 @@ final class SharedAgentRuntime: AgentRuntime {
 
     func cancel(_ id: String) { bridge.cancel(sessionId: id) }
 
+    func sendA2uiAction(_ id: String, _ action: A2uiAction) {
+        guard case let .send(surfaceId, name, messageJson, dataModelJson, userMessage) = action else { return }
+        _ = session(id)
+        bridge.sendA2uiAction(sessionId: id, surfaceId: surfaceId, name: name, messageJson: messageJson, dataModelJson: dataModelJson, userMessage: userMessage)
+    }
+
     func answerApproval(_ id: String, callId: String, outcome: ApprovalOutcome) {
         bridge.answerApproval(sessionId: id, callId: callId, outcome: SharedMapping.outcome(outcome))
     }
@@ -618,6 +624,9 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// `web_search` on (settings read per call) or off.
     func setWebSearch(_ source: WebSearchSourceHost?) { bridge.setWebSearch(source: source) }
+
+    /// Generative UI (`show_ui`, Settings `generative_ui`) on or off in every session.
+    func setGenerativeUi(_ enabled: Bool) { bridge.setGenerativeUi(enabled: enabled) }
 
     /// The Studio's `run_workflow` on (the queue runner) or off.
     func setStudio(_ runner: (any StudioRunner)?) { bridge.setStudio(runner: runner) }

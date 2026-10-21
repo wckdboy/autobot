@@ -60,14 +60,20 @@ struct A2uiImageView: View {
 }
 
 /// An image fetched through [a2uiImageLoader]; a neutral placeholder while loading, on failure
-/// and when there is no loader (nothing leaves the device then).
+/// and when there is no loader (nothing leaves the device then). With [a2uiImagesOnTap] (the
+/// chat) nothing is fetched until the user taps the placeholder, which names the image's host.
 struct A2uiRemoteImage: View {
     let url: URL?
     let fit: String
 
     @Environment(\.a2uiImageLoader) private var loader
+    @Environment(\.a2uiImagesOnTap) private var onTap
     @State private var image: UIImage?
     @State private var failed = false
+    /// How often the user asked for this image (only counts with [onTap]; a retry asks again).
+    @State private var attempts = 0
+
+    private var waitsForTap: Bool { onTap && attempts == 0 && loader != nil && url != nil }
 
     var body: some View {
         ZStack {
@@ -80,19 +86,51 @@ struct A2uiRemoteImage: View {
                 }
             } else {
                 Rectangle().fill(.quaternary)
-                Image(systemName: failed || loader == nil || url == nil ? "photo" : "photo.badge.arrow.down")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
+                if waitsForTap || (onTap && failed), let url {
+                    tapToLoad(url)
+                } else {
+                    Image(systemName: failed || loader == nil || url == nil ? "photo" : "photo.badge.arrow.down")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-        .task(id: url) {
+        .task(id: TaskKey(url: url, attempts: attempts)) {
             image = nil
             failed = false
-            guard let url, let loader else { return }
+            guard let url, let loader, !onTap || attempts > 0 else { return }
             if let data = await loader.load(url), let ui = UIImage(data: data) { image = ui } else { failed = true }
         }
+    }
+
+    /// The placeholder as a button: the host it would load from, "Load image" (or "retry").
+    private func tapToLoad(_ url: URL) -> some View {
+        let host = url.host() ?? url.absoluteString
+        return Button {
+            attempts += 1
+        } label: {
+            ViewThatFits {
+                VStack(spacing: 4) {
+                    Image(systemName: "photo").font(.title2)
+                    Text(host).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(failed ? "Couldn't load · retry" : "Load image").font(.caption.weight(.semibold))
+                }
+                .padding(8)
+                Image(systemName: "photo.badge.arrow.down").font(.title3)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+        .accessibilityLabel("Load image from \(host)")
+    }
+
+    private struct TaskKey: Equatable {
+        let url: URL?
+        let attempts: Int
     }
 }
 

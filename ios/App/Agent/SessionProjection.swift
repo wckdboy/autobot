@@ -40,6 +40,8 @@ enum SessionItem: Codable, Equatable, Identifiable, Sendable {
         var undone: Bool? = nil
         /// The revert that undid it, for "Redo".
         var revertId: String? = nil
+        /// The A2UI messages a successful `show_ui` call showed (replayed by [A2uiChatSurfaces]).
+        var a2ui: String? = nil
 
         var isUndone: Bool { undone ?? false }
     }

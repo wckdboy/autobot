@@ -89,6 +89,9 @@ import dev.wckdboy.autobot.shared.vault.VaultHost
 import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import dev.wckdboy.autobot.shared.search.WebSearchSource
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
+import dev.wckdboy.autobot.shared.a2ui.A2uiActionResult
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
+import dev.wckdboy.autobot.shared.a2ui.a2uiPlugin
 import dev.wckdboy.autobot.shared.studio.StudioRunner
 import dev.wckdboy.autobot.shared.studio.studioPlugin
 import dev.wckdboy.autobot.core.network.AuditLog
@@ -1322,6 +1325,17 @@ class AgentBridge(
     @OptIn(ExperimentalTime::class)
     private fun nowMillis(): Long = Clock.System.now().toEpochMilliseconds()
 
+    /**
+     * A tap on a generated UI ([A2uiChat]): the action goes to [sessionId]'s agent as the next
+     * user turn (queued behind a running one); the model reads the A2UI `action` message, the
+     * transcript shows [userMessage] or the action's name in words. The fields are those of the
+     * [A2uiActionResult.SendEvent] the host's dispatch returned.
+     */
+    fun sendA2uiAction(sessionId: String, surfaceId: String, name: String, messageJson: String, dataModelJson: String?, userMessage: String?) {
+        val event = A2uiActionResult.SendEvent(surfaceId, name, messageJson, dataModelJson, userMessage)
+        withAgent(sessionId) { it.queueTurn(A2uiChat.actionMessage(event)) }
+    }
+
     /** Delivers [text] at the next step boundary of the running turn. */
     fun steer(sessionId: String, text: String) = withAgent(sessionId) { it.steer(text) }
 
@@ -1515,6 +1529,7 @@ class AgentBridge(
     private var vaultHandle: Disposable? = null
     private var searchHandle: Disposable? = null
     private var studioHandle: Disposable? = null
+    private var a2uiHandle: Disposable? = null
 
     private class QuotaFallback(val enabled: Boolean, val onDevice: LlmCallConfig?)
 
@@ -1553,6 +1568,16 @@ class AgentBridge(
     fun setWebSearch(source: WebSearchSource?) {
         searchHandle?.dispose()
         searchHandle = source?.let { s -> harness.root.plugin(webSearchPlugin(transport) { withContext(IoDispatcher) { s.config() } }) }
+    }
+
+    /**
+     * Generative UI (Settings `generative_ui`, on by default) on or off: `show_ui` and its prompt
+     * in every session, as Android's `AgentHost` toggles it. The tool itself refuses subagents,
+     * and recipes only offer their allowlisted tools.
+     */
+    fun setGenerativeUi(enabled: Boolean) {
+        a2uiHandle?.dispose()
+        a2uiHandle = if (enabled) harness.root.plugin(a2uiPlugin()) else null
     }
 
     /**

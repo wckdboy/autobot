@@ -483,6 +483,9 @@ private struct TranscriptRow: View, Equatable {
                 }
                 .registerGhost(ghost, color: c.primary)
                 .onAppear { ledger.entered(key) }
+            } else if tool.a2ui != nil {
+                // Generative UI (A2UI): a `show_ui` call draws its surfaces in place of its step row.
+                A2uiToolSurfaces(chat: model.a2ui, conversationId: conversationId, itemKey: tool.key) { model.notice = $0 }
             } else {
                 StepRow(
                     number: number, tool: tool, model: model, running: running,

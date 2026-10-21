@@ -123,6 +123,8 @@ final class A2uiTapOverride {
 extension EnvironmentValues {
     @Entry var a2uiContext: A2uiContext? = nil
     @Entry var a2uiImageLoader: A2uiImageLoader? = nil
+    /// Images wait for the user's tap before anything is fetched (the chat; Android does the same).
+    @Entry var a2uiImagesOnTap = false
     /// The leaf margin (catalog guide §3); 0 inside a Button's label.
     @Entry var a2uiMargin: CGFloat = 4
     @Entry var a2uiTapOverride: A2uiTapOverride? = nil

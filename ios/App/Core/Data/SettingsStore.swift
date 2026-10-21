@@ -36,6 +36,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var cascade = "OFF"
     /// Speculative decoding for on-device chat (`SpeculativeMode` id): "auto" (default), "on" or "off".
     var speculativeMode = "auto"
+    /// Generative UI: the agent may show forms, choices and cards in the phone's chats (`show_ui`, A2UI; on by default).
+    var generativeUi = true
 
     var webSearchOn: Bool { searchProvider != "NONE" }
 
@@ -77,6 +79,7 @@ struct AppSettings: Codable, Equatable, Sendable {
             redactCloud: redactCloud,
             cascade: CascadePolicy.companion.parse(value: cascade) ?? CascadePolicy.off,
             speculativeMode: SettingsSchema.shared.speculativeMode(value: speculativeMode),
+            generativeUi: generativeUi,
         )
         return SettingsSchema.shared.encode(settings: shared)
     }
@@ -102,6 +105,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         redactCloud = s.redactCloud
         cascade = s.cascade.name
         speculativeMode = s.speculativeMode.id
+        generativeUi = s.generativeUi
     }
 }
 
