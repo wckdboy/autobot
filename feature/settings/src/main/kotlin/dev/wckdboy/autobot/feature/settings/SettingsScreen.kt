@@ -22,14 +22,14 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.Choices
-import dev.wckdboy.autobot.feature.settings.ui.NavItem
-import dev.wckdboy.autobot.feature.settings.ui.NoticeCard
-import dev.wckdboy.autobot.feature.settings.ui.Subheader
-import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
-import dev.wckdboy.autobot.feature.settings.ui.Tone
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.NavListItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -315,7 +315,7 @@ fun SettingsScreen(
         Centered(Modifier.padding(padding)) { width ->
             Column(width.fillMaxSize().verticalScroll(rememberScrollState())) {
                 Subheader(privacy)
-                NavItem("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
+                NavListItem("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
                 // An app PIN always locks: the wipe and the duress PIN depend on it.
                 val pinLocks = state.panic.hasPin
                 SwitchItem(
@@ -346,7 +346,7 @@ fun SettingsScreen(
                 SwitchItem("Redact before cloud", state.redactCloud, onRedactCloud, info = SettingsWords.REDACT)
                 ChoiceTitle("Phone first", info = SettingsWords.cascade)
                 Choices(CascadePolicy.entries, state.cascade, onCascade, ChoicesModifier) { it.title }
-                NavItem(
+                NavListItem(
                     "Panic wipe",
                     onPanicWipe,
                     titleColor = MaterialTheme.colorScheme.error,
@@ -356,21 +356,21 @@ fun SettingsScreen(
 
                 Subheader(agent)
                 SwitchItem("Memory", state.memoryEnabled, onMemoryEnabled, info = SettingsWords.MEMORY)
-                NavItem("Memory notes", onOpenMemory)
-                NavItem("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
-                NavItem(
+                NavListItem("Memory notes", onOpenMemory)
+                NavListItem("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
+                NavListItem(
                     "Web search",
                     onOpenWebSearch,
                     value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
                     info = SettingsWords.WEB_SEARCH,
                 )
                 if (state.searchProvider != SearchProvider.NONE && state.offline) {
-                    NoticeCard(SettingsWords.OFFLINE_BLOCKS_SEARCH, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), tone = Tone.ERROR)
+                    NoticeCard(SettingsWords.OFFLINE_BLOCKS_SEARCH, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), tone = NoticeTone.ERROR)
                 }
                 SwitchItem("Fallback on limit", state.quotaFallback, onQuotaFallback, info = SettingsWords.QUOTA_FALLBACK)
-                NavItem("Usage", onOpenUsage)
-                NavItem("MCP servers", onOpenMcpServers)
-                NavItem("Recipes", onOpenRecipes)
+                NavListItem("Usage", onOpenUsage)
+                NavListItem("MCP servers", onOpenMcpServers)
+                NavListItem("Recipes", onOpenRecipes)
 
                 Subheader(appearance)
                 ChoiceTitle("Theme")
@@ -379,11 +379,11 @@ fun SettingsScreen(
                 SwitchItem("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the brand's.")
 
                 Subheader(data)
-                NavItem("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
-                NavItem("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
+                NavListItem("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
+                NavListItem("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
 
                 Subheader(aboutSection)
-                NavItem(about, onOpenAbout)
+                NavListItem(about, onOpenAbout)
                 Spacer(Modifier.height(24.dp))
             }
         }

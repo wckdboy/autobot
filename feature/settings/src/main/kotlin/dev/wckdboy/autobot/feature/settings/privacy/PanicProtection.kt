@@ -25,9 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.feature.settings.ui.NavItem
+import dev.wckdboy.autobot.core.designsystem.component.NavListItem
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
 import dev.wckdboy.autobot.shared.panic.LockRecord
 import dev.wckdboy.autobot.shared.panic.PanicCopy
 import dev.wckdboy.autobot.shared.panic.PinRules
@@ -72,16 +72,16 @@ interface PanicActions {
  */
 @Composable
 fun PanicRows(state: PanicUiState, onOpen: (PanicDialog) -> Unit, onBiometrics: (Boolean) -> Unit, onWipeModels: (Boolean) -> Unit) {
-    NavItem(PanicCopy.PIN_TITLE, { onOpen(PanicDialog.PIN) }, value = PanicCopy.onOff(state.hasPin), info = PanicCopy.PIN_INFO)
+    NavListItem(PanicCopy.PIN_TITLE, { onOpen(PanicDialog.PIN) }, value = PanicCopy.onOff(state.hasPin), info = PanicCopy.PIN_INFO)
     if (!state.hasPin) return
     SwitchItem(PanicCopy.BIOMETRICS_TITLE, state.biometrics, onBiometrics, info = PanicCopy.BIOMETRICS_INFO)
-    NavItem(
+    NavListItem(
         PanicCopy.WIPE_TITLE,
         { onOpen(PanicDialog.WIPE) },
         value = PanicCopy.wipeValue(state.wipeAfter),
         info = "${PanicCopy.WIPE_INFO} ${PanicCopy.CANNOT_UNDO}",
     )
-    NavItem(
+    NavListItem(
         PanicCopy.DURESS_TITLE,
         { onOpen(PanicDialog.DURESS) },
         value = PanicCopy.onOff(state.duress),

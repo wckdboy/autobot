@@ -8,15 +8,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ListItem
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
-import dev.wckdboy.autobot.feature.home.remoteui.AppBar
-import dev.wckdboy.autobot.feature.home.remoteui.Centered
-import dev.wckdboy.autobot.feature.home.remoteui.EmptyMessage
-import dev.wckdboy.autobot.feature.home.remoteui.InfoItem
-import dev.wckdboy.autobot.feature.home.remoteui.Label
-import dev.wckdboy.autobot.feature.home.remoteui.Loading
-import dev.wckdboy.autobot.feature.home.remoteui.NoticeCard
-import dev.wckdboy.autobot.feature.home.remoteui.Subheader
-import dev.wckdboy.autobot.feature.home.remoteui.Tone
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.InfoItem
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -107,7 +107,7 @@ fun BotRow(bot: NodeBot, now: Long, onClick: () -> Unit, modifier: Modifier = Mo
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(bot.name, Modifier.weight(1f))
                 // A large font puts the model with the state lines, where it has the row's width.
-                if (bot.model.isNotEmpty() && !large) Label(bot.model)
+                if (bot.model.isNotEmpty() && !large) TonalLabel(bot.model)
             }
         },
         supportingContent = {
@@ -116,8 +116,8 @@ fun BotRow(bot: NodeBot, now: Long, onClick: () -> Unit, modifier: Modifier = Mo
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                     Text(NodeBots.status(bot), color = MaterialTheme.colorScheme.onSurface)
                     val kinds = NodeBots.kinds(bot)
-                    if (kinds.isNotEmpty()) Label(kinds.joinToString(" · "))
-                    if (bot.model.isNotEmpty() && large) Label(bot.model)
+                    if (kinds.isNotEmpty()) TonalLabel(kinds.joinToString(" · "))
+                    if (bot.model.isNotEmpty() && large) TonalLabel(bot.model)
                 }
                 NodeBots.problem(bot)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Text(NodeBots.meta(bot, now))
@@ -315,13 +315,13 @@ fun NodeBotScreen(
         Centered(Modifier.padding(padding)) { width ->
             LazyColumn(width.fillMaxHeight().testTag("node-bot"), contentPadding = PaddingValues(bottom = 24.dp)) {
                 state.problem?.let {
-                    item(key = "problem") { NoticeCard(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = Tone.WARNING, action = "Retry", onAction = onRefresh) }
+                    item(key = "problem") { NoticeCard(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING, action = "Retry", onAction = onRefresh) }
                 }
                 if (bot == null) {
                     item(key = "empty") {
                         when {
                             state.bots.loading || state.bots.supported == null && state.problem == null -> Loading()
-                            else -> EmptyMessage("There is no bot called ${state.name} on ${state.node}.", action = "Refresh", onAction = onRefresh)
+                            else -> EmptyContent("There is no bot called ${state.name} on ${state.node}.", action = "Refresh", onAction = onRefresh)
                         }
                     }
                     return@LazyColumn

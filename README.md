@@ -53,7 +53,7 @@ Versions move together: Android and iOS ship the same version and build number.
 ```
 
 A behaviour fix in the core lands on both platforms at once; the platforms only move bytes, store
-data and draw the riso UI from the same design tokens (`shared/design/tokens.json`, checked by
+data and draw the UI from the same design tokens (brand purple, type, spacing) (`shared/design/tokens.json`, checked by
 `TokensParityTest` on Android and `TokensTests` on iOS). The parity table is in
 [ios/README.md](ios/README.md).
 
@@ -132,7 +132,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | Module | Responsibility |
 | --- | --- |
 | `:app` | `AutobotApplication` (Hilt), `MainActivity` (FragmentActivity, edge-to-edge, FLAG_SECURE), welcome screen, Navigation 3 `NavDisplay` with the RUN · MODELS · REMOTE · SETTINGS bar, lock screen, manifest and network security config |
-| `:core:designsystem` | Material 3 Expressive theme in the brand purple (MaterialKolor scheme) with the pixel a (`AutobotMark`, `Wordmark`) and the title dot; helpers for screens built from Material components (`TitleWithDot`, `RouteChip`, `TonalLabel`, `ActionBanner`, `EmptyContent`, `longPressAction`, `readingWidth`); Chat, the chat list and Run use these. The riso kit (`RunRow`, `BigReadout`, `Panel`, `Tag`, `Segmented`, sliders, halftone rendering, `AutobotNavBar`, stroke icons) stays for the screens not converted yet |
+| `:core:designsystem` | Material 3 Expressive theme in the brand purple (MaterialKolor scheme) with the brand's two marks: the pixel a (`AutobotMark`, `Wordmark`, Invincible's `NodeMark`) and the purple pixel dot after a top-level title. One kit of standard Material components (`Standard*.kt`): `AppBar`/`TitleWithDot`, list items (`NavListItem`, `SwitchItem`, `InfoItem`, `ActionListItem`), `SectionCard`, `TonalLabel`, `RouteChip`, `NoticeCard`, `EmptyContent`, `Loading`, `Field`, `SearchField`, `Choices`, the chat composer (`MessageComposer`, `SendIconButton`, `StopIconButton`) and Material Symbols for the Run modes. Chat, Run, Remote and the node screens, Settings and Models use it. The retired riso kit (`PrimaryButton`, `Panel`, `Tag`, `Segmented`, sliders, halftone rendering, `AutobotNavBar`) is left only for Imagine, Studio, the lock screens and the welcome until they are converted |
 | `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
 | `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
 | `:core:models` | Android side of model management: `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face / Civitai clients and NPU package plans over the shared hubs, `FileFetcher` (OkHttp bytes for the shared download state machine), `ModelDownloader` + user-initiated transfer job, `ModelLibrary`, accounts |

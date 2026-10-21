@@ -1,15 +1,16 @@
 package dev.wckdboy.autobot.feature.home.node
 
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
-import dev.wckdboy.autobot.core.designsystem.component.ScreenTitle
-import dev.wckdboy.autobot.feature.home.remoteui.BackIcon
-import dev.wckdboy.autobot.feature.home.remoteui.ContentMaxWidth
-import dev.wckdboy.autobot.feature.home.remoteui.Field
-import dev.wckdboy.autobot.feature.home.remoteui.Loading
-import dev.wckdboy.autobot.feature.home.remoteui.NoticeCard
-import dev.wckdboy.autobot.feature.home.remoteui.Tone
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.TextAutoSize
+import dev.wckdboy.autobot.core.designsystem.component.MessageComposer
+import dev.wckdboy.autobot.core.designsystem.component.SendIconButton
+import dev.wckdboy.autobot.core.designsystem.component.TitleWithDot
+import dev.wckdboy.autobot.core.designsystem.component.readingWidth
+import androidx.compose.material.icons.outlined.Warning
+import dev.wckdboy.autobot.core.designsystem.component.BackIcon
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -17,7 +18,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.sp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
@@ -56,16 +56,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.TextButton
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
-import dev.wckdboy.autobot.core.designsystem.component.ComposerBar
-import dev.wckdboy.autobot.core.designsystem.component.SendButton
-import dev.wckdboy.autobot.core.designsystem.component.ComposerButtonSize
 import dev.wckdboy.autobot.core.designsystem.component.keyboardUp
 import dev.wckdboy.autobot.shared.composer.Composer
 import dev.wckdboy.autobot.shared.composer.Composer.Part
@@ -171,7 +167,7 @@ fun NodeAgentScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { ScreenTitle("Agent · ${state.node}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, mark = false, maxLines = 1, autoSize = TextAutoSize.StepBased(minFontSize = 14.sp, maxFontSize = MaterialTheme.typography.titleLarge.fontSize, stepSize = 1.sp)) },
+                title = { TitleWithDot("Agent · ${state.node}", mark = false) },
                 navigationIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BackIcon(onBack)
@@ -198,7 +194,7 @@ fun NodeAgentScreen(
             LazyColumn(
                 state = list,
                 // A reading width on a wide window.
-                modifier = Modifier.weight(1f).widthIn(max = ContentMaxWidth).fillMaxWidth().testTag("node-agent"),
+                modifier = Modifier.weight(1f).readingWidth().fillMaxWidth().testTag("node-agent"),
                 reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
@@ -207,7 +203,7 @@ fun NodeAgentScreen(
                 items(state.rows.asReversed(), key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
                 item(key = "head") {
                     when {
-                        state.problem != null -> NoticeCard(state.problem, tone = Tone.WARNING, action = "Retry", onAction = onRetry)
+                        state.problem != null -> NoticeCard(state.problem, tone = NoticeTone.WARNING, action = "Retry", onAction = onRetry)
                         state.info == null -> Loading()
                         // What the conversation runs with: it steps aside while typing.
                         !Composer.shows(Part.DECOR, keyboard) -> Unit
@@ -225,10 +221,11 @@ fun NodeAgentScreen(
                     }
                 }
             }
-            ComposerBar(
+            MessageComposer(
                 value = draft,
                 onValueChange = { draft = it },
                 placeholder = Composer.placeholder(state.running, node = true),
+                modifier = Modifier.readingWidth(),
                 enabled = state.info != null,
                 maxLines = Composer.MAX_LINES,
                 above = {
@@ -236,12 +233,12 @@ fun NodeAgentScreen(
                         PendingPhotos(state.photos, state.photoProblem, state.encoding, onRemovePhoto)
                     }
                 },
-                leading = {
+                tools = {
                     PhotoButton(enabled = state.info != null && !state.running && state.photos.size + state.encoding < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
                 },
             ) {
                 // The node's agent neither queues nor stops a turn: Send waits for it, and for a photo still being downscaled.
-                SendButton(
+                SendIconButton(
                     onClick = {
                         onSend(draft)
                         draft = ""
@@ -274,14 +271,12 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
                 }
             },
         )
-        is AgentRow.Note -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                (if (row.tone == AgentRow.Tone.TOOL) "› " else "✗ ") + row.text,
-                Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = if (row.tone == AgentRow.Tone.TOOL) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-            )
+        // What the agent did (a tool) or what went wrong: a quiet line with its icon.
+        is AgentRow.Note -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val tool = row.tone == AgentRow.Tone.TOOL
+            val color = if (tool) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+            Icon(if (tool) AutobotIcons.Wrench else Icons.Outlined.Warning, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+            Text(row.text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = color)
             if (retry != null) RetryButton(retry)
         }
         // Quiet: what the agent kept about the owner or the work, on its own.
@@ -356,7 +351,7 @@ private fun PhotoButton(enabled: Boolean, onAttach: (Uri, Boolean) -> Unit, onPr
         shot = null
     }
     Box {
-        IconButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.size(ComposerButtonSize)) {
+        IconButton(onClick = { menu = true }, enabled = enabled) {
             Icon(AutobotIcons.Image, contentDescription = "Attach a photo")
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

@@ -53,13 +53,13 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.material3.ListItem
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.Caption
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.Label
-import dev.wckdboy.autobot.feature.settings.ui.NavItem
-import dev.wckdboy.autobot.feature.settings.ui.Subheader
-import dev.wckdboy.autobot.feature.settings.ui.clearListItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.NavListItem
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -159,7 +159,7 @@ fun AboutScreen(
                         Text("Built ${info.buildDate}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (info.debug) Label("debug", color = MaterialTheme.colorScheme.tertiaryContainer)
+                if (info.debug) TonalLabel("debug", containerColor = MaterialTheme.colorScheme.tertiaryContainer)
             }
             Text(
                 AboutLinks.PRIVACY,
@@ -184,13 +184,13 @@ fun AboutScreen(
             Header("Links")
             LinkRow("All releases", "github.com", onClick = { onOpenLink(AboutLinks.RELEASES) })
             LinkRow("Source code", "github.com", onClick = { onOpenLink(AboutLinks.SOURCE) })
-            NavItem("Licenses", { showLicenses = true }, value = content.licenses.size.takeIf { it > 0 }?.toString())
+            NavListItem("Licenses", { showLicenses = true }, value = content.licenses.size.takeIf { it > 0 }?.toString())
 
             Header("Verify this APK")
             SignerBlock(info, content.signerSha256, content.loaded, onCopy = { clipboard.setText(AnnotatedString(AboutLinks.RELEASE_CERT_SHA256)) })
 
             Header("Support")
-            NavItem("Copy diagnostics", onOpenDiagnostics, info = "A report of this phone's engines and errors, shown before it is copied. No prompts, paths or identifiers.")
+            NavListItem("Copy diagnostics", onOpenDiagnostics, info = "A report of this phone's engines and errors, shown before it is copied. No prompts, paths or identifiers.")
             Spacer(Modifier.height(24.dp))
         }
         }

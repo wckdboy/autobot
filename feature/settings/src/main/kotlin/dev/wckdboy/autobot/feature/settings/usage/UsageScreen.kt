@@ -56,16 +56,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.OutlinedCard
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.Caption
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.Choices
-import dev.wckdboy.autobot.feature.settings.ui.Label
-import dev.wckdboy.autobot.feature.settings.ui.Loading
-import dev.wckdboy.autobot.feature.settings.ui.SectionCard
-import dev.wckdboy.autobot.feature.settings.ui.SheetLabel
-import dev.wckdboy.autobot.feature.settings.ui.Stat
-import dev.wckdboy.autobot.feature.settings.ui.clearListItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.SectionCard
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.Stat
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.usage.LimitUnit
 import dev.wckdboy.autobot.shared.usage.PriceRow
@@ -257,7 +257,7 @@ private fun GroupRow(group: UsageGroup) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(group.model ?: group.name, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (group.onDevice) Label("on device")
+            if (group.onDevice) TonalLabel("on device")
             Text(if (group.onDevice) "$0" else group.sums.costLine, style = MaterialTheme.typography.titleMedium)
         }
         Caption(
@@ -292,9 +292,9 @@ private fun PriceRowView(row: PriceRow, onClick: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(row.model, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             when (row.source) {
-                PriceSource.DEFAULT -> Label("published")
-                PriceSource.YOURS -> Label("yours", color = MaterialTheme.colorScheme.primaryContainer)
-                PriceSource.NONE -> Label("unknown", color = MaterialTheme.colorScheme.tertiaryContainer)
+                PriceSource.DEFAULT -> TonalLabel("published")
+                PriceSource.YOURS -> TonalLabel("yours", containerColor = MaterialTheme.colorScheme.primaryContainer)
+                PriceSource.NONE -> TonalLabel("unknown", containerColor = MaterialTheme.colorScheme.tertiaryContainer)
             }
         }
         Caption(

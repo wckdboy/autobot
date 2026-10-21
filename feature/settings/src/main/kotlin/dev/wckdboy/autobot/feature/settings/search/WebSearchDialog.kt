@@ -28,7 +28,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.WebSearchRepository
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.feature.settings.ui.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.core.security.Secret

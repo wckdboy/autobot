@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -50,6 +52,7 @@ import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
 import dev.wckdboy.autobot.core.designsystem.component.Wordmark
 import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import dev.wckdboy.autobot.core.designsystem.component.readingWidth
+import dev.wckdboy.autobot.core.designsystem.icon.MaterialSymbols
 import dev.wckdboy.autobot.feature.home.node.NodeDigestCard
 import dev.wckdboy.autobot.feature.home.node.NodeDigestCardState
 import dev.wckdboy.autobot.feature.home.node.NodeDigestViewModel
@@ -157,7 +160,7 @@ fun RunScreen(
                 ModeGrid(
                     image = { m ->
                         ModeCard(
-                            "Image", state.imageLabel, state.imageRoute, onOpenImagine, m,
+                            "Image", MaterialSymbols.Image, state.imageLabel, state.imageRoute, onOpenImagine, m,
                             // The last image, as it is, above the words; nothing when there is none.
                             picture = last?.let { image ->
                                 {
@@ -171,12 +174,12 @@ fun RunScreen(
                             },
                         )
                     },
-                    chat = { m -> ModeCard("Chat", state.chat?.label ?: "add a model", state.chat?.route, { if (state.chat != null) actions.start(RunMode.CHAT) else onOpenModels() }, m) },
-                    agent = { m -> ModeCard("Agent", state.agent?.label ?: "add a model", state.agent?.route, { if (state.agent != null) actions.start(RunMode.AGENT) else onOpenModels() }, m) },
-                    code = { m -> ModeCard("Code", state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, m) },
+                    chat = { m -> ModeCard("Chat", MaterialSymbols.Forum, state.chat?.label ?: "add a model", state.chat?.route, { if (state.chat != null) actions.start(RunMode.CHAT) else onOpenModels() }, m) },
+                    agent = { m -> ModeCard("Agent", MaterialSymbols.AutoFixHigh, state.agent?.label ?: "add a model", state.agent?.route, { if (state.agent != null) actions.start(RunMode.AGENT) else onOpenModels() }, m) },
+                    code = { m -> ModeCard("Code", MaterialSymbols.Code, state.code?.label ?: "add a code model", state.code?.route, { if (state.code != null) actions.start(RunMode.CODE) else onOpenModels() }, m) },
                     // Studio: image, audio, video, workflows and the library behind its own bar
                     // (images have their own card, so the line names what else is there).
-                    studio = { m -> ModeCard("Studio", "image · audio · video", null, onOpenStudio, m) },
+                    studio = { m -> ModeCard("Studio", MaterialSymbols.Stacks, "image · audio · video", null, onOpenStudio, m) },
                     modifier = Modifier.readingWidth().fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
                 )
             }
@@ -260,10 +263,14 @@ private fun ModeGrid(
     }
 }
 
-/** A mode: where it runs, a [picture] when there is one, the title and the model, on a filled card. */
+/**
+ * A mode: its [icon] (the Material Symbol matching the iOS app's SF Symbol), where it runs, a
+ * [picture] when there is one, the title and the model, on a filled card.
+ */
 @Composable
 private fun ModeCard(
     title: String,
+    icon: ImageVector,
     subtitle: String,
     route: Route?,
     onClick: () -> Unit,
@@ -276,6 +283,8 @@ private fun ModeCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
             // Where it runs, at the top: the titles below line up across cards with or without one.
             route?.let {
                 RouteChip(it)

@@ -32,8 +32,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
-import dev.wckdboy.autobot.feature.home.remoteui.Loading
-import dev.wckdboy.autobot.feature.home.remoteui.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.semantics.clearAndSetSemantics

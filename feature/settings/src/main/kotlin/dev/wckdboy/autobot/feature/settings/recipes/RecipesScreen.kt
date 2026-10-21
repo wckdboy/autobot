@@ -66,13 +66,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.NoticeCard
-import dev.wckdboy.autobot.feature.settings.ui.SheetLabel
-import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
-import dev.wckdboy.autobot.feature.settings.ui.Tone
-import dev.wckdboy.autobot.feature.settings.ui.clearListItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.recipes.NodeRecipes
 import dev.wckdboy.autobot.shared.recipes.Recipe
@@ -143,7 +143,7 @@ fun RecipesScreen(
         Centered(Modifier.padding(padding)) { width ->
         LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             if (state.loaded && state.models.isEmpty()) {
-                item { NoticeCard(RecipeCopy.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = Tone.WARNING) }
+                item { NoticeCard(RecipeCopy.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING) }
             }
             if (state.loaded && state.recipes.isEmpty()) item { Note(RecipeCopy.EMPTY) }
             state.notice?.let { item { Note(it, MaterialTheme.colorScheme.error) } }

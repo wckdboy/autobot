@@ -21,11 +21,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.Label
-import dev.wckdboy.autobot.feature.settings.ui.Subheader
-import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -264,9 +264,9 @@ private fun AuditRowView(row: AuditRow) {
     // The method as a tonal label; a blocked request says so, in the error container.
     ListItem(
         leadingContent = {
-            Label(
+            TonalLabel(
                 if (row.blocked) "✗ blocked" else row.method,
-                color = if (row.blocked) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+                containerColor = if (row.blocked) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
             )
         },
         headlineContent = {

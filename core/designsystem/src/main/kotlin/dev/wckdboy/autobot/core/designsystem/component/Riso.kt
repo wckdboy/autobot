@@ -85,6 +85,13 @@ import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.Locale
 import kotlin.math.max
 
+/*
+ * The retired riso kit: kept only for the screens not yet moved to Material 3 Expressive
+ * (Imagine, Studio, the lock screens, the welcome). New and converted screens use the kit in
+ * Standard*.kt; the brand marks (AutobotMark, NodeMark, Wordmark, ScreenTitle's pixel dot) live
+ * here and stay.
+ */
+
 /** Where a run executes. Shown as a tag on every card and row. */
 enum class Route(val glyph: String, val label: String, val local: Boolean) {
     LOCAL_NPU("●", "local · npu", true),
@@ -178,20 +185,6 @@ fun GhostButton(
         colors = ButtonDefaults.outlinedButtonColors(contentColor = accent),
         contentPadding = PaddingValues(horizontal = 16.dp),
     ) { InkBusyLabel(busy) { Text(text, style = AutobotTheme.styles.action, maxLines = linesFor(1, 3), textAlign = TextAlign.Center) } }
-}
-
-/** A compact filled action beside a ghost one (Approve next to Deny): the primary action, 48 dp tall. */
-@Composable
-fun PaperButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp),
-        shape = MaterialTheme.shapes.extraSmall,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
-    ) { Text(text, style = AutobotTheme.styles.action, maxLines = linesFor(1, 3), textAlign = TextAlign.Center) }
 }
 
 /** A sentence-case action label for a [androidx.compose.material3.TextButton]: mono, untracked. */
@@ -405,83 +398,11 @@ fun BackButton(onBack: () -> Unit) {
     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
 }
 
-/** A top bar's "+" in lilac: the screen's way to add one more (a note, a server, a recipe), as on iOS. */
-@Composable
-fun AddButton(label: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick) { Icon(Icons.Filled.Add, contentDescription = label, tint = MaterialTheme.colorScheme.primary) }
-}
-
 /** The default top bar title: shows the wordmark instead. */
 const val WORDMARK = "autobot"
 
 /** The smallest the top bar's title steps down to before it truncates. */
 private val TOP_BAR_TITLE_MIN = 14.sp
-
-/**
- * Small boxed counter (e.g. `16+` / running jobs).
- *
- * Not used by any screen since the Material 3 pass of Run (a [TonalLabel] there now); kept until
- * the riso kit is retired.
- */
-@Composable
-fun CountBadge(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        modifier = modifier.border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.extraSmall).padding(horizontal = 6.dp, vertical = 3.dp),
-        style = AutobotTheme.styles.micro,
-        color = MaterialTheme.colorScheme.onSurface,
-    )
-}
-
-/**
- * A mode tile on the Run screen: title, model, and where it runs. Flat: a hairline-free panel,
- * no art behind the words. [index] and [living] are kept for callers and no longer drawn;
- * [background] art (a recent image) sits above the text, never behind it.
- *
- * Not used by any screen since the Material 3 pass of Run (a filled `Card` there now); kept until
- * the riso kit is retired.
- */
-@Composable
-fun ModeCard(
-    index: String,
-    title: String,
-    subtitle: String,
-    route: Route?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    background: (@Composable () -> Unit)? = null,
-    living: Boolean = false,
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier,
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            // Where it runs, at the top: the titles below line up across cards with or without one.
-            route?.let {
-                RouteTag(it)
-                Spacer(Modifier.height(10.dp))
-            }
-            if (background != null) {
-                Box(Modifier.fillMaxWidth().weight(1f, fill = true).padding(bottom = 12.dp)) { background() }
-            } else {
-                Spacer(Modifier.weight(1f, fill = true))
-            }
-            Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(2.dp))
-            // A model name wraps to a second line on a half-width card rather than losing its end.
-            Text(
-                subtitle,
-                style = AutobotTheme.styles.micro,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = linesFor(2, 4),
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
 
 /** Hairline-separated list row: title, mono subtitle, trailing slot. */
 @Composable
@@ -530,37 +451,5 @@ fun BigReadout(label: String, value: String, modifier: Modifier = Modifier, onCl
     ) {
         MicroLabel(label)
         Text(value, style = AutobotTheme.styles.number, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-    }
-}
-
-@Preview(name = "Riso kit", showBackground = true, backgroundColor = 0xFF0E0E0E, widthDp = 380)
-@Composable
-private fun RisoPreview() {
-    AutobotTheme {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            AutobotTopBar(actions = { CountBadge("16+") })
-            SectionLabel("This phone · cpu idle · 9.1 GB free")
-            Text("Run anything.", style = MaterialTheme.typography.displayMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Route.entries.forEach { RouteTag(it) }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ModeCard("02", "Chat", "Qwen3 4B · Q4", Route.LOCAL_CPU, {}, Modifier.weight(1f).height(120.dp))
-                ModeCard("03", "Agent", "Claude Sonnet", Route.CLOUD_API, {}, Modifier.weight(1f).height(120.dp))
-            }
-            RunRow("Isometric greenhouse, riso print", "image · 12 s") { RouteTag(Route.LOCAL_CPU) }
-            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                BigReadout("Steps", "4")
-                BigReadout("Seed", "4182")
-                BigReadout("Size", "768²")
-            }
-            PrimaryButton("Set up this phone", {}, Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhostButton("Deny", {}, Modifier.weight(1f), accent = MaterialTheme.colorScheme.primary)
-                PaperButton("Approve", {}, Modifier.weight(1f))
-            }
-            EmptyCanvas(Modifier.fillMaxWidth().height(120.dp), hint = "Describe an image to start")
-            Spacer(Modifier.width(1.dp))
-        }
     }
 }

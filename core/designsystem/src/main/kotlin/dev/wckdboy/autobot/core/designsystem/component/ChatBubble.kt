@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 
@@ -30,8 +29,8 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 enum class BubbleRole { USER, ASSISTANT }
 
 /**
- * A transcript message. User input is an outlined, right-aligned block with a mono `›` prompt
- * marker; assistant output is unframed full-width text with chat markdown ([MarkdownBlocks]:
+ * A transcript message. User input is a tonal bubble (secondaryContainer) on the trailing side;
+ * assistant output is unframed full-width text with chat markdown ([MarkdownBlocks]:
  * headings, lists, quotes, tables, code, emphasis, links). A tapped link only opens after the
  * [LinkPrompt] confirms it; nothing in a message is ever fetched.
  *
@@ -61,28 +60,19 @@ fun ChatBubble(
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         Surface(
-            modifier = (if (isUser) Modifier.widthIn(max = 340.dp) else Modifier.fillMaxWidth()).then(
+            modifier = (if (isUser) Modifier.widthIn(max = 560.dp) else Modifier.fillMaxWidth()).then(
                 if (onLongPress != null) {
                     Modifier.combinedClickable(onClickLabel = null, onLongClickLabel = "Message actions", onLongClick = onLongPress, onClick = {})
                 } else {
                     Modifier
                 },
             ),
-            shape = MaterialTheme.shapes.medium,
-            color = if (isUser) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            border = if (isUser) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+            shape = MaterialTheme.shapes.large,
+            color = if (isUser) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+            contentColor = if (isUser) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
         ) {
             MaybeSelectable(onLongPress == null) {
-                Row(Modifier.padding(horizontal = if (isUser) 12.dp else 2.dp, vertical = if (isUser) 10.dp else 4.dp)) {
-                    if (isUser) {
-                        Text(
-                            "›",
-                            modifier = Modifier.padding(end = 8.dp),
-                            style = AutobotTheme.styles.code,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                Row(Modifier.padding(horizontal = if (isUser) 16.dp else 2.dp, vertical = if (isUser) 10.dp else 4.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         MarkdownBlocks(blocks, onLink)
                         if (isStreaming && blocks.isEmpty()) {
@@ -111,7 +101,6 @@ private fun ChatBubblePreview() {
                 BubbleRole.ASSISTANT,
                 "Use `reversed()` for a new list, or `reverse()` on a `MutableList`.\n\n" +
                     "```kotlin\nval xs = listOf(1, 2, 3)\nprintln(xs.reversed())\n```\n\nThat's it.",
-                footer = { TokenRateLabel(tokensPerSecond = 21.3f, totalTokens = 48) },
             )
         }
     }

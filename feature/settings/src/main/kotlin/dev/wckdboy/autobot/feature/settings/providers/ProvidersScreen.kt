@@ -35,17 +35,17 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.ui.text.font.FontWeight
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.BusyLabel
-import dev.wckdboy.autobot.feature.settings.ui.Caption
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.EmptyMessage
-import dev.wckdboy.autobot.feature.settings.ui.Field
-import dev.wckdboy.autobot.feature.settings.ui.Label
-import dev.wckdboy.autobot.feature.settings.ui.NoticeCard
-import dev.wckdboy.autobot.feature.settings.ui.SheetLabel
-import dev.wckdboy.autobot.feature.settings.ui.Tone
-import dev.wckdboy.autobot.feature.settings.ui.clearListItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -176,7 +176,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
     ) { padding ->
         if (state.providers.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyMessage("No providers yet. Tap + to add a cloud API, a server on your network or your node.")
+                EmptyContent("No providers yet. Tap + to add a cloud API, a server on your network or your node.")
             }
         } else Centered(Modifier.padding(padding)) { width ->
             LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
@@ -260,7 +260,7 @@ private fun ApiKeyField(draft: ProviderDraft, preset: ProviderPreset, actions: P
 
 @Composable
 private fun OfflineLine(actions: ProvidersActions) {
-    NoticeCard(OFFLINE_LINE, tone = Tone.WARNING, action = "Allow network", onAction = actions::allowNetwork)
+    NoticeCard(OFFLINE_LINE, tone = NoticeTone.WARNING, action = "Allow network", onAction = actions::allowNetwork)
 }
 
 internal const val OFFLINE_LINE = "Offline mode is on, so this can't reach the network."
@@ -314,8 +314,8 @@ private fun PresetPickerSheet(initialQuery: String, actions: ProvidersActions) {
                             headlineContent = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(preset.displayName, modifier = Modifier.weight(1f, fill = false))
-                                    if (preset.kind == ProviderKind.ANTHROPIC) Label("native")
-                                    if (!preset.requiresApiKey && selectable) Label("no key")
+                                    if (preset.kind == ProviderKind.ANTHROPIC) TonalLabel("native")
+                                    if (!preset.requiresApiKey && selectable) TonalLabel("no key")
                                 }
                             },
                             supportingContent = {
@@ -355,7 +355,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(preset.displayName, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    Label(preset.group.label)
+                    TonalLabel(preset.group.label)
                 }
                 preset.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 

@@ -13,10 +13,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
-import dev.wckdboy.autobot.feature.home.remoteui.AppBar
-import dev.wckdboy.autobot.feature.home.remoteui.Centered
-import dev.wckdboy.autobot.feature.home.remoteui.RouteLabel
-import dev.wckdboy.autobot.feature.home.remoteui.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.RouteChip
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Alignment
@@ -276,13 +276,13 @@ private fun RemoteItem(
             {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (!subtitle.isNullOrEmpty()) Text(subtitle)
-                    if (large && route != null) RouteLabel(route)
+                    if (large && route != null) RouteChip(route)
                 }
             }
         },
         leadingContent = leading,
         trailingContent = when {
-            route != null && !large -> { { RouteLabel(route) } }
+            route != null && !large -> { { RouteChip(route) } }
             chevron -> { { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) } }
             else -> null
         },

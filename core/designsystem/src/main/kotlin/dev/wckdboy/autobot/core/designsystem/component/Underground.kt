@@ -60,6 +60,13 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import java.util.Locale
 
+/*
+ * The retired riso kit: kept only for the screens not yet moved to Material 3 Expressive
+ * (Imagine, Studio, the lock screens, the welcome). New and converted screens use the kit in
+ * Standard*.kt; the brand marks (AutobotMark, NodeMark, Wordmark, ScreenTitle's pixel dot) live
+ * here and stay.
+ */
+
 /** Untracked mono caption in sentence case ([labelCase]): `Sampler`, `Seed`, `CFG`. */
 @Composable
 fun MicroLabel(
@@ -373,107 +380,6 @@ fun ChoiceChip(
                 },
                 maxLines = linesFor(1, 3),
             )
-        }
-    }
-}
-
-enum class BlockStatus { PENDING, RUNNING, OK, ERROR, DENIED }
-
-@Composable
-private fun BlockStatus.color(): Color = when (this) {
-    BlockStatus.PENDING -> AutobotTheme.inks.amber
-    BlockStatus.RUNNING -> AutobotColors.Purple
-    BlockStatus.OK -> MaterialTheme.colorScheme.onSurfaceVariant
-    BlockStatus.ERROR -> AutobotTheme.inks.signal
-    BlockStatus.DENIED -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-/**
- * Terminal-style block for tool invocations: a header line (`▸ fs.read  path=notes.md`) with a
- * status dot, and an optional collapsible mono body with the output.
- */
-@Composable
-fun TerminalBlock(
-    title: String,
-    status: BlockStatus,
-    modifier: Modifier = Modifier,
-    subtitle: String? = null,
-    body: String? = null,
-    expanded: Boolean = false,
-    onToggle: (() -> Unit)? = null,
-    actions: (@Composable RowScope.() -> Unit)? = null,
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (onToggle != null) Modifier.clickable(role = Role.Button, onClick = onToggle) else Modifier)
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                StatusDot(status.color(), live = status == BlockStatus.RUNNING || status == BlockStatus.PENDING)
-                Text(
-                    "▸ $title",
-                    style = AutobotTheme.styles.code,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (subtitle != null) {
-                    Text(
-                        subtitle,
-                        modifier = Modifier.weight(1f),
-                        style = AutobotTheme.styles.codeBlock,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    Box(Modifier.weight(1f))
-                }
-                MicroLabel(status.name.lowercase(Locale.ROOT), color = if (status == BlockStatus.ERROR) status.color() else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (expanded && !body.isNullOrEmpty()) {
-                Hairline()
-                VerbatimText(body, AutobotTheme.styles.codeBlock, Modifier.padding(10.dp), MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (actions != null) {
-                Hairline()
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                    content = actions,
-                )
-            }
-        }
-    }
-}
-
-@Preview(name = "Underground kit", showBackground = true, backgroundColor = 0xFF09090B, widthDp = 380)
-@Composable
-private fun UndergroundPreview() {
-    AutobotTheme {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Panel(title = "Sampler", trailing = { Tag("dpm++ 2m") }) {
-                ValueSlider("Steps", 24f, {}, 1f..60f, steps = 58, format = { it.toInt().toString() })
-                ValueSlider("CFG", 7f, {}, 1f..20f)
-                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    Readout("Seed", "418229931")
-                    Readout("Size", "512×768")
-                    Readout("Engine", "NPU", valueColor = AutobotTheme.inks.uv)
-                }
-            }
-            Segmented(listOf("txt2img", "img2img", "inpaint"), "img2img", {}, { it }, Modifier.fillMaxWidth())
-            TerminalBlock("fs.read", BlockStatus.OK, subtitle = "path=notes.md", body = "# Notes\n- item", expanded = true)
-            TerminalBlock("shell.exec", BlockStatus.PENDING, subtitle = "rm -rf build/")
         }
     }
 }

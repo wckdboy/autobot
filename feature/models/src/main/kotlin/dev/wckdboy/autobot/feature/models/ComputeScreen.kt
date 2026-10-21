@@ -16,12 +16,12 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.ui.graphics.Color
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
-import dev.wckdboy.autobot.feature.models.ui.AppBar
-import dev.wckdboy.autobot.feature.models.ui.Centered
-import dev.wckdboy.autobot.feature.models.ui.ChoiceChips
-import dev.wckdboy.autobot.feature.models.ui.EmptyMessage
-import dev.wckdboy.autobot.feature.models.ui.Label
-import dev.wckdboy.autobot.feature.models.ui.SectionCard
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChips
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.SectionCard
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -363,7 +363,7 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
                 }
                 items(state.models, key = { it.model.id }) { cm -> ModelCompute(cm, state, viewModel) }
                 if (state.models.isEmpty()) {
-                    item { EmptyMessage("No runnable models yet. Get one in the Models tab.") }
+                    item { EmptyContent("No runnable models yet. Get one in the Models tab.") }
                 }
             }
         }
@@ -436,7 +436,7 @@ private fun SystemModelRow(status: SystemModelStatus, onDownload: () -> Unit) {
             if (status.availability == SystemAvailability.DOWNLOADABLE) {
                 FilledTonalButton(onClick = onDownload) { Text("Download") }
             } else if (status.usable) {
-                Label("ready")
+                TonalLabel("ready")
             }
         },
     ) {

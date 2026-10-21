@@ -43,13 +43,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.ListItem
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.Caption
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.EmptyMessage
-import dev.wckdboy.autobot.feature.settings.ui.SearchField
-import dev.wckdboy.autobot.feature.settings.ui.Subheader
-import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.SearchField
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
 import dev.wckdboy.autobot.core.data.MemoryRepository
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
@@ -188,7 +188,7 @@ fun MemoryScreen(
             Subheader(MemoryWords.count(state.total))
             if (state.notes.isEmpty()) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    EmptyMessage(MemoryWords.empty(state.total))
+                    EmptyContent(MemoryWords.empty(state.total))
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {

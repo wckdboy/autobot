@@ -2,10 +2,10 @@ package dev.wckdboy.autobot.feature.home.node
 
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
-import dev.wckdboy.autobot.feature.home.remoteui.Field
-import dev.wckdboy.autobot.feature.home.remoteui.Loading
-import dev.wckdboy.autobot.feature.home.remoteui.NoticeCard
-import dev.wckdboy.autobot.feature.home.remoteui.Tone
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
 import androidx.compose.material3.ListItem
@@ -70,7 +70,7 @@ fun NodeSchedulesSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            state.scheduleProblem?.let { NoticeCard(it, tone = Tone.WARNING) }
+            state.scheduleProblem?.let { NoticeCard(it, tone = NoticeTone.WARNING) }
             when (val list = state.schedules) {
                 null -> Loading()
                 else -> {

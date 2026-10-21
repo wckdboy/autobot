@@ -2,10 +2,10 @@ package dev.wckdboy.autobot.feature.home.node
 
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
-import dev.wckdboy.autobot.feature.home.remoteui.Field
-import dev.wckdboy.autobot.feature.home.remoteui.Loading
-import dev.wckdboy.autobot.feature.home.remoteui.NoticeCard
-import dev.wckdboy.autobot.feature.home.remoteui.Tone
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import androidx.compose.material3.Button
 import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
@@ -84,7 +84,7 @@ fun NodeActivitySheet(
                     Tab(selected = tab == i, onClick = { tab = i }, text = { Text(if (name == "Board" && waiting > 0) "Board · $waiting" else name) })
                 }
             }
-            state.activityProblem?.let { NoticeCard(it, tone = Tone.WARNING) }
+            state.activityProblem?.let { NoticeCard(it, tone = NoticeTone.WARNING) }
             val activity = state.activity
             when {
                 activity == null && state.activityProblem == null -> Loading()
@@ -124,7 +124,7 @@ private fun Requests(activity: NodeActivity) {
 @Composable
 private fun Actions(activity: NodeActivity) {
     activity.agentProblem?.let {
-        NoticeCard(it, tone = Tone.WARNING)
+        NoticeCard(it, tone = NoticeTone.WARNING)
         return
     }
     if (activity.actions.isEmpty()) Text("The agent has not asked to do anything yet.", style = MaterialTheme.typography.bodySmall)
@@ -143,7 +143,7 @@ private fun Actions(activity: NodeActivity) {
 @Composable
 private fun Board(activity: NodeActivity, onAnswer: (String, String, () -> Unit) -> Unit) {
     activity.agentProblem?.let {
-        NoticeCard(it, tone = Tone.WARNING)
+        NoticeCard(it, tone = NoticeTone.WARNING)
         return
     }
     if (activity.board.isEmpty()) {
@@ -173,7 +173,7 @@ private fun Board(activity: NodeActivity, onAnswer: (String, String, () -> Unit)
 @Composable
 private fun Memory(activity: NodeActivity, onForget: (Long) -> Unit) {
     activity.agentProblem?.let {
-        NoticeCard(it, tone = Tone.WARNING)
+        NoticeCard(it, tone = NoticeTone.WARNING)
         return
     }
     SheetLabel("remembered")

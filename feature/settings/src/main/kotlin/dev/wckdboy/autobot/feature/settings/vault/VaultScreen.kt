@@ -53,15 +53,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.ListItem
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.EmptyMessage
-import dev.wckdboy.autobot.feature.settings.ui.NavItem
-import dev.wckdboy.autobot.feature.settings.ui.NoticeCard
-import dev.wckdboy.autobot.feature.settings.ui.SearchField
-import dev.wckdboy.autobot.feature.settings.ui.Subheader
-import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
-import dev.wckdboy.autobot.feature.settings.ui.Tone
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.NavListItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.SearchField
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
@@ -216,7 +216,7 @@ fun VaultScreen(
                 SwitchItem(VaultWords.AGENT_SEARCH, state.enabled, onEnabled, info = VaultWords.AGENT_SEARCH_INFO)
             }
             item(key = "model") {
-                NavItem(VaultWords.EMBEDDING_MODEL, onOpenModels, value = state.model ?: VaultWords.NO_MODEL)
+                NavListItem(VaultWords.EMBEDDING_MODEL, onOpenModels, value = state.model ?: VaultWords.NO_MODEL)
             }
             if (state.index.running) {
                 item(key = "progress") {
@@ -236,7 +236,7 @@ fun VaultScreen(
                 }
             } else if (state.stale > 0) {
                 item(key = "stale") {
-                    NoticeCard(VaultWords.stale(state.stale), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = Tone.WARNING, action = VaultWords.REINDEX, onAction = onReindex)
+                    NoticeCard(VaultWords.stale(state.stale), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING, action = VaultWords.REINDEX, onAction = onReindex)
                 }
             }
             if (state.documents.isNotEmpty()) {
@@ -257,7 +257,7 @@ fun VaultScreen(
             }
             state.searchError?.let { error ->
                 item(key = "searcherror") {
-                    NoticeCard(error, Modifier.padding(16.dp), tone = Tone.ERROR, action = "Retry", onAction = onSearch)
+                    NoticeCard(error, Modifier.padding(16.dp), tone = NoticeTone.ERROR, action = "Retry", onAction = onSearch)
                 }
             }
             state.results?.let { results ->
@@ -278,9 +278,9 @@ fun VaultScreen(
             if (state.documents.isEmpty()) {
                 item(key = "empty") {
                     if (state.model == null) {
-                        EmptyMessage(VaultWords.empty(hasModel = false), action = "Models", onAction = onOpenModels)
+                        EmptyContent(VaultWords.empty(hasModel = false), action = "Models", onAction = onOpenModels)
                     } else {
-                        EmptyMessage(VaultWords.empty(hasModel = true))
+                        EmptyContent(VaultWords.empty(hasModel = true))
                     }
                 }
             }

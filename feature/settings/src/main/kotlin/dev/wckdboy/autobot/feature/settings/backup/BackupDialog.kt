@@ -32,7 +32,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.backup.BackupService
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import androidx.compose.material3.LinearProgressIndicator
-import dev.wckdboy.autobot.feature.settings.ui.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Caption
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import java.time.LocalDate
 import javax.inject.Inject

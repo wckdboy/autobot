@@ -2,39 +2,44 @@ package dev.wckdboy.autobot.core.designsystem.component
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /*
- * Small pieces for screens built from Material 3 Expressive's own components (the riso kit in
- * Riso.kt / Underground.kt is being replaced screen by screen). Each one is a standard component
- * plus, at most, the brand's two marks: the pixel a and the purple dot after a title. Colours come
- * from MaterialTheme.colorScheme (the brand purple's scheme) and type from its typography roles.
+ * The app's kit: Material 3 Expressive's own components, each plus at most the brand's two marks
+ * (the pixel a and the purple pixel dot after a top-level title). Colours come from
+ * MaterialTheme.colorScheme (the brand purple's scheme) and type from its typography roles.
+ *
+ * - Standard.kt: titles, labels, chips, widths, the long press.
+ * - StandardLists.kt: the app bar, list items, cards, figures.
+ * - StandardFeedback.kt: notices, empty states, loading.
+ * - StandardInputs.kt: fields, search, single choices.
+ * - StandardComposer.kt: the chat composer.
  */
 
 /** Reading content (a transcript, a list of runs) stops growing at this width on a wide window and centres. */
@@ -42,6 +47,20 @@ val ReadingMaxWidth: Dp = 840.dp
 
 /** Caps the width at [ReadingMaxWidth]; the parent centres it (`Alignment.CenterHorizontally` / `TopCenter`). */
 fun Modifier.readingWidth(): Modifier = this.widthIn(max = ReadingMaxWidth)
+
+/** Lists and forms (settings, models) stop growing at this width on a wide window: a comfortable line long. */
+val FormMaxWidth: Dp = 720.dp
+
+/** Centres [content] at [maxWidth] on a wide window; full width on a phone. */
+@Composable
+fun Centered(modifier: Modifier = Modifier, maxWidth: Dp = FormMaxWidth, content: @Composable BoxScope.(Modifier) -> Unit) {
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        content(Modifier.widthIn(max = maxWidth).fillMaxWidth())
+    }
+}
+
+/** Default padding for the content of a scrolling screen. */
+val ScreenPadding = PaddingValues(bottom = 24.dp)
 
 /**
  * A top app bar's title with the brand's purple pixel dot after it, for top-level screens
@@ -80,54 +99,43 @@ fun RouteChip(route: Route, modifier: Modifier = Modifier, onClick: (() -> Unit)
 }
 
 /**
- * A state, not an action (`2 live`, `interrupted`, `signed ✓`): labelMedium on a small tonal
- * surface. Use a chip instead when it can be tapped.
+ * A state, not an action (`2 live`, `interrupted`, `signed ✓`, `ready`): labelMedium on a small
+ * tonal surface. Use a chip instead when it can be tapped. [contentColor] follows the container
+ * (a `…Container` colour gets its `on…Container`).
  */
 @Composable
 fun TonalLabel(
     text: String,
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
-    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    contentColor: Color = contentColorFor(containerColor),
 ) {
     Surface(modifier = modifier, shape = MaterialTheme.shapes.small, color = containerColor, contentColor = contentColor) {
         Text(text, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
     }
 }
 
-/**
- * One sentence about why something cannot work yet and the one tap that fixes it ("No model
- * yet · Add provider"): a tonal surface with the text and a [TextButton].
- */
+/** A caption in sentence case ([labelCase]): a hint or a state under a field or a row. */
 @Composable
-fun ActionBanner(
-    text: String,
-    modifier: Modifier = Modifier,
-    action: String? = null,
-    onAction: (() -> Unit)? = null,
-    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
-    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
-) {
-    Surface(modifier = modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = containerColor, contentColor = contentColor) {
-        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, Modifier.weight(1f).padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
-            if (action != null && onAction != null) TextButton(onClick = onAction) { Text(action) }
-        }
-    }
+fun Caption(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Text(labelCase(text), modifier, style = MaterialTheme.typography.bodySmall, color = color)
 }
 
-/** An empty screen: the pixel a, one plain sentence and at most one action (a tonal button). */
+/** A list's section header: Material's subheader, labelLarge in the primary colour, read as a heading. */
 @Composable
-fun EmptyContent(text: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null) {
-    Column(
-        modifier.padding(horizontal = 24.dp, vertical = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        AutobotMark(size = 32.dp)
-        Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        if (action != null && onAction != null) FilledTonalButton(onClick = onAction) { Text(action) }
-    }
+fun Subheader(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp).semantics { heading() },
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** A bottom sheet's or a card's small heading, in sentence case, in the primary colour. */
+@Composable
+fun SheetLabel(text: String, modifier: Modifier = Modifier) {
+    Text(labelCase(text), modifier.semantics { heading() }, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
 }
 
 /**

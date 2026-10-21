@@ -81,15 +81,15 @@ import dev.wckdboy.autobot.core.models.ModelTask
 import dev.wckdboy.autobot.core.models.NpuOffer
 import dev.wckdboy.autobot.core.models.formatBytes
 import dev.wckdboy.autobot.core.models.launchOf
-import dev.wckdboy.autobot.feature.models.ui.AppBar
-import dev.wckdboy.autobot.feature.models.ui.Centered
-import dev.wckdboy.autobot.feature.models.ui.ChoiceChips
-import dev.wckdboy.autobot.feature.models.ui.Field
-import dev.wckdboy.autobot.feature.models.ui.Label
-import dev.wckdboy.autobot.feature.models.ui.ModelRow
-import dev.wckdboy.autobot.feature.models.ui.NoticeCard
-import dev.wckdboy.autobot.feature.models.ui.Subheader
-import dev.wckdboy.autobot.feature.models.ui.Tone
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChips
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.ActionListItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import java.util.Locale
 
 @Composable
@@ -241,11 +241,11 @@ fun ModelsScreen(state: ModelsUiState, actions: ModelsActions, onOpenAccounts: (
                             }
                         }
                         items(state.hf.results, key = { "hf-${it.id}" }) { m ->
-                            ModelRow(
+                            ActionListItem(
                                 title = m.id.substringAfter('/'),
                                 subtitle = "${m.id.substringBefore('/')} · ${m.downloads} dl${m.license?.let { " · $it" } ?: ""}",
                                 onClick = { actions.openRepo(m.id) },
-                            ) { if (m.gated) Label("gated", color = MaterialTheme.colorScheme.tertiaryContainer) }
+                            ) { if (m.gated) TonalLabel("gated", containerColor = MaterialTheme.colorScheme.tertiaryContainer) }
                         }
                     }
                     ModelsTab.CIVITAI -> {
@@ -297,18 +297,18 @@ private fun SearchEmpty(
         offline -> NoticeCard(
             "Offline mode is on, so the kill switch blocks $hub. Choose a network mode to search and download models.",
             modifier,
-            tone = Tone.WARNING,
+            tone = NoticeTone.WARNING,
             action = "Network",
             onAction = onOpenNetwork,
         )
         failure?.blocked == true -> NoticeCard(
             "The kill switch blocked $hub: ${failure.message}",
             modifier,
-            tone = Tone.WARNING,
+            tone = NoticeTone.WARNING,
             action = "Network",
             onAction = onOpenNetwork,
         )
-        failure != null -> NoticeCard("$hub search failed: ${failure.message}", modifier, tone = Tone.ERROR, action = "Retry", onAction = onRetry)
+        failure != null -> NoticeCard("$hub search failed: ${failure.message}", modifier, tone = NoticeTone.ERROR, action = "Retry", onAction = onRetry)
         searched -> NoticeCard(
             if (query.isBlank()) "$hub returned no models for this filter." else "No models on $hub match “${query.trim()}”. Try another name or filter.",
             modifier,
@@ -369,9 +369,9 @@ internal var modelsCompositionProbe: ((String) -> Unit)? = null
 @Composable
 private fun FitLabel(fit: Fit) {
     val scheme = MaterialTheme.colorScheme
-    Label(
+    TonalLabel(
         fit.label,
-        color = when (fit) {
+        containerColor = when (fit) {
             Fit.GOOD -> scheme.secondaryContainer
             Fit.TIGHT -> scheme.tertiaryContainer
             Fit.TOO_BIG, Fit.UNSUPPORTED -> scheme.errorContainer
@@ -395,14 +395,14 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsActions) {
     var confirm by remember { mutableStateOf(false) }
     // Tapping a ready model opens the task it runs (the × still removes it).
     val task = remember(model.kind, model.engine, model.isReady) { launchOf(model.kind, model.engine, model.isReady).task }
-    ModelRow(
+    ActionListItem(
         title = model.title,
         subtitle = installedSubtitle(model),
         onClick = if (task != ModelTask.NONE) ({ actions.use(model) }) else null,
         extra = model.error?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
     ) {
         when (model.status) {
-            ModelStatus.READY -> Label("ready")
+            ModelStatus.READY -> TonalLabel("ready")
             // Progress is shown once, in the downloads panel; the row offers what a tap does.
             ModelStatus.DOWNLOADING, ModelStatus.QUEUED -> RowAction("Pause", { actions.pause(model.id) })
             ModelStatus.PAUSED -> RowAction("Resume", { actions.resume(model.id) })
@@ -419,12 +419,12 @@ private fun InstalledRow(model: InstalledModel, actions: ModelsActions) {
 @Composable
 private fun CatalogRow(plan: ModelPlan, fit: Fit?, installed: Boolean, onGet: () -> Unit) {
     modelsCompositionProbe?.invoke("catalogRow")
-    ModelRow(
+    ActionListItem(
         title = plan.title,
         subtitle = listOfNotNull(formatBytes(plan.totalBytes), plan.subtitle).joinToString(" · "),
     ) {
         fit?.let { FitLabel(it) }
-        if (installed) Label("added") else RowAction("Get", onGet)
+        if (installed) TonalLabel("added") else RowAction("Get", onGet)
     }
 }
 
@@ -491,7 +491,7 @@ private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsActions
             items(files, key = { it.path }) { f ->
                 val kind = state.hf.scope.kind
                 val fit = state.device?.fit(kind, f.sizeBytes, dev.wckdboy.autobot.core.models.engineFor(kind, dev.wckdboy.autobot.core.models.formatOf(f.path, repo.id.substringBefore('/'))))
-                ModelRow(f.path.substringAfterLast('/'), "${formatBytes(f.sizeBytes)}${if (f.sha256 != null) " · sha-256 known" else ""}") {
+                ActionListItem(f.path.substringAfterLast('/'), "${formatBytes(f.sizeBytes)}${if (f.sha256 != null) " · sha-256 known" else ""}") {
                     fit?.let { FitLabel(it) }
                     RowAction("Get", { actions.installHfFile(repo, f.path) })
                 }
@@ -501,7 +501,7 @@ private fun RepoSheet(repo: HfRepo, state: ModelsUiState, actions: ModelsActions
             NoticeCard(
                 "Local Dream packages can't run on Autobot's engines. Use Local Dream's host mode as an image backend.",
                 Modifier.padding(horizontal = 16.dp),
-                tone = Tone.WARNING,
+                tone = NoticeTone.WARNING,
             )
         }
     }
@@ -529,7 +529,7 @@ private fun CivitaiRow(model: CivitaiModel, actions: ModelsActions, installed: S
     val version = model.versions.firstOrNull()
     val file = version?.files?.firstOrNull { it.primary } ?: version?.files?.firstOrNull()
     val preview by produceState<ImageBitmap?>(null, version?.previewUrl) { value = version?.previewUrl?.let { actions.preview(it) } }
-    ModelRow(
+    ActionListItem(
         title = model.name,
         subtitle = listOfNotNull(version?.baseModel, file?.let { formatBytes(it.sizeBytes) }, model.creator, "${model.downloads} dl").joinToString(" · "),
         leading = {
@@ -546,8 +546,8 @@ private fun CivitaiRow(model: CivitaiModel, actions: ModelsActions, installed: S
         },
     ) {
         when {
-            version?.earlyAccess == true -> Label("early access", color = MaterialTheme.colorScheme.tertiaryContainer)
-            version != null && "civitai:${version.id}" in installed -> Label("added")
+            version?.earlyAccess == true -> TonalLabel("early access", containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+            version != null && "civitai:${version.id}" in installed -> TonalLabel("added")
             else -> RowAction("Get", onGet)
         }
     }
@@ -556,13 +556,13 @@ private fun CivitaiRow(model: CivitaiModel, actions: ModelsActions, installed: S
 @Composable
 private fun NpuOfferRow(offer: NpuOffer, arch: String?, installed: Boolean, onGet: () -> Unit) {
     val file = offer.fileFor(arch)
-    ModelRow(
+    ActionListItem(
         title = offer.title,
         subtitle = listOfNotNull(formatBytes(offer.approxBytes), offer.subtitle).joinToString(" · "),
     ) {
         when {
-            installed -> Label("added")
-            file == null -> Label("no build")
+            installed -> TonalLabel("added")
+            file == null -> TonalLabel("no build")
             else -> RowAction("Get", onGet)
         }
     }

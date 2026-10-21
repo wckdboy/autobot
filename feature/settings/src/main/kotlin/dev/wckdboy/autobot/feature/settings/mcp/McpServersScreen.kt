@@ -65,12 +65,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
-import dev.wckdboy.autobot.feature.settings.ui.AppBar
-import dev.wckdboy.autobot.feature.settings.ui.BusyLabel
-import dev.wckdboy.autobot.feature.settings.ui.Centered
-import dev.wckdboy.autobot.feature.settings.ui.EmptyMessage
-import dev.wckdboy.autobot.feature.settings.ui.SheetLabel
-import dev.wckdboy.autobot.feature.settings.ui.clearListItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.rememberBufferedText
@@ -129,7 +129,7 @@ fun McpServersScreen(
     ) { padding ->
         if (state.servers.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyMessage(MCP_EMPTY, action = MCP_ADD, onAction = onAdd)
+                EmptyContent(MCP_EMPTY, action = MCP_ADD, onAction = onAdd)
             }
         } else Centered(Modifier.padding(padding)) { width ->
             LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {

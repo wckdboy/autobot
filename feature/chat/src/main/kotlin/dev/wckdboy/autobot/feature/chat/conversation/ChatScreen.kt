@@ -40,8 +40,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -80,8 +80,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -131,7 +129,10 @@ import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
 import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.TodoStatus
-import dev.wckdboy.autobot.core.designsystem.component.ActionBanner
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.MessageComposer
+import dev.wckdboy.autobot.core.designsystem.component.SendIconButton
+import dev.wckdboy.autobot.core.designsystem.component.StopIconButton
 import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
@@ -332,11 +333,11 @@ fun ChatScreen(
                 val notice = state.notice
                 val bannerModifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                 when {
-                    notice != null -> ActionBanner(notice, bannerModifier, "OK", actions::dismissNotice)
+                    notice != null -> NoticeCard(notice, bannerModifier, action = "OK", onAction = actions::dismissNotice)
                     !Composer.shows(Part.BANNER, keyboard) -> Unit
-                    state.loaded && state.providers.isEmpty() -> ActionBanner(ChatBannerWords.NO_MODEL, bannerModifier, "Add", onOpenProviders)
-                    state.showOfflineBanner -> ActionBanner(ChatBannerWords.OFFLINE, bannerModifier, "Privacy", onOpenPrivacyCenter)
-                    state.missingKeyProvider != null -> ActionBanner(ChatBannerWords.missingKey(state.missingKeyProvider), bannerModifier, "Add key", onOpenProviders)
+                    state.loaded && state.providers.isEmpty() -> NoticeCard(ChatBannerWords.NO_MODEL, bannerModifier, action = "Add", onAction = onOpenProviders)
+                    state.showOfflineBanner -> NoticeCard(ChatBannerWords.OFFLINE, bannerModifier, action = "Privacy", onAction = onOpenPrivacyCenter)
+                    state.missingKeyProvider != null -> NoticeCard(ChatBannerWords.missingKey(state.missingKeyProvider), bannerModifier, action = "Add key", onAction = onOpenProviders)
                 }
 
                 val empty = state.loaded && state.items.isEmpty() && !hasLive
@@ -1070,95 +1071,70 @@ private fun InputBar(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) { uris ->
         uris.take(MAX_ATTACHMENTS - state.pendingImages.size).forEach(onAttach)
     }
-    val large = isLargeText()
-    val tools = @Composable {
-        IconButton(
-            onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            enabled = state.pendingImages.size < MAX_ATTACHMENTS,
-        ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
-        IconButton(
-            onClick = {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                    onDictate()
-                } else {
-                    microphone.launch(Manifest.permission.RECORD_AUDIO)
-                }
-            },
-            enabled = state.dictation != Dictation.TRANSCRIBING,
-        ) {
-            when (state.dictation) {
-                Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
-                Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraSmall).semantics { contentDescription = "Stop dictating" })
-                Dictation.TRANSCRIBING -> Working(size = 24.dp, description = "Transcribing")
+    val action = Composer.action(text, state.pendingImages.size, state.running)
+    val label = Composer.label(action)
+    MessageComposer(
+        value = text,
+        onValueChange = { text = it },
+        placeholder = Composer.placeholder(state.running),
+        fieldModifier = Modifier.focusRequester(focus).testTag("composer"),
+        maxLines = Composer.MAX_LINES,
+        above = {
+            if (state.pendingImages.isNotEmpty()) {
+                AttachmentStrip(state.pendingImages, thumbnail, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp), onRemove = onRemoveAttachment)
             }
-        }
-    }
-    Column(Modifier.fillMaxWidth()) {
-        if (state.pendingImages.isNotEmpty()) {
-            AttachmentStrip(state.pendingImages, thumbnail, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp), onRemove = onRemoveAttachment)
-        }
-        if (text.startsWith("/")) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                COMMANDS.filter { it.first.startsWith(text.substringBefore(' ')) }.forEach { (cmd, help) ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { text = cmd.substringBefore(' ') + " " }.padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        // A command is code: monospace.
-                        Text(cmd, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.primary)
-                        Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (text.startsWith("/")) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    COMMANDS.filter { it.first.startsWith(text.substringBefore(' ')) }.forEach { (cmd, help) ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { text = cmd.substringBefore(' ') + " " }.padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            // A command is code: monospace.
+                            Text(cmd, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.primary)
+                            Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
-        }
-        if (state.dictation != Dictation.IDLE) {
-            LiveWords(liveDictation, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp))
-        }
-        // A large font leaves the field too narrow beside the attach and dictate buttons: they take a row above it.
-        if (large) Row(Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp)) { tools() }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (!large) Row(Modifier.padding(bottom = 4.dp)) { tools() }
-            // The keyboard is asked not to learn from what is typed.
-            NoPersonalizedLearning {
-                TextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.weight(1f).focusRequester(focus).testTag("composer"),
-                    placeholder = { Text(Composer.placeholder(state.running)) },
-                    maxLines = Composer.MAX_LINES,
-                    keyboardOptions = PrivateKeyboardOptions,
-                    shape = MaterialTheme.shapes.extraLarge,
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ),
-                )
+            if (state.dictation != Dictation.IDLE) {
+                LiveWords(liveDictation, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp))
             }
-            val action = Composer.action(text, state.pendingImages.size, state.running)
-            val label = Composer.label(action)
-            Box(Modifier.padding(bottom = 4.dp)) {
-                if (action == Composer.Action.STOP) {
-                    FilledTonalIconButton(onClick = onStop, modifier = Modifier.size(48.dp).semantics { contentDescription = label }) {
-                        Box(Modifier.size(14.dp).background(LocalContentColor.current, MaterialTheme.shapes.extraSmall))
+        },
+        tools = {
+            IconButton(
+                onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                enabled = state.pendingImages.size < MAX_ATTACHMENTS,
+            ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
+            IconButton(
+                onClick = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        onDictate()
+                    } else {
+                        microphone.launch(Manifest.permission.RECORD_AUDIO)
                     }
-                } else {
-                    FilledIconButton(
-                        onClick = {
-                            onSend(text)
-                            text = ""
-                        },
-                        enabled = Composer.enabled(action, text, state.pendingImages.size),
-                        modifier = Modifier.size(48.dp),
-                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = label) }
+                },
+                enabled = state.dictation != Dictation.TRANSCRIBING,
+            ) {
+                when (state.dictation) {
+                    Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
+                    Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraSmall).semantics { contentDescription = "Stop dictating" })
+                    Dictation.TRANSCRIBING -> Working(size = 24.dp, description = "Transcribing")
                 }
             }
+        },
+    ) {
+        if (action == Composer.Action.STOP) {
+            StopIconButton(onClick = onStop, label = label)
+        } else {
+            SendIconButton(
+                onClick = {
+                    onSend(text)
+                    text = ""
+                },
+                enabled = Composer.enabled(action, text, state.pendingImages.size),
+                label = label,
+            )
         }
     }
 }

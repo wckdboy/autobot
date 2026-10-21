@@ -83,7 +83,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.wckdboy.autobot.core.designsystem.component.ActionBanner
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
 import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.TitleWithDot
@@ -224,7 +224,7 @@ fun ChatListScreen(
         Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.readingWidth().fillMaxSize()) {
                 if (!state.loading && !state.hasProviders) {
-                    ActionBanner(ChatListWords.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), action = ChatListWords.ADD_PROVIDER, onAction = onOpenProviders)
+                    NoticeCard(ChatListWords.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), action = ChatListWords.ADD_PROVIDER, onAction = onOpenProviders)
                 }
                 if (!state.loading && state.sections.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyContent(ChatListWords.empty(state.searching, state.filter)) }
