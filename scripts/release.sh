@@ -56,7 +56,7 @@ SIM="${RELEASE_SIM:-$(xcrun simctl list devices available | grep -E "iPhone [0-9
 [ -n "$SIM" ] || fail "no iPhone simulator available"
 xcodebuild -project ios/Autobot.xcodeproj -scheme Autobot -destination "id=$SIM" test > "$WORK/ios-test.log" 2>&1 ||
     { grep -E "✘|error:" "$WORK/ios-test.log" | head -20; fail "iOS tests failed (log: $WORK/ios-test.log)"; }
-(cd ios/Packages/AutobotEngines && xcodebuild -scheme AutobotEngines -destination "id=$SIM" test > "$WORK/engines-test.log" 2>&1) ||
+(cd ios/Packages/AutobotEngines && xcodebuild -scheme AutobotEngines -destination "platform=iOS Simulator,id=$SIM" test > "$WORK/engines-test.log" 2>&1) ||
     fail "engine tests failed (log: $WORK/engines-test.log)"
 
 if [ "${SKIP_TESTFLIGHT:-}" != "1" ]; then
