@@ -1,7 +1,5 @@
 package dev.wckdboy.autobot.feature.settings.search
 
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -30,6 +28,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.WebSearchRepository
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.core.security.Secret
@@ -138,7 +137,7 @@ fun WebSearchDialog(onDismiss: () -> Unit, viewModel: WebSearchViewModel = hiltV
                         SearchProvider.NONE -> Unit
                     }
                     if (d.provider != SearchProvider.NONE) {
-                        SectionLabel("Route")
+                        SheetLabel("Route")
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             RouteOverride.entries.forEach { r ->
                                 FilterChip(
@@ -160,8 +159,8 @@ fun WebSearchDialog(onDismiss: () -> Unit, viewModel: WebSearchViewModel = hiltV
                     error = failure
                     if (failure == null) onDismiss()
                 }
-            }) { ActionText("Save") }
+            }) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

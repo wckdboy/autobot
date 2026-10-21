@@ -1,7 +1,16 @@
 package dev.wckdboy.autobot.feature.studio.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.InlineLoading
+import dev.wckdboy.autobot.core.designsystem.component.JobProgress
+import dev.wckdboy.autobot.core.designsystem.component.JobState as BarState
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,37 +41,33 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.InkBarState
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.studio.engine.StudioRecipes
 import dev.wckdboy.autobot.shared.studio.JobState
 import dev.wckdboy.autobot.shared.studio.StudioAsset
 import dev.wckdboy.autobot.shared.studio.StudioJob
 
 /**
- * The queue strip: one small plate per job. A queued plate is blank paper, a running one develops
- * its halftone (the engine's live preview when it sends one) with an ink bar, a finished one prints
- * its result in, a failed one is stamped. Tap a plate for its details (cancel, retry).
+ * The queue strip: one small plate per job. A queued plate is blank, a running one shows the
+ * engine's live preview (when it sends one) over Material's wavy progress, a finished one fades its
+ * result in, a failed one is stamped. Tap a plate for its details (cancel, retry).
  */
 @Composable
 fun QueueStrip(jobs: List<StudioJob>, assets: Map<String, StudioAsset>, actions: ShellActions, modifier: Modifier = Modifier) {
     if (jobs.isEmpty()) return
     var open by rememberSaveable { mutableStateOf<String?>(null) }
     val active = jobs.count { !it.state.isFinished }
-    Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            MicroLabel(if (active > 0) "queue · $active working" else "queue · done", Modifier.weight(1f))
-            if (jobs.any { it.state.isFinished }) Tag("clear", onClick = actions::clearFinished)
+    Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                labelCase(if (active > 0) "queue · $active working" else "queue · done"),
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (jobs.any { it.state.isFinished }) TextButton(onClick = actions::clearFinished) { Text("Clear") }
         }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
@@ -88,12 +93,12 @@ private fun Plate(job: StudioJob, output: StudioAsset?, modifier: Modifier = Mod
         JobState.CANCELLED -> "Cancelled"
     }
     Column(modifier.size(width = 56.dp, height = 64.dp).semantics { contentDescription = description }) {
-        Box(Modifier.size(56.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Box(Modifier.size(56.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
             when (job.state) {
                 JobState.RUNNING -> {
                     val preview = rememberDecoded(job.preview?.bytes, 256)
                     DevelopingPreview(preview, Modifier.fillMaxSize())
-                    if (job.steps == 0) InkLoader(Modifier.align(Alignment.Center), contentDescription = null)
+                    if (job.steps == 0) InlineLoading(Modifier.align(Alignment.Center), contentDescription = null)
                 }
                 JobState.DONE -> if (output != null) {
                     AssetPlate(output, Modifier.fillMaxSize())
@@ -111,22 +116,22 @@ private fun Plate(job: StudioJob, output: StudioAsset?, modifier: Modifier = Mod
                     "…",
                     Modifier.align(Alignment.Center),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = AutobotTheme.styles.micro,
+                    style = MaterialTheme.typography.labelMedium,
                 )
             }
         }
-        InkProgressBar(
+        JobProgress(
             progress = when (job.state) {
                 JobState.RUNNING -> if (job.steps > 0) job.progress else null
                 JobState.DONE -> 1f
                 else -> 0f
             },
-            modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 0.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             state = when (job.state) {
-                JobState.RUNNING -> InkBarState.Running
-                JobState.FAILED -> InkBarState.Error
-                JobState.QUEUED -> InkBarState.Paused
-                else -> InkBarState.Idle
+                JobState.RUNNING -> BarState.Running
+                JobState.FAILED -> BarState.Error
+                JobState.QUEUED -> BarState.Paused
+                else -> BarState.Idle
             },
         )
     }
@@ -150,7 +155,7 @@ private fun AssetPlate(asset: StudioAsset, modifier: Modifier) {
 private fun JobSheet(job: StudioJob, actions: ShellActions, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SectionLabel("job · ${job.state.name.lowercase()}", Modifier.inkStagger(0))
+            SheetLabel("job · ${job.state.name.lowercase()}", Modifier.inkStagger(0))
             Text(
                 job.label ?: StudioRecipes.title(job.recipe).ifBlank { job.recipe.engine },
                 style = MaterialTheme.typography.titleMedium,
@@ -158,16 +163,16 @@ private fun JobSheet(job: StudioJob, actions: ShellActions, onDismiss: () -> Uni
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.inkStagger(1),
             )
-            MicroLabel(StudioRecipes.summary(job.recipe), Modifier.inkStagger(2))
-            job.status?.let { MicroLabel(it) }
-            if (job.state == JobState.RUNNING && job.steps > 0) MicroLabel("step ${job.step} / ${job.steps}")
+            Caption(StudioRecipes.summary(job.recipe), Modifier.inkStagger(2))
+            job.status?.let { Caption(it) }
+            if (job.state == JobState.RUNNING && job.steps > 0) Caption("step ${job.step} / ${job.steps}")
             job.error?.let { Text(jobError(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!job.state.isFinished) {
-                    GhostButton("Cancel", { actions.cancelJob(job.id); onDismiss() }, Modifier.weight(1f))
+                    OutlinedButton(onClick = { actions.cancelJob(job.id); onDismiss() }, Modifier.weight(1f)) { Text("Cancel") }
                 }
                 if (job.state == JobState.FAILED || job.state == JobState.CANCELLED) {
-                    PrimaryButton("Retry", { actions.retryJob(job.id); onDismiss() }, Modifier.weight(1f))
+                    Button(onClick = { actions.retryJob(job.id); onDismiss() }, Modifier.weight(1f)) { Text("Retry") }
                 }
             }
         }

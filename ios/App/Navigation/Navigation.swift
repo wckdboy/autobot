@@ -2,14 +2,32 @@ import Observation
 import SwiftUI
 import UIKit
 
-/// Bottom-bar destinations (RUN · MODELS · REMOTE · SETTINGS). Selecting one resets the stack.
+/// The app's sections: a tab bar on iPhone, a sidebar on iPad and the Mac. Each keeps its own stack.
 enum Tab: String, CaseIterable, Hashable {
     case run, models, remote, settings
 
     var label: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .run: "Run"
+        case .models: "Models"
+        case .remote: "Remote"
+        case .settings: "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .run: "house"
+        case .models: "cpu"
+        case .remote: "server.rack"
+        case .settings: "gearshape"
+        }
+    }
 }
 
-/// Detail screens pushed on top of a tab root (they hide the bottom bar).
+/// Detail screens pushed on top of a tab root.
 enum Destination: Hashable {
     /// All sessions.
     case chatList
@@ -43,30 +61,24 @@ enum Destination: Hashable {
     case a2uiPreview
 }
 
-/// The Creative Studio's rooms (its own bar while the Studio is open).
+/// The Creative Studio's rooms (its own tabs while the Studio is open).
 enum StudioRoom: String, CaseIterable, Hashable {
     case image, audio, video, workflows, library
 
     var label: String { rawValue }
-
-    /// Darkroom for image and video, paper for the library, the app's theme elsewhere.
-    var surface: StudioSurface {
-        switch self {
-        case .image, .video: .darkroom
-        case .library: .paper
-        case .audio, .workflows: .app
-        }
-    }
 }
 
-enum StudioSurface { case darkroom, paper, app }
-
-/// One back stack whose root is a tab (Android's Navigation 3 `NavDisplay`).
+/// A stack of screens per tab; [path] is the selected tab's.
 @MainActor
 @Observable
 final class Navigator {
     var tab: Tab = .run
-    var path: [Destination] = []
+    var paths: [Tab: [Destination]] = [:]
+    /// The selected tab's stack.
+    var path: [Destination] {
+        get { paths[tab] ?? [] }
+        set { paths[tab] = newValue }
+    }
     /// The Studio is open on this room (it replaces the app until [leaveStudio]); the app's stack waits underneath.
     var studio: StudioRoom?
     /// A workflow handed over to import (share sheet), shown by the Workflows room.
@@ -115,57 +127,67 @@ final class Navigator {
         #endif
     }
 
-    /// Pushes without the slide: the new screen inks in instead ([View.inkArrive]). Going back
-    /// (button or edge swipe) keeps the native, interactive pop.
+    /// Pushes [destination] with the system's slide (going back keeps the native, interactive pop).
     func push(_ destination: Destination) {
         guard path.last != destination else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { path.append(destination) }
+        path.append(destination)
     }
 
     /// Opens the Studio (Home, Imagine, the agent's results); the app stays where it was.
     func enterStudio(_ room: StudioRoom = .image) {
-        withAnimation(.inkSlide) { studio = room }
+        withAnimation(.smooth) { studio = room }
     }
 
     func leaveStudio() {
-        withAnimation(.inkSlide) { studio = nil }
+        withAnimation(.smooth) { studio = nil }
+    }
+
+    /// Shows [destination] alone on [tab]'s stack (a chat chosen in the chat list beside it), without the slide.
+    func show(_ destination: Destination, in tab: Tab) {
+        guard paths[tab] != [destination] else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { paths[tab] = [destination] }
     }
 
     func back() {
         if !path.isEmpty { path.removeLast() }
     }
 
+    /// Goes to [tab]'s first screen (a shortcut to it from elsewhere).
     func switchTo(_ tab: Tab) {
-        path = []
+        paths[tab] = []
         self.tab = tab
     }
 
-    /// Replaces the whole stack (welcome screen shortcuts).
+    /// Replaces [tab]'s stack and shows it (welcome screen shortcuts, links).
     func reset(_ tab: Tab, _ destinations: [Destination] = []) {
+        paths[tab] = destinations
         self.tab = tab
-        path = destinations
+    }
+
+    /// The stack of [tab], for its NavigationStack.
+    func pathBinding(_ tab: Tab) -> Binding<[Destination]> {
+        Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
     }
 }
 
 /**
- Navigation host: the tab root with pushed details on top. The image studio is printed on paper
- (light) as in the mockups. Screens draw their own riso top bars, so the system navigation bar is
- hidden (the edge-swipe back gesture stays enabled). Pushed screens and tab roots ink in
- (motion spec v2 §3).
+ Navigation host, adaptive: the system's tab view, a tab bar on iPhone and a sidebar on iPad and
+ the Mac (`sidebarAdaptable`), each tab with its own stack that it keeps when another is chosen,
+ and the system navigation bar (screens fill it through [AutobotTopBar]). On a wide window the
+ Run tab puts the chat list beside its stack (a split view), and a chat chosen there opens in it.
  */
 struct AutobotNavHost: View {
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         // The app stays underneath (its stack and screens keep their state) while the Studio is open.
         let inStudio = nav.studio != nil
         ZStack {
             app
-                // Hidden, not removed: its living cards and grounds must not keep ticking.
-                .environment(\.inkOffscreen, inStudio)
+                // Hidden, not removed: its stacks keep their state.
                 .opacity(inStudio ? 0 : 1)
                 .allowsHitTesting(!inStudio)
                 .accessibilityHidden(inStudio)
@@ -178,30 +200,41 @@ struct AutobotNavHost: View {
 
     private var app: some View {
         @Bindable var nav = nav
-        return VStack(spacing: 0) {
-            NavigationStack(path: $nav.path) {
-                root
-                    .inkArrive()
-                    .id(nav.tab)
-                    .toolbar(.hidden, for: .navigationBar)
-                    .navigationDestination(for: Destination.self) { destination in
-                        screen(destination)
-                            .inkArrive()
-                            .toolbar(.hidden, for: .navigationBar)
-                            .background(c.background.ignoresSafeArea())
+        return TabView(selection: $nav.tab) {
+            ForEach(Tab.allCases, id: \.self) { tab in
+                SwiftUI.Tab(tab.title, systemImage: tab.symbol, value: tab) {
+                    if tab == .run && sizeClass == .regular {
+                        // A wide window: the chats beside Run's own stack, where the chat opens.
+                        NavigationSplitView {
+                            ChatListScreen(sidebar: true)
+                                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 420)
+                        } detail: {
+                            stack(tab)
+                        }
+                        .navigationSplitViewStyle(.balanced)
+                    } else {
+                        stack(tab)
                     }
-            }
-            if nav.path.isEmpty {
-                AutobotNavBar(items: Tab.allCases.map { NavItem(key: $0, label: $0.label) }, selected: nav.tab) { selected in
-                    if selected != nav.tab { nav.switchTo(selected) }
                 }
             }
         }
-        .background(c.background.ignoresSafeArea())
+        .tabViewStyle(.sidebarAdaptable)
+        .tint(Color.brandPurple)
     }
 
-    @ViewBuilder private var root: some View {
-        switch nav.tab {
+    /// [tab]'s own stack.
+    private func stack(_ tab: Tab) -> some View {
+        NavigationStack(path: nav.pathBinding(tab)) {
+            root(tab)
+                .navigationDestination(for: Destination.self) { destination in
+                    screen(destination)
+                        .background(Color(.systemBackground).ignoresSafeArea())
+                }
+        }
+    }
+
+    @ViewBuilder private func root(_ tab: Tab) -> some View {
+        switch tab {
         case .run: RunScreen()
         case .models: ModelsScreen()
         case .remote: RemoteScreen()
@@ -232,17 +265,5 @@ struct AutobotNavHost: View {
         case .nodeBot(let providerId, let name): NodeBotScreen(providerId: providerId, name: name).id("\(providerId)/bot/\(name)")
         case .a2uiPreview: A2uiPreviewScreen()
         }
-    }
-}
-
-/// Keeps the interactive pop gesture working while the navigation bar is hidden.
-extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
-    override open func viewDidLoad() {
-        super.viewDidLoad()
-        interactivePopGestureRecognizer?.delegate = self
-    }
-
-    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        viewControllers.count > 1
     }
 }

@@ -9,8 +9,7 @@ struct AutobotApp: App {
 
     init() {
         LaunchTrace.mark("app.init")
-        // Fonts and hardware facts resolve on other cores while the scene and first screen set up.
-        Task.detached(priority: .userInitiated) { AutobotFonts.prewarm() }
+        // Hardware facts resolve on another core while the scene and first screen set up.
         Task.detached(priority: .utility) { _ = DeviceProfile.current() }
     }
 
@@ -51,11 +50,8 @@ struct RootView: View {
                 PrivacyCover()
             }
         }
-        // Image follows the app's theme (App UI v4); the Studio's paper and darkroom rooms keep theirs.
-        .autobotTheme(DebugFlags.theme ?? settings.themeMode, amoled: settings.amoled,
-                      paperOnTop: nav.studio?.surface == .paper, darkOnTop: nav.studio?.surface == .darkroom)
-        // Living paper holds still while heavy work runs.
-        .environment(\.inkHeavyWork, busy)
+        // Every screen, the Studio included, follows the app's theme (light, dark or the system's).
+        .autobotTheme(DebugFlags.theme ?? settings.themeMode)
         .onChange(of: phase) { old, new in
             switch new {
             case .background:
@@ -107,14 +103,13 @@ struct RootView: View {
         @Binding var lockMessage: String?
         @Environment(AppContainer.self) private var app
         @Environment(Navigator.self) private var nav
-        @Environment(\.scheme) private var c
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             Group {
                 if !app.lock.ready {
                     // Settings not loaded yet: render nothing rather than risk showing content.
-                    c.background
+                    Color(.systemBackground)
                 } else if app.lock.state == .locked {
                     Group {
                         if app.lock.usesPin || app.lock.quietStart {
@@ -126,8 +121,8 @@ struct RootView: View {
                             }
                         }
                     }
-                    // On unlock the paper prints away.
-                    .transition(.inkPrintAway)
+                    // On unlock the lock fades away.
+                    .transition(.opacity)
                 } else if !app.settings.settings.onboarded && !DebugFlags.skipWelcome {
                     WelcomeScreen(
                         onSetUp: {
@@ -153,8 +148,8 @@ struct RootView: View {
                         .modifier(EntryPoints())
                 }
             }
-            .background(c.background.ignoresSafeArea())
-            .animation(reduceMotion ? .inkReduced : .linear(duration: Double(Tokens.Motion.printMillis) / 1000), value: app.lock.state)
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .easeOut(duration: 0.35), value: app.lock.state)
         }
     }
 }
@@ -232,11 +227,9 @@ private struct EntryPoints: ViewModifier {
 
 /// Shown over everything while the app is inactive (app switcher, notification centre).
 struct PrivacyCover: View {
-    @Environment(\.scheme) private var c
-
     var body: some View {
         ZStack {
-            c.background
+            Color(.systemBackground)
             AppIconImage(size: 56)
         }
         .ignoresSafeArea()

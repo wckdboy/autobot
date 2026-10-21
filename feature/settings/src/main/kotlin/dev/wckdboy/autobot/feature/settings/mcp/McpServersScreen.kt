@@ -1,16 +1,7 @@
 package dev.wckdboy.autobot.feature.settings.mcp
 
-import dev.wckdboy.autobot.core.designsystem.component.AddButton
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BackButton
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -66,13 +57,25 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
-import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.rememberBufferedText
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.settings.providers.ProviderDraft
 import dev.wckdboy.autobot.feature.settings.providers.TestState
@@ -119,21 +122,20 @@ fun McpServersScreen(
     var deleting by remember { mutableStateOf<McpServerRow?>(null) }
     val dissolve = rememberInkDissolve()
     Scaffold(
-        topBar = {
-            AutobotTopBar(title = "MCP servers", navigation = { BackButton(onBack) }) {
-                AddButton(MCP_ADD, onAdd)
-            }
+        topBar = { AppBar("MCP servers", onBack) },
+        floatingActionButton = {
+            if (state.servers.isNotEmpty()) FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = MCP_ADD) }
         },
     ) { padding ->
         if (state.servers.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState(MCP_EMPTY, action = MCP_ADD, onAction = onAdd)
+                EmptyContent(MCP_EMPTY, action = MCP_ADD, onAction = onAdd)
             }
-        } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 8.dp, bottom = 24.dp)) {
+        } else Centered(Modifier.padding(padding)) { width ->
+            LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 // A failed enable/disable from the list (an editor shows its own).
                 if (state.editor == null) {
-                    state.error?.let { item { Text(it, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+                    state.error?.let { item { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
                 }
                 items(state.servers, key = { it.id }, contentType = { "mcp" }) { row ->
                     ServerRow(row, Modifier.inkDissolve(dissolve, row.id), onEdit = { onEdit(row.id) }, onEnabled = { onEnabled(row.id, it) }, onDelete = { deleting = row })
@@ -160,12 +162,15 @@ fun McpServersScreen(
             title = { Text("Delete ${row.name}?") },
             text = { Text("Its tools leave agent sessions" + if (row.hasToken) " and its token is deleted from this phone." else ".") },
             confirmButton = {
-                TextButton(onClick = {
-                    dissolve.dissolve(row.id) { onDelete(row.id) }
-                    deleting = null
-                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        dissolve.dissolve(row.id) { onDelete(row.id) }
+                        deleting = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
 }
@@ -238,7 +243,7 @@ private fun McpServerEditorSheet(
                     }
                 }
 
-                SectionLabel("Routing")
+                SheetLabel("Routing")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProviderRouting.entries.forEach { routing ->
                         FilterChip(
@@ -268,11 +273,17 @@ private fun McpServerEditorSheet(
                 TestResult(test)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    // The design system's buttons, as on iOS: Cancel, Test (ghost), Save (the one primary).
-                    TextButton(onClick = onDismiss) { ActionText("Cancel") }
-                    GhostButton("Test connection", { onTest() }, Modifier.weight(1f), enabled = draft.urlValid, busy = test == TestState.Running)
-                    PrimaryButton("Save", onSave, Modifier.weight(1f), enabled = draft.canSave && !saving)
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // As on iOS: Cancel, Test, Save (the one primary).
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    OutlinedButton(onClick = { if (test != TestState.Running) onTest() }, enabled = draft.urlValid) {
+                        BusyLabel("Test connection", busy = test == TestState.Running)
+                    }
+                    Button(onClick = onSave, enabled = draft.canSave && !saving) { Text("Save") }
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -283,25 +294,27 @@ private fun McpServerEditorSheet(
 /** A server: its URL, name, how it is reached, and what the agent saw of it (as on iOS). */
 @Composable
 private fun ServerRow(row: McpServerRow, modifier: Modifier, onEdit: () -> Unit, onEnabled: (Boolean) -> Unit, onDelete: () -> Unit) {
-    Column(modifier) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).clickable(onClick = onEdit).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(row.url, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(row.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    ListItem(
+        modifier = modifier.clickable(onClick = onEdit),
+        overlineContent = { Text(row.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(row.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     listOfNotNull(row.host, row.routing.label, if (row.trusted) "trusted · follows preset" else "asks each call", "token ✓".takeIf { row.hasToken }).joinToString(" · "),
-                    style = AutobotTheme.styles.micro,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                row.status?.let { Text(it, style = AutobotTheme.styles.micro, color = if (row.unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                row.status?.let { Text(it, color = if (row.unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
-            Switch(checked = row.enabled, onCheckedChange = onEnabled, modifier = Modifier.semantics { contentDescription = "Enable ${row.name}" })
-            IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
-        Hairline()
-    }
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = row.enabled, onCheckedChange = onEnabled, modifier = Modifier.semantics { contentDescription = "Enable ${row.name}" })
+                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}") }
+            }
+        },
+    )
 }
 
 /** The MCP screen's empty line and its add action (the same words on iOS). */
@@ -311,10 +324,11 @@ internal const val MCP_ADD = "Add MCP server"
 @Composable
 private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     ListItem(
-        modifier = Modifier.clickable { onChange(!checked) },
+        modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
+        colors = clearListItem(),
         headlineContent = { Text(title) },
         supportingContent = { Text(subtitle) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
     )
 }
 

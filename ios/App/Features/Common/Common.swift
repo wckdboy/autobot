@@ -127,29 +127,8 @@ func decodeImage(_ data: Data, maxSide: CGFloat? = nil) async -> UIImage? {
     }.value
 }
 
-/// Placeholder for a screen that is not ported yet.
-struct PlaceholderScreen: View {
-    let title: String
-    var note = "coming to ios"
-    @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        VStack(spacing: 0) {
-            AutobotTopBar(title: title, onBack: nav.path.isEmpty ? nil : { nav.back() })
-            VStack(alignment: .leading, spacing: 10) {
-                SectionLabel(title)
-                MicroLabel(note)
-                Spacer()
-            }
-            .padding(16)
-        }
-        .background(c.background)
-    }
-}
-
-/// Riso confirmation dialog (Material AlertDialog look): title, text, actions.
-struct RisoAlert: ViewModifier {
+/// A system confirmation alert: title, text, a confirm action (destructive by default) and Cancel.
+struct ConfirmAlert: ViewModifier {
     @Binding var isPresented: Bool
     let title: String
     let message: String
@@ -168,7 +147,7 @@ struct RisoAlert: ViewModifier {
 }
 
 extension View {
-    func risoAlert(_ isPresented: Binding<Bool>, title: String, message: String, confirm: String, destructive: Bool = true, onConfirm: @escaping () -> Void) -> some View {
-        modifier(RisoAlert(isPresented: isPresented, title: title, message: message, confirm: confirm, destructive: destructive, onConfirm: onConfirm))
+    func confirmAlert(_ isPresented: Binding<Bool>, title: String, message: String, confirm: String, destructive: Bool = true, onConfirm: @escaping () -> Void) -> some View {
+        modifier(ConfirmAlert(isPresented: isPresented, title: title, message: message, confirm: confirm, destructive: destructive, onConfirm: onConfirm))
     }
 }

@@ -4,7 +4,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -196,10 +199,11 @@ class ChatScreenTest {
         )
         val answer = SessionItem.Assistant("a1", "Wrote to Hannah.", null, false, null, null, receipt = receipt)
         val update = show(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.ON, items = listOf(SessionItem.User("u1", "hi"), answer)))
-        compose.onNodeWithText("\u25AE Redact").performClick()
+        // A filter chip: selected while redacting, a tap switches it.
+        compose.onNodeWithText("Redact").assertIsSelected().performClick()
         assertTrue(calls.toString(), "setRedaction(false)" in calls)
         update(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.OFF, items = listOf(SessionItem.User("u1", "hi"), answer)))
-        compose.onNodeWithText("Redact off").performClick()
+        compose.onNodeWithText("Redact").assertIsNotSelected().assertContentDescriptionEquals("Redaction off").performClick()
         assertTrue(calls.toString(), "setRedaction(true)" in calls)
 
         // The receipt line says how much was hidden; the sheet says what kind, never the values.
@@ -209,8 +213,7 @@ class ChatScreenTest {
 
         // On this phone there is nothing to hide: no switch.
         update(ChatUiState(loaded = true, providers = listOf(provider), redaction = RedactionUi.NONE))
-        compose.onNodeWithText("Redact off").assertDoesNotExist()
-        compose.onNodeWithText("\u25AE Redact").assertDoesNotExist()
+        compose.onNodeWithText("Redact").assertDoesNotExist()
     }
 
     @Test
@@ -238,7 +241,7 @@ class ChatScreenTest {
         assertTrue(calls.toString(), "escalate()" in calls)
 
         // The chip opens the choice; picking one sets it for this chat.
-        compose.onNodeWithText("\u25AE Phone first · ask").performClick()
+        compose.onNodeWithText("Phone first · ask").assertIsSelected().performClick()
         compose.onNodeWithText("auto", ignoreCase = true).performClick()
         assertTrue(calls.toString(), "setCascade(AUTO)" in calls)
         compose.onNodeWithText("Plain chats only", substring = true).assertExists()

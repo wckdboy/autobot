@@ -1,34 +1,28 @@
 package dev.wckdboy.autobot.feature.chat.list
 
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
-import dev.wckdboy.autobot.core.designsystem.component.ScreenTitle
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -37,38 +31,49 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Badge
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DockedSearchBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableLongState
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -78,15 +83,13 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.wckdboy.autobot.core.designsystem.component.isLargeText
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.TitleWithDot
 import dev.wckdboy.autobot.core.designsystem.component.linesFor
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.StatusDot
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
+import dev.wckdboy.autobot.core.designsystem.component.longPressAction
+import dev.wckdboy.autobot.core.designsystem.component.readingWidth
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
@@ -200,60 +203,68 @@ fun ChatListScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.background) {
-                Column(Modifier.statusBarsPadding().hairlineEdge()) {
-                    if (state.selecting) {
-                        SelectionBar(state, actions) { dialog = it }
-                    } else {
-                        Header(state, actions, onBack)
-                    }
-                    SearchAndSort(state, actions)
-                    FilterChips(state, actions) { dialog = it }
+            Column {
+                if (state.selecting) SelectionBar(state, actions) { dialog = it } else Header(state, actions, onBack)
+                SearchField(state, actions)
+                FilterChips(state, actions) { dialog = it }
+            }
+        },
+        // The screen's create action: a new chat (the default kind; the lock in the bar starts an incognito one).
+        floatingActionButton = {
+            if (!state.selecting) {
+                // The content overload: its label merges into the button (the icon/text one keeps the text apart).
+                ExtendedFloatingActionButton(onClick = { actions.newChat(null) }) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(12.dp))
+                    Text(ChatListWords.NEW)
                 }
             }
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            if (!state.loading && !state.hasProviders) {
-                Notice(ChatListWords.NO_MODEL, Modifier.padding(12.dp), tone = NoticeTone.WARNING, action = ChatListWords.ADD_PROVIDER, onAction = onOpenProviders)
-            }
-            if (!state.loading && state.sections.isEmpty()) {
-                EmptyList(state)
-            } else {
-                LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                    state.sections.forEach { section ->
-                        if (section.label.isNotEmpty()) {
-                            item(key = "header:${section.label}", contentType = "header") {
-                                MicroLabel(
-                                    section.label,
-                                    modifier = Modifier.animateItem().padding(start = 16.dp, top = 14.dp, bottom = 4.dp),
-                                    color = MaterialTheme.colorScheme.outline,
-                                )
+        Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.readingWidth().fillMaxSize()) {
+                if (!state.loading && !state.hasProviders) {
+                    NoticeCard(ChatListWords.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), action = ChatListWords.ADD_PROVIDER, onAction = onOpenProviders)
+                }
+                if (!state.loading && state.sections.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyContent(ChatListWords.empty(state.searching, state.filter)) }
+                } else {
+                    // Room at the end for the floating button.
+                    LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
+                        state.sections.forEach { section ->
+                            if (section.label.isNotEmpty()) {
+                                item(key = "header:${section.label}", contentType = "header") {
+                                    Text(
+                                        section.label,
+                                        modifier = Modifier.animateItem().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
-                        }
-                        items(section.items, key = { it.id }, contentType = { "conversation" }) { item ->
-                            Column(Modifier.animateItem().inkDissolve(dissolve, item.id)) {
-                                SwipeableRow(
-                                    item = item,
-                                    selecting = state.selecting,
-                                    selected = item.id in state.selection,
-                                    now = minute.longValue,
-                                    onClick = { if (selecting) actions.toggleSelected(item.id) else openChat(item.id) },
-                                    onLongClick = { actions.toggleSelected(item.id) },
-                                    onDelete = { actions.delete(listOf(item.id)) },
-                                    onArchive = { actions.setArchived(listOf(item.id), !item.archived) },
-                                    onMenu = { action ->
-                                        when (action) {
-                                            RowAction.RENAME -> dialog = ListDialog.Rename(item.id, item.title)
-                                            RowAction.PIN -> actions.setPinned(listOf(item.id), !item.pinned)
-                                            RowAction.MOVE -> dialog = ListDialog.Move(listOf(item.id), item.folderId)
-                                            RowAction.ARCHIVE -> actions.setArchived(listOf(item.id), !item.archived)
-                                            // Deleted from the menu: the row dissolves first (a swipe already moved it away).
-                                            RowAction.DELETE -> dissolve.dissolve(item.id) { actions.delete(listOf(item.id)) }
-                                        }
-                                    },
-                                )
-                                Hairline(Modifier.padding(start = 16.dp))
+                            items(section.items, key = { it.id }, contentType = { "conversation" }) { item ->
+                                Box(Modifier.animateItem().inkDissolve(dissolve, item.id)) {
+                                    SwipeableRow(
+                                        item = item,
+                                        selecting = state.selecting,
+                                        selected = item.id in state.selection,
+                                        now = minute.longValue,
+                                        onClick = { if (selecting) actions.toggleSelected(item.id) else openChat(item.id) },
+                                        onLongClick = { actions.toggleSelected(item.id) },
+                                        onDelete = { actions.delete(listOf(item.id)) },
+                                        onArchive = { actions.setArchived(listOf(item.id), !item.archived) },
+                                        onMenu = { action ->
+                                            when (action) {
+                                                RowAction.RENAME -> dialog = ListDialog.Rename(item.id, item.title)
+                                                RowAction.PIN -> actions.setPinned(listOf(item.id), !item.pinned)
+                                                RowAction.MOVE -> dialog = ListDialog.Move(listOf(item.id), item.folderId)
+                                                RowAction.ARCHIVE -> actions.setArchived(listOf(item.id), !item.archived)
+                                                // Deleted from the menu: the row dissolves first (a swipe already moved it away).
+                                                RowAction.DELETE -> dissolve.dissolve(item.id) { actions.delete(listOf(item.id)) }
+                                            }
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -265,54 +276,25 @@ fun ChatListScreen(
     Dialogs(dialog, state, actions) { dialog = it }
 }
 
+/** The title (with the dot on the tab root), what runs, and an incognito chat one tap away (unless every new chat already is one). */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun Header(state: ChatListUiState, actions: ChatListActions, onBack: (() -> Unit)?) {
-    // One line: the title and New. An incognito chat is one tap away beside it (unless every new chat already is one).
-    val large = isLargeText()
-    val newChat = @Composable {
-        Button(
-            onClick = { actions.newChat(null) },
-            shape = MaterialTheme.shapes.extraSmall,
-            contentPadding = PaddingValues(horizontal = 14.dp),
-        ) {
-            Icon(AutobotIcons.Terminal, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(ChatListWords.NEW, style = AutobotTheme.styles.action)
-        }
-    }
-    val newIncognito = @Composable {
-        if (!state.incognito) {
-            IconButton(onClick = { actions.newChat(true) }) {
-                Icon(Icons.Filled.Lock, contentDescription = ChatListWords.NEW_INCOGNITO, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+    val live = ChatListWords.live(state.live)
+    TopAppBar(
+        title = { TitleWithDot(ChatListWords.TITLE, mark = onBack == null) },
+        subtitle = { if (live != null) Text(live) },
+        navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+        actions = {
+            if (!state.incognito) {
+                IconButton(onClick = { actions.newChat(true) }) { Icon(Icons.Filled.Lock, contentDescription = ChatListWords.NEW_INCOGNITO) }
             }
-        }
-    }
-    Row(
-        Modifier.fillMaxWidth().padding(start = if (onBack != null) 4.dp else 16.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (onBack != null) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-        }
-        Column(Modifier.weight(1f)) {
-            ScreenTitle(ChatListWords.TITLE, style = MaterialTheme.typography.headlineMedium, mark = onBack == null)
-            ChatListWords.live(state.live)?.let { MicroLabel(it) }
-        }
-        if (!large) {
-            newIncognito()
-            newChat()
-        }
-    }
-    // A large font leaves no room beside the title: the actions take their own line.
-    if (large) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            newIncognito()
-            newChat()
-        }
-    }
+        },
+    )
 }
 
 /** Multi-select: count, then pin / archive / move / delete (and rename for one chat). */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SelectionBar(state: ChatListUiState, actions: ChatListActions, open: (ListDialog) -> Unit) {
     val ids = state.selection.toList()
@@ -320,115 +302,120 @@ private fun SelectionBar(state: ChatListUiState, actions: ChatListActions, open:
     val allPinned = chosen.isNotEmpty() && chosen.all { it.pinned }
     val allArchived = chosen.isNotEmpty() && chosen.all { it.archived }
     var more by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 10.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = actions.clearSelection) { Icon(Icons.Filled.Close, contentDescription = "Cancel selection") }
-        Text(ChatListWords.selected(ids.size), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-        IconButton(onClick = { actions.setPinned(ids, !allPinned) }) {
-            Icon(AutobotIcons.Pin, contentDescription = if (allPinned) "Unpin" else "Pin", tint = MaterialTheme.colorScheme.onSurface)
-        }
-        IconButton(onClick = { actions.delete(ids) }) { Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
-        Box {
-            IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More actions") }
-            DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
-                if (chosen.size == 1) {
-                    DropdownMenuItem(text = { Text("Rename") }, onClick = { more = false; open(ListDialog.Rename(chosen[0].id, chosen[0].title)) })
+    TopAppBar(
+        title = { Text(ChatListWords.selected(ids.size)) },
+        navigationIcon = { IconButton(onClick = actions.clearSelection) { Icon(Icons.Filled.Close, contentDescription = "Cancel selection") } },
+        actions = {
+            IconButton(onClick = { actions.setPinned(ids, !allPinned) }) { Icon(AutobotIcons.Pin, contentDescription = if (allPinned) "Unpin" else "Pin") }
+            IconButton(onClick = { actions.delete(ids) }) { Icon(Icons.Filled.Delete, contentDescription = "Delete") }
+            Box {
+                IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More actions") }
+                DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                    if (chosen.size == 1) {
+                        DropdownMenuItem(text = { Text("Rename") }, onClick = { more = false; open(ListDialog.Rename(chosen[0].id, chosen[0].title)) })
+                    }
+                    DropdownMenuItem(text = { Text("Move to folder") }, onClick = { more = false; open(ListDialog.Move(ids, chosen.map { it.folderId }.distinct().singleOrNull())) })
+                    DropdownMenuItem(text = { Text(if (allArchived) "Unarchive" else "Archive") }, onClick = { more = false; actions.setArchived(ids, !allArchived) })
+                    DropdownMenuItem(text = { Text("Select all") }, onClick = { more = false; actions.selectAll() })
                 }
-                DropdownMenuItem(text = { Text("Move to folder") }, onClick = { more = false; open(ListDialog.Move(ids, chosen.map { it.folderId }.distinct().singleOrNull())) })
-                DropdownMenuItem(text = { Text(if (allArchived) "Unarchive" else "Archive") }, onClick = { more = false; actions.setArchived(ids, !allArchived) })
-                DropdownMenuItem(text = { Text("Select all") }, onClick = { more = false; actions.selectAll() })
             }
-        }
-    }
+        },
+    )
 }
 
+/** The search field. It owns its text (no round trip through the view model per keystroke); the view model gets each change and debounces the search. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchAndSort(state: ChatListUiState, actions: ChatListActions) {
-    var sortMenu by remember { mutableStateOf(false) }
-    // The field owns its text (no round trip through the view model per keystroke); the view
-    // model gets it after each change and debounces the search.
+private fun SearchField(state: ChatListUiState, actions: ChatListActions) {
     var query by rememberSaveable { mutableStateOf(state.query) }
     LaunchedEffect(actions) { snapshotFlow { query }.collect { actions.setQuery(it) } }
-    Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        ConsoleTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier.weight(1f),
-            placeholder = ChatListWords.SEARCH,
-            singleLine = true,
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear search", modifier = Modifier.size(18.dp)) }
-                } else {
-                    Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
-                }
+    // The keyboard is asked not to learn from what is searched.
+    NoPersonalizedLearning {
+        DockedSearchBar(
+            inputField = {
+                SearchBarDefaults.InputField(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onSearch = {},
+                    expanded = false,
+                    onExpandedChange = {},
+                    placeholder = { Text(ChatListWords.SEARCH, maxLines = linesFor(1, 2)) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    trailingIcon = if (query.isEmpty()) null else ({ IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, contentDescription = "Clear search") } }),
+                )
             },
-        )
-        Box {
-            Tag("${state.sort.label} ▾", onClick = { sortMenu = true })
-            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                ChatSort.entries.forEach { sort ->
-                    DropdownMenuItem(
-                        text = { Text(sort.label) },
-                        trailingIcon = { if (sort == state.sort) Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        onClick = {
-                            sortMenu = false
-                            actions.setSort(sort)
-                        },
-                    )
-                }
-            }
-        }
+            expanded = false,
+            onExpandedChange = {},
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {}
     }
 }
 
-/** All · Pinned · Incognito · folders · Archive · + folder. Long-press a folder to rename or delete it. */
-@OptIn(ExperimentalFoundationApi::class)
+/** Sort · All · Pinned · Incognito · folders · Archive · New folder. Long-press a folder to rename or delete it. */
 @Composable
 private fun FilterChips(state: ChatListUiState, actions: ChatListActions, open: (ListDialog) -> Unit) {
+    var sortMenu by remember { mutableStateOf(false) }
     LazyRow(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        item(key = "sort") {
+            Box {
+                AssistChip(
+                    onClick = { sortMenu = true },
+                    label = { Text(state.sort.label) },
+                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+                    modifier = Modifier.semantics { contentDescription = "Sort: ${state.sort.label}" },
+                )
+                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                    ChatSort.entries.forEach { sort ->
+                        DropdownMenuItem(
+                            text = { Text(sort.label) },
+                            trailingIcon = { if (sort == state.sort) Icon(Icons.Filled.Check, contentDescription = null) },
+                            onClick = {
+                                sortMenu = false
+                                actions.setSort(sort)
+                            },
+                        )
+                    }
+                }
+            }
+        }
         item(key = "all") { Chip("All", state.filter == ChatFilter.All) { actions.setFilter(ChatFilter.All) } }
         item(key = "pinned") { Chip("Pinned", state.filter == ChatFilter.Pinned) { actions.setFilter(ChatFilter.Pinned) } }
         if (state.showIncognitoChip) {
-            item(key = "incognito") { Chip("Incognito", state.filter == ChatFilter.Incognito, AutobotTheme.inks.uv) { actions.setFilter(ChatFilter.Incognito) } }
+            item(key = "incognito") { Chip("Incognito", state.filter == ChatFilter.Incognito) { actions.setFilter(ChatFilter.Incognito) } }
         }
         items(state.folders, key = { "folder:${it.id}" }) { folder ->
-            val selected = state.filter == ChatFilter.Folder(folder.id)
-            ChoiceChip(
+            Chip(
                 "${folder.name} ${folder.count}",
-                selected = selected,
-                onClick = { actions.setFilter(ChatFilter.Folder(folder.id)) },
-                onLongClick = { open(ListDialog.FolderMenu(folder.id, folder.name)) },
-                asWritten = true,
-            )
+                selected = state.filter == ChatFilter.Folder(folder.id),
+                modifier = Modifier.longPressAction("Folder actions") { open(ListDialog.FolderMenu(folder.id, folder.name)) },
+            ) { actions.setFilter(ChatFilter.Folder(folder.id)) }
         }
         if (state.archivedCount > 0 || state.filter == ChatFilter.Archived) {
             item(key = "archived") { Chip("Archive ${state.archivedCount}", state.filter == ChatFilter.Archived) { actions.setFilter(ChatFilter.Archived) } }
         }
-        item(key = "new-folder") { ChoiceChip("+ Folder", selected = false, onClick = { open(ListDialog.NewFolder(emptyList())) }) }
+        item(key = "new-folder") {
+            AssistChip(
+                onClick = { open(ListDialog.NewFolder(emptyList())) },
+                label = { Text("New folder") },
+                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null, Modifier.size(18.dp)) },
+            )
+        }
     }
 }
 
-@Suppress("UNUSED_PARAMETER")
 @Composable
-private fun Chip(text: String, selected: Boolean, accent: Color = Color.Unspecified, onClick: () -> Unit) {
-    ChoiceChip(text, selected = selected, onClick = onClick)
-}
-
-@Composable
-private fun EmptyList(state: ChatListUiState) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        EmptyState(ChatListWords.empty(state.searching, state.filter))
-    }
+private fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(text) },
+        modifier = modifier,
+        leadingIcon = if (selected) ({ Icon(Icons.Filled.Check, contentDescription = null, Modifier.size(18.dp)) }) else null,
+    )
 }
 
 /** Tests count recompositions through this (null in the app). */
@@ -467,14 +454,15 @@ private fun SwipeableRow(
             // Nothing under a resting row: TalkBack does not read a hidden "archive" with every chat.
             if (swipe.dismissDirection == SwipeToDismissBoxValue.Settled) return@SwipeToDismissBox
             val toDelete = swipe.dismissDirection == SwipeToDismissBoxValue.EndToStart
-            Box(
-                Modifier.fillMaxSize().background(if (toDelete) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 20.dp),
-                contentAlignment = if (toDelete) Alignment.CenterEnd else Alignment.CenterStart,
+            val scheme = MaterialTheme.colorScheme
+            Row(
+                Modifier.fillMaxSize().background(if (toDelete) scheme.errorContainer else scheme.secondaryContainer).padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, if (toDelete) Alignment.End else Alignment.Start),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                MicroLabel(
-                    if (toDelete) "delete" else if (item.archived) "unarchive" else "archive",
-                    color = if (toDelete) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                val ink = if (toDelete) scheme.onErrorContainer else scheme.onSecondaryContainer
+                if (toDelete) Icon(Icons.Filled.Delete, contentDescription = null, tint = ink)
+                Text(if (toDelete) "Delete" else if (item.archived) "Unarchive" else "Archive", style = MaterialTheme.typography.labelLarge, color = ink)
             }
         },
     ) {
@@ -502,79 +490,47 @@ private fun ConversationRow(
     val meta = remember(item.subtitle, item.updatedAt, now) {
         listOf(item.subtitle, (if (now - item.updatedAt < DateUtils.MINUTE_IN_MILLIS) "just now" else DateUtils.getRelativeTimeSpanString(item.updatedAt, now, DateUtils.MINUTE_IN_MILLIS).toString())).filter { it.isNotBlank() }.joinToString(" · ")
     }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.background)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Select")
-            .padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // A plain row starts at the margin; the slot only appears to say something.
-        if (selecting || item.running || item.incognito) {
-            Box(Modifier.width(if (selecting) 18.dp else 8.dp), contentAlignment = Alignment.Center) {
-                when {
-                    selecting -> SelectBox(selected)
-                    item.running -> StatusDot(MaterialTheme.colorScheme.primary, live = true)
-                    else -> StatusDot(AutobotTheme.inks.uv)
-                }
-            }
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    ListItem(
+        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = "Select"),
+        colors = ListItemDefaults.colors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface),
+        // A plain row starts at the margin; the leading slot only appears to say something.
+        leadingContent = when {
+            selecting -> ({ Checkbox(checked = selected, onCheckedChange = null) })
+            item.running -> ({ Badge(Modifier.semantics { contentDescription = "Running" }, containerColor = MaterialTheme.colorScheme.primary) })
+            item.incognito -> ({ Icon(Icons.Filled.Lock, contentDescription = "Incognito", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) })
+            else -> null
+        },
+        headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (item.pinned) Icon(AutobotIcons.Pin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
+                if (item.pinned) Icon(AutobotIcons.Pin, contentDescription = "Pinned", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
                 // A large font wraps the title and its line of detail rather than cutting their ends.
-                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
+                Text(title, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
             }
-            snippet?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                snippet?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                Text(meta, style = MaterialTheme.typography.bodySmall, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
             }
-            Text(
-                meta,
-                style = AutobotTheme.styles.codeBlock,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = linesFor(1, 3),
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (!selecting) {
+        },
+        trailingContent = if (selecting) null else ({
             Box {
-                IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Chat actions", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
-                }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Chat actions") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     val pick = { a: RowAction -> menu = false; onMenu(a) }
-                    DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Filled.Edit, null, Modifier.size(16.dp)) }, onClick = { pick(RowAction.RENAME) })
-                    DropdownMenuItem(text = { Text(if (item.pinned) "Unpin" else "Pin to top") }, leadingIcon = { Icon(AutobotIcons.Pin, null, Modifier.size(16.dp)) }, onClick = { pick(RowAction.PIN) })
+                    DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Filled.Edit, null) }, onClick = { pick(RowAction.RENAME) })
+                    DropdownMenuItem(text = { Text(if (item.pinned) "Unpin" else "Pin to top") }, leadingIcon = { Icon(AutobotIcons.Pin, null) }, onClick = { pick(RowAction.PIN) })
                     DropdownMenuItem(text = { Text("Move to folder") }, onClick = { pick(RowAction.MOVE) })
                     DropdownMenuItem(text = { Text(if (item.archived) "Unarchive" else "Archive") }, onClick = { pick(RowAction.ARCHIVE) })
                     DropdownMenuItem(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = { Icon(Icons.Filled.Delete, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
                         onClick = { pick(RowAction.DELETE) },
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun SelectBox(selected: Boolean) {
-    val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-    Box(
-        Modifier.size(16.dp).then(if (selected) Modifier.background(color, MaterialTheme.shapes.extraSmall) else Modifier.border(1.dp, color, MaterialTheme.shapes.extraSmall)),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (selected) Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(12.dp))
-    }
+        }),
+    )
 }
 
 /** The current time, ticking at each minute boundary while on screen (relative times refresh with it). */
@@ -637,9 +593,9 @@ private fun Dialogs(dialog: ListDialog?, state: ChatListUiState, actions: ChatLi
             onDismissRequest = { set(null) },
             title = { Text(dialog.name) },
             text = { Text("Deleting a folder keeps its chats; they move out of it.") },
-            confirmButton = { TextButton(onClick = { set(ListDialog.RenameFolder(dialog.id, dialog.name)) }) { ActionText("Rename") } },
+            confirmButton = { TextButton(onClick = { set(ListDialog.RenameFolder(dialog.id, dialog.name)) }) { Text("Rename") } },
             dismissButton = {
-                TextButton(onClick = { set(ListDialog.DeleteFolder(dialog.id, dialog.name)) }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { set(ListDialog.DeleteFolder(dialog.id, dialog.name)) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
         )
         is ListDialog.RenameFolder -> NameDialog(
@@ -661,9 +617,9 @@ private fun Dialogs(dialog: ListDialog?, state: ChatListUiState, actions: ChatLi
                 TextButton(onClick = {
                     actions.deleteFolder(dialog.id)
                     set(null)
-                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { set(null) }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { set(null) }) { Text("Cancel") } },
         )
     }
 }

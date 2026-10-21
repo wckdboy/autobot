@@ -5,9 +5,15 @@ import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
-import android.os.Looper
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onRoot
+import org.junit.Rule
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.ui.graphics.ImageBitmap
@@ -52,16 +58,12 @@ import dev.wckdboy.autobot.shared.studio.StudioProject
 import dev.wckdboy.autobot.shared.studio.WorkflowImport
 import java.io.File
 import java.lang.reflect.Proxy
-import java.time.Duration
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import org.robolectric.annotation.LooperMode
 
 /**
  * Renders each Studio room with fixture state to `build/studio-snapshots/` (for eyes; asserts
@@ -70,8 +72,10 @@ import org.robolectric.annotation.LooperMode
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h860dp-xhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@LooperMode(LooperMode.Mode.PAUSED)
 class StudioSnapshotTest {
+    @get:Rule
+    val compose = createAndroidComposeRule<ComponentActivity>()
+
     private val out = File("build/studio-snapshots").apply { mkdirs() }
 
     private inline fun <reified T> noop(): T = Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, m, _ ->
@@ -137,7 +141,6 @@ class StudioSnapshotTest {
 
     @Test
     fun rendersEveryRoom() {
-        val activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val rooms = listOf(
             "image" to StudioRoom.IMAGE,
             "audio" to StudioRoom.AUDIO,
@@ -145,9 +148,12 @@ class StudioSnapshotTest {
             "workflows" to StudioRoom.WORKFLOWS,
             "library" to StudioRoom.LIBRARY,
         )
-        for ((name, room) in rooms) {
+        // Rendered through the Compose test rule, which leaves Material's infinite indicators
+        // (loading, wavy progress) unstepped: a manually stepped looper would draw them forever.
+        var current by mutableStateOf(rooms.first())
+        compose.setContent {
+            val (name, room) = current
             val video = if (name == "video-empty") VideoRoomState(loaded = true) else VideoRoomState(loaded = true, backends = listOf(ComfyBackendConfig("pc", "Studio PC", "https://pc.example.ts.net")), workflows = listOf(workflow))
-            activity.setContent {
                 key(name) { AutobotTheme(darkTheme = true) {
                     CompositionLocalProvider(LocalAssetLoader provides loader) {
                         StudioScreen(
@@ -178,11 +184,12 @@ class StudioSnapshotTest {
                         )
                     }
                 } }
-            }
-            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1200))
-            val view = activity.window.decorView
-            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-            view.draw(Canvas(bitmap))
+        }
+        for (entry in rooms) {
+            val name = entry.first
+            current = entry
+            compose.waitForIdle()
+            val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
             File(out, "studio-$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             assertTrue("$name drew", distinctColors(bitmap) > 3)
         }

@@ -9,6 +9,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasTestTag
 import dev.wckdboy.autobot.core.designsystem.component.PrivacyStatus
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit.Themed
@@ -57,6 +59,8 @@ class NodeBotsScreenTest {
         compose.onNodeWithText("telegram · slack", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("slack down: token revoked ✗", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("2 queued · active 22m ago", useUnmergedTree = true).assertIsDisplayed()
+        // Material list items are taller than the old rows: the third bot is below the fold on a test window.
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("bot-support"))
         compose.onNodeWithTag("bot-support").performClick()
         assertEquals(listOf("n1/support"), opened)
     }
@@ -109,6 +113,7 @@ class NodeBotsScreenTest {
         assertEquals(listOf("reviewer", null), picked)
         compose.onNodeWithTag("node-bot").performScrollToNode(hasText("Wants restarts confirmed in one line."))
         compose.onNodeWithText("Wants restarts confirmed in one line.").assertIsDisplayed()
+        compose.onNodeWithTag("node-bot").performScrollToNode(hasText("Edit USER.md on studio-mac"))
         compose.onNodeWithText("Edit USER.md on studio-mac").assertIsDisplayed()
         compose.onNodeWithTag("node-bot").performScrollToNode(hasText("46 turns · 131 model calls · 440.4k tokens · 31m 52s"))
         compose.onNodeWithTag("node-bot").performScrollToNode(hasText("Model calls · all local"))

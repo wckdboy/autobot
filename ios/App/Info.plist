@@ -67,7 +67,6 @@
 	<string>Export saves an unencrypted copy of an image you choose to your photo library.</string>
 	<key>UIAppFonts</key>
 	<array>
-		<string>antonio.ttf</string>
 		<string>jetbrains_mono.ttf</string>
 	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

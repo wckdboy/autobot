@@ -27,7 +27,7 @@ struct SessionTranscript: Equatable, Sendable {
     let projection: SessionProjection
     /// [projection]'s items with each key once (`ForEach` ids).
     let items: [SessionItem]
-    /// Item keys in order (the ink ledger).
+    /// Item keys in order.
     let keys: [String]
     /// Tool step numbers by item key (1-based; a repeated key keeps its first number).
     let stepNumbers: [String: Int]

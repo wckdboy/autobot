@@ -107,7 +107,7 @@ class NodeAgentScreenTest {
         current = current.copy(photos = emptyList(), returned = "What is on this shelf?", rows = current.rows + AgentRow.Note("e", NodeImages.CANNOT_SEE_MESSAGE, AgentRow.Tone.ERROR))
         compose.waitForIdle()
         compose.onNode(hasText("What is on this shelf?")).assertIsDisplayed()
-        compose.onNodeWithText("✗ " + NodeImages.CANNOT_SEE_MESSAGE).assertIsDisplayed()
+        compose.onNodeWithText(NodeImages.CANNOT_SEE_MESSAGE).assertIsDisplayed()
     }
 
     private fun audit(width: Int, scale: Float, dark: Boolean) = LargeTextAudit.render(compose, "node-chat-${if (dark) "dark" else "light"}", width, scale) {

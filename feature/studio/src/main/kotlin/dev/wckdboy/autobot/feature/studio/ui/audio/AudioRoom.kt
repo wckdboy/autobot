@@ -17,7 +17,26 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RangeSlider
-import androidx.compose.material3.SliderDefaults
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.DropdownField
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.JobProgress
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.SliderField
+import dev.wckdboy.autobot.core.designsystem.component.StepperField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,20 +53,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.SelectField
-import dev.wckdboy.autobot.core.designsystem.component.Stepper
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.models.StableAudioCatalog
 import dev.wckdboy.autobot.feature.studio.ui.ControlSheet
 import dev.wckdboy.autobot.feature.studio.ui.EmptyRoom
@@ -85,91 +92,89 @@ fun AudioRoom(state: AudioRoomState, shell: StudioShellState, actions: AudioActi
 
     Column(modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Segmented(AudioTab.entries, state.tab, actions::setTab, { it.label }, Modifier.fillMaxWidth())
+            Choices(AudioTab.entries, state.tab, actions::setTab, Modifier.fillMaxWidth()) { it.label }
             state.error?.let { ErrorLine(it, actions::dismiss) }
             state.message?.let { ErrorLine(it, actions::dismiss) }
             if (state.tab == AudioTab.SOUND) {
                 PoweredByStability()
                 if (state.loaded && !state.hasAudioModel) {
-                    EmptyRoom(StudioRoomWords.audioNoModel) { PrimaryButton(StudioRoomWords.audioNoModel.action!!, onOpenModels, Modifier.fillMaxWidth()) }
+                    EmptyRoom(StudioRoomWords.audioNoModel) { Button(onClick = onOpenModels, Modifier.fillMaxWidth()) { Text(StudioRoomWords.audioNoModel.action!!) } }
                 }
             } else if (state.loaded && !state.hasVoice) {
                 EmptyRoom(StudioRoomWords.voiceNoModel) {
-                    PrimaryButton(StudioRoomWords.voiceNoModel.action!!, onOpenModels, Modifier.fillMaxWidth())
+                    Button(onClick = onOpenModels, Modifier.fillMaxWidth()) { Text(StudioRoomWords.voiceNoModel.action!!) }
                 }
             }
             if (running != null) {
-                Column(Modifier.fillMaxWidth().height(140.dp)) {
-                    DevelopingPreview(null, Modifier.fillMaxWidth().weight(1f))
-                    InkProgressBar(if (running.steps > 0) running.progress else null, Modifier.fillMaxWidth().height(3.dp))
-                    MicroLabel(running.status ?: "making ${running.label ?: "audio"}", Modifier.padding(top = 4.dp))
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DevelopingPreview(null, Modifier.fillMaxWidth().height(120.dp).clip(MaterialTheme.shapes.large))
+                    JobProgress(if (running.steps > 0) running.progress else null, Modifier.fillMaxWidth())
+                    Caption(running.status ?: "making ${running.label ?: "audio"}")
                 }
             }
             if (clip != null) ClipPlayer(clip, actions)
             if (recent.size > 1) {
-                MicroLabel("clips")
-                recent.take(12).forEach { a ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .then(if (a.id == clip?.id) Modifier.border(1.dp, MaterialTheme.colorScheme.primary) else Modifier)
-                            .clickable { selected = a.id }
-                            .padding(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        dev.wckdboy.autobot.feature.studio.ui.AssetThumb(a, Modifier.height(28.dp).weight(0.4f))
-                        Text(
-                            a.label ?: dev.wckdboy.autobot.feature.studio.engine.StudioRecipes.title(a.recipe),
-                            Modifier.weight(0.6f),
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                SheetLabel("clips")
+                Column(Modifier.selectableGroup()) {
+                    recent.take(12).forEach { a ->
+                        val isSelected = a.id == clip?.id
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    a.label ?: dev.wckdboy.autobot.feature.studio.engine.StudioRecipes.title(a.recipe),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            leadingContent = { dev.wckdboy.autobot.feature.studio.ui.AssetThumb(a, Modifier.size(width = 72.dp, height = 32.dp)) },
+                            trailingContent = { Text(duration(a.durationMs), style = MaterialTheme.typography.labelLarge) },
+                            colors = ListItemDefaults.colors(containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent),
+                            modifier = Modifier.clip(MaterialTheme.shapes.medium).selectable(selected = isSelected, onClick = { selected = a.id }),
                         )
-                        Text(duration(a.durationMs), style = AutobotTheme.styles.readout)
                     }
                 }
             }
             if (state.audioWorkflows.isNotEmpty()) {
-                MicroLabel("${state.audioWorkflows.size} audio workflow${if (state.audioWorkflows.size == 1) "" else "s"} for your PC (ComfyUI)")
-                Tag("open workflows →", onClick = onOpenWorkflows)
+                Caption("${state.audioWorkflows.size} audio workflow${if (state.audioWorkflows.size == 1) "" else "s"} for your PC (ComfyUI)")
+                OutlinedButton(onClick = onOpenWorkflows) { Text("Open workflows") }
             }
         }
         ControlSheet(
+            modifier = Modifier.weight(1.5f, fill = false),
             expanded = controls,
             onToggle = { controls = !controls },
             summary = if (state.tab == AudioTab.SOUND) "${state.seconds} s · ${counted(state.steps, "step")} · cfg ${state.cfg}" else "${state.voice} · ×${state.speed}",
         ) {
             if (state.tab == AudioTab.SOUND) SoundControls(state, actions) else VoiceControls(state, actions)
         }
-        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             RunsOn(null)
             if (state.tab == AudioTab.SOUND) {
-                PrimaryButton(if (state.batch > 1) "Queue ${state.batch} clips" else "Make the sound", actions::generate, Modifier.fillMaxWidth(), enabled = state.canGenerate)
+                Button(onClick = actions::generate, Modifier.fillMaxWidth(), enabled = state.canGenerate) { Text(if (state.batch > 1) "Queue ${state.batch} clips" else "Make the sound") }
             } else {
-                PrimaryButton("Read it", actions::speak, Modifier.fillMaxWidth(), enabled = state.canSpeak)
+                Button(onClick = actions::speak, Modifier.fillMaxWidth(), enabled = state.canSpeak) { Text("Read it") }
             }
         }
     }
 }
 
 /** The licence's attribution, shown prominently wherever Stable Audio runs. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PoweredByStability(modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-            .semantics { contentDescription = StableAudioCatalog.ATTRIBUTION },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(StableAudioCatalog.ATTRIBUTION, Modifier.stamp("stability"), style = AutobotTheme.styles.action, color = MaterialTheme.colorScheme.onBackground)
-        Text("· community licence", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    OutlinedCard(modifier.semantics(mergeDescendants = true) { contentDescription = StableAudioCatalog.ATTRIBUTION }) {
+        FlowRow(
+            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(StableAudioCatalog.ATTRIBUTION, Modifier.stamp("stability"), style = MaterialTheme.typography.titleSmall)
+            Text("· community licence", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ClipPlayer(clip: StudioAsset, actions: AudioActions) {
     val loader = LocalAssetLoader.current
@@ -181,7 +186,7 @@ private fun ClipPlayer(clip: StudioAsset, actions: AudioActions) {
     val total = clip.durationMs.takeIf { it > 0 } ?: player.durationMs
     LaunchedEffect(trim, total) { player.range = if (trim == 0f..1f || total <= 0) null else (trim.start * total).toLong()..(trim.endInclusive * total).toLong() }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionLabel(clip.label ?: dev.wckdboy.autobot.feature.studio.engine.StudioRecipes.title(clip.recipe).ifBlank { "clip" }, Modifier.semantics { heading() })
+        SheetLabel(clip.label ?: dev.wckdboy.autobot.feature.studio.engine.StudioRecipes.title(clip.recipe).ifBlank { "clip" }, Modifier.semantics { heading() })
         Waveform(
             peaks,
             Modifier.fillMaxWidth().height(120.dp).semantics { contentDescription = "Waveform, ${duration(total)}" },
@@ -192,15 +197,13 @@ private fun ClipPlayer(clip: StudioAsset, actions: AudioActions) {
             value = trim,
             onValueChange = { trim = it },
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Trim range" },
-            colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
         )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MicroLabel("trim ${duration((trim.start * total).toLong())} – ${duration((trim.endInclusive * total).toLong())}", Modifier.weight(1f))
-            GhostButton(
-                "Save trim",
-                { actions.trim(clip, (trim.start * total).toLong(), (trim.endInclusive * total).toLong()) },
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+            Caption("trim ${duration((trim.start * total).toLong())} – ${duration((trim.endInclusive * total).toLong())}", Modifier.weight(1f))
+            OutlinedButton(
+                onClick = { actions.trim(clip, (trim.start * total).toLong(), (trim.endInclusive * total).toLong()) },
                 enabled = trim != 0f..1f && clip.mimeType.contains("wav"),
-            )
+            ) { Text("Save trim") }
         }
         Transport(player)
     }
@@ -208,20 +211,20 @@ private fun ClipPlayer(clip: StudioAsset, actions: AudioActions) {
 
 @Composable
 private fun SoundControls(state: AudioRoomState, actions: AudioActions) {
-    ConsoleTextField(state.prompt, actions::setPrompt, Modifier.fillMaxWidth(), label = "Describe the sound", placeholder = "rain on a tin roof, distant thunder, 90 bpm", minLines = 2, maxLines = 5)
+    Field(state.prompt, actions::setPrompt, Modifier.fillMaxWidth(), label = "Describe the sound", placeholder = "rain on a tin roof, distant thunder, 90 bpm", minLines = 2, maxLines = 5)
     WildcardPreview(state.prompt, state.batch)
-    ValueSlider("Seconds", state.seconds, actions::setSeconds, 0.5f..StableAudio.MAX_SECONDS.toFloat(), format = { String.format(Locale.ROOT, "%.1f s", it) })
-    ValueSlider("Steps", state.steps.toFloat(), { actions.setSteps(it.toInt()) }, 1f..32f, format = { it.toInt().toString() })
-    ValueSlider("CFG", state.cfg, actions::setCfg, 1f..10f, format = { String.format(Locale.ROOT, "%.1f", it) })
-    if (state.cfg > 1f) MicroLabel("cfg above 1 runs the model twice per step (the distilled model is made for 1)")
+    SliderField("Seconds", state.seconds, actions::setSeconds, 0.5f..StableAudio.MAX_SECONDS.toFloat(), format = { String.format(Locale.ROOT, "%.1f s", it) })
+    SliderField("Steps", state.steps.toFloat(), { actions.setSteps(it.toInt()) }, 1f..32f, format = { it.toInt().toString() })
+    SliderField("CFG", state.cfg, actions::setCfg, 1f..10f, format = { String.format(Locale.ROOT, "%.1f", it) })
+    if (state.cfg > 1f) Caption("cfg above 1 runs the model twice per step (the distilled model is made for 1)")
     SeedControl(state.seed, state.seedMode, actions::setSeed, actions::setSeedMode)
-    Stepper("Batch", state.batch, actions::setBatch, 1..8)
+    StepperField("Batch", state.batch, actions::setBatch, 1..8)
 }
 
 @Composable
 private fun VoiceControls(state: AudioRoomState, actions: AudioActions) {
-    ConsoleTextField(state.text, actions::setText, Modifier.fillMaxWidth(), label = "Text to read", minLines = 3, maxLines = 10)
-    SelectField("Voice", state.voice, state.voices.ifEmpty { listOf(state.voice) }, actions::setVoice, Modifier.fillMaxWidth())
-    ValueSlider("Speed", state.speed, actions::setSpeed, 0.5f..2f, format = { "×" + String.format(Locale.ROOT, "%.2f", it) })
+    Field(state.text, actions::setText, Modifier.fillMaxWidth(), label = "Text to read", minLines = 3, maxLines = 10)
+    DropdownField("Voice", state.voice, state.voices.ifEmpty { listOf(state.voice) }, actions::setVoice, Modifier.fillMaxWidth())
+    SliderField("Speed", state.speed, actions::setSpeed, 0.5f..2f, format = { "×" + String.format(Locale.ROOT, "%.2f", it) })
 }
 

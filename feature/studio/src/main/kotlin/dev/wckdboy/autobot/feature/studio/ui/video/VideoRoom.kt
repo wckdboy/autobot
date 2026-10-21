@@ -18,6 +18,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.InlineLoading
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,11 +39,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.feature.studio.ui.AssetThumb
 import dev.wckdboy.autobot.feature.studio.ui.ChipRow
@@ -70,45 +73,48 @@ fun VideoRoom(state: VideoRoomState, shell: StudioShellState, actions: VideoActi
             state.message?.let { ErrorLine(it, actions::dismiss) }
             when {
                 state.loaded && state.backends.isEmpty() -> EmptyRoom(StudioRoomWords.videoNoPc) {
-                    PrimaryButton(StudioRoomWords.videoNoPc.action!!, onOpenWorkflows, Modifier.fillMaxWidth())
+                    Button(onClick = onOpenWorkflows, Modifier.fillMaxWidth()) { Text(StudioRoomWords.videoNoPc.action!!) }
                 }
                 state.loaded && state.workflows.isEmpty() -> EmptyRoom(StudioRoomWords.videoNoWorkflow) {
-                    PrimaryButton(StudioRoomWords.videoNoWorkflow.action!!, onOpenWorkflows, Modifier.fillMaxWidth())
+                    Button(onClick = onOpenWorkflows, Modifier.fillMaxWidth()) { Text(StudioRoomWords.videoNoWorkflow.action!!) }
                 }
             }
             if (running != null) {
                 val preview = rememberDecoded(running.preview?.bytes)
-                Column(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                Column(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(MaterialTheme.shapes.large)) {
                     DevelopingPreview(preview, Modifier.fillMaxSize())
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (running.steps == 0) InkLoader(contentDescription = null)
-                    MicroLabel(running.status ?: "queued on ${state.backend?.name}")
+                    if (running.steps == 0) InlineLoading(contentDescription = null)
+                    Caption(running.status ?: "queued on ${state.backend?.name}")
                 }
             }
             if (clip != null) Player(clip, actions)
             if (clips.size > 1) {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     clips.take(20).forEach { a ->
-                        AssetThumb(a, Modifier.size(width = 96.dp, height = 54.dp).then(if (a.id == clip?.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier).clickable { selected = a.id })
+                        AssetThumb(a, Modifier.size(width = 96.dp, height = 54.dp).then(if (a.id == clip?.id) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small) else Modifier).clickable { selected = a.id })
                     }
                 }
             }
         }
         val workflow = state.workflow
         if (workflow != null && state.backends.isNotEmpty()) {
-            ControlSheet(expanded = controls, onToggle = { controls = !controls }, summary = "${workflow.name} · ${counted(workflow.params.size, "param")}") {
+            ControlSheet(modifier = Modifier.weight(1.5f, fill = false), expanded = controls, onToggle = { controls = !controls }, summary = "${workflow.name} · ${counted(workflow.params.size, "param")}") {
                 if (state.workflows.size > 1) ChipRow(state.workflows, workflow, { actions.selectWorkflow(it.id) }, { it.name })
                 if (state.backends.size > 1) ChipRow(state.backends, state.backend, { actions.selectBackend(it.id) }, { it.name })
                 ParamControls(workflow.params, state.values, actions::setValue, shell.assets)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("New seed each run", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                    Switch(checked = state.randomizeSeed, onCheckedChange = actions::setRandomizeSeed)
+                Row(
+                    Modifier.fillMaxWidth().toggleable(state.randomizeSeed, role = Role.Switch, onValueChange = actions::setRandomizeSeed),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("New seed each run", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Switch(checked = state.randomizeSeed, onCheckedChange = null)
                 }
             }
-            Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 RunsOn(state.backend?.name)
-                PrimaryButton("Run on ${state.backend?.name ?: "pc"}", actions::run, Modifier.fillMaxWidth(), enabled = state.backend != null)
+                Button(onClick = actions::run, Modifier.fillMaxWidth(), enabled = state.backend != null) { Text("Run on ${state.backend?.name ?: "PC"}") }
             }
         }
     }
@@ -127,11 +133,11 @@ private fun Player(clip: StudioAsset, actions: VideoActions) {
             VideoSurface(data, clip.mimeType, player, Modifier.fillMaxWidth().semantics { contentDescription = "Video ${clip.label ?: ""}" })
         }
         if (!clip.mimeType.startsWith("image/")) {
-            Transport(player, extra = { Tag("frame →", onClick = { actions.exportFrame(clip, player.positionMs) }) })
+            Transport(player, extra = { TextButton(onClick = { actions.exportFrame(clip, player.positionMs) }) { Text("Frame") } })
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                MicroLabel("animated ${clip.mimeType.substringAfter('/')} · loops", Modifier.weight(1f))
-                GhostButton("First frame", { actions.exportFrame(clip, 0) })
+                Caption("animated ${clip.mimeType.substringAfter('/')} · loops", Modifier.weight(1f))
+                OutlinedButton(onClick = { actions.exportFrame(clip, 0) }) { Text("First frame") }
             }
         }
         Row(Modifier.height(4.dp)) {}

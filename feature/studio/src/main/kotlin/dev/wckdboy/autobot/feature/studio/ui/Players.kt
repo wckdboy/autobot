@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -37,10 +36,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.semantics.stateDescription
 import dev.wckdboy.autobot.feature.studio.media.ByteDataSource
 import java.nio.ByteBuffer
 import kotlinx.coroutines.delay
@@ -155,6 +156,7 @@ fun rememberBytePlayer(): BytePlayer {
 }
 
 /** Play / pause, the scrub bar and the loop switch. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Transport(player: BytePlayer, modifier: Modifier = Modifier, extra: @Composable () -> Unit = {}) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -163,16 +165,19 @@ fun Transport(player: BytePlayer, modifier: Modifier = Modifier, extra: @Composa
             value = (player.positionMs.toFloat() / total).coerceIn(0f, 1f),
             onValueChange = { player.seek((it * total).toLong()) },
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Position ${duration(player.positionMs)} of ${duration(player.durationMs)}" },
-            colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary),
         )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhostButton(if (player.playing) "Pause" else "Play", player::toggle)
-            Text("${duration(player.positionMs)} / ${duration(player.durationMs)}", style = AutobotTheme.styles.readout)
-            Box(Modifier.weight(1f))
-            Tag(if (player.loop) "loop on" else "loop off", accent = if (player.loop) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = player.loop, onClick = { player.loop = !player.loop })
+        FlowRow(Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = player::toggle) { Text(if (player.playing) "Pause" else "Play") }
+            Text("${duration(player.positionMs)} / ${duration(player.durationMs)}", style = MaterialTheme.typography.labelLarge)
+            FilterChip(
+                selected = player.loop,
+                onClick = { player.loop = !player.loop },
+                label = { Text("Loop") },
+                modifier = Modifier.semantics { stateDescription = if (player.loop) "Loop on" else "Loop off" },
+            )
             extra()
         }
-        player.error?.let { MicroLabel(it, color = MaterialTheme.colorScheme.error) }
+        player.error?.let { Caption(it, color = MaterialTheme.colorScheme.error) }
     }
 }
 

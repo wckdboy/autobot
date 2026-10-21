@@ -17,6 +17,8 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    // The brand color scheme (Material's color utilities, from the brand purple).
+    implementation(libs.material.kolor)
 
     testImplementation(libs.kotlinx.serialization.json)
     testImplementation(libs.robolectric)

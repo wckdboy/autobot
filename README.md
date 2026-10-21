@@ -54,7 +54,7 @@ Versions move together: Android and iOS ship the same version and build number.
 ```
 
 A behaviour fix in the core lands on both platforms at once; the platforms only move bytes, store
-data and draw the riso UI from the same design tokens (`shared/design/tokens.json`, checked by
+data and draw their UI from the same design tokens (brand purple, type, spacing) (`shared/design/tokens.json`, checked by
 `TokensParityTest` on Android and `TokensTests` on iOS). The parity table is in
 [ios/README.md](ios/README.md).
 
@@ -133,7 +133,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | Module | Responsibility |
 | --- | --- |
 | `:app` | `AutobotApplication` (Hilt), `MainActivity` (FragmentActivity, edge-to-edge, FLAG_SECURE), welcome screen, Navigation 3 `NavDisplay` with the RUN · MODELS · REMOTE · SETTINGS bar, lock screen, manifest and network security config |
-| `:core:designsystem` | Riso theme: one signal red on ink (dark) or paper (light), Antonio display + JetBrains Mono labels, halftone rendering (`HalftoneImage`, `HalftoneField`), `ModeCard`, `RouteTag`, `RunRow`, `BigReadout`, `Panel`, `Tag`, sliders, segmented controls, `AutobotNavBar`, stroke icons |
+| `:core:designsystem` | Material 3 Expressive theme in the brand purple (MaterialKolor scheme) with the brand's two marks: the pixel a (`AutobotMark`, `Wordmark`, Invincible's `NodeMark`) and the purple pixel dot after a top-level title. One kit of standard Material components (`Standard*.kt`): `AppBar`/`TitleWithDot`, list items (`NavListItem`, `SwitchItem`, `InfoItem`, `ActionListItem`), `SectionCard`, `TonalLabel`, `RouteChip`, `NoticeCard`, `EmptyContent`, `Loading`, `JobProgress`, `EmptyPicture`, `Field`, `SearchField`, `Choices`, `SliderField`, `StepperField`, `DropdownField`, the chat composer (`MessageComposer`, `SendIconButton`, `StopIconButton`), chat markdown (code blocks on `surfaceContainerHigh`, tonal inline code) and Material Symbols for the Run modes. Every screen uses it: Chat, Run, Remote and the node screens, Settings, Models, Image, Studio, the lock screens and the welcome. The riso kit is gone |
 | `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
 | `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
 | `:core:a2ui` | The Compose renderer of A2UI v1.0: `A2uiSurfaceView(host, surfaceId, onAction)` draws the basic catalog with Material 3 in the app theme, writes inputs back through the host, asks before opening links; `A2uiChatState` / `A2uiToolSurfaces` for a chat's `show_ui` surfaces |
@@ -154,7 +154,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:providers:remote` | `ChatProvider` over OkHttp in the dialect of the provider's preset (OpenAI-compatible or Anthropic native), model lists, the on-device `LocalChatProvider`; `ProviderFactory` |
 | `:feature:chat` | Session list (live indicators, incognito) and agent session screen (streaming, reasoning, tool cards with inline approvals, plan/todos, questions, context gauge, slash commands, model switcher) |
 | `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection), MCP servers editor (masked token, routing, trusted, test connection) |
-| `ios/App` | The SwiftUI app: riso design system from the shared tokens, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
+| `ios/App` | The SwiftUI app: system components with Liquid Glass and the brand purple tint, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
 | `ios/Packages/AutobotEngines` | Swift package over the shared llama.cpp / whisper.cpp C cores (Metal, Core ML encoder) and Apple's ml-stable-diffusion; built into `AutobotLlama` / `AutobotWhisper` xcframeworks with dSYMs |
 | `scripts/` | `bump-version.sh` (one version for both apps), `release.sh` (test, build, sign, TestFlight, GitHub release) |
 | `build-logic/` | Convention plugins: `autobot.android.application`, `autobot.android.library`, `autobot.android.compose`, `autobot.hilt` |

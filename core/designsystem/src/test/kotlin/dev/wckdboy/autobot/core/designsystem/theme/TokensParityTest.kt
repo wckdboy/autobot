@@ -14,6 +14,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
@@ -92,37 +93,19 @@ class TokensParityTest {
         }
     }
 
+    /**
+     * Type and corners are each platform's own now (Material's scale and shapes here, the system
+     * text styles on iOS): `tokens.json`'s `type` and `radius` are the retired riso scale, no
+     * longer drawn on Android. The brand comes through the color scheme, generated from the palette's purple.
+     */
     @Test
-    fun typeScaleMatches() {
-        val styles: Map<String, TextStyle> = with(AutobotTypography) {
-            mapOf(
-                "displayLarge" to displayLarge, "displayMedium" to displayMedium, "displaySmall" to displaySmall,
-                "headlineLarge" to headlineLarge, "headlineMedium" to headlineMedium, "headlineSmall" to headlineSmall,
-                "titleLarge" to titleLarge, "titleMedium" to titleMedium, "titleSmall" to titleSmall,
-                "bodyLarge" to bodyLarge, "bodyMedium" to bodyMedium, "bodySmall" to bodySmall,
-                "labelLarge" to labelLarge, "labelMedium" to labelMedium, "labelSmall" to labelSmall,
-            )
-        }
-        val mismatches = styles.flatMap { (name, style) ->
-            val t = group("type").getValue(name).jsonObject
-            listOf(
-                Triple("size", t.getValue("size").jsonPrimitive.double, style.fontSize.value.toDouble()),
-                Triple("lineHeight", t.getValue("lineHeight").jsonPrimitive.double, style.lineHeight.value.toDouble()),
-                Triple("letterSpacing", t.getValue("letterSpacing").jsonPrimitive.double, style.letterSpacing.value.toDouble()),
-                Triple("weight", t.getValue("weight").jsonPrimitive.int.toDouble(), (style.fontWeight?.weight ?: 400).toDouble()),
-            ).filter { (_, expected, actual) -> kotlin.math.abs(expected - actual) > 0.01 }
-                .map { (field, expected, actual) -> "type.$name.$field: tokens.json $expected, Theme.kt ${"%.2f".format(actual)}" }
-        }
-        assertEquals(emptyList<String>(), mismatches)
-    }
-
-    @Test
-    fun radiiMatch() {
-        val shapes = with(AutobotShapes) { mapOf("extraSmall" to extraSmall, "small" to small, "medium" to medium, "large" to large, "extraLarge" to extraLarge) }
-        shapes.forEach { (name, shape) ->
-            val px = shape.topStart.toPx(Size(1000f, 1000f), Density(1f))
-            assertEquals("radius.$name", group("radius").getValue(name).jsonPrimitive.double, px.toDouble(), 0.01)
-        }
+    fun materialTypeShapesAndTheBrandScheme() {
+        assertEquals(androidx.compose.material3.Typography(), AutobotTypography)
+        assertEquals(androidx.compose.material3.Shapes(), AutobotShapes)
+        assertEquals(group("palette").getValue("purple").jsonPrimitive.content.uppercase(), hex(AutobotColors.Purple))
+        assertEquals(hex(brandColorScheme(dark = false).primary), hex(BrandLightColorScheme.primary))
+        // Generated from the purple, not Material's baseline (whose primary is #6750A4).
+        assertNotEquals("#6750A4", hex(BrandLightColorScheme.primary))
     }
 
     @Test

@@ -10,7 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -21,31 +28,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.agent.core.session.ReceiptHost
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.session.Receipt
 import dev.wckdboy.autobot.shared.session.Receipts
 
 /**
- * The receipt under a turn's last answer: `ON DEVICE` or `2 HOSTS · 14 KB OUT · NO RETENTION`.
- * It stamps in when the turn ends; a tap opens [ReceiptSheet].
+ * The receipt under a turn's last answer: `On device` or `2 hosts · 14 KB out · no retention`, as
+ * an assist chip. It stamps in when the turn ends; a tap opens [ReceiptSheet].
  */
 @Composable
 internal fun ReceiptLine(receipt: Receipt?, onOpen: (Receipt) -> Unit) {
     Box(Modifier.stamp(receipt?.line, enabled = receipt != null)) {
         if (receipt != null) {
-            val accent = when {
-                receipt.onDevice -> MaterialTheme.colorScheme.onSurface
-                receipt.models.any { it.policy == TRAINS } -> AutobotTheme.inks.amber
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            Tag("▤ ${receipt.line}", accent = accent, onClick = { onOpen(receipt) })
+            // A model that trains on prompts is the one thing here worth a warning colour.
+            val trains = receipt.models.any { it.policy == TRAINS }
+            AssistChip(
+                onClick = { onOpen(receipt) },
+                label = { Text(receipt.line) },
+                colors = if (trains) AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error) else AssistChipDefaults.assistChipColors(),
+            )
         }
     }
 }
@@ -56,12 +58,13 @@ private const val TRAINS = "trains on prompts"
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: (() -> Unit)? = null) {
+    val caution = MaterialTheme.colorScheme.error
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SectionLabel("receipt · turn ${receipt.turn}", Modifier.inkStagger(0))
+            Header("Receipt · turn ${receipt.turn}")
             Text(
                 when {
                     receipt.onDevice -> "Nothing left this phone"
@@ -69,28 +72,28 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
                     else -> "${Receipts.formatBytes(receipt.bytesSent)} sent · ${Receipts.formatBytes(receipt.bytesReceived)} received"
                 },
                 style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.inkStagger(1),
             )
 
             if (receipt.hosts.isNotEmpty()) {
-                Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel("hosts")
+                Section("Hosts")
                 receipt.hosts.forEach { HostRow(it) }
             }
 
             receipt.nodes.forEach { node ->
-                Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel("on ${node.node}")
+                Section("On ${node.node}")
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         node.models.joinToString(", ").ifEmpty { "no model ran" },
-                        style = AutobotTheme.styles.code,
+                        style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Tag(if (node.verified) "signed ✓" else "not verified", accent = if (node.verified) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber)
+                    if (node.verified) {
+                        TonalLabel("signed ✓")
+                    } else {
+                        TonalLabel("not verified", containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                    }
                 }
                 Text(
                     when {
@@ -105,47 +108,50 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
                 node.egress.forEach { HostRow(it) }
                 if (node.redactions.isNotEmpty()) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        node.redactions.forEach { Tag("${it.label} hidden by ${node.node}", accent = MaterialTheme.colorScheme.primary) }
+                        node.redactions.forEach { TonalLabel("${it.label} hidden by ${node.node}") }
                     }
                 }
             }
 
             if (receipt.models.isNotEmpty()) {
-                Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel("model")
+                Section("Model")
                 receipt.models.forEach { m ->
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(m.model, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            m.policy?.let { Tag(it, accent = if (it == TRAINS) AutobotTheme.inks.amber else if (m.onDevice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                            Text(m.model, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            m.policy?.let {
+                                if (it == TRAINS) {
+                                    TonalLabel(it, containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                                } else {
+                                    TonalLabel(it)
+                                }
+                            }
                         }
                         Text(
                             listOfNotNull(m.name, m.policyNote ?: "data policy not documented".takeIf { m.policy == null }).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        receipt.usageRows.firstOrNull { it.model == m.model }?.let { MicroLabel(it.line) }
+                        receipt.usageRows.firstOrNull { it.model == m.model }?.let { Detail(it.line) }
                     }
                 }
             }
 
             receipt.cascade?.let { cascade ->
-                Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel(if (cascade.role == "cloud") "phone first · ${cascade.followUpTarget} follow-up" else "phone first")
-                Text(cascade.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                Section(if (cascade.role == "cloud") "Phone first · ${cascade.followUpTarget} follow-up" else "Phone first")
+                Text(cascade.summary, style = MaterialTheme.typography.bodySmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    cascade.details.forEach { Tag(it) }
+                    cascade.details.forEach { TonalLabel(it) }
                 }
             }
 
             if (receipt.redacted) {
-                Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel("redacted")
+                Section("Redacted")
                 if (receipt.redactions.isEmpty()) {
                     Text("Nothing personal found", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        receipt.redactions.forEach { Tag(it.label, accent = MaterialTheme.colorScheme.primary) }
+                        receipt.redactions.forEach { TonalLabel(it.label) }
                     }
                     Text(
                         "The provider saw placeholders like [PERSON_1]. The real values were put back on this phone.",
@@ -156,12 +162,12 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
             }
 
             receipt.usage?.let { usage ->
-                Hairline(Modifier.padding(vertical = 2.dp))
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MicroLabel("tokens", Modifier.weight(1f))
-                    onOpenUsage?.let { Tag("usage", accent = MaterialTheme.colorScheme.onSurfaceVariant, onClick = it) }
+                    Header("Tokens", Modifier.weight(1f))
+                    onOpenUsage?.let { TextButton(onClick = it) { Text("Usage") } }
                 }
-                Text(usage, style = AutobotTheme.styles.code, color = MaterialTheme.colorScheme.onSurface)
+                Text(usage, style = MaterialTheme.typography.bodyMedium)
                 Text(
                     "Counted from the provider's own usage report. Cost uses your price table; models without a price stay unknown.",
                     style = MaterialTheme.typography.bodySmall,
@@ -170,38 +176,50 @@ internal fun ReceiptSheet(receipt: Receipt, onDismiss: () -> Unit, onOpenUsage: 
             }
 
             if (receipt.tools.isNotEmpty()) {
-                Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel("tools")
+                Section("Tools")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    receipt.tools.forEach { t ->
-                        Tag(if (t.network) "${t.name} · net" else t.name, accent = if (t.network) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    receipt.tools.forEach { t -> TonalLabel(if (t.network) "${t.name} · net" else t.name) }
                 }
             }
 
             if (receipt.fallbacks.isNotEmpty()) {
-                Hairline(Modifier.padding(vertical = 2.dp))
-                MicroLabel("fallbacks")
-                receipt.fallbacks.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotTheme.inks.amber) }
+                Section("Fallbacks")
+                receipt.fallbacks.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = caution) }
             }
 
-            Hairline(Modifier.padding(vertical = 2.dp))
+            HorizontalDivider(Modifier.padding(vertical = 4.dp))
             Text(
                 "Built on this phone from the network audit log. Receipts stay in this chat and are never sent anywhere.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.inkStagger(2),
             )
         }
     }
 }
 
-/** `api.deepseek.com   TOR · 2 REQ · 14 KB OUT · 30 KB IN` */
+/** A divider and a section title. */
+@Composable
+private fun Section(title: String) {
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+    Header(title)
+}
+
+@Composable
+private fun Header(title: String, modifier: Modifier = Modifier) {
+    Text(title, modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+}
+
+@Composable
+private fun Detail(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = color)
+}
+
+/** `api.deepseek.com` over `tor · 2 req · 14 KB out · 30 KB in` */
 @Composable
 private fun HostRow(host: ReceiptHost) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(host.host, style = AutobotTheme.styles.code, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        MicroLabel(
+        Text(host.host, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Detail(
             listOfNotNull(
                 host.route,
                 "${host.requests} req",
@@ -210,7 +228,7 @@ private fun HostRow(host: ReceiptHost) {
                 host.blocked.takeIf { it > 0 }?.let { "$it blocked" },
                 host.tags.joinToString(", ").ifEmpty { null },
             ).joinToString(" · "),
-            color = if (host.blocked == host.requests) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (host.blocked == host.requests) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

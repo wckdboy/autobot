@@ -12,8 +12,12 @@ Android, Neural Engine/Metal on iOS. Both apps are built from one shared core.
 3. **One app, two platforms.** Android and iOS ship the same features, version and behaviour.
    Logic lives in `:shared` (Kotlin Multiplatform) or the shared C cores; only UI and OS glue is
    per platform.
-4. **The riso feel.** One signal red on ink or paper, Antonio and JetBrains Mono, halftones.
-   Design tokens come from `shared/design/tokens.json` on both platforms.
+4. **System look, one brand.** Standard platform components: Material 3 Expressive on Android,
+   SwiftUI with Liquid Glass on iOS. The brand shows only as the purple (the Material scheme is
+   made from it; on iOS it is the tint), the pixel a and the purple pixel dot after a title.
+   Nothing custom where a standard component does the job. The riso look (signal red on ink or
+   paper, halftones) is retired and its kits are deleted on both platforms. Design tokens come
+   from `shared/design/tokens.json` on both platforms.
 
 ## Release rules
 
@@ -300,7 +304,8 @@ CPU-only 1.1.
   font (200 %) on a 360 dp phone: crowded rows stack, the top bar's actions take a row under the
   title, labels wrap instead of cutting off, and Robolectric renders audit each screen for
   clipped, ellipsized, overlapping or mid-word-broken text, unlabelled controls and touch areas
-  under 48 dp. iOS follows Dynamic Type with the same accent inks. Not yet: a TalkBack/VoiceOver
+  under 48 dp. iOS uses the system text styles and colours, so Dynamic Type and the system
+  contrast apply as they do in Apple's apps. Not yet: a TalkBack/VoiceOver
   pass on a real phone, Studio, sheets and dialogs in the large-text audit, a gallery
   audit with thumbnails, reduced-transparency and bold-text handling.)*
 - **Baseline profiles** and startup time budgets. *(Android: Baseline and startup profiles

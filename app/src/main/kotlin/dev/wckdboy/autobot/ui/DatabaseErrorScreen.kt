@@ -1,11 +1,13 @@
 package dev.wckdboy.autobot.ui
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -35,9 +37,9 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 @Composable
 fun DatabaseErrorScreen(reason: String, resetting: Boolean, onReset: () -> Unit, modifier: Modifier = Modifier) {
     var confirm by rememberSaveable { mutableStateOf(false) }
-    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
-            modifier = Modifier.padding(32.dp),
+            modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -67,9 +69,9 @@ fun DatabaseErrorScreen(reason: String, resetting: Boolean, onReset: () -> Unit,
                 TextButton(onClick = {
                     confirm = false
                     onReset()
-                }) { ActionText("Reset") }
+                }) { Text("Reset") }
             },
-            dismissButton = { TextButton(onClick = { confirm = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
         )
     }
 }

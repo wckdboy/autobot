@@ -6,7 +6,7 @@ private let defaultSamplers = ["DPM++ 2M", "DPM++ SDE", "Euler a", "Euler", "LCM
 
 private func sizeLabel(_ w: Int, _ h: Int) -> String { w == h ? "\(w)²" : "\(w)×\(h)" }
 
-/// The image studio: big prompt, model chips, readouts, 2×2 proofs.
+/// The image screen: the prompt, model chips, the run's settings at a glance and up to 2×2 results.
 struct ImagineScreen: View {
     var handoffId: String? = nil
     var intent: ImageHandoff = .reuse
@@ -14,7 +14,6 @@ struct ImagineScreen: View {
     var prompt: String? = nil
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var model: ImagineModel?
     @State private var showTune = false
     @State private var showMask = false
@@ -22,15 +21,15 @@ struct ImagineScreen: View {
     @State private var viewer: ImageViewerTarget?
 
     var body: some View {
-        let _ = InkProbe.hit("body.imagine")
+        let _ = RenderProbe.hit("body.imagine")
         Group {
             if let model {
                 content(model)
             } else {
-                c.background
+                Color(.systemBackground)
             }
         }
-        .background(c.background.ignoresSafeArea())
+        .background(Color(.systemBackground).ignoresSafeArea())
         .task {
             if model == nil {
                 let m = ImagineModel(app: app)
@@ -50,96 +49,110 @@ struct ImagineScreen: View {
         let request = m.request
         return VStack(spacing: 0) {
             AutobotTopBar(title: "Image", onBack: { nav.back() }) {
-                if let route = m.route { RouteTag(route: route) }
-                IconAction(.image, label: "Gallery") { nav.push(.gallery()) }
-                TextAction("Studio") { nav.enterStudio(.image) }
+                if let route = m.route { RouteBadge(route: route) }
+                Button { nav.push(.gallery()) } label: { Image(systemName: "photo.on.rectangle") }
+                    .accessibilityLabel("Gallery")
+                Button("Studio") { nav.enterStudio(.image) }
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let error = m.error { ErrorLine(message: error, onDismiss: m.dismissError) }
-                    else if let notice = m.notice { ErrorLine(message: notice, onDismiss: m.dismissError) }
-                    if m.backends.isEmpty {
-                        // One short sentence, one action; a PC is the secondary path.
+            VStack(alignment: .leading, spacing: 14) {
+                if let error = m.error { NoticeBanner(message: error, onDismiss: m.dismissError) }
+                else if let notice = m.notice { NoticeBanner(message: notice, systemImage: "info.circle", onDismiss: m.dismissError) }
+                if m.backends.isEmpty {
+                    // One short sentence, one action; a PC is the secondary path.
+                    VStack(spacing: 10) {
                         Text("No image model yet.")
-                            .textStyle(.bodyMedium)
-                            .foregroundStyle(c.onSurfaceVariant)
-                        PrimaryButton("Get a model") { nav.switchTo(.models) }
-                        TextAction("Use a PC instead", color: c.primary) { nav.push(.imageBackends) }
-                            .frame(maxWidth: .infinity)
-                    }
-                    PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate, wildcards: m.wildcards)
-                    // The row keeps its place while hidden (no prompt yet, a job running), so typing the
-                    // first letter or starting a job does not push the proofs down and back up.
-                    let styles = !m.isRunning && !m.request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    styleRow(m)
-                        .opacity(styles ? 1 : 0)
-                        .allowsHitTesting(styles)
-                        .accessibilityHidden(!styles)
-                        .animation(.inkReduced, value: styles)
-                    if !m.chips.isEmpty { chipRow(m) }
-                    if m.catalogStatus == .error, let error = m.catalogError {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("\(m.backend?.name ?? "Backend") unreachable · \(error)")
-                                .textStyle(.bodySmall)
-                                .foregroundStyle(c.error)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            TextAction("Retry", color: c.primary) { m.refreshCatalog() }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Button { nav.switchTo(.models) } label: {
+                            Text("Get a model").frame(maxWidth: .infinity)
                         }
+                        .glassProminentButton()
+                        .controlSize(.large)
+                        Button("Use a PC instead") { nav.push(.imageBackends) }
+                            .buttonStyle(.borderless)
                     }
-                    Hairline(color: c.onBackground)
-                    HStack {
-                        BigReadout(label: "Steps", value: "\(request.steps)") { showTune = true }
-                        Spacer()
-                        BigReadout(label: "Seed", value: request.seed < 0 ? "rnd" : String(String(request.seed).suffix(6))) { showTune = true }
-                        Spacer()
-                        BigReadout(label: "Size", value: sizeLabel(m.outputSize.width, m.outputSize.height)) { showTune = true }
-                        Spacer()
-                        BigReadout(label: "Batch", value: "\(request.batchCount)") { showTune = true }
+                    .frame(maxWidth: .infinity)
+                }
+                PromptField(text: Binding(get: { m.request.prompt }, set: { m.setPrompt($0) }), tokens: m.tokenEstimate, wildcards: m.wildcards)
+                // The row keeps its place while hidden (no prompt yet, a job running), so typing the
+                // first letter or starting a job does not push the results down and back up.
+                let styles = !m.isRunning && !m.request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                styleRow(m)
+                    .opacity(styles ? 1 : 0)
+                    .allowsHitTesting(styles)
+                    .accessibilityHidden(!styles)
+                    .animation(.easeOut(duration: 0.2), value: styles)
+                if !m.chips.isEmpty { chipRow(m) }
+                if m.catalogStatus == .error, let error = m.catalogError {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Label("\(m.backend?.name ?? "Backend") unreachable · \(error)", systemImage: "wifi.exclamationmark")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Retry") { m.refreshCatalog() }.buttonStyle(.borderless)
                     }
-                    Hairline(color: c.onBackground)
-                    if request.mode != .txt2img { InitStrip(model: m) { showMask = true } }
-                    ProofGrid(model: m, selected: $selected) { id in
-                        viewer = ImageViewerTarget(ids: m.results.map(\.galleryId), start: id)
+                }
+                HStack(spacing: 0) {
+                    SettingReadout(label: "Steps", value: "\(request.steps)") { showTune = true }
+                    Divider().frame(height: 32)
+                    SettingReadout(label: "Seed", value: request.seed < 0 ? "rnd" : String(String(request.seed).suffix(6))) { showTune = true }
+                    Divider().frame(height: 32)
+                    SettingReadout(label: "Size", value: sizeLabel(m.outputSize.width, m.outputSize.height)) { showTune = true }
+                    Divider().frame(height: 32)
+                    SettingReadout(label: "Batch", value: "\(request.batchCount)") { showTune = true }
+                }
+                .padding(.vertical, 8)
+                .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                if request.mode != .txt2img { InitStrip(model: m) { showMask = true } }
+                ProofGrid(model: m, selected: $selected) { id in
+                    viewer = ImageViewerTarget(ids: m.results.map(\.galleryId), start: id)
+                }
+                if !m.isRunning, let result = m.results[imagineSafe: max(selected, 0)] {
+                    ImagineTagFlow(spacing: 6) {
+                        Text("seed \(result.seed) · \(result.width)×\(result.height) · \(String(format: "%.1f", Double(result.durationMs) / 1000)) s")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 5)
+                        chip("Same seed", systemImage: "arrow.counterclockwise") { m.setSeed(result.seed) }
+                        chip("Img2img", systemImage: "photo.on.rectangle.angled") { Task { await m.useAsInit(result.galleryId) } }
+                        chip("View", systemImage: "arrow.up.left.and.arrow.down.right") { viewer = ImageViewerTarget(ids: m.results.map(\.galleryId), start: result.galleryId) }
+                            .accessibilityLabel("View full screen")
                     }
-                    if !m.isRunning, let result = m.results[imagineSafe: max(selected, 0)] {
-                        HStack(spacing: 6) {
-                            MicroLabel("seed \(result.seed) · \(result.width)×\(result.height) · \(String(format: "%.1f", Double(result.durationMs) / 1000)) s")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Tag("↺ seed", accent: c.primary) { m.setSeed(result.seed) }
-                            Tag("→ img2img") { Task { await m.useAsInit(result.galleryId) } }
-                            Tag("view", accent: c.onBackground) { viewer = ImageViewerTarget(ids: m.results.map(\.galleryId), start: result.galleryId) }
-                                .accessibilityLabel("View full screen")
-                        }
-                        if UnsavedImages.isUnsaved(result.galleryId) {
-                            HStack(spacing: 6) {
-                                if app.gallery.keptIncognito[result.galleryId] != nil {
-                                    MicroLabel(PanicCopy.shared.SAVED).frame(maxWidth: .infinity, alignment: .leading)
-                                } else {
-                                    MicroLabel(PanicCopy.shared.NOT_SAVED).frame(maxWidth: .infinity, alignment: .leading)
-                                    Tag(PanicCopy.shared.SAVE, accent: c.primary) { m.saveResult(result.galleryId) }
-                                }
+                    if UnsavedImages.isUnsaved(result.galleryId) {
+                        HStack(spacing: 8) {
+                            if app.gallery.keptIncognito[result.galleryId] != nil {
+                                Label(PanicCopy.shared.SAVED.sentenceCased, systemImage: "checkmark.circle")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                Label(PanicCopy.shared.NOT_SAVED.sentenceCased, systemImage: "eye.slash")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                chip(PanicCopy.shared.SAVE.sentenceCased, systemImage: "tray.and.arrow.down", active: true) { m.saveResult(result.galleryId) }
                             }
                         }
                     }
-                    Spacer().frame(height: 8)
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
             }
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
+            .readableWidth()
+        }
             .scrollDismissesKeyboard(.interactively)
-            // No paper ground here: the prompt and the readouts fill the screen, and dots must not sit behind text.
-            StudioBar(model: m) { showTune = true }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                GenerateBar(model: m) { showTune = true }
+            }
         }
         // One sync when a job starts or ends or a result arrives.
         .task(id: [m.isRunning ? 1 : 0, app.generator.lastResults.count]) { await m.syncResults() }
         .sheet(isPresented: $showTune) {
-            TuneSheet(model: m) {
+            TuneSheet(model: m, onDone: { showTune = false }) {
                 showTune = false
                 nav.push(.imageBackends)
             }
-            .environment(\.scheme, c)
             .presentationDetents([.large])
-            .presentationBackground(c.surfaceContainerLow)
         }
         .imageViewer($viewer) { id, intent in
             Task {
@@ -154,13 +167,23 @@ struct ImagineScreen: View {
         }
     }
 
+    private func chip(_ title: String, systemImage: String? = nil, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if let systemImage { Label(title, systemImage: systemImage) } else { Text(title) }
+            }
+            .chipLook(active: active)
+        }
+        .buttonStyle(.plain)
+    }
+
     /// Built-in styles: one tap wraps the prompt (and adds the style's negatives).
     private func styleRow(_ m: ImagineModel) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                MicroLabel("style")
+                Text("Style").font(.caption).foregroundStyle(.secondary)
                 ForEach(ImagineModel.styles, id: \.id) { style in
-                    Tag(style.name) { m.applyStyle(style) }
+                    chip(style.name) { m.applyStyle(style) }
                         .accessibilityLabel("Apply the \(style.name) style")
                 }
             }
@@ -173,10 +196,10 @@ struct ImagineScreen: View {
                 let current = m.selectedChip
                 ForEach(m.chips, id: \.self) { chip in
                     let active = chip == current
-                    Tag(chip.label, accent: active ? c.primary : c.onSurfaceVariant, filled: active) { m.selectChip(chip) }
+                    self.chip(chip.label, active: active) { m.selectChip(chip) }
                         .accessibilityAddTraits(active ? .isSelected : [])
                 }
-                Tag("+ Model", accent: c.primary) { nav.switchTo(.models) }
+                self.chip("Model", systemImage: "plus") { nav.switchTo(.models) }
                     .accessibilityLabel("Get a model")
             }
         }
@@ -187,59 +210,66 @@ private extension Array {
     subscript(imagineSafe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
-/// The prompt, set in the display face with a red caret (mockup 04).
+/// One setting at a glance (`Steps` over `20`); a tap opens Tune.
+private struct SettingReadout: View {
+    let label: String
+    let value: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(value).font(.title3.monospacedDigit().weight(.semibold)).foregroundStyle(.primary).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens Tune")
+    }
+}
+
+/// The prompt: a large multi-line field.
 private struct PromptField: View {
     @Binding var text: String
     let tokens: Int
     var wildcards: String? = nil
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TextField(text: $text, prompt: Text("Describe an image…").foregroundColor(c.outline), axis: .vertical) { Text("Prompt") }
-                .textStyle(.headlineMedium)
-                .foregroundStyle(c.onBackground)
-                .tint(c.primary)
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("Prompt", text: $text, prompt: Text("Describe an image…"), axis: .vertical)
+                .font(.title3)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                .lineLimit(1 ... 12)
-                .frame(minHeight: 96, alignment: .topLeading)
+                .lineLimit(3 ... 12)
+                .padding(12)
+                .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             if let wildcards {
-                MicroLabel(wildcards).accessibilityLabel(wildcards.replacingOccurrences(of: "·", with: ","))
+                Text(wildcards.sentenceCased)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(wildcards.replacingOccurrences(of: "·", with: ","))
             } else if tokens > 60 {
                 // Only worth saying near the limit.
-                MicroLabel("~\(tokens) / 75 tokens", color: tokens > 75 ? c.error : c.onSurfaceVariant)
+                Text("~\(tokens) / 75 tokens")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(tokens > 75 ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
             }
         }
     }
 }
 
-private struct ErrorLine: View {
-    let message: String
-    let onDismiss: () -> Void
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        HStack {
-            Text(message).textStyle(.bodySmall).foregroundStyle(c.onPrimary).frame(maxWidth: .infinity, alignment: .leading)
-            IconAction(symbol: "xmark", label: "Dismiss", tint: c.onPrimary, size: 14, action: onDismiss)
-        }
-        .padding(.leading, 12)
-        .background(c.primary)
-    }
-}
-
-/// 2×2 proofs: the ink plate flows while sampling, develops into previews and prints each result.
+/// Up to 2×2 results: the latent preview while sampling, a spinner while waiting, then each image.
 private struct ProofGrid: View {
     let model: ImagineModel
     @Binding var selected: Int
     /// Opens a result full screen.
     var onOpen: (String) -> Void = { _ in }
-    @Environment(\.scheme) private var c
-    /// The latest latent preview (its luma), for the image being sampled.
-    @State private var preview: (image: Int, ink: PlateImage)?
-    @State private var previewSerial = 0
-    /// Slots of the last run, kept until its results are loaded (so the last proof can print).
+    /// The latest latent preview, for the image being sampled.
+    @State private var preview: (image: Int, ui: UIImage)?
+    /// Slots of the last run, kept until its results are loaded.
     @State private var pendingSlots = 0
 
     private typealias Running = (image: Int, step: Int, total: Int, batch: Int, preview: Data?)
@@ -257,13 +287,13 @@ private struct ProofGrid: View {
         let shape = model.results.first.map { ($0.width, $0.height) } ?? model.outputSize
         let ratio = min(max(CGFloat(shape.0) / CGFloat(max(shape.1, 1)), 0.5), 2)
         let cols = slots == 1 ? 1 : 2
-        VStack(spacing: 6) {
+        Grid(horizontalSpacing: 8, verticalSpacing: 8) {
             ForEach(0 ..< (slots + cols - 1) / cols, id: \.self) { row in
-                HStack(spacing: 6) {
+                GridRow {
                     ForEach(0 ..< cols, id: \.self) { col in
                         let i = row * cols + col
                         if i >= slots {
-                            Color.clear.frame(maxWidth: .infinity)
+                            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                         } else {
                             cell(i, running: running, ratio: ratio)
                         }
@@ -271,11 +301,11 @@ private struct ProofGrid: View {
                 }
             }
         }
+        .animation(.easeOut(duration: 0.25), value: model.results.map(\.galleryId))
         .task(id: running?.preview) {
             guard let running, let data = running.preview else { return }
-            guard let image = await decodeImage(data, maxSide: 768), !Task.isCancelled, let cg = image.cgImage, let grid = LumaGrid(image: cg) else { return }
-            previewSerial += 1
-            preview = (running.image, PlateImage(id: "\(previewSerial)", grid: grid))
+            guard let image = await decodeImage(data, maxSide: 768), !Task.isCancelled else { return }
+            preview = (running.image, image)
         }
         .onChange(of: running?.batch) { _, batch in
             if let batch { pendingSlots = batch }
@@ -292,109 +322,128 @@ private struct ProofGrid: View {
         }
     }
 
-    private func ink(_ i: Int, running: Running?, result: ResultUi?) -> PlateInk? {
-        if let result, let grid = LumaCache.grid(result.image) {
-            return .final(PlateImage(id: result.galleryId, grid: grid, image: result.image))
-        }
-        guard let running else {
-            return i < pendingSlots ? .hold : nil
-        }
-        if i == running.image {
-            if running.preview != nil, let preview, preview.image == i { return .preview(preview.ink) }
-            let loading = model.phase != nil || running.total == 0
-            return .flow(progress: running.total > 0 ? Double(running.step) / Double(running.total) : 0, loading: loading)
-        }
-        return i < running.image ? .hold : .idle
-    }
-
     private func cell(_ i: Int, running: Running?, ratio: CGFloat) -> some View {
         let result = model.results[imagineSafe: i]
-        let plateInk = ink(i, running: running, result: result)
-        return ZStack(alignment: .bottomLeading) {
-            c.surfaceContainerLow
-            if plateInk == nil, model.preferInit, i == 0, let initImage = model.initImage {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let current = running.map { i == $0.image } ?? false
+        let waiting = result == nil && (running.map { i <= $0.image } ?? (i < pendingSlots))
+        return ZStack {
+            shape.fill(.fill.tertiary)
+            if let result {
+                Image(uiImage: result.image).resizable().scaledToFill()
+            } else if running == nil, pendingSlots == 0, model.preferInit, i == 0, let initImage = model.initImage {
                 Image(uiImage: initImage).resizable().scaledToFill()
                 if model.request.mode == .inpaint { MaskOverlay(mask: model.mask) }
-            } else {
-                // One plate whatever it shows: a job starting keeps the waiting plate (its engine and
-                // state) instead of swapping in a second one over it.
-                InkPlate(ink: plateInk ?? .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
-                if plateInk == nil, running == nil, model.results.isEmpty, i == 0 {
-                    EmptyCanvas(hint: "Describe an image, then generate.")
+            } else if current, let preview, preview.image == i {
+                Image(uiImage: preview.ui).resizable().scaledToFill()
+            } else if waiting {
+                ProgressView()
+            } else if running == nil, model.results.isEmpty, i == 0 {
+                VStack(spacing: 10) {
+                    AutobotMark(size: 18, color: BrandColors.purple.opacity(0.6))
+                    Text("Describe an image, then generate.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
+                .padding()
+                .accessibilityElement(children: .combine)
             }
-            if let running, i == running.image {
+            if let running, current {
                 let loading = model.phase != nil || running.total == 0
-                Tag(loading ? "loading" : "step \(running.step)/\(running.total)", accent: c.primary, filled: true, busy: loading).padding(6)
+                VStack {
+                    Spacer()
+                    HStack {
+                        CapsuleTag(loading ? "loading" : "step \(running.step)/\(running.total)")
+                            .background(.regularMaterial, in: Capsule())
+                        Spacer()
+                    }
+                }
+                .padding(8)
             }
         }
         .frame(maxWidth: .infinity)
         .aspectRatio(ratio, contentMode: .fit)
-        .clipped()
-        .overlay { if i == selected && result != nil { Rectangle().strokeBorder(c.primary, lineWidth: Tokens.Stroke.selection) } }
-        .contentShape(Rectangle())
+        .clipShape(shape)
+        .overlay { if i == selected && result != nil { shape.strokeBorder(.tint, lineWidth: 3) } }
+        .contentShape(shape)
         .onTapGesture {
             guard let result else { return }
             selected = i
             onOpen(result.galleryId)
         }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(result != nil ? "Result \(i + 1)" : "Proof \(i + 1)")
         .accessibilityAddTraits(result != nil ? .isButton : [])
         .accessibilityHint(result != nil ? "Opens the image full screen" : "")
     }
 }
 
-private struct StudioBar: View {
+/// The run's status, its progress and the main actions, on glass at the bottom.
+private struct GenerateBar: View {
     let model: ImagineModel
     let onShowTune: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             HStack {
                 Group {
                     // The elapsed seconds tick only while a job runs (whole seconds: once a second).
                     if model.isRunning {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(status(now: context.date)).textStyle(.bodyMedium).foregroundStyle(c.onBackground).lineLimit(2)
+                            Text(status(now: context.date)).lineLimit(2)
                         }
                     } else {
-                        Text(status(now: Date())).textStyle(.bodyMedium).foregroundStyle(c.onBackground).lineLimit(2)
+                        Text(status(now: Date())).lineLimit(2)
                     }
                 }
+                .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if case .running(_, _, let r, _, _, _, _, _) = model.running {
-                    Text("\(model.results.count)/\(r.batchCount)").textStyle(.readout).foregroundStyle(c.onBackground)
+                    Text("\(model.results.count)/\(r.batchCount)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                 } else {
-                    TextAction("Tune", color: c.primary, style: .labelLarge, action: onShowTune)
+                    Button("Tune", action: onShowTune).buttonStyle(.borderless)
                 }
             }
-            InkProgressBar(barState, height: 2)
-            HStack(spacing: 8) {
+            if model.isRunning || model.warming != nil {
+                if let fraction = progress {
+                    ProgressView(value: fraction)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
+                }
+            }
+            HStack(spacing: 10) {
                 if case .running(let source, _, _, _, _, _, _, _) = model.running {
-                    GhostButton("Cancel", accent: c.primary, enabled: source != .agent, action: model.cancel)
+                    Button(role: .cancel, action: model.cancel) { Text("Cancel").frame(maxWidth: .infinity) }
+                        .glassButton()
+                        .disabled(source == .agent)
                 } else if !model.results.isEmpty {
-                    GhostButton("Variations", enabled: model.canGenerate, action: model.variations)
-                    PrimaryButton("Run again", enabled: model.canGenerate, action: model.runAgain)
+                    Button(action: model.variations) { Text("Variations").frame(maxWidth: .infinity) }
+                        .glassButton()
+                        .disabled(!model.canGenerate)
+                    Button(action: model.runAgain) { Text("Run again").frame(maxWidth: .infinity) }
+                        .glassProminentButton()
+                        .disabled(!model.canGenerate)
                 } else {
-                    PrimaryButton("Generate", enabled: model.canGenerate, action: model.generate)
+                    Button(action: model.generate) { Text("Generate").frame(maxWidth: .infinity) }
+                        .glassProminentButton()
+                        .disabled(!model.canGenerate)
                 }
             }
+            .controlSize(.large)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(c.background)
+        .padding(16)
+        .glassSurface(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .readableWidth()
     }
 
-    /// The model loading (no steps yet) is indeterminate; sampling fills the bar.
-    private var barState: InkBarState {
-        guard case .running(_, _, _, _, _, let total, _, _) = model.running else { return model.warming != nil ? .indeterminate : .progress(0, running: false) }
-        return model.phase != nil || total == 0 ? .indeterminate : .progress(Double(progress), running: true)
-    }
-
-    private var progress: CGFloat {
-        guard case .running(_, _, let r, let image, let step, let total, _, _) = model.running, total > 0 else { return 0 }
-        return CGFloat((Double(image) + Double(step) / Double(total)) / Double(max(r.batchCount, 1)))
+    /// The model loading (no steps yet) is indeterminate (nil); sampling fills the bar.
+    private var progress: Double? {
+        guard case .running(_, _, let r, let image, let step, let total, _, _) = model.running else { return nil }
+        guard model.phase == nil, total > 0 else { return nil }
+        return min(1, (Double(image) + Double(step) / Double(total)) / Double(max(r.batchCount, 1)))
     }
 
     private func status(now: Date) -> String {
@@ -408,40 +457,45 @@ private struct StudioBar: View {
         if let warming = model.warming { return warming }
         if !model.results.isEmpty { return "Done · \(model.results.count) image\(model.results.count == 1 ? "" : "s")" }
         if let blocker = model.generateBlocker, !blocker.isEmpty { return blocker }
-        return "\(r.mode.label) · \(r.sampler.isEmpty ? "default sampler" : r.sampler) · cfg \(String(format: "%.1f", r.cfgScale))"
+        return "\(r.mode.label) · \(r.sampler.isEmpty ? "default sampler" : r.sampler) · CFG \(String(format: "%.1f", r.cfgScale))"
     }
 }
 
 private struct InitStrip: View {
     let model: ImagineModel
     let onEditMask: () -> Void
-    @Environment(\.scheme) private var c
     @State private var picked: PhotosPickerItem?
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             PhotosPicker(selection: $picked, matching: .images, photoLibrary: .shared()) {
                 ZStack {
-                    c.surfaceContainerLow
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.fill.tertiary)
                     if let image = model.initImage {
                         Image(uiImage: image).resizable().scaledToFill()
                         if model.request.mode == .inpaint { MaskOverlay(mask: model.mask) }
                     } else {
-                        AutobotIconView(icon: .image, color: c.onSurfaceVariant)
+                        Image(systemName: "photo.badge.plus").font(.title2).foregroundStyle(.secondary)
                     }
                 }
                 .frame(width: 72, height: 72)
-                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .accessibilityLabel("Pick an image")
             VStack(alignment: .leading, spacing: 4) {
-                MicroLabel(model.request.mode == .inpaint ? "inpaint · \(model.mask.isEmpty ? "no mask" : counted(model.mask.strokes.count, "stroke"))" : "img2img")
-                ValueSlider(label: "Strength", value: Binding(get: { model.request.denoiseStrength }, set: { model.setDenoise($0) }), range: 0.05 ... 1)
+                Text(model.request.mode == .inpaint ? "Inpaint · \(model.mask.isEmpty ? "no mask" : counted(model.mask.strokes.count, "stroke"))" : "Img2img")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledSlider("Strength", value: Binding(get: { model.request.denoiseStrength }, set: { model.setDenoise($0) }), in: 0.05 ... 1)
             }
             if model.request.mode == .inpaint && model.initImage != nil {
-                IconAction(.brush, label: "Edit mask", action: onEditMask)
+                Button(action: onEditMask) { Image(systemName: "paintbrush.pointed") }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Edit mask")
             }
         }
+        .padding(12)
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onChange(of: picked) { _, item in
             guard let item else { return }
             Task {
@@ -455,8 +509,8 @@ private struct InitStrip: View {
 /// Every parameter, out of the way: mode, negative, sampler, cfg, size, seed, batch, LoRA.
 private struct TuneSheet: View {
     let model: ImagineModel
+    let onDone: () -> Void
     let onOpenBackends: () -> Void
-    @Environment(\.scheme) private var c
     /// The resolution row's choice (nil: the request's own long side).
     @State private var base: Int?
     @State private var showLoras = false
@@ -465,102 +519,123 @@ private struct TuneSheet: View {
         let request = model.request
         let caps = model.capabilities
         let kind = model.backend?.kind
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    SectionLabel("tune")
-                    Tag("backends", action: onOpenBackends)
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle(isOn: Binding(get: { model.incognito }, set: { model.incognito = $0 })) {
+                        Text(PanicCopy.shared.INCOGNITO_IMAGES_TITLE)
+                        Text(PanicCopy.shared.INCOGNITO_IMAGES_INFO)
+                    }
+                    let modes = DiffusionMode.allCases.filter { caps?.modes.contains($0) ?? true }
+                    Picker("Mode", selection: Binding(get: { model.request.mode }, set: { model.setMode($0) })) {
+                        ForEach(modes, id: \.self) { Text($0.label.sentenceCased).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                SwitchRow(
-                    title: PanicCopy.shared.INCOGNITO_IMAGES_TITLE,
-                    subtitle: PanicCopy.shared.INCOGNITO_IMAGES_INFO,
-                    isOn: Binding(get: { model.incognito }, set: { model.incognito = $0 }),
-                )
-                let modes = DiffusionMode.allCases.filter { caps?.modes.contains($0) ?? true }
-                Segmented(options: modes, selected: request.mode, label: { $0.label }, onSelect: model.setMode)
 
-                ConsoleTextField(text: Binding(get: { model.request.negativePrompt }, set: { model.setNegative($0) }), label: "Negative", kind: .mono, minLines: 2, maxLines: 5)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        MicroLabel("presets")
-                        ForEach(ImagineModel.negativePresets, id: \.id) { preset in
-                            Tag(preset.name) { model.addNegative(preset) }
-                                .accessibilityLabel("Add the \(preset.name) negative preset")
+                Section("Negative") {
+                    TextField("Negative", text: Binding(get: { model.request.negativePrompt }, set: { model.setNegative($0) }), axis: .vertical)
+                        .font(.body.monospaced())
+                        .lineLimit(2 ... 5)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            Text("Presets").font(.caption).foregroundStyle(.secondary)
+                            ForEach(ImagineModel.negativePresets, id: \.id) { preset in
+                                Button { model.addNegative(preset) } label: { Label(preset.name, systemImage: "plus").chipLook(active: false) }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Add the \(preset.name) negative preset")
+                            }
                         }
                     }
                 }
 
-                let (samplers, value): ([String], String) = switch kind {
-                case .onDevice: (LocalDiffusion.samplers, request.sampler)
-                case .localSse: (LocalSseEngine.schedulers, LocalSseEngine.schedulerId(request.sampler, request.scheduler))
-                default: (model.catalog.samplers.isEmpty ? defaultSamplers : model.catalog.samplers, request.sampler)
-                }
-                HStack(alignment: .top, spacing: 8) {
-                    SelectField(label: "Sampler", value: value, options: samplers, onSelect: { model.setSampler($0, scheduler: kind == .sdApi || kind == .onDevice ? request.scheduler : nil) })
+                Section {
+                    let (samplers, value): ([String], String) = switch kind {
+                    case .onDevice: (LocalDiffusion.samplers, request.sampler)
+                    case .localSse: (LocalSseEngine.schedulers, LocalSseEngine.schedulerId(request.sampler, request.scheduler))
+                    default: (model.catalog.samplers.isEmpty ? defaultSamplers : model.catalog.samplers, request.sampler)
+                    }
+                    MenuRow("Sampler", value: value, options: samplers) { model.setSampler($0, scheduler: kind == .sdApi || kind == .onDevice ? request.scheduler : nil) }
                     let schedulers: [String] = switch kind {
                     case .onDevice: LocalDiffusion.schedulers
                     case .sdApi: model.catalog.schedulers
                     default: []
                     }
                     if !schedulers.isEmpty {
-                        SelectField(label: "Schedule", value: request.scheduler ?? "default", options: schedulers, onSelect: { model.setScheduler($0) })
+                        MenuRow("Schedule", value: request.scheduler ?? "default", options: schedulers) { model.setScheduler($0) }
+                    }
+                    LabeledSlider("Steps", value: Binding(get: { Double(model.request.steps) }, set: { model.setSteps(Int($0)) }),
+                                  in: 1 ... Double(caps?.maxSteps ?? 150), step: 1, format: { "\(Int($0))" })
+                    LabeledSlider("CFG", value: Binding(get: { model.request.cfgScale }, set: { model.setCfg($0) }), in: 1 ... 20, format: { String(format: "%.1f", $0) })
+                } header: {
+                    Text("Sampling")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if kind == .onDevice {
+                            Text("Core ML offers DPM++ 2M (Karras) and PNDM; other samplers fall back. Inpaint is img2img with a feathered mask.")
+                        }
+                        if request.cfgScale <= 1 { Text("CFG 1 skips the unconditional pass: right for turbo, LCM and distilled models.") }
                     }
                 }
-                if kind == .onDevice {
-                    MicroLabel("core ml offers dpm++ 2m (karras) and pndm; other samplers fall back · inpaint = img2img + feathered mask", lines: 3)
-                }
-                ValueSlider(label: "Steps", value: Binding(get: { Double(model.request.steps) }, set: { model.setSteps(Int($0)) }),
-                            range: 1 ... Double(caps?.maxSteps ?? 150), step: 1, format: { "\(Int($0))" })
-                ValueSlider(label: "CFG", value: Binding(get: { model.request.cfgScale }, set: { model.setCfg($0) }), range: 1 ... 20, format: { String(format: "%.1f", $0) })
 
                 SizePicker(model: model, base: $base)
 
-                HStack(alignment: .bottom, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        MicroLabel("seed")
-                        HStack {
-                            Text(request.seed < 0 ? "random" : "\(request.seed)").textStyle(.readout).foregroundStyle(c.onSurface)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            IconAction(.dice, label: "Fixed random seed", action: model.randomizeSeed)
-                            if request.seed >= 0 { TextAction("Random", action: model.setRandomSeed) }
+                Section {
+                    LabeledContent("Seed") {
+                        HStack(spacing: 12) {
+                            Text(request.seed < 0 ? "random" : "\(request.seed)").monospacedDigit()
+                            Button(action: model.randomizeSeed) { Image(systemName: "dice") }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Fixed random seed")
+                            if request.seed >= 0 { Button("Random", action: model.setRandomSeed).buttonStyle(.borderless) }
                         }
                     }
-                    StepperField(label: "Batch", value: request.batchCount, range: 1 ... ImagineModel.maxBatch, onChange: model.setBatch)
+                    Stepper(value: Binding(get: { model.request.batchCount }, set: { model.setBatch($0) }), in: 1 ... ImagineModel.maxBatch) {
+                        LabeledContent("Batch", value: "\(request.batchCount)")
+                    }
                 }
 
                 if request.mode == .inpaint && caps?.maskEncoding == .opaqueBlackWhite && kind == .sdApi {
-                    ValueSlider(label: "Mask blur", value: Binding(get: { Double(model.request.maskBlur) }, set: { model.setMaskBlur(Int($0)) }),
-                                range: 0 ... 64, step: 1, format: { "\(Int($0)) px" })
-                    HStack {
-                        Text("Only masked area").textStyle(.titleSmall).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-                        RisoToggle(isOn: Binding(get: { model.request.inpaintOnlyMasked }, set: { model.setOnlyMasked($0) }))
+                    Section("Inpaint") {
+                        LabeledSlider("Mask blur", value: Binding(get: { Double(model.request.maskBlur) }, set: { model.setMaskBlur(Int($0)) }),
+                                      in: 0 ... 64, step: 1, format: { "\(Int($0)) px" })
+                        Toggle("Only masked area", isOn: Binding(get: { model.request.inpaintOnlyMasked }, set: { model.setOnlyMasked($0) }))
                     }
                 }
 
-                HStack {
-                    MicroLabel("lora").frame(maxWidth: .infinity, alignment: .leading)
-                    if caps?.runtimeLora == true { Tag("+ add", accent: c.primary) { showLoras = true } }
-                }
-                if caps?.runtimeLora == false { MicroLabel("this backend runs a fixed model; merge loras before conversion", lines: 2) }
-                ForEach(request.loras, id: \.name) { lora in
-                    HStack {
-                        ValueSlider(label: lora.name, value: Binding(get: { lora.weight }, set: { model.setLoraWeight(lora.name, $0) }), range: -1 ... 2)
-                        IconAction(symbol: "xmark", label: "Remove \(lora.name)", size: 14) { model.removeLora(lora.name) }
+                Section {
+                    ForEach(request.loras, id: \.name) { lora in
+                        HStack {
+                            LabeledSlider(lora.name, value: Binding(get: { lora.weight }, set: { model.setLoraWeight(lora.name, $0) }), in: -1 ... 2)
+                            Button { model.removeLora(lora.name) } label: { Image(systemName: "xmark.circle.fill") }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Remove \(lora.name)")
+                        }
                     }
+                    if caps?.runtimeLora == true {
+                        Button { showLoras = true } label: { Label("Add LoRA", systemImage: "plus") }
+                    }
+                } header: {
+                    Text("LoRA")
+                } footer: {
+                    if caps?.runtimeLora == false { Text("This backend runs a fixed model; merge LoRAs before conversion.") }
                 }
-                if request.cfgScale <= 1 { MicroLabel("cfg 1 skips the unconditional pass — right for turbo / lcm / distilled models", lines: 2) }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 20)
-            .padding(.bottom, 32)
+            .navigationTitle("Tune")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Backends", action: onOpenBackends) }
+                ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
+            }
         }
-        .background(c.surfaceContainerLow)
         .sheet(isPresented: $showLoras) {
             LoraSheet(available: model.catalog.loras, selected: Set(request.loras.map(\.name))) {
                 model.addLora($0)
                 showLoras = false
             }
-            .environment(\.scheme, c)
             .presentationDetents([.medium, .large])
         }
     }
@@ -571,37 +646,35 @@ private struct LoraSheet: View {
     let selected: Set<String>
     let onPick: (String) -> Void
     @State private var query = ""
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let filtered = available.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
-        InkStack(alignment: .leading, spacing: 8) {
-            SectionLabel("lora library · \(available.count)")
-            ConsoleTextField(text: $query, placeholder: "filter", kind: .mono)
-            if filtered.isEmpty { MicroLabel(available.isEmpty ? "no loras — add them to your pc backend" : "no match") }
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(filtered, id: \.self) { name in
-                        Button { onPick(name) } label: {
-                            HStack(spacing: 10) {
-                                AutobotIconView(icon: .layers, size: 16, color: c.onSurfaceVariant)
-                                Text(name).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                                if selected.contains(name) { MicroLabel("added") }
-                            }
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressStyle())
-                        .disabled(selected.contains(name))
+        NavigationStack {
+            List(filtered, id: \.self) { name in
+                Button { onPick(name) } label: {
+                    HStack {
+                        Label(name, systemImage: "square.stack.3d.up").font(.body.monospaced()).lineLimit(1)
+                        Spacer()
+                        if selected.contains(name) { Text("Added").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+                .disabled(selected.contains(name))
+            }
+            .overlay {
+                if filtered.isEmpty {
+                    if available.isEmpty {
+                        ContentUnavailableView("No LoRAs", systemImage: "square.stack.3d.up", description: Text("Add them to your PC backend."))
+                    } else {
+                        ContentUnavailableView.search(text: query)
                     }
                 }
             }
+            .searchable(text: $query, prompt: "Filter")
+            .navigationTitle("LoRA library · \(available.count)")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .padding(16)
-        .background(c.surfaceContainerLow)
     }
 }
-
 
 /**
  Aspect × resolution. The resolution is a pixel budget (16:9 · 1024 = about 1024² px = 1368×768);
@@ -611,7 +684,6 @@ private struct LoraSheet: View {
 private struct SizePicker: View {
     let model: ImagineModel
     @Binding var base: Int?
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let request = model.request
@@ -619,26 +691,36 @@ private struct SizePicker: View {
         let resolution = base ?? model.resolution
         let multiple = model.capabilities?.sizeMultiple ?? 8
         let out = model.outputSize
-        VStack(alignment: .leading, spacing: 8) {
-            if let native {
-                MicroLabel("size · \(out.width)×\(out.height) · \(ImageSizing.compiledNote(native))", lines: 3)
-            } else {
-                MicroLabel("size · \(request.width)×\(request.height) · pixel budget")
-                Segmented(options: ImageSizing.resolutions, selected: resolution, label: { "\($0)" }, onSelect: { r in
+        Section {
+            if native == nil {
+                Picker("Resolution", selection: Binding(get: { resolution }, set: { r in
                     base = r
                     model.setResolution(r)
-                })
+                })) {
+                    ForEach(ImageSizing.resolutions, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .pickerStyle(.segmented)
             }
             ImagineTagFlow(spacing: 6) {
                 ForEach(AspectRatio.all) { aspect in
                     let s = ImagineModel.size(aspect: aspect, resolution: resolution, native: native, multiple: multiple)
                     let active = s.width == request.width && s.height == request.height
-                    Tag("\(aspect.label) · \(s.width)×\(s.height)", accent: active ? c.primary : c.onSurfaceVariant, filled: active) {
-                        model.setAspect(aspect, resolution: resolution)
+                    Button { model.setAspect(aspect, resolution: resolution) } label: {
+                        Text("\(aspect.label) · \(s.width)×\(s.height)").monospacedDigit().chipLook(active: active)
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("\(aspect.spoken), \(s.width) by \(s.height)")
                     .accessibilityAddTraits(active ? .isSelected : [])
                 }
+            }
+            .padding(.vertical, 4)
+        } header: {
+            Text("Size")
+        } footer: {
+            if let native {
+                Text("\(out.width)×\(out.height) · \(ImageSizing.compiledNote(native))")
+            } else {
+                Text("\(request.width)×\(request.height) · pixel budget")
             }
         }
     }

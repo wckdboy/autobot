@@ -1,18 +1,7 @@
 package dev.wckdboy.autobot.feature.settings.vault
 
-import dev.wckdboy.autobot.core.designsystem.component.AddButton
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BackButton
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.NavRow
-import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import dev.wckdboy.autobot.shared.vault.VaultWords
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,7 +37,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,13 +45,27 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.ListItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.NavListItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.SearchField
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import dev.wckdboy.autobot.core.data.diagnostics.launchSafely
 import dev.wckdboy.autobot.core.data.diagnostics.userMessage
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.models.formatBytes
 import dev.wckdboy.autobot.providers.remote.vault.IndexState
@@ -176,7 +178,7 @@ fun VaultRoute(onBack: () -> Unit, onOpenModels: () -> Unit, viewModel: VaultVie
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VaultScreen(
     state: VaultUiState,
@@ -196,20 +198,25 @@ fun VaultScreen(
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Scaffold(
         topBar = {
-            AutobotTopBar(title = "Vault", navigation = { BackButton(onBack) }) {
+            AppBar("Vault", onBack) {
                 if (state.documents.isNotEmpty()) {
-                    IconButton(onClick = { confirmDeleteAll = true }) { Icon(Icons.Filled.Delete, contentDescription = VaultWords.DELETE_ALL, tint = muted) }
+                    IconButton(onClick = { confirmDeleteAll = true }) { Icon(Icons.Filled.Delete, contentDescription = VaultWords.DELETE_ALL) }
                 }
-                if (state.model != null && !state.index.running) AddButton(VaultWords.ADD, onAdd)
+            }
+        },
+        floatingActionButton = {
+            if (state.model != null && !state.index.running) {
+                FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = VaultWords.ADD) }
             }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        Centered(Modifier.padding(padding)) { width ->
+        LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             item(key = "toggle") {
-                SwitchRow(VaultWords.AGENT_SEARCH, state.enabled, onEnabled, info = VaultWords.AGENT_SEARCH_INFO)
+                SwitchItem(VaultWords.AGENT_SEARCH, state.enabled, onEnabled, info = VaultWords.AGENT_SEARCH_INFO)
             }
             item(key = "model") {
-                NavRow(VaultWords.EMBEDDING_MODEL, onOpenModels, value = state.model ?: VaultWords.NO_MODEL)
+                NavListItem(VaultWords.EMBEDDING_MODEL, onOpenModels, value = state.model ?: VaultWords.NO_MODEL)
             }
             if (state.index.running) {
                 item(key = "progress") {
@@ -218,42 +225,39 @@ fun VaultScreen(
                             Text(
                                 state.index.name?.let { "Indexing $it · ${state.index.done}/${state.index.total}" } ?: "Reading files…",
                                 modifier = Modifier.weight(1f),
-                                style = AutobotTheme.styles.micro,
+                                style = MaterialTheme.typography.bodyMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            TextButton(onClick = onCancel) { ActionText("Stop") }
+                            TextButton(onClick = onCancel) { Text("Stop") }
                         }
-                        InkProgressBar(state.index.fraction, Modifier.fillMaxWidth().height(3.dp))
+                        LinearWavyProgressIndicator(progress = { state.index.fraction }, modifier = Modifier.fillMaxWidth())
                     }
                 }
             } else if (state.stale > 0) {
                 item(key = "stale") {
-                    Notice(VaultWords.stale(state.stale), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING, action = VaultWords.REINDEX, onAction = onReindex)
+                    NoticeCard(VaultWords.stale(state.stale), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING, action = VaultWords.REINDEX, onAction = onReindex)
                 }
             }
             if (state.documents.isNotEmpty()) {
                 item(key = "search") {
-                    ConsoleTextField(
+                    SearchField(
                         value = state.query,
                         onValueChange = onQuery,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                         placeholder = VaultWords.SEARCH,
-                        singleLine = true,
-                        mono = true,
-                        keyboardOptions = PromptKeyboardOptions.copy(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        onSearch = onSearch,
                     )
                 }
             }
             if (state.searching) {
                 item(key = "searching") {
-                    InkProgressBar(0.3f, Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(2.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
                 }
             }
             state.searchError?.let { error ->
                 item(key = "searcherror") {
-                    Notice(error, Modifier.padding(16.dp), tone = NoticeTone.ERROR, action = "Retry", onAction = onSearch)
+                    NoticeCard(error, Modifier.padding(16.dp), tone = NoticeTone.ERROR, action = "Retry", onAction = onSearch)
                 }
             }
             state.results?.let { results ->
@@ -261,43 +265,41 @@ fun VaultScreen(
                     item(key = "noresults") { Text(VaultWords.NO_MATCH, Modifier.padding(16.dp), color = muted, style = MaterialTheme.typography.bodyMedium) }
                 }
                 items(results, key = { "r-" + it.position }) { r ->
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        MicroLabel(r.position + " · " + "%.2f".format(r.score))
-                        Text(r.snippet, maxLines = 6, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                    Hairline()
+                    ListItem(
+                        overlineContent = { Text(r.position + " · " + "%.2f".format(r.score)) },
+                        headlineContent = { Text(r.snippet, maxLines = 6, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium) },
+                    )
+                    HorizontalDivider()
                 }
             }
             item(key = "docs-h") {
-                SectionLabel(VaultWords.count(state.documents.size, state.documents.sumOf { it.chunks }), Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                Subheader(VaultWords.count(state.documents.size, state.documents.sumOf { it.chunks }))
             }
             if (state.documents.isEmpty()) {
                 item(key = "empty") {
                     if (state.model == null) {
-                        EmptyState(VaultWords.empty(hasModel = false), Modifier.fillMaxWidth(), action = "Models", onAction = onOpenModels)
+                        EmptyContent(VaultWords.empty(hasModel = false), action = "Models", onAction = onOpenModels)
                     } else {
-                        EmptyState(VaultWords.empty(hasModel = true), Modifier.fillMaxWidth())
+                        EmptyContent(VaultWords.empty(hasModel = true))
                     }
                 }
             }
             items(state.documents, key = { it.id }, contentType = { "doc" }) { doc ->
-                Column(Modifier.padding(start = 16.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(doc.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                            MicroLabel(
-                                buildString {
-                                    append(doc.type.label).append(" · ").append(formatBytes(doc.sizeBytes))
-                                    if (doc.pages > 0) append(" · ").append(doc.pages).append(" pages")
-                                    append(" · ").append(doc.chunks).append(" passages")
-                                },
-                            )
-                        }
-                        IconButton(onClick = { onDelete(doc.id) }) { Icon(Icons.Filled.Delete, contentDescription = "Remove ${doc.name}", tint = muted) }
-                    }
-                    Hairline()
-                }
+                ListItem(
+                    headlineContent = { Text(doc.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    supportingContent = {
+                        Text(
+                            buildString {
+                                append(doc.type.label).append(" · ").append(formatBytes(doc.sizeBytes))
+                                if (doc.pages > 0) append(" · ").append(doc.pages).append(" pages")
+                                append(" · ").append(doc.chunks).append(" passages")
+                            },
+                        )
+                    },
+                    trailingContent = { IconButton(onClick = { onDelete(doc.id) }) { Icon(Icons.Filled.Delete, contentDescription = "Remove ${doc.name}") } },
+                )
             }
+        }
         }
     }
 
@@ -307,12 +309,15 @@ fun VaultScreen(
             title = { Text("Empty the vault?") },
             text = { Text("${if (state.documents.size == 1) "The document and its index are" else "All ${state.documents.size} documents and their index are"} deleted from this phone. Your original files are not touched.") },
             confirmButton = {
-                TextButton(onClick = {
-                    onDeleteAll()
-                    confirmDeleteAll = false
-                }) { ActionText("Delete all", color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        onDeleteAll()
+                        confirmDeleteAll = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete all") }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Cancel") } },
         )
     }
 
@@ -321,7 +326,7 @@ fun VaultScreen(
             onDismissRequest = onDismissProblems,
             title = { Text("Some files were not added") },
             text = { Text(state.index.problems.joinToString("\n")) },
-            confirmButton = { TextButton(onClick = onDismissProblems) { ActionText("OK") } },
+            confirmButton = { TextButton(onClick = onDismissProblems) { Text("OK") } },
         )
     }
 }

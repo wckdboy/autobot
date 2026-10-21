@@ -30,14 +30,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.linesFor
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import dev.wckdboy.autobot.shared.invincible.InsightBar
 import dev.wckdboy.autobot.shared.invincible.NodeBotDetail
 import dev.wckdboy.autobot.shared.invincible.NodeBotDetails
@@ -55,10 +54,10 @@ import kotlinx.coroutines.launch
  */
 internal fun LazyListScope.botDetailItems(detail: NodeBotDetail?, bot: String, node: String, setting: String?, onPersonality: (String?) -> Unit) {
     if (detail == null) {
-        item(key = "detail-loading") { InkLoader(Modifier.padding(top = 16.dp)) }
+        item(key = "detail-loading") { Loading(Modifier.padding(top = 16.dp)) }
         return
     }
-    detail.problem?.let { item(key = "detail-problem") { MicroLabel(it, Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.error, maxLines = 3) } }
+    detail.problem?.let { item(key = "detail-problem") { Text(labelCase(it), Modifier.padding(horizontal = 16.dp).padding(top = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } }
     detail.personalities?.let { p -> item(key = "personality") { PersonalitySection(p, setting, onPersonality) } }
     detail.profile?.let { p -> item(key = "profile") { ProfileSection(p, bot, node) } }
     if (detail.insights != null || detail.usage != null) {
@@ -68,23 +67,23 @@ internal fun LazyListScope.botDetailItems(detail: NodeBotDetail?, bot: String, n
 
 @Composable
 internal fun PersonalitySection(p: NodePersonalities, setting: String?, onPersonality: (String?) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp).testTag("bot-personality"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        SectionLabel("personality")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().testTag("bot-personality"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Subheader(labelCase("personality"))
+        FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val names = listOf(NodeBotDetails.NONE) + p.list.map { it.name }
             names.forEach { name ->
                 val selected = NodeBotDetails.personality(p) == name
-                ChoiceChip(
-                    name,
+                FilterChip(
                     selected = selected,
                     onClick = { if (!selected) onPersonality(name.takeUnless { it == NodeBotDetails.NONE }) },
+                    label = { Text(name) },
                     enabled = setting == null,
-                    asWritten = true,
                 )
             }
         }
         Text(
             NodeBotDetails.personalityLine(p) ?: if (p.active == null) "No personality: it speaks as its SOUL.md says." else "For every turn from now on.",
+            Modifier.padding(horizontal = 16.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -102,8 +101,8 @@ internal fun ProfileSection(p: NodeProfile, bot: String, node: String) {
             copied = false
         }
     }
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp).testTag("bot-profile"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SectionLabel("what it knows about you")
+    Subheader(labelCase("what it knows about you"))
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("bot-profile"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (p.entries.isEmpty()) {
             Text("Nothing yet. It keeps what it learns about how you work as it goes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -116,64 +115,64 @@ internal fun ProfileSection(p: NodeProfile, bot: String, node: String) {
         // Read-only here: it is edited where it lives, in the node's terminal.
         // Wraps: at a large font the action goes under the line.
         FlowRow(itemVerticalAlignment = Alignment.CenterVertically) {
-            MicroLabel("edit USER.md on $node", Modifier.padding(end = 8.dp), maxLines = 4)
+            Text(labelCase("edit USER.md on $node"), Modifier.padding(end = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = {
                 scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("command", NodeBotDetails.profileEditCommand(bot)))) }
                 copied = true
-            }) { ActionText(if (copied) "Copied" else "Copy command", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }) { Text(if (copied) "Copied" else "Copy command") }
         }
-        Hairline()
     }
 }
 
 @Composable
 internal fun UsageSection(i: NodeInsights?, today: UsageTotals?) {
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp).testTag("bot-usage"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionLabel(if (i != null) "usage · last ${NodeBotDetails.plural(i.days, "day")}" else "usage")
+    Subheader(labelCase(if (i != null) "usage · last ${NodeBotDetails.plural(i.days, "day")}" else "usage"))
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("bot-usage"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (i != null) {
             Text(NodeBotDetails.summary(i), style = MaterialTheme.typography.bodyMedium)
         }
-        today?.let { MicroLabel("today · " + NodeBotDetails.today(it).removeSuffix("."), maxLines = 2) }
+        today?.let { Caption("today · " + NodeBotDetails.today(it).removeSuffix(".")) }
         if (i != null && i.turns > 0) {
             // Local against cloud: one flat bar, words first.
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                MicroLabel("model calls · " + NodeBotDetails.share(i), maxLines = 2)
+                Caption("model calls · " + NodeBotDetails.share(i))
                 ShareBar(i.localCalls)
-                NodeBotDetails.costLine(i)?.let { MicroLabel("cost · $it", maxLines = 2) }
+                NodeBotDetails.costLine(i)?.let { Caption("cost · $it") }
             }
             Bars("tools", NodeBotDetails.toolBars(i))
             Bars("models", NodeBotDetails.modelBars(i))
-            NodeBotDetails.failures(i.failures)?.let { MicroLabel("went wrong · $it", maxLines = 2) }
+            NodeBotDetails.failures(i.failures)?.let { Caption("went wrong · $it") }
         }
     }
 }
 
-/** The local share of a whole, flat: local in onSurfaceVariant, cloud in the hairline color. */
+/** The local share of a whole: Material's linear indicator, local filled, cloud the track. */
 @Composable
 private fun ShareBar(local: Double) {
-    val scheme = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().height(8.dp).background(scheme.outlineVariant, MaterialTheme.shapes.extraSmall).semantics { contentDescription = "local ${NodeBotDetails.percent(local)}" }) {
-        if (local > 0) Box(Modifier.weight(local.toFloat().coerceAtLeast(0.001f)).height(8.dp).background(scheme.onSurfaceVariant, MaterialTheme.shapes.extraSmall))
-        if (local < 1) Box(Modifier.weight((1 - local).toFloat().coerceAtLeast(0.001f)).height(8.dp))
-    }
+    LinearProgressIndicator(
+        progress = { local.toFloat().coerceIn(0f, 1f) },
+        modifier = Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "local ${NodeBotDetails.percent(local)}" },
+    )
+}
+
+/** A quiet caption line in sentence case ("Model calls · all local"). */
+@Composable
+private fun Caption(text: String) {
+    Text(labelCase(text), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable
 private fun Bars(label: String, bars: List<InsightBar>) {
     if (bars.isEmpty()) return
     Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        MicroLabel(label)
+        Caption(label)
         bars.forEach { bar ->
             Column(Modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(bar.label, Modifier.weight(1f), style = AutobotTheme.styles.code, maxLines = linesFor(1, 2), overflow = TextOverflow.Ellipsis)
-                    Text(bar.value, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(bar.label, Modifier.weight(1f), style = AutobotTheme.styles.code)
+                    Text(bar.value, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                val scheme = MaterialTheme.colorScheme
-                Row(Modifier.fillMaxWidth().height(4.dp).background(scheme.surfaceContainerHigh)) {
-                    Box(Modifier.weight(bar.fraction.toFloat().coerceIn(0.001f, 1f)).height(4.dp).background(scheme.onSurfaceVariant))
-                    if (bar.fraction < 1) Box(Modifier.weight((1 - bar.fraction).toFloat().coerceAtLeast(0.001f)).height(4.dp))
-                }
+                LinearProgressIndicator(progress = { bar.fraction.toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
             }
         }
     }

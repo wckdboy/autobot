@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.imagine.gallery
 
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
 import android.content.ClipData
 import android.text.format.DateUtils
 import androidx.compose.foundation.Image
@@ -71,17 +70,17 @@ import dev.wckdboy.autobot.feature.imagine.viewer.ImageViewer
 import dev.wckdboy.autobot.feature.imagine.viewer.ViewerAction
 import androidx.compose.ui.platform.LocalContext
 import dev.wckdboy.autobot.core.designsystem.component.isLargeText
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
 import dev.wckdboy.autobot.core.designsystem.component.rememberLocalText
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Readout
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
-import dev.wckdboy.autobot.core.designsystem.component.InkLoaderBlock
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.FormMaxWidth
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.SearchField
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.ui.draw.clip
 import java.util.Locale
 import kotlinx.coroutines.launch
 
@@ -116,44 +115,30 @@ fun GalleryScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            Column(Modifier.background(MaterialTheme.colorScheme.background).statusBarsPadding().hairlineEdge()) {
-                // A large font leaves the title no room beside the count: the count goes on a line under it.
-                val large = isLargeText()
+            Column {
                 // How many, as on iOS: the shown ones only while a search narrows them.
                 val count = if (state.items.size == state.total) "${state.total}" else "${state.items.size}/${state.total}"
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    } else {
-                        Spacer(Modifier.size(12.dp))
-                    }
-                    Text("Gallery", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    if (!large) MicroLabel(count, Modifier.padding(end = 8.dp))
-                    IconButton(onClick = { actions.setFavoritesOnly(!state.favoritesOnly) }) {
-                        Icon(
-                            Icons.Filled.Star,
-                            contentDescription = "Favorites only",
-                            tint = if (state.favoritesOnly) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                AppBar("Gallery", onBack = onBack, mark = onBack == null) {
+                    // A large font leaves the title no room beside the count: it goes under the search field.
+                    if (!isLargeText()) TonalLabel(count, Modifier.padding(end = 4.dp))
+                    IconToggleButton(checked = state.favoritesOnly, onCheckedChange = { actions.setFavoritesOnly(it) }) {
+                        Icon(Icons.Filled.Star, contentDescription = "Favorites only")
                     }
                 }
-                if (large) MicroLabel(count, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 // Typed text stays here; the list filters a moment later (no dropped keys).
                 val query = rememberLocalText(state.query, actions::setQuery)
-                ConsoleTextField(
-                    query.text,
-                    query::edit,
-                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
-                    placeholder = "Search images",
-                    singleLine = true,
-                    mono = true,
-                )
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    Column(Modifier.widthIn(max = FormMaxWidth).fillMaxWidth()) {
+                        SearchField(query.text, query::edit, "Search images", Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                        if (isLargeText()) Caption(count, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                    }
+                }
             }
         },
     ) { padding ->
         if (state.loaded && state.items.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState(if (state.total == 0) "Nothing made yet. Images you make appear here." else "No images match that search.")
+                EmptyContent(if (state.total == 0) "Nothing made yet. Images you make appear here." else "No images match that search.")
             }
         } else {
             LazyVerticalGrid(
@@ -196,12 +181,13 @@ private fun Thumb(item: GalleryItem, actions: GalleryViewModel, onClick: () -> U
     Box(
         Modifier
             .aspectRatio(1f)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.shapes.extraSmall)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .clickable(onClick = onClick),
     ) {
         bitmap?.let { Image(it, contentDescription = item.prompt.take(60), contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         Box(Modifier.align(Alignment.TopEnd).stamp(item.favorite, enabled = item.favorite)) {
-            if (item.favorite) Icon(Icons.Filled.Star, null, tint = AutobotTheme.inks.amber, modifier = Modifier.padding(4.dp).size(14.dp))
+            if (item.favorite) Icon(Icons.Filled.Star, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.padding(6.dp).size(16.dp))
         }
     }
 }

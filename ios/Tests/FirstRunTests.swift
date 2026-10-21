@@ -72,7 +72,9 @@ struct FirstRunTests {
         #expect(ChatListModel.modelLabel("deepseek-chat") == "deepseek-chat")
     }
 
-    @Test func tabBarMatchesAndroid() {
-        #expect(AutobotNavBar<Int>.barWidth == 20 && AutobotNavBar<Int>.barHeight == 2 && AutobotNavBar<Int>.barGap == 6)
+    /// The Studio's rooms are the system tab view's tabs: every room has a title and its own symbol.
+    @Test func studioRoomsAreTabs() {
+        #expect(StudioRoom.allCases.map { $0.label.sentenceCased } == ["Image", "Audio", "Video", "Workflows", "Library"])
+        #expect(Set(StudioRoom.allCases.map(\.symbol)).count == StudioRoom.allCases.count)
     }
 }

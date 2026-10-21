@@ -2,20 +2,30 @@ package dev.wckdboy.autobot.feature.home.node
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItem
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.InfoItem
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -46,24 +56,10 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.wckdboy.autobot.core.data.ProviderRepository
 import dev.wckdboy.autobot.core.data.debug.DemoMode
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BackButton
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.Readout
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Switch
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.isLargeText
-import dev.wckdboy.autobot.core.designsystem.component.linesFor
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.providers.remote.NodeAgents
 import dev.wckdboy.autobot.shared.invincible.AgentSession
@@ -100,38 +96,38 @@ object BotsDemo {
 
 /**
  * One bot in Remote's list: its name and model, the persona line, its state in words with the
- * channel kinds as quiet tags, a channel that is down in red (words first), and quiet meta.
+ * channel kinds as quiet labels, a channel that is down in red (words first), and quiet meta.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BotRow(bot: NodeBot, now: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                // One element for a screen reader: its lines read in order, words first.
-                .clickable(role = Role.Button, onClickLabel = "Open ${bot.name}", onClick = onClick)
-                .heightIn(min = 48.dp)
-                .padding(vertical = 12.dp)
-                .testTag("bot-${bot.name}"),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
+    val large = isLargeText()
+    ListItem(
+        headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(bot.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = linesFor(1, 2), overflow = TextOverflow.Ellipsis)
-                if (bot.model.isNotEmpty()) Tag(bot.model, asWritten = true)
+                Text(bot.name, Modifier.weight(1f))
+                // A large font puts the model with the state lines, where it has the row's width.
+                if (bot.model.isNotEmpty() && !large) TonalLabel(bot.model)
             }
-            if (bot.persona.isNotEmpty()) {
-                Text(bot.persona, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
+        },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (bot.persona.isNotEmpty()) Text(bot.persona)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                    Text(NodeBots.status(bot), color = MaterialTheme.colorScheme.onSurface)
+                    val kinds = NodeBots.kinds(bot)
+                    if (kinds.isNotEmpty()) TonalLabel(kinds.joinToString(" · "))
+                    if (bot.model.isNotEmpty() && large) TonalLabel(bot.model)
+                }
+                NodeBots.problem(bot)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Text(NodeBots.meta(bot, now))
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                Text(NodeBots.status(bot), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurface)
-                val kinds = NodeBots.kinds(bot)
-                if (kinds.isNotEmpty()) Tag(kinds.joinToString(" · "), asWritten = true)
-            }
-            NodeBots.problem(bot)?.let { Text(it, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error, maxLines = linesFor(2, 4)) }
-            Text(NodeBots.meta(bot, now), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = linesFor(1, 2))
-        }
-        Hairline()
-    }
+        },
+        // One element for a screen reader: its lines read in order, words first.
+        modifier = modifier
+            .testTag("bot-${bot.name}")
+            .clickable(role = Role.Button, onClickLabel = "Open ${bot.name}", onClick = onClick),
+    )
 }
 
 @Immutable
@@ -306,137 +302,119 @@ fun NodeBotScreen(
 ) {
     var confirmOff by rememberSaveable { mutableStateOf(false) }
     val bot = state.bot
+    val large = isLargeText()
     Scaffold(
         topBar = {
-            AutobotTopBar(
+            AppBar(
                 title = "Bot · ${state.name}",
-                showMark = false,
-                navigation = { BackButton(onBack) },
+                onBack = onBack,
                 actions = { IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh") } },
             )
         },
     ) { padding ->
-        LazyColumn(
-            Modifier.padding(padding).fillMaxSize().testTag("node-bot"),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            state.problem?.let { item(key = "problem") { Notice(it, tone = NoticeTone.WARNING, action = "Retry", onAction = onRefresh) } }
-            if (bot == null) {
-                item(key = "empty") {
-                    when {
-                        state.bots.loading || state.bots.supported == null && state.problem == null -> InkLoader()
-                        else -> EmptyState("There is no bot called ${state.name} on ${state.node}.", action = "Refresh", onAction = onRefresh)
+        Centered(Modifier.padding(padding)) { width ->
+            LazyColumn(width.fillMaxHeight().testTag("node-bot"), contentPadding = PaddingValues(bottom = 24.dp)) {
+                state.problem?.let {
+                    item(key = "problem") { NoticeCard(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING, action = "Retry", onAction = onRefresh) }
+                }
+                if (bot == null) {
+                    item(key = "empty") {
+                        when {
+                            state.bots.loading || state.bots.supported == null && state.problem == null -> Loading()
+                            else -> EmptyContent("There is no bot called ${state.name} on ${state.node}.", action = "Refresh", onAction = onRefresh)
+                        }
+                    }
+                    return@LazyColumn
+                }
+                item(key = "head") {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // The name is in the bar; the head says who it is, after Invincible's pixel i (about the node), as on iOS.
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            NodeMark(size = 14.dp)
+                            if (bot.persona.isNotEmpty()) Text(bot.persona, style = MaterialTheme.typography.bodyLarge)
+                        }
+                        Text(labelCase("on ${state.node} · ${NodeBots.meta(bot, state.now)}"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                return@LazyColumn
-            }
-            item(key = "head") {
-                Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // The name is in the bar; the head says who it is, after Invincible's pixel i (about the node), as on iOS.
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NodeMark(size = 14.dp)
-                        if (bot.persona.isNotEmpty()) Text(bot.persona, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    SectionLabel("on ${state.node} · ${NodeBots.meta(bot, state.now)}")
+                item(key = "switch") {
+                    val failed = bot.status == "error"
+                    ListItem(
+                        headlineContent = { Text("On") },
+                        supportingContent = {
+                            Text(
+                                NodeBots.status(bot) + (bot.error?.takeIf { failed }?.let { ": $it ✗" } ?: ""),
+                                color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        trailingContent = { Switch(checked = bot.enabled, onCheckedChange = null) },
+                        modifier = Modifier.toggleable(value = bot.enabled, role = Role.Switch) { on -> if (on) onEnabled(true) else confirmOff = true },
+                    )
+                    // What the node said it did ("ops is running.").
+                    state.bots.notice?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-            }
-            item(key = "switch") {
-                // On the content's gutter (a SwitchRow carries its own), so it lines up with the title.
-                val failed = bot.status == "error"
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .toggleable(value = bot.enabled, role = Role.Switch) { on -> if (on) onEnabled(true) else confirmOff = true }
-                        .heightIn(min = 56.dp)
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("On", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            NodeBots.status(bot) + (bot.error?.takeIf { failed }?.let { ": $it ✗" } ?: ""),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = linesFor(2, 4),
-                        )
-                    }
-                    Switch(checked = bot.enabled, onCheckedChange = null)
+                item(key = "channels-label") { Subheader(labelCase("channels")) }
+                if (bot.channels.isEmpty()) {
+                    item(key = "no-channels") { Text("Only through the API.", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                // What the node said it did ("ops is running.").
-                state.bots.notice?.let { Text(it, Modifier.padding(bottom = 8.dp), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                Hairline()
-            }
-            item(key = "channels-label") { SectionLabel("channels", Modifier.padding(top = 16.dp)) }
-            if (bot.channels.isEmpty()) {
-                item(key = "no-channels") { Text("Only through the API.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            }
-            items(bot.channels.withIndex().toList(), key = { "c-${it.index}" }) { (_, c) ->
-                Column {
-                    val large = isLargeText()
+                items(bot.channels.withIndex().toList(), key = { "c-${it.index}" }) { (_, c) ->
                     val stateText: @Composable () -> Unit = {
                         Text(
                             NodeBots.channelState(c),
-                            style = AutobotTheme.styles.micro,
+                            style = MaterialTheme.typography.bodySmall,
                             color = if (c.down) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = linesFor(2, 4),
                         )
                     }
-                    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(c.kind, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                            // A large font puts the state under the account, where it has the row's width.
-                            if (!large) stateText()
-                        }
-                        if (c.account.isNotEmpty()) Text(c.account, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = linesFor(1, 3))
-                        if (large) stateText()
-                    }
-                    Hairline()
-                }
-            }
-            item(key = "model") {
-                Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SectionLabel("model and approvals")
-                    Readout("model", bot.model.ifEmpty { "auto" })
-                    Readout("approvals", bot.approvals)
-                    Text(NodeBots.approvals(bot.approvals), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            botDetailItems(state.detail, bot.name, state.node, state.settingPersonality, onPersonality)
-            if (state.approvals.isNotEmpty()) {
-                item(key = "waiting-label") { SectionLabel("waiting for you · ${state.approvals.size}", Modifier.padding(top = 16.dp)) }
-                items(state.approvals, key = { "a-${it.id}" }) { a ->
-                    QuestionCard(
-                        AgentRow.Question("q-${a.id}", a.id, a.text, a.action, answer = state.answered[a.id], agent = a.agent),
-                        onAnswer,
-                        onInstead,
+                    ListItem(
+                        headlineContent = { Text(c.kind) },
+                        supportingContent = if (c.account.isEmpty() && !large) null else {
+                            {
+                                Column {
+                                    if (c.account.isNotEmpty()) Text(c.account)
+                                    // A large font puts the state under the account, where it has the row's width.
+                                    if (large) stateText()
+                                }
+                            }
+                        },
+                        trailingContent = if (large) null else stateText,
                     )
                 }
-            }
-            item(key = "sessions-label") { SectionLabel("recent sessions", Modifier.padding(top = 16.dp)) }
-            when (val sessions = state.sessions) {
-                null -> item(key = "sessions-loading") { InkLoader() }
-                else -> {
-                    if (sessions.isEmpty()) item(key = "no-sessions") { Text("No sessions yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    items(sessions.take(MAX_SESSIONS), key = { "s-${it.id}" }) { s ->
-                        Column {
-                            Row(
-                                Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpenSession(s.id) }.heightIn(min = 48.dp).padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(s.id, Modifier.weight(1f), style = AutobotTheme.styles.readout, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(NodeBots.ago(s.modified, state.now), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Hairline()
+                item(key = "model") {
+                    Subheader(labelCase("model and approvals"))
+                    InfoItem(labelCase("model"), bot.model.ifEmpty { "auto" })
+                    InfoItem(labelCase("approvals"), bot.approvals, supporting = NodeBots.approvals(bot.approvals))
+                }
+                botDetailItems(state.detail, bot.name, state.node, state.settingPersonality, onPersonality)
+                if (state.approvals.isNotEmpty()) {
+                    item(key = "waiting-label") { Subheader(labelCase("waiting for you · ${state.approvals.size}")) }
+                    items(state.approvals, key = { "a-${it.id}" }) { a ->
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            QuestionCard(
+                                AgentRow.Question("q-${a.id}", a.id, a.text, a.action, answer = state.answered[a.id], agent = a.agent),
+                                onAnswer,
+                                onInstead,
+                            )
                         }
                     }
                 }
-            }
-            item(key = "new") {
-                Spacer(Modifier.height(16.dp))
-                PrimaryButton("New chat with ${bot.name}", onNewChat, Modifier.fillMaxWidth(), enabled = bot.enabled)
-                Spacer(Modifier.height(16.dp))
+                item(key = "sessions-label") { Subheader(labelCase("recent sessions")) }
+                when (val sessions = state.sessions) {
+                    null -> item(key = "sessions-loading") { Loading() }
+                    else -> {
+                        if (sessions.isEmpty()) {
+                            item(key = "no-sessions") { Text("No sessions yet.", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
+                        items(sessions.take(MAX_SESSIONS), key = { "s-${it.id}" }) { s ->
+                            ListItem(
+                                headlineContent = { Text(s.id, style = AutobotTheme.styles.code, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                trailingContent = { Text(NodeBots.ago(s.modified, state.now)) },
+                                modifier = Modifier.clickable(role = Role.Button) { onOpenSession(s.id) },
+                            )
+                        }
+                    }
+                }
+                item(key = "new") {
+                    Button(onClick = onNewChat, enabled = bot.enabled, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("New chat with ${bot.name}") }
+                }
             }
         }
     }
@@ -455,9 +433,9 @@ fun NodeBotScreen(
                 TextButton(onClick = {
                     onEnabled(false)
                     confirmOff = false
-                }) { ActionText("Turn off", color = MaterialTheme.colorScheme.error) }
+                }) { Text("Turn off", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { confirmOff = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmOff = false }) { Text("Cancel") } },
         )
     }
 }
