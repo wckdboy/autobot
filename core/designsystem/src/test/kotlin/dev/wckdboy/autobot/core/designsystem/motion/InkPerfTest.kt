@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.core.designsystem.motion
 
-import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import android.os.Looper
 import androidx.activity.ComponentActivity
@@ -18,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,18 +29,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
-import dev.wckdboy.autobot.core.designsystem.component.InkBarState
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.InkLoaderBlock
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.RunRow
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.StatusDot
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.EmptyPicture
+import dev.wckdboy.autobot.core.designsystem.component.JobProgress
+import dev.wckdboy.autobot.core.designsystem.component.JobState
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
 import java.io.File
@@ -62,6 +59,10 @@ import org.robolectric.annotation.LooperMode
  * were ticking and how many clock frames they produced. "idle" variants change no data, so
  * every recomposition there is caused by animation; the others stream data like the real thing.
  * Results go to stdout and `build/ink-perf.txt`; [assertions] holds the budget.
+ *
+ * Material's own indicators (LoadingIndicator, the wavy progress) are left out: they animate
+ * forever on Material's clock, their cost is Material's, and under Robolectric's stepped frames
+ * they never let the looper settle. Progress shows as the flat determinate bar.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w380dp-h760dp-xhdpi")
@@ -145,9 +146,9 @@ private fun ChatHarness(text: MutableState<String>) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), reverseLayout = true, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item(key = "live") {
                 Column(Modifier.inkEnter(true)) {
-                    ThinkingDisclosure("Planning the answer\nchecking the calendar", isThinking = true)
+                    ThinkingDisclosure("Planning the answer\nchecking the calendar")
                     ChatBubble(BubbleRole.ASSISTANT, text.value, isStreaming = true)
-                    Row { InkLoader(); MicroLabel("composing") }
+                    Text("composing", style = MaterialTheme.typography.labelMedium)
                 }
             }
             items(30, key = { it }) { i ->
@@ -157,8 +158,7 @@ private fun ChatHarness(text: MutableState<String>) {
             }
         }
         Row(Modifier.padding(8.dp)) {
-            StatusDot(AutobotColors.Acid, live = true)
-            PrimaryButton("Send", {}, Modifier.weight(1f), busy = true)
+            Button(onClick = {}, modifier = Modifier.weight(1f)) { BusyLabel("Send", busy = false) }
         }
     }
 }
@@ -169,7 +169,15 @@ private fun ChatListHarness() {
     LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         items(40, key = { it }) { i ->
             Column(Modifier.inkDissolve(dissolve, i)) {
-                RunRow("Chat number $i", "LOCAL · 12 MSG", leading = { StatusDot(AutobotColors.Acid, live = i < 2) })
+                ListItem(
+                    headlineContent = { Text("Chat number $i") },
+                    supportingContent = { Text("Local · 12 messages") },
+                    trailingContent = if (i < 2) {
+                        { TonalLabel("live") }
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }
@@ -179,13 +187,12 @@ private fun ChatListHarness() {
 private fun ModelsHarness(progress: MutableFloatState) {
     val dissolve = rememberInkDissolve()
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Segmented(listOf("library", "hugging face", "civitai"), "library", {}, { it }, Modifier.fillMaxWidth())
-        InkLoader()
+        Choices(listOf("library", "hugging face", "civitai"), "library", {}, Modifier.fillMaxWidth()) { it }
         LazyColumn(Modifier.weight(1f)) {
             items(30, key = { it }) { i ->
                 Column(Modifier.inkDissolve(dissolve, i).padding(12.dp)) {
                     Text("Model $i", Modifier.stamp(i % 3 == 0))
-                    if (i < 3) InkProgressBar(progress.floatValue, Modifier.fillMaxWidth().height(2.dp))
+                    if (i < 3) JobProgress(progress.floatValue, Modifier.fillMaxWidth(), state = JobState.Idle)
                 }
             }
         }
@@ -197,7 +204,7 @@ private fun GalleryHarness() {
     LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         items(30) { i ->
             Box(Modifier.aspectRatio(1f).padding(2.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh).stamp(i)) {
-                if (i == 0) InkLoaderBlock("decoding")
+                if (i == 0) Text("decoding")
             }
         }
     }
@@ -207,11 +214,11 @@ private fun GalleryHarness() {
 private fun ImagineHarness(progress: MutableFloatState) {
     PaperTheme {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            Segmented(listOf("txt2img", "img2img", "inpaint"), "txt2img", {}, { it }, Modifier.fillMaxWidth())
+            Choices(listOf("txt2img", "img2img", "inpaint"), "txt2img", {}, Modifier.fillMaxWidth()) { it }
             DevelopingPreview(null, Modifier.fillMaxWidth().aspectRatio(1f))
-            InkProgressBar(progress.floatValue, Modifier.fillMaxWidth().height(2.dp), state = InkBarState.Running)
-            PrimaryButton("Generate", {}, Modifier.fillMaxWidth(), busy = true)
-            for (i in 0 until 6) MicroLabel("section $i", Modifier.inkStagger(i))
+            JobProgress(progress.floatValue, Modifier.fillMaxWidth(), state = JobState.Idle)
+            Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("Generate") }
+            for (i in 0 until 6) Text("Section $i", Modifier.inkStagger(i), style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -219,7 +226,7 @@ private fun ImagineHarness(progress: MutableFloatState) {
 @Composable
 private fun HomeHarness(cards: Boolean) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        EmptyCanvas(Modifier.fillMaxWidth().height(220.dp), hint = "Nothing made yet")
+        EmptyPicture(Modifier.fillMaxWidth().height(220.dp), hint = "Nothing made yet")
         if (cards) {
             for (i in 0 until 3) {
                 Box(Modifier.fillMaxWidth().height(110.dp).padding(4.dp).background(MaterialTheme.colorScheme.surfaceContainer)) {
@@ -227,6 +234,6 @@ private fun HomeHarness(cards: Boolean) {
                 }
             }
         }
-        for (i in 0 until 4) RunRow("Recent run $i", "image · 12 s")
+        for (i in 0 until 4) ListItem(headlineContent = { Text("Recent run $i") }, supportingContent = { Text("Image · 12 s") })
     }
 }

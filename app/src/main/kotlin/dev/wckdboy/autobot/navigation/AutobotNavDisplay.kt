@@ -38,7 +38,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigation3.scene.Scene
 import dev.wckdboy.autobot.MainActivity
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.inkScreenTransition
@@ -159,7 +159,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     // The pane beside a list before anything is opened in it.
     val nothingOpen = ListDetailSceneStrategy.listPane(
         detailPlaceholder = {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Nothing open") }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyContent("Nothing open") }
         },
     )
     val detail = ListDetailSceneStrategy.detailPane()

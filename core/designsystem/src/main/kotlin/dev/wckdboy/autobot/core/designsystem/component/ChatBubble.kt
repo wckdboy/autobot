@@ -74,7 +74,7 @@ fun ChatBubble(
             MaybeSelectable(onLongPress == null) {
                 Row(Modifier.padding(horizontal = if (isUser) 16.dp else 2.dp, vertical = if (isUser) 10.dp else 4.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MarkdownBlocks(blocks, onLink)
+                        MarkdownBlocks(blocks, onLink, container = if (isUser) MaterialTheme.colorScheme.secondaryContainer else Color.Unspecified)
                         if (isStreaming && blocks.isEmpty()) {
                             Text("▍", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
                         }

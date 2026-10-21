@@ -19,10 +19,6 @@ import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
-import dev.wckdboy.autobot.core.designsystem.component.InkBarState
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.InkLoaderSize
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
 import java.time.Duration
 import kotlin.math.abs
 import org.junit.Assert.assertTrue
@@ -36,10 +32,9 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 /**
- * The progress components rendered to pixels (Robolectric's native Skia) at several sizes and
- * densities. They are flat (APP-UI v4: no halftones or dot fields): a bar is a track filled from
- * the start to the progress, within a pixel; a loader is three equal square pixels, centred in
- * its box; a preview panel without a picture is one flat colour.
+ * The picture-in-progress panel rendered to pixels (Robolectric's native Skia) at several sizes
+ * and densities: without a picture it is one flat colour (no halftones or dot fields). Progress
+ * itself is Material's indicators.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w2000dp-h2000dp-mdpi")
@@ -84,50 +79,6 @@ class InkRasterTest {
     private fun inkedTo(cov: Array<DoubleArray>): Int {
         val row = cov[cov.size / 2]
         return row.indexOfLast { it > 0.5 }
-    }
-
-    @Test
-    fun barsFillToTheProgressAtEverySizeAndDensity() {
-        for (d in densities) for (wDp in listOf(120, 333)) for (hDp in listOf(2, 6)) {
-            val w = Math.round(wDp * d)
-            val h = Math.round(hDp * d)
-            for (p in listOf(0f, 0.25f, 0.5f, 1f)) {
-                val bitmap = render(w, h, d) { InkProgressBar(p, Modifier.size((w / d).dp, (h / d).dp), state = InkBarState.Idle, color = ink, track = Color.Transparent) }
-                val cov = coverage(bitmap, 1.0)
-                val head = inkedTo(cov) + 1
-                assertTrue("bar d=$d ${wDp}x$hDp p=$p: filled to $head of $w", abs(head - p * w) <= 1.0)
-                // Flat: every row of the bar is filled the same, top to bottom.
-                if (p > 0f) for (y in cov.indices) assertTrue("bar d=$d p=$p row $y", cov[y][0] > 0.5 && cov[y][(head - 1).coerceAtLeast(0)] > 0.5)
-            }
-            val wave = render(w, h, d) { InkProgressBar(null, Modifier.size((w / d).dp, (h / d).dp), color = ink, track = Color.Transparent) }
-            assertTrue("indeterminate d=$d ${wDp}x$hDp drew nothing at its start", inkedTo(coverage(wave, 1.0)) < w)
-        }
-    }
-
-    @Test
-    fun loadersAreThreeSquarePixelsCentredInTheirBox() {
-        for (d in densities) for (size in InkLoaderSize.entries) {
-            val w = Math.round(size.pitch.value * 3 * d)
-            val h = Math.round(size.height.value * d)
-            val bitmap = render(w, h, d) { InkLoader(size = size, color = ink, contentDescription = null) }
-            val px = IntArray(w * h).also { bitmap.getPixels(it, 0, w, 0, 0, w, h) }
-            val inked = { x: Int, y: Int -> (px[y * w + x] ushr 24 and 0xFF) > 0 }
-            // Columns with ink form three runs of the same width.
-            val cols = (0 until w).map { x -> (0 until h).any { y -> inked(x, y) } }
-            val runs = mutableListOf<IntRange>()
-            var start = -1
-            cols.forEachIndexed { x, on ->
-                if (on && start < 0) start = x
-                if (!on && start >= 0) { runs += start until x; start = -1 }
-            }
-            if (start >= 0) runs += start until w
-            assertTrue("loader $size d=$d: ${runs.size} pixels", runs.size == 3)
-            assertTrue("loader $size d=$d: unequal pixels $runs", runs.map { it.count() }.distinct().size == 1)
-            val rows = (0 until h).filter { y -> (0 until w).any { x -> inked(x, y) } }
-            assertTrue("loader $size d=$d: square", abs(rows.size - runs[0].count()) <= 1)
-            assertTrue("loader $size d=$d: centred vertically", abs(rows.first() - (h - 1 - rows.last())) <= 1)
-            assertTrue("loader $size d=$d: centred horizontally", abs(runs.first().first - (w - 1 - runs.last().last)) <= 1)
-        }
     }
 
     @Test
