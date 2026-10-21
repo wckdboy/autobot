@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import UIKit
+import WebKit
 
 /**
  The state bridge between the dsh-ios supervisor (boot coordinator, `dsh-serve` harness, log and
@@ -63,8 +64,11 @@ final class HarnessModel {
     private var attached = false
     private var booted = false
     private var observers: [NSObjectProtocol] = []
-    private var appliedKey: String?
     private var auditedPort: UInt16 = 0
+    /// Page loads retried for the current generation (a server that answers the probe but not the page).
+    private var pageRetries = 0
+    private static let maxPageRetries = 3
+    private static let deepSeekKeys = ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"]
 
     // MARK: Derived
 
@@ -124,6 +128,7 @@ final class HarnessModel {
         attached = true
         self.app = app
         self.networkAllowed = networkAllowed
+        // A supervisor started by an earlier screen keeps running; the observers may already be in place.
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .DSHBootStateDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshBoot() }
@@ -155,23 +160,29 @@ final class HarnessModel {
             } else if bootPhase == .ready, state == .stopped || state == .failed || state == .idle {
                 DSHHarness.shared().start()
             }
-        } else if state == .ready || state == .starting || state == .restarting {
-            DSHHarness.shared().stop()
-            app?.auditLog.record(method: "GUEST", host: "api.deepseek.com", path: "/", tag: "Harness", route: "offline",
-                                 blocked: true, error: "Offline mode: the harness is stopped")
+        } else {
+            stopForOffline()
         }
+    }
+
+    /// Offline: the server stops (if it runs or is starting) and the audit log says so. The boot
+    /// coordinator may still start it when the kernel comes up; [refreshHarness] catches that.
+    private func stopForOffline() {
+        guard state == .ready || state == .starting || state == .restarting else { return }
+        DSHHarness.shared().stop()
+        app?.auditLog.record(method: "GUEST", host: "api.deepseek.com", path: "/", tag: "Harness", route: "offline",
+                             blocked: true, error: "Offline mode: the harness is stopped")
     }
 
     /// Reads Autobot's DeepSeek provider into the server's environment. A changed key restarts a
     /// running server so the next turn uses it.
     func applyEnvironment() {
         let harness = DSHHarness.shared()
-        var env = harness.extraEnvironment
-        var key: String?
+        let current = harness.extraEnvironment
+        var env = current
         var source = KeySource.guest
         if let app, let provider = app.providers.providers.first(where: { $0.kind == .deepseek && app.providers.hasApiKey($0) }),
            let secret = app.providers.apiKey(provider)?.reveal(), !secret.isEmpty {
-            key = secret
             source = .autobot(provider.displayName)
             env["DEEPSEEK_API_KEY"] = secret
             let base = provider.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -185,11 +196,12 @@ final class HarnessModel {
             env.removeValue(forKey: "DEEPSEEK_BASE_URL")
         }
         keySource = source
-        guard key != appliedKey else { return }
-        let hadKey = appliedKey != nil
-        appliedKey = key
+        // Only the two DeepSeek entries are ours; the rest (the host bridge) stays as it is. A
+        // server that already has these values is left alone, so a fresh screen never restarts it.
+        let changed = Self.deepSeekKeys.contains { env[$0] != current[$0] }
+        guard changed else { return }
         harness.extraEnvironment = env
-        if hadKey || key != nil, state == .ready || state == .starting {
+        if state == .ready || state == .starting {
             harness.restart()
         }
     }
@@ -199,6 +211,7 @@ final class HarnessModel {
         if state == .ready {
             pageLoaded = false
             pageMessage = "Loading the interface…"
+            pageRetries = 0
             loadGeneration += 1
         } else if bootPhase == .ready, networkAllowed {
             DSHHarness.shared().start()
@@ -246,10 +259,16 @@ final class HarnessModel {
 
     func pageFailed(_ error: Error) {
         let nsError = error as NSError
-        if nsError.code == NSURLErrorCancelled { return }
+        // -999: a load we replaced. WebKit 102 (frame load interrupted by policy change): a navigation our own policy cancelled.
+        if nsError.code == NSURLErrorCancelled || (nsError.domain == WKError.errorDomain && nsError.code == 102) { return }
         pageLoaded = false
-        pageMessage = "Waiting for the harness…"
         DSHHarness.shared().log.append("[autobot] page load failed: \(error.localizedDescription)")
+        guard pageRetries < Self.maxPageRetries else {
+            pageMessage = "The page did not load. Reload from the menu."
+            return
+        }
+        pageRetries += 1
+        pageMessage = "Waiting for the harness…"
         let generation = loadGeneration
         // The server was answering a moment ago; give it a beat and retry, and let the harness
         // restart it if it is really gone.
@@ -269,6 +288,10 @@ final class HarnessModel {
         DSHHarness.shared().log.append("[autobot] web content process terminated; reloading")
         pageLoaded = false
         if state == .ready { loadGeneration += 1 }
+    }
+
+    isolated deinit {
+        for token in observers { NotificationCenter.default.removeObserver(token) }
     }
 
     // MARK: Private
@@ -295,15 +318,16 @@ final class HarnessModel {
         port = harness.port
         restartCount = harness.restartCount
         lastError = harness.lastError
+        if !networkAllowed, state == .starting || state == .ready {
+            // The mode went Offline during the boot; the coordinator started the server anyway.
+            stopForOffline()
+            return
+        }
         if state == .ready {
-            if !networkAllowed {
-                // The boot finished after the mode went Offline; the coordinator started the server.
-                harness.stop()
-                return
-            }
             if !wasReady || port != oldPort {
                 pageLoaded = false
                 pageMessage = "Loading the interface…"
+                pageRetries = 0
                 loadGeneration += 1
             }
             if port != auditedPort {
