@@ -76,6 +76,20 @@ class A2uiEvalTest {
     }
 
     @Test
+    fun candidatePromptExampleIsValidAndMeetsAFormsExpectations() {
+        val prompt = A2uiEvalTest::class.java.getResource("/a2ui/eval/prompt-candidate.txt")!!.readText()
+        val example = prompt.substringAfter("Example: ").trim()
+        val report = dev.wckdboy.autobot.shared.a2ui.A2uiValidator().validate(example)
+        assertTrue(report.forModel(), report.isValid)
+        val expect = A2uiExpect(
+            components = listOf("TextField", "ChoicePicker", "Button"), inputsBound = true, actionUsesInputs = true, checks = 1,
+            props = listOf(A2uiPropExpect("ChoicePicker", "displayStyle", equals = JsonPrimitive("chips"))),
+        )
+        assertTrue(A2uiExpectations.check(expect, example).all { it.pass })
+        assertTrue("stays small for on-device models", prompt.length < 3_500)
+    }
+
+    @Test
     fun goodFormMeetsEveryExpectation() {
         val checks = A2uiExpectations.check(signupExpect, form)
         assertTrue(checks.filter { !it.pass }.toString(), checks.all { it.pass })

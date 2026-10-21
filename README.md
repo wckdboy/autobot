@@ -644,6 +644,33 @@ rules through the Kotlin framework, and decrypts `shared/backup/testvector.autob
 JVM) with CryptoKit to prove both platforms read the same format. CI (`.github/workflows/ci.yml`)
 runs the Android/shared suites on Linux and the iOS suites on macOS for every push and pull request.
 
+### A2UI eval
+
+How often a model produces valid A2UI through `show_ui`, the risk on small on-device models. 33
+phone-chat requests (`shared/src/jvmTest/resources/a2ui/eval/tasks.json`: time slots, RSVPs,
+validated forms, chips, lists templated over data, dates, tabs, cards with actions, two that
+should stay in text) go to any OpenAI-compatible endpoint with the app's system prompt and the
+`show_ui` schema; the real `ShowUiTool` and validator answer each call, invalid UI goes back to
+the model up to 3 times, and the first valid UI is checked against the task's expectations
+(component types, inputs bound to the data model, the button's context carrying the inputs,
+checks, templates).
+
+```sh
+./gradlew :shared:a2uiEval -Pmodel=qwen3:4b-instruct                          # Ollama on :11434
+./gradlew :shared:a2uiEval -Pendpoint=http://localhost:8080/v1 -Pmodel=local    # llama.cpp server
+./gradlew :shared:a2uiEval -Pendpoint=https://api.example.com/v1 -Pkey-env=API_KEY -Pmodel=...
+```
+
+`-Ponly=id,id` picks tasks, `-Pextra='{"chat_template_kwargs":{"enable_thinking":false}}'` is
+merged into each request. It writes `build/a2ui-eval/`: `report.md` (a table per model and per
+task, the most common validator errors) and, per model, every request and the tool's answer as
+JSONL. Calls a model writes as text instead of a tool call are recovered and counted
+(`-Psalvage=false` to not). Two experiments: `-Pargs=array` declares `messages` as a JSON array
+instead of a string, `-Pprompt=<file>` swaps `A2uiPrompt.text` for another guidance text
+(`a2ui/eval/prompt-candidate.txt` is one). The scoring runs in `:shared:jvmTest` on canned output.
+Ollama drops tool calls whose JSON does not parse (they show as `no-call`); llama.cpp's server
+reports them, which the eval counts as `malformed-call`.
+
 ### Demo data and screenshots
 
 Debug builds take launch switches for UI work; release builds ignore them (Android parses them

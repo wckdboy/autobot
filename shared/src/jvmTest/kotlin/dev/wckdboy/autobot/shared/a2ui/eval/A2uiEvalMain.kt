@@ -107,6 +107,7 @@ A2UI show_ui eval. Options (as --name=value, or -Pname=value through Gradle):
   --timeout=S        seconds per request (default 600)
   --extra=JSON       merged into every request body, e.g. {"reasoning_effort":"none"}
   --salvage=false    don't recover show_ui calls written as text (counted as no call)
+  --prompt=FILE      experiment: this show_ui guidance instead of A2uiPrompt.text
   --args=array       experiment: declare messages as a JSON array instead of a string
   --out=DIR          output folder (default build/a2ui-eval)
 """
@@ -127,14 +128,16 @@ fun main(argv: Array<String>) {
     val extra = opts["extra"]?.let { Json.parseToJsonElement(it) as JsonObject } ?: JsonObject(emptyMap())
     val out = File(opts["out"] ?: "build/a2ui-eval").apply { mkdirs() }
     val json = Json { encodeDefaults = false }
-    File(out, "system-prompt.txt").writeText(A2uiEvalRunner.SYSTEM_PROMPT)
+    val promptFile = opts["prompt"]?.let { File(it) }
+    val system = promptFile?.let { A2uiEvalRunner.CHAT_PROMPT + "\n\n" + it.readText().trim() } ?: A2uiEvalRunner.SYSTEM_PROMPT
+    File(out, "system-prompt.txt").writeText(system)
 
     val byModel = LinkedHashMap<String, List<A2uiTaskResult>>()
     for (model in models) {
         val client = OpenAiEvalClient(endpoint, model, key, temperature, opts["max-tokens"]?.toInt() ?: 4096, extra, opts["timeout"]?.toLong() ?: 600)
         val arrayArgs = opts["args"] == "array"
-        val label = if (arrayArgs) "$model (array args)" else model
-        val runner = A2uiEvalRunner(client, label, salvage = opts["salvage"] != "false", arrayArgs = arrayArgs)
+        val label = model + (if (arrayArgs) " (array args)" else "") + (promptFile?.let { " (prompt: ${it.nameWithoutExtension})" } ?: "")
+        val runner = A2uiEvalRunner(client, label, system, salvage = opts["salvage"] != "false", arrayArgs = arrayArgs)
         val slug = label.replace(Regex("[^A-Za-z0-9._-]+"), "_")
         val results = ArrayList<A2uiTaskResult>()
         File(out, "$slug.attempts.jsonl").printWriter().use { attemptsOut ->

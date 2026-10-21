@@ -70,7 +70,7 @@ tasks.register<JavaExec>("a2uiEval") {
     dependsOn(test.compileAllTaskName)
     classpath = files(test.output.allOutputs, test.runtimeDependencyFiles)
     mainClass.set("dev.wckdboy.autobot.shared.a2ui.eval.A2uiEvalMainKt")
-    val names = listOf("model", "endpoint", "key-env", "only", "temperature", "max-tokens", "timeout", "extra", "tasks", "salvage", "args")
+    val names = listOf("model", "endpoint", "key-env", "only", "temperature", "max-tokens", "timeout", "extra", "tasks", "salvage", "args", "prompt")
     val values = names.map { n -> providers.gradleProperty(n).map { "--$n=$it" } }
     val out = providers.gradleProperty("out").orElse(rootProject.layout.buildDirectory.dir("a2ui-eval").map { it.asFile.absolutePath })
     argumentProviders += CommandLineArgumentProvider { values.mapNotNull { it.orNull } + "--out=${out.get()}" }
