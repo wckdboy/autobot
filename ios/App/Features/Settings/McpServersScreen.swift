@@ -49,8 +49,8 @@ struct McpServersScreen: View {
             }
             if servers.isEmpty {
                 // One line and one action, as on Android; what a trusted server does is on its switch in the editor.
-                MarkUnavailableView(title: "No MCP servers yet.") {
-                    Button("Add MCP server") { editor = McpServerDraft() }.primaryActionStyle()
+                MarkUnavailable("No MCP servers yet.") {
+                    Button("Add MCP server") { editor = McpServerDraft() }.glassProminentButton()
                 }
             } else {
                 List {
@@ -224,7 +224,7 @@ private struct McpServerEditorSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .secondaryActionStyle()
+                    .glassButton()
                     .disabled(!draft.urlValid || test == .running)
                     testResult
                     if let error { Text(error).foregroundStyle(.red) }

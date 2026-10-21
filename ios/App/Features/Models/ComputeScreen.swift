@@ -63,7 +63,7 @@ struct ComputeScreen: View {
                     ModelCompute(model: m, running: running != nil, benchmarking: benchModel == m.id) { benchmark(m) }
                 }
                 if models.isEmpty {
-                    MarkUnavailableView("No runnable models yet", message: "get one in the Models tab")
+                    MarkUnavailable("No runnable models yet", description: "get one in the Models tab")
                 }
             }
             .listStyle(.insetGrouped)
@@ -278,7 +278,7 @@ private struct ReportSheet: View {
                 } label: {
                     Text("Copy").frame(maxWidth: .infinity)
                 }
-                .primaryActionStyle()
+                .glassProminentButton()
                 .controlSize(.large)
                 .padding(16)
             }

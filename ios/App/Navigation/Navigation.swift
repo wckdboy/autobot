@@ -232,7 +232,7 @@ struct AutobotNavHost: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
-        .tint(c.primary)
+        .tint(Color.brandPurple)
         .background(c.background.ignoresSafeArea())
     }
 

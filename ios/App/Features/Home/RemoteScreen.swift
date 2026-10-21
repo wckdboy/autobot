@@ -127,7 +127,7 @@ private struct RemoteRow<Leading: View>: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if let tag { TintTag(tag, color: .secondary) }
+                if let tag { CapsuleTag(tag, color: .secondary) }
                 Image(systemName: "chevron.forward")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Color(uiColor: .tertiaryLabel))

@@ -426,7 +426,7 @@ struct ModelsScreen: View {
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        if m.gated { TintTag("gated", color: .orange) }
+                        if m.gated { CapsuleTag("gated", color: .orange) }
                         Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(Color(uiColor: .tertiaryLabel))
                             .accessibilityHidden(true)
                     }
@@ -545,7 +545,7 @@ private struct NoticeActionStyle: ViewModifier {
     let prominent: Bool
 
     func body(content: Content) -> some View {
-        if prominent { content.primaryActionStyle() } else { content.secondaryActionStyle() }
+        if prominent { content.glassProminentButton() } else { content.glassButton() }
     }
 }
 
@@ -591,13 +591,16 @@ private struct InstalledRow: View {
             Button(action: onUse) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.title).foregroundStyle(Color.primary).lineLimit(1)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(subtitle).font(.caption).foregroundStyle(Color(uiColor: .secondaryLabel)).lineLimit(1)
                     if model.status == .paused || model.status == .failed {
                         ProgressView(value: model.fraction).tint(model.status == .failed ? .red : .secondary)
                     }
-                    if let paused = model.pausedLabel { Text(paused).font(.caption).foregroundStyle(.secondary) }
+                    if let paused = model.pausedLabel { Text(paused).font(.caption).foregroundStyle(Color(uiColor: .secondaryLabel)) }
                     if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).lineLimit(4) }
                 }
+                // A borderless button centres several lines and tints a hierarchical style:
+                // leading text and concrete colours keep the row a row.
+                .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
@@ -623,7 +626,7 @@ private struct InstalledRow: View {
 
     @ViewBuilder private var status: some View {
         switch model.status {
-        case .ready: TintTag("✓ ready", color: .secondary)
+        case .ready: CapsuleTag("✓ ready", color: .secondary)
         case .downloading: Button("\(Int(model.fraction * 100))%") { app.downloader.pause(model.id) }.monospacedDigit()
             .accessibilityHint("Pauses the download")
         case .queued: Button("Queued") { app.downloader.pause(model.id) }.foregroundStyle(.secondary)
@@ -662,7 +665,7 @@ private struct CatalogRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let fit, fit != .good {
-                TintTag(fit.label, color: fitColor(fit))
+                CapsuleTag(fit.label, color: fitColor(fit))
             }
             if installed {
                 Text("Added").font(.subheadline).foregroundStyle(.secondary)
@@ -707,14 +710,14 @@ private struct RepoSheet: View {
                             let size = repo.coreMLSize(folder)
                             let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
                             fileRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.lowercased().contains("original") ? "gpu" : "neural engine")") {
-                                if let fit, fit != .good { TintTag(fit.label, color: fitColor(fit)) }
+                                if let fit, fit != .good { CapsuleTag(fit.label, color: fitColor(fit)) }
                                 GetButton { model.installCoreML(repo, folder: folder) }
                             }
                         }
                     }
                 }
                 if files.isEmpty && bundles.isEmpty {
-                    MarkUnavailableView("no model files in this repo")
+                    MarkUnavailable("no model files in this repo")
                 }
                 if !files.isEmpty {
                     Section {
@@ -723,7 +726,7 @@ private struct RepoSheet: View {
                             let format = formatOf(f.path, owner: owner)
                             let fit = model.device?.fit(kind, bytes: f.sizeBytes, engine: engineFor(kind, format))
                             fileRow(title: String(f.path.split(separator: "/").last ?? ""), subtitle: "\(formatBytes(f.sizeBytes))\(f.sha256 != nil ? " · sha-256 known" : "")") {
-                                if let fit, fit != .good { TintTag(fit.label, color: .orange) }
+                                if let fit, fit != .good { CapsuleTag(fit.label, color: .orange) }
                                 if format == .safetensors || format == .ckpt {
                                     PcOnlyGetTag { model.installFile(repo, f.path) }
                                 } else {
@@ -771,7 +774,7 @@ private struct PcOnlyGetTag: View {
                 action()
             }
         } else {
-            TintTag("pc", color: .secondary)
+            CapsuleTag("pc", color: .secondary)
             GetButton { confirm = true }
         }
     }
@@ -805,7 +808,7 @@ private struct CivitaiRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if version?.earlyAccess == true {
-                TintTag("early access", color: .orange)
+                CapsuleTag("early access", color: .orange)
             } else if let version, installed.contains("civitai:\(version.id)") {
                 Text("Added").font(.subheadline).foregroundStyle(.secondary)
             } else {

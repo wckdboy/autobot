@@ -3,8 +3,15 @@ import SwiftUI
 /*
  The system pieces the converted screens share: standard SwiftUI controls with Liquid Glass where
  the SDK and the OS have it, and the brand only through the tint, the pixel a and the purple dot
- after a title. Nothing here draws its own chrome.
+ after a title. Nothing here draws its own chrome. Everything else is plain SwiftUI (`Form`, `List`, `Section`,
+ `Toggle`, `Picker`, `LabeledContent`).
  */
+
+extension Color {
+    /// The app's tint: the brand purple, deeper on light grounds for contrast (#6A4BEB light,
+    /// #9C85FF dark; the `BrandPurple` colour set, also the asset catalog's accent colour).
+    static let brandPurple = Color("BrandPurple")
+}
 
 /// A screen title in the system's headline style, ending in the purple pixel dot ([TitleMark]).
 struct TitleWithDot: View {
@@ -79,18 +86,17 @@ struct CapsuleTag: View {
     }
 }
 
-/// An empty state: the system's unavailable view with the purple pixel a, one sentence, and at most one action.
-struct MarkUnavailable: View {
+/// An empty state: the system's unavailable view with the purple pixel a, one sentence, and at
+/// most one action (a glass button).
+struct MarkUnavailable<Actions: View>: View {
     let title: String
     var description: String? = nil
-    var actionLabel: String? = nil
-    var action: (() -> Void)? = nil
+    @ViewBuilder var actions: () -> Actions
 
-    init(_ title: String, description: String? = nil, actionLabel: String? = nil, action: (() -> Void)? = nil) {
+    init(_ title: String, description: String? = nil, @ViewBuilder actions: @escaping () -> Actions) {
         self.title = title
         self.description = description
-        self.actionLabel = actionLabel
-        self.action = action
+        self.actions = actions
     }
 
     var body: some View {
@@ -103,10 +109,14 @@ struct MarkUnavailable: View {
         } description: {
             if let description { Text(description) }
         } actions: {
-            if let actionLabel, let action {
-                Button(actionLabel, action: action).glassButton()
-            }
+            actions()
         }
+    }
+}
+
+extension MarkUnavailable where Actions == EmptyView {
+    init(_ title: String, description: String? = nil) {
+        self.init(title, description: description, actions: { EmptyView() })
     }
 }
 
@@ -163,5 +173,94 @@ extension View {
     /// A bounded reading width centred in a wide window (iPad, Mac): text lines stay readable.
     func readableWidth(_ max: CGFloat = 760) -> some View {
         frame(maxWidth: max).frame(maxWidth: .infinity)
+    }
+}
+
+/// An ⓘ after a row's title: the why, one tap away, in a popover (keeps rows to one or two words).
+struct RowInfo: View {
+    let title: String
+    let text: String
+    @State private var shown = false
+
+    var body: some View {
+        Button { shown = true } label: {
+            Image(systemName: "info.circle")
+                .imageScale(.medium)
+                // A concrete colour: a borderless button would tint a hierarchical style.
+                .foregroundStyle(Color(uiColor: .secondaryLabel))
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("About \(title)")
+        .popover(isPresented: $shown) {
+            Text(text)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 300, alignment: .leading)
+                .padding(16)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+/// A row title with an optional ⓘ after it.
+struct InfoTitle: View {
+    let title: String
+    var info: String? = nil
+
+    init(_ title: String, info: String? = nil) {
+        self.title = title
+        self.info = info
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+            if let info { RowInfo(title: title, text: info) }
+        }
+    }
+}
+
+/**
+ A Form text field with the keyboard of its [kind] (as `ConsoleTextField`): mono, URL, number and
+ secret fields turn off auto-capitalization and autocorrection; secret fields are masked and
+ never offered to password managers. [label] is the field's title and, without a [prompt], its
+ placeholder; with a prompt the label leads the row (`LabeledContent`).
+ */
+struct FormField: View {
+    let label: String
+    @Binding var text: String
+    var prompt: String? = nil
+    var kind: FieldKind = .prose
+    var axis: Axis = .horizontal
+
+    init(_ label: String, text: Binding<String>, prompt: String? = nil, kind: FieldKind = .prose, axis: Axis = .horizontal) {
+        self.label = label
+        self._text = text
+        self.prompt = prompt
+        self.kind = kind
+        self.axis = axis
+    }
+
+    var body: some View {
+        if let prompt {
+            LabeledContent(label) { field(prompt).multilineTextAlignment(.trailing) }
+        } else {
+            field(label)
+        }
+    }
+
+    @ViewBuilder private func field(_ placeholder: String) -> some View {
+        Group {
+            if kind == .secret {
+                SecureField(label, text: $text, prompt: Text(placeholder))
+                    .textContentType(.oneTimeCode)
+            } else {
+                TextField(label, text: $text, prompt: Text(placeholder), axis: axis)
+            }
+        }
+        .autocorrectionDisabled(kind != .prose)
+        .textInputAutocapitalization(kind == .prose ? .sentences : .never)
+        .keyboardType(kind == .url ? .URL : kind == .number ? .numberPad : kind == .decimal ? .numbersAndPunctuation : .default)
+        .privacySensitive(kind == .secret)
     }
 }

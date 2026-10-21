@@ -350,9 +350,7 @@ struct ChatScreen: View {
             }
         }
         // One glass panel floats over the transcript's end: the plan, a question, the chips and the composer.
-        .glassSurface(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .padding(.horizontal, 10)
-        .padding(.bottom, 6)
+        .composerPanel()
     }
 
     private static let emptyTranscript = SessionTranscript(SessionProjection())
@@ -464,7 +462,7 @@ private struct TranscriptRow: View, Equatable {
                 if let header {
                     RunHeader(prompt: text, label: header)
                 } else {
-                    FollowUp(text: text)
+                    PromptLine(text: text)
                 }
                 if !images.isEmpty { AttachmentStrip(ids: images, model: model) }
             }
@@ -530,17 +528,6 @@ private struct RunHeader: View {
     }
 }
 
-private struct FollowUp: View {
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tint).accessibilityHidden(true)
-            Text(text).font(.body.weight(.semibold)).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
 private struct AssistantMessage: View {
     let text: String
     let reasoning: String?
@@ -559,7 +546,7 @@ private struct AssistantMessage: View {
         VStack(alignment: .leading, spacing: 6) {
             if let reasoning, !reasoning.isEmpty { ThinkingDisclosure(reasoning: reasoning, tokens: thinking?.tokens, stop: thinking?.stop) }
             if !text.isEmpty {
-                ChatBubble(role: .assistant, text: text) {
+                ChatBubble(text: text) {
                     // Status and actions on one line, or the actions under the status at large sizes.
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 8) {
@@ -617,9 +604,9 @@ private struct LiveMessage: View {
             }
             if !live.text.isEmpty || live.reasoning.isEmpty {
                 if let rate = live.tokensPerSecond {
-                    ChatBubble(role: .assistant, text: live.text, isStreaming: true) { TokenRateLabel(tokensPerSecond: rate) }
+                    ChatBubble(text: live.text, isStreaming: true) { TokenRateLabel(tokensPerSecond: rate) }
                 } else {
-                    ChatBubble(role: .assistant, text: live.text, isStreaming: true)
+                    ChatBubble(text: live.text, isStreaming: true)
                 }
             }
             ForEach(Array(live.toolNames.enumerated()), id: \.offset) { _, name in
@@ -1357,9 +1344,7 @@ private struct InputBar: View, Equatable {
     @ViewBuilder private var tools: some View {
         let attached = model.pendingImages.count
         PhotosPicker(selection: $picks, maxSelectionCount: max(1, ChatModel.maxAttachments - attached), matching: .images) {
-            Image(systemName: "photo.on.rectangle")
-                .font(.title3)
-                .frame(width: 40, height: 40)
+            ComposerToolLabel(systemImage: "photo.on.rectangle")
         }
         .disabled(attached >= ChatModel.maxAttachments)
         .accessibilityLabel("Attach image")
@@ -1422,31 +1407,14 @@ private struct InputBar: View, Equatable {
             }
             HStack(alignment: .bottom, spacing: 4) {
                 if !large { tools }
-                TextField(Composer.shared.placeholder(running: running, node: false), text: $text, axis: .vertical)
-                    .lineLimit(1 ... Int(Composer.shared.MAX_LINES))
-                    .focused($focused)
-                    .textInputAutocapitalization(.sentences)
-                    .padding(.vertical, 10)
-                    .padding(.leading, 4)
+                ComposerField(text: $text, placeholder: Composer.shared.placeholder(running: running, node: false), focused: $focused)
                 if action == .stop {
-                    Button(action: onStop) {
-                        Image(systemName: "stop.fill").font(.body.weight(.semibold)).frame(width: 22, height: 22)
-                    }
-                    .glassButton()
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Stop")
+                    ComposerStopButton(action: onStop)
                 } else {
-                    let enabled = Composer.shared.enabled(action: action, text: text, attachments: Int32(attached), ready: true)
-                    Button {
+                    ComposerSendButton(enabled: Composer.shared.enabled(action: action, text: text, attachments: Int32(attached), ready: true), label: Composer.shared.label(action: action)) {
                         onSend(text)
                         text = ""
-                    } label: {
-                        Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 22, height: 22)
                     }
-                    .glassProminentButton()
-                    .buttonBorderShape(.circle)
-                    .disabled(!enabled)
-                    .accessibilityLabel(Composer.shared.label(action: action))
                 }
             }
             .padding(.horizontal, 8)

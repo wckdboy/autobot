@@ -263,29 +263,6 @@ struct SwitchRow: View {
     static let minHeight: CGFloat = Tokens.Spacing.rowMinHeight
 }
 
-/// A settings row that does something destructive (red title, optional ⓘ, no chevron).
-struct DestructiveRow: View {
-    let title: String
-    var info: String? = nil
-    let action: () -> Void
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button(action: action) {
-                Text(title).textStyle(.bodyLarge).foregroundStyle(c.error)
-                    .frame(minHeight: SwitchRow.minHeight, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PressStyle())
-            if let info { InfoButton(title: title, text: info).padding(.leading, -6) }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .frame(maxWidth: .infinity, minHeight: SwitchRow.minHeight, alignment: .leading)
-    }
-}
-
 /// A settings row that opens another screen: title, an optional ⓘ, optional trailing state value, chevron
 /// (as Android's `NavRow`).
 struct NavigationRow: View {
@@ -326,45 +303,5 @@ struct NavigationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
-    }
-}
-
-enum NoticeTone { case info, warning, error }
-
-/// Why something is empty or not working, and the one tap that fixes it ("No model yet. · Add
-/// provider"): a bar in the tone's colour, one line of text, an optional action (as Android's `Notice`).
-struct Notice: View {
-    let text: String
-    var tone: NoticeTone = .info
-    var action: String? = nil
-    var onAction: (() -> Void)? = nil
-    @Environment(\.scheme) private var c
-
-    init(_ text: String, tone: NoticeTone = .info, action: String? = nil, onAction: (() -> Void)? = nil) {
-        self.text = text
-        self.tone = tone
-        self.action = action
-        self.onAction = onAction
-    }
-
-    var body: some View {
-        // The bar is a fill: the vivid amber, whose text-safe ink on paper is a dull brown.
-        let bar = switch tone {
-        case .info: c.primary
-        case .warning: AutobotColors.amber
-        case .error: c.error
-        }
-        HStack(spacing: 10) {
-            Rectangle().fill(bar).frame(width: 3)
-            Text(text).textStyle(.bodySmall).foregroundStyle(c.onSurface)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if let action, let onAction { TextAction(action, action: onAction) } else { Spacer().frame(width: 2) }
-        }
-        .frame(minHeight: 44)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh))
-        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
     }
 }

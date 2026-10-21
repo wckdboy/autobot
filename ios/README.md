@@ -1,14 +1,18 @@
 # Autobot for iOS
 
-The iOS port of Autobot: the same privacy-first, on-device AI agent, the same riso design (one
-signal red on ink or paper, Antonio display type, JetBrains Mono labels, halftone rendering), the
-same screens, copy and flows as Android — in SwiftUI, Swift 6, iOS 18+.
+The iOS port of Autobot: the same privacy-first, on-device AI agent, the same screens, copy and
+flows as Android — in SwiftUI, Swift 6, iOS 18+.
 
-Run, the chat list and the chat use the system's own components (navigation bar and toolbar,
-`List`, `.searchable`, `Form` sheets, `ProgressView`, `ContentUnavailableView`) with Liquid Glass
-on iOS 26 and later; the brand shows only as the purple tint, the pixel a and the dot after a
-title. On a wide window (iPad, Mac) the Run tab keeps the chat list beside its stack, and a chat
-chosen there opens next to it. The shared pieces are in `App/Design/NativeKit.swift`.
+The app is standard SwiftUI with Liquid Glass on iOS 26 and later (navigation bar and toolbar,
+`List`, `Form`, `.searchable`, sheets, `ProgressView`, `ContentUnavailableView`, glass buttons;
+bordered styles before iOS 26). The brand shows only as the purple tint (`BrandPurple`: #6A4BEB
+light, #9C85FF dark, also the asset catalog's accent colour), the pixel a and the purple dot after
+a title. The riso look (signal red on ink or paper, halftones) is retired: Run, the chats, the
+node's agent, Remote, Models and Settings are converted; Image, Gallery and Studio still use the
+riso components until they are. On a wide window (iPad, Mac) the Run tab keeps the chat list
+beside its stack, and a chat chosen there opens next to it. The shared pieces are in
+`App/Design/NativeKit.swift` (titles, tags, empty states, glass buttons, form rows) and
+`App/Design/ChatComposer.swift` (the glass composer every chat shares).
 
 ## Build and run
 
@@ -100,7 +104,7 @@ App/
   AutobotApp.swift      entry, lock gate, welcome, privacy cover
   AppContainer.swift    object graph (Hilt on Android)
   Navigation/           one back stack, tab roots RUN · MODELS · REMOTE · SETTINGS
-  Design/               riso design system (1:1 with :core:designsystem)
+  Design/               NativeKit and the chat composer; marks; riso components left for Image/Studio
   Features/             screens (Home, Chat, Imagine, Models, Settings)
   Core/Network          NetworkPolicy, RouteResolver, Loopback, AuditLog, HttpClient (kill switch)
   Core/Security         AesGcmEnvelope, KeyManager, SecretStore, AppLockManager, PanicWipe
@@ -149,7 +153,7 @@ generation, deletes every Keychain item, the database, files, caches and default
 
 | Android | iOS | Notes |
 | --- | --- | --- |
-| Riso theme, Compose components | `App/Design` (same tokens, fonts, icons) | `tokens.json` is shared |
+| Riso theme, Compose components | `App/Design`: system SwiftUI + Liquid Glass, brand purple tint (Image/Studio still riso) | `tokens.json` is shared |
 | Welcome, lock (BiometricPrompt) | Welcome, lock (Face ID / Touch ID / passcode, `LocalAuthentication`), auto-lock timeout on a monotonic clock | |
 | `FLAG_SECURE`, no recents thumbnail | Privacy cover while not active | iOS cannot block screenshots |
 | Run screen (CPU state) | Run screen (chip, idle/busy, thermal state, free storage) | |

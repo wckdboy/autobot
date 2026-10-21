@@ -136,11 +136,11 @@ struct NodeDigestCard: View {
 
     @ViewBuilder private func actions(_ needsYou: String?) -> some View {
         let details = Button("Details", action: onDetails)
-            .secondaryActionStyle()
+            .glassButton()
             .accessibilityLabel("Details: the node's activity")
         let primary = needsYou.map { text in
             Button(action: onNeedsYou) { Text(text).frame(maxWidth: .infinity) }
-                .primaryActionStyle()
+                .glassProminentButton()
         }
         if dynamicType.isAccessibilitySize || (needsYou?.count ?? 0) > 20 {
             // Large text, or a long action ("2 approvals, 1 question waiting"): it gets the whole width, Details goes under it.

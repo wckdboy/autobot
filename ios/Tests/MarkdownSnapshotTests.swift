@@ -31,18 +31,16 @@ struct MarkdownSnapshotTests {
     }
 
     private struct Sample: View {
-        @Environment(\.scheme) private var c
-
         var body: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ChatBubble(role: .user, text: "When is the next train to **Berlin**?")
-                    ChatBubble(role: .assistant, text: MarkdownSnapshotTests.sample)
+                    PromptLine(text: "When is the next train to **Berlin**?")
+                    ChatBubble(text: MarkdownSnapshotTests.sample)
                 }
                 .padding(.horizontal, Tokens.Spacing.gutter)
                 .padding(.top, 8)
             }
-            .background(c.background.ignoresSafeArea())
+            .background(Color(.systemBackground).ignoresSafeArea())
         }
     }
 

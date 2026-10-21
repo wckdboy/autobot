@@ -71,7 +71,7 @@ struct FirstModelCard: View {
     /// The card's one next action: a prominent Liquid Glass button across the row.
     private func primary(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(label).frame(maxWidth: .infinity) }
-            .primaryActionStyle()
+            .glassProminentButton()
             .controlSize(.large)
     }
 

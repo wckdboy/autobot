@@ -67,7 +67,6 @@ struct MotionPerfTests {
         results.append(try await measure("gallery-idle", GalleryScreen(openId: nil), app, nav, seconds: 3))
         results.append(try await measure("imagine-generating", GeneratingProof().paperTheme(), app, nav, seconds: 3))
         results.append(try await measure("bars-and-loaders", BarsKit(), app, nav, seconds: 3))
-        results.append(try await measure("live-tool-rows", LiveRows(), app, nav, seconds: 3))
         // A push from the chat list into the long transcript (the screen inks in), then back.
         nav.reset(.run, [.chatList])
         var pushed = false
@@ -136,17 +135,6 @@ struct MotionPerfTests {
                     }
                 }
                 InkProgressBar(.progress(0.4, running: true), height: 2)
-                Spacer()
-            }
-            .padding(16)
-        }
-    }
-
-    /// Twelve running tool steps (a busy agent run): each has a pulsing status dot.
-    private struct LiveRows: View {
-        var body: some View {
-            VStack(spacing: 6) {
-                ForEach(0 ..< 12, id: \.self) { i in TerminalBlock(title: "read", status: .running, subtitle: "notes/day\(i).md") }
                 Spacer()
             }
             .padding(16)

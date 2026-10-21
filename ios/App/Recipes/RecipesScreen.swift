@@ -33,7 +33,7 @@ struct RecipesScreen: View {
                     }
                 }
                 if center.recipes.isEmpty {
-                    MarkUnavailableView(copy.EMPTY)
+                    MarkUnavailable(copy.EMPTY)
                 } else {
                     Section {
                         ForEach(center.recipes) { r in row(r) }
@@ -55,6 +55,8 @@ struct RecipesScreen: View {
         }
     }
 
+    private static let secondary = Color(uiColor: .secondaryLabel)
+
     private var hasLocalModel: Bool { app.providers.get(ProviderPresets.localProviderId) != nil }
 
     private func row(_ r: RecipeDoc) -> some View {
@@ -67,17 +69,20 @@ struct RecipesScreen: View {
                 Button { editing = r } label: {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(RecipeRules.where_(r, node: r.runsOn.map { app.providers.get($0)?.displayName ?? "my node" }))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(Self.secondary)
                         Text(r.name).font(.headline).foregroundStyle(Color.primary).lineLimit(2)
                         Text(running ? "Running…" : RecipeRules.status(r))
                             .font(.subheadline)
-                            .foregroundStyle(running ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                            .foregroundStyle(running ? AnyShapeStyle(.tint) : AnyShapeStyle(Self.secondary))
                             .lineLimit(2)
                         if let last = r.state.lastRun, !last.summary.isEmpty {
-                            Text(last.summary).font(.footnote).foregroundStyle(last.done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red)).lineLimit(2)
+                            Text(last.summary).font(.footnote).foregroundStyle(last.done ? AnyShapeStyle(Self.secondary) : AnyShapeStyle(.red)).lineLimit(2)
                         }
                         if let note = r.state.lastRun?.notes.first { Text(note).font(.footnote).foregroundStyle(.red).lineLimit(2) }
                     }
+                    // A borderless button centres several lines and tints a hierarchical style:
+                    // leading text and concrete colours keep the row a row.
+                    .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }

@@ -199,7 +199,7 @@ private struct AuditRowView: View {
         // The method as a quiet tag; a blocked request says so with the glyph, in red (words
         // first, then a glyph), as on Android.
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            TintTag(row.blocked ? "✗ blocked" : row.method, color: row.blocked ? .red : .secondary)
+            CapsuleTag(row.blocked ? "✗ blocked" : row.method, color: row.blocked ? .red : .secondary)
             VStack(alignment: .leading, spacing: 2) {
                 // Host and path are code: monospaced.
                 Text(row.host + row.path).font(.callout.monospaced()).lineLimit(2)

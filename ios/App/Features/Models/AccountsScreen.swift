@@ -106,7 +106,7 @@ struct AccountsScreen: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .primaryActionStyle()
+        .glassProminentButton()
         .disabled(!enabled || busy)
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)

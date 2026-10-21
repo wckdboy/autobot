@@ -79,7 +79,7 @@ struct NodePairingSheet: View {
                     Button { pair() } label: {
                         Group { if pairing { ProgressView() } else { Text("Pair") } }.frame(maxWidth: .infinity)
                     }
-                    .primaryActionStyle()
+                    .glassProminentButton()
                     .controlSize(.large)
                     .disabled(fingerprint == nil || deviceName.trimmingCharacters(in: .whitespaces).isEmpty || pairing)
                 }

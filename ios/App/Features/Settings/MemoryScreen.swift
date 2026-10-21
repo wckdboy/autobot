@@ -33,7 +33,7 @@ struct MemoryScreen: View {
                 }
                 Section(MemoryWords.shared.count(total: Int32(total)).sentenceCased) {
                     if notes.isEmpty {
-                        MarkUnavailableView(MemoryWords.shared.empty(total: Int32(total)))
+                        MarkUnavailable(MemoryWords.shared.empty(total: Int32(total)))
                     } else {
                         ForEach(notes) { row($0) }
                     }

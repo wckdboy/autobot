@@ -182,7 +182,7 @@ struct UsageBoardView: View {
             HStack(spacing: 8) {
                 Text(g.model ?? g.name).font(g.model != nil ? .callout.monospaced() : .body).lineLimit(1).truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if g.onDevice { TintTag("on device") }
+                if g.onDevice { CapsuleTag("on device") }
                 Text(g.onDevice ? "$0" : g.sums.costLine).monospacedDigit()
             }
             Text([
@@ -222,9 +222,9 @@ struct UsageBoardView: View {
                     Text(row.model).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     switch row.source {
-                    case "DEFAULT": TintTag("published", color: .secondary)
-                    case "YOURS": TintTag("yours")
-                    default: TintTag("unknown", color: .orange)
+                    case "DEFAULT": CapsuleTag("published", color: .secondary)
+                    case "YOURS": CapsuleTag("yours")
+                    default: CapsuleTag("unknown", color: .orange)
                     }
                 }
                 Text(Self.priceLine(row)).font(.caption).foregroundStyle(.secondary).lineLimit(2)

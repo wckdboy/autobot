@@ -28,40 +28,25 @@ extension Color {
 }
 
 /**
- Riso palette: one signal red printed on ink (dark) or paper (light), with warm greys. Red is
- the brand and "live / on this phone" colour, not an error colour by itself.
+ The palette colours still drawn directly. The app's tint is `Color.brandPurple` (NativeKit); the
+ converted screens use system colours. What is left here serves the pixel marks, the node's
+ orange and the screens not yet converted (Image, Gallery, Studio), which keep their scheme.
  */
 enum AutobotColors {
-    static let black = Color(rgb: Tokens.Palette.black)
-    static let ink950 = Color(rgb: Tokens.Palette.ink950)
-    static let ink900 = Color(rgb: Tokens.Palette.ink900)
-    static let ink850 = Color(rgb: Tokens.Palette.ink850)
-    static let ink800 = Color(rgb: Tokens.Palette.ink800)
-    static let ink700 = Color(rgb: Tokens.Palette.ink700)
-    static let line = Color(rgb: Tokens.Palette.line)
-    static let ink500 = Color(rgb: Tokens.Palette.ink500)
-    static let ash400 = Color(rgb: Tokens.Palette.ash400)
     static let ash200 = Color(rgb: Tokens.Palette.ash200)
     static let bone100 = Color(rgb: Tokens.Palette.bone100)
-    static let bone50 = Color(rgb: Tokens.Palette.bone50)
 
     static let paper = Color(rgb: Tokens.Palette.paper)
-    static let paperLine = Color(rgb: Tokens.Palette.paperLine)
-    static let paperMuted = Color(rgb: Tokens.Palette.paperMuted)
     static let paperInk = Color(rgb: Tokens.Palette.paperInk)
 
-    /// Red: errors, deletion, older art. Not the signal any more (that is lilac).
-    static let red = Color(rgb: Tokens.Palette.red)
+    /// Errors and deletion on the darkroom's grounds.
     static let redDeep = Color(rgb: Tokens.Palette.redDeep)
-    static let redDim = Color(rgb: Tokens.Palette.redDim)
 
-    /// Autobot's mark: the pixel a and the icon, never text.
+    /// Autobot's mark: the pixel a, the dot after a title and the icon, never text.
     static let purple = Color(rgb: Tokens.Palette.purple)
 
-    /// Autobot's signal as text: lilac on ink, a deeper lilac on paper (5:1), and a dim fill.
+    /// Autobot's signal as text on ink (the Studio's darkroom).
     static let lilac = Color(rgb: Tokens.Palette.lilac)
-    static let lilacDeep = Color(rgb: Tokens.Palette.lilacDeep)
-    static let lilacDim = Color(rgb: Tokens.Palette.lilacDim)
 
     /// Invincible's signal (the node), on paper and on ink: screens about the node mark it in this.
     static let orange = Color(rgb: Tokens.Palette.orange)
@@ -69,14 +54,10 @@ enum AutobotColors {
 
     static let amber = Color(rgb: Tokens.Palette.amber)
     static let cyan = Color(rgb: Tokens.Palette.cyan)
-    static let error = Color(rgb: Tokens.Palette.error)
 
     // Semantic aliases used across features.
     static let acid = lilac
-    static let green = lilac
-    static let signal = error
     static let uv = ash200
-    static let violet = ash200
 }
 
 /**
@@ -537,7 +518,7 @@ struct AutobotTheme: ViewModifier {
         let scheme = dark ? (amoled ? AutobotScheme.dark.amoled() : .dark) : .light
         content
             .environment(\.scheme, scheme)
-            .tint(scheme.primary)
+            .tint(Color.brandPurple)
             .preferredColorScheme(paperOnTop ? .light : darkOnTop ? .dark : mode == .system ? nil : (dark ? .dark : .light))
     }
 }

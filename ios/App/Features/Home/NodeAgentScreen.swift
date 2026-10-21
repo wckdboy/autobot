@@ -395,7 +395,6 @@ enum NodeAgentSheet: Hashable { case activity, board }
 
 struct NodeAgentScreen: View {
     @Environment(AppContainer.self) private var app
-    @Environment(Navigator.self) private var nav
     @State private var model: NodeAgentModel
     @State private var draft = ""
     @State private var showSchedules = false
@@ -417,102 +416,114 @@ struct NodeAgentScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            AutobotTopBar(title: "Agent · \(model.node)", onBack: { nav.back() }) {
-                Button {
-                    showActivity = true
-                    Task { await model.loadActivity() }
-                } label: {
-                    Label("Activity: what the node and the agent did", systemImage: "list.bullet.rectangle")
-                }
-                .disabled(!model.connected)
-                Button {
-                    showSchedules = true
-                    Task { await model.loadSchedules() }
-                } label: {
-                    Label("Scheduled tasks", systemImage: "calendar")
-                }
-                .disabled(model.info == nil)
-                Button {
-                    Task { await model.newConversation() }
-                } label: {
-                    Label("New conversation", systemImage: "arrow.clockwise")
-                }
-                .disabled(model.info == nil || model.running)
-            }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    let retry = NodeAgentModel.retryTarget(model.rows, running: model.running)
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        header
-                        ForEach(model.rows) { row in rowView(row, retry: retry == row.id).id(row.id) }
-                        if model.running { ProgressView().frame(maxWidth: .infinity, alignment: .leading) }
-                        Color.clear.frame(height: 1).id("bottom")
+        transcript
+            .background(Color(.systemBackground))
+            .navigationTitle("Agent · \(model.node)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { TitleWithDot("Agent · \(model.node)") }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showActivity = true
+                        Task { await model.loadActivity() }
+                    } label: {
+                        Label("Activity: what the node and the agent did", systemImage: "list.bullet.rectangle")
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    // Reading width on a wide window.
-                    .frame(maxWidth: 760)
-                    .frame(maxWidth: .infinity)
-                }
-                .defaultScrollAnchor(.bottom)
-                .defaultScrollAnchor(.bottom, for: .sizeChanges)
-                .scrollDismissesKeyboard(.interactively)
-                // The composer rides on the keyboard; the newest row stays right above it.
-                .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-                .onChange(of: model.rows.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-                .onChange(of: keyboardUp) { proxy.scrollTo("bottom", anchor: .bottom) }
-            }
-        }
-        .task {
-            await model.connect(app: app)
-            if open != nil { await model.loadActivity() }
-        }
-        .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(900)); focused = true } }
-        .onDisappear { model.stopListening() }
-        // The model could not see the photo: the text comes back to the box.
-        .onChange(of: model.returned) { _, text in
-            if let text {
-                draft = text
-                model.returned = nil
-            }
-        }
-        .onChange(of: picks) { _, items in
-            guard !items.isEmpty else { return }
-            picks = []
-            model.encoding += items.count
-            Task {
-                for item in items {
-                    let data = try? await item.loadTransferable(type: Data.self)
-                    model.encoding -= 1
-                    if let data { model.attach(data) } else { model.photoProblem = "Could not read that photo." }
+                    .disabled(!model.connected)
+                    Button {
+                        showSchedules = true
+                        Task { await model.loadSchedules() }
+                    } label: {
+                        Label("Scheduled tasks", systemImage: "calendar")
+                    }
+                    .disabled(model.info == nil)
+                    Button {
+                        Task { await model.newConversation() }
+                    } label: {
+                        Label("New conversation", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(model.info == nil || model.running)
                 }
             }
-        }
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { data in
-                showCamera = false
-                if let data { model.attach(data) }
+            .task {
+                await model.connect(app: app)
+                if open != nil { await model.loadActivity() }
             }
-            .ignoresSafeArea()
+            .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(900)); focused = true } }
+            .onDisappear { model.stopListening() }
+            // The model could not see the photo: the text comes back to the box.
+            .onChange(of: model.returned) { _, text in
+                if let text {
+                    draft = text
+                    model.returned = nil
+                }
+            }
+            .onChange(of: picks) { _, items in
+                guard !items.isEmpty else { return }
+                picks = []
+                model.encoding += items.count
+                Task {
+                    for item in items {
+                        let data = try? await item.loadTransferable(type: Data.self)
+                        model.encoding -= 1
+                        if let data { model.attach(data) } else { model.photoProblem = "Could not read that photo." }
+                    }
+                }
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                CameraPicker { data in
+                    showCamera = false
+                    if let data { model.attach(data) }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
+            .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
+    }
+
+    /// The conversation, with the composer floating over its end.
+    private var transcript: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                let retry = NodeAgentModel.retryTarget(model.rows, running: model.running)
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    header
+                    ForEach(model.rows) { row in rowView(row, retry: retry == row.id).id(row.id) }
+                    if model.running { ProgressView().frame(maxWidth: .infinity, alignment: .leading) }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .readableWidth()
+            }
+            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .scrollDismissesKeyboard(.interactively)
+            // The composer rides on the keyboard; the newest row stays right above it.
+            .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .onChange(of: model.rows.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: keyboardUp) { proxy.scrollTo("bottom", anchor: .bottom) }
         }
-        .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
-        .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
     }
 
     /// The node's composer: the photo menu, the field and Send. The node's agent neither queues nor
     /// stops a turn, so Send waits for it (and for a photo still being downscaled).
     private var composer: some View {
-        ComposerBar(text: $draft, placeholder: Composer.shared.placeholder(running: model.running, node: true), enabled: model.info != nil, focused: $focused) {
+        VStack(spacing: 0) {
             if !model.photos.isEmpty || model.photoProblem != nil || model.encoding > 0 { pendingPhotos }
-        } leading: {
-            photoMenu
-        } trailing: {
-            SendButton(enabled: Composer.shared.enabled(action: .send, text: draft, attachments: 0, ready: !model.running && model.encoding == 0 && model.info != nil)) {
-                model.send(draft)
-                draft = ""
+            HStack(alignment: .bottom, spacing: 4) {
+                photoMenu
+                ComposerField(text: $draft, placeholder: Composer.shared.placeholder(running: model.running, node: true), focused: $focused)
+                    .disabled(model.info == nil)
+                ComposerSendButton(enabled: Composer.shared.enabled(action: .send, text: draft, attachments: 0, ready: !model.running && model.encoding == 0 && model.info != nil)) {
+                    model.send(draft)
+                    draft = ""
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
+        .composerPanel()
     }
 
     @ViewBuilder private var header: some View {
@@ -520,7 +531,7 @@ struct NodeAgentScreen: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(problem).font(.callout).fixedSize(horizontal: false, vertical: true)
                 Button("Retry") { Task { await model.connect(app: app) } }
-                    .secondaryActionStyle()
+                    .glassButton()
             }
         } else if let info = model.info, Composer.shared.shows(part: .decor, keyboardUp: keyboardUp) {
             let folder = info.workdir.split(separator: "/").suffix(2).joined(separator: "/")
@@ -550,10 +561,7 @@ struct NodeAgentScreen: View {
                 Label("Choose from library", systemImage: "photo.on.rectangle")
             }
         } label: {
-            Image(systemName: "photo")
-                .font(.title3)
-                .foregroundStyle(enabled ? Color.primary : Color.secondary.opacity(0.5))
-                .frame(width: 44, height: composerButtonSize)
+            ComposerToolLabel(systemImage: "photo.on.rectangle")
         }
         .disabled(!enabled)
         .accessibilityLabel("Attach a photo")
@@ -589,18 +597,15 @@ struct NodeAgentScreen: View {
     }
 
     private func retryButton() -> some View {
-        Button { model.retry() } label: {
-            Image(systemName: "arrow.clockwise").font(.footnote).foregroundStyle(.secondary)
-        }
-        .buttonStyle(.borderless)
-        .frame(minWidth: 44, minHeight: 44)
+        Button { model.retry() } label: { Image(systemName: "arrow.clockwise") }
+            .messageAction()
         .accessibilityLabel("Retry on the node")
     }
 
     @ViewBuilder private func rowView(_ row: NodeAgentRow, retry: Bool = false) -> some View {
         switch row {
         case .user(_, let text, let photos, let count):
-            VStack(alignment: .trailing, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
                 if !photos.isEmpty {
                     HStack(spacing: 6) {
                         ForEach(Array(photos.enumerated()), id: \.offset) { i, data in
@@ -608,15 +613,16 @@ struct NodeAgentScreen: View {
                         }
                     }
                 }
-                ChatBubble(role: .user, text: text, hasFooter: false) { EmptyView() }
+                PromptLine(text: text)
                 // From the node's history: the photos stay there; how many.
                 if photos.isEmpty && count > 0 { Text(NodeImages.shared.label(count: Int32(count))).font(.caption).foregroundStyle(.secondary) }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
         case .reply(_, let text, let route):
-            ChatBubble(role: .assistant, text: text, hasFooter: route != nil || retry) {
+            ChatBubble(text: text, hasFooter: route != nil || retry) {
                 HStack {
-                    if let route { Text(route).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    if let route { Text(route).font(.footnote).foregroundStyle(.secondary).lineLimit(1) }
                     Spacer(minLength: 0)
                     if retry { retryButton() }
                 }
@@ -642,11 +648,11 @@ struct NodeAgentScreen: View {
                     case nil:
                         HStack(spacing: 8) {
                             Button { model.answer(approval, .once) } label: { Text("Allow").frame(maxWidth: .infinity) }
-                                .primaryActionStyle()
+                                .glassProminentButton()
                             Button { model.answer(approval, .always) } label: { Text("Always").frame(maxWidth: .infinity) }
-                                .secondaryActionStyle()
+                                .glassButton()
                             Button(role: .destructive) { model.answer(approval, .deny) } label: { Text("Deny").frame(maxWidth: .infinity) }
-                                .secondaryActionStyle()
+                                .glassButton()
                         }
                         .controlSize(.large)
                         // The quiet third answer: no, and do this instead.
@@ -659,7 +665,7 @@ struct NodeAgentScreen: View {
                                     otherFor = nil
                                     otherText = ""
                                 }
-                                .secondaryActionStyle()
+                                .glassButton()
                                 .disabled(otherText.trimmingCharacters(in: .whitespaces).isEmpty)
                             }
                         } else {
@@ -743,7 +749,7 @@ struct NodeSchedulesSheet: View {
                     } label: {
                         Group { if adding { ProgressView() } else { Text("Schedule") } }.frame(maxWidth: .infinity)
                     }
-                    .primaryActionStyle()
+                    .glassProminentButton()
                     .controlSize(.large)
                     .disabled(schedule.isEmpty || task.isEmpty || adding)
                 }
@@ -926,7 +932,7 @@ struct NodeActivitySheet: View {
                     let text = answers[task.id] ?? ""
                     Task { if await model.answerBoard(task.id, text) { answers[task.id] = nil } }
                 }
-                .primaryActionStyle()
+                .glassProminentButton()
                 .disabled((answers[task.id] ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

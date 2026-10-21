@@ -76,7 +76,7 @@ struct BotRow: View {
                     HStack(spacing: 8) {
                         Text(bot.name).font(.headline).lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        if !bot.model.isEmpty { TintTag(bot.model, color: .secondary) }
+                        if !bot.model.isEmpty { CapsuleTag(bot.model, color: .secondary) }
                     }
                     if !bot.persona.isEmpty {
                         Text(bot.persona).font(.subheadline).foregroundStyle(Color.secondary).lineLimit(2)
@@ -84,7 +84,7 @@ struct BotRow: View {
                     HStack(spacing: 8) {
                         Text(NodeBots.shared.status(bot: bot)).font(.caption)
                         let kinds = NodeBots.shared.kinds(bot: bot)
-                        if !kinds.isEmpty { TintTag(kinds.joined(separator: " · "), color: .secondary) }
+                        if !kinds.isEmpty { CapsuleTag(kinds.joined(separator: " · "), color: .secondary) }
                     }
                     if let problem = NodeBots.shared.problem(bot: bot) {
                         Text(problem).font(.caption).foregroundStyle(Color.red).fixedSize(horizontal: false, vertical: true)
@@ -275,7 +275,7 @@ struct NodeBotContent: View {
         } else if model.state.loading || (model.state.supported == nil && model.problem == nil) {
             Section { ProgressView().frame(maxWidth: .infinity) }
         } else {
-            MarkUnavailableView("There is no bot called \(model.name) on \(model.node).")
+            MarkUnavailable("There is no bot called \(model.name) on \(model.node).")
                 .listRowBackground(Color.clear)
         }
     }
@@ -373,7 +373,7 @@ struct NodeBotContent: View {
 
         Section {
             Button { open(nil) } label: { Text("New chat with \(bot.name)").frame(maxWidth: .infinity) }
-                .primaryActionStyle()
+                .glassProminentButton()
                 .controlSize(.large)
                 .disabled(!bot.enabled)
         }
@@ -390,11 +390,11 @@ struct NodeBotContent: View {
             case nil:
                 HStack(spacing: 8) {
                     Button { model.answer(a.id, .once) } label: { Text("Allow").frame(maxWidth: .infinity) }
-                        .primaryActionStyle()
+                        .glassProminentButton()
                     Button { model.answer(a.id, .always) } label: { Text("Always").frame(maxWidth: .infinity) }
-                        .secondaryActionStyle()
+                        .glassButton()
                     Button(role: .destructive) { model.answer(a.id, .deny) } label: { Text("Deny").frame(maxWidth: .infinity) }
-                        .secondaryActionStyle()
+                        .glassButton()
                 }
             case .deny?: Text("denied").font(.footnote).foregroundStyle(.secondary)
             case .always?: Text("allowed for this conversation").font(.footnote).foregroundStyle(.secondary)

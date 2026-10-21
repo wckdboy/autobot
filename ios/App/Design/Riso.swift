@@ -161,31 +161,6 @@ struct GhostButton: View {
     }
 }
 
-/// The approve button on an approval card: the card's primary action, so a primary block.
-struct PaperButton: View {
-    let text: String
-    let action: () -> Void
-    @Environment(\.scheme) private var c
-
-    init(_ text: String, action: @escaping () -> Void) {
-        self.text = text
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Text(text.sentenceCased)
-                .textStyle(.labelLarge)
-                .textLines(1)
-                .frame(maxWidth: .infinity, minHeight: Tokens.Spacing.ghostButtonMinHeight)
-                .foregroundStyle(c.onPrimary)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.primary))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(PressStyle())
-    }
-}
-
 /**
  Small mono text button (`All`, `Tune`, `OK`), sentence case, in lilac like Android's text
  buttons; a [color] (an error red for Delete, ash for a quiet one) tints the label instead.
@@ -369,20 +344,6 @@ struct IconAction: View {
     }
 }
 
-/// A footer action laid out in 32 pt (its 44 pt target overhangs); at accessibility sizes it keeps
-/// its full, grown size so the glyph does not spill over its neighbours.
-private struct CompactActionFrame: ViewModifier {
-    @Environment(\.dynamicTypeSize) private var dynamicType
-
-    func body(content: Content) -> some View {
-        if dynamicType.isAccessibilitySize { content } else { content.frame(width: 32, height: 32) }
-    }
-}
-
-extension View {
-    func compactActionFrame() -> some View { modifier(CompactActionFrame()) }
-}
-
 /**
  The small solid purple square that ends a top-level title ("Models▪"), as on the sites' h1:
  0.3 em, on the baseline, 0.15 em after the last letter. [fontSize] is the title's point size.
@@ -395,39 +356,6 @@ struct TitleMark: View {
             .fill(AutobotColors.purple)
             .frame(width: (fontSize * 0.3).rounded(), height: (fontSize * 0.3).rounded())
             .accessibilityHidden(true)
-    }
-}
-
-/// A screen title in sentence case, ending in the [TitleMark] when [mark] is set.
-struct ScreenTitle: View {
-    let text: String
-    var style: AutobotType = .titleLarge
-    var mark = true
-    @Environment(\.scheme) private var c
-    @Environment(\.dynamicTypeSize) private var dynamicType
-
-    init(_ text: String, style: AutobotType = .titleLarge, mark: Bool = true) {
-        self.text = text
-        self.style = style
-        self.mark = mark
-    }
-
-    var body: some View {
-        let size = AutobotFonts.uiFont(style.token, dynamicType: dynamicType).pointSize
-        HStack(alignment: .lastTextBaseline, spacing: (size * 0.15).rounded()) {
-            Text(text)
-                .textStyle(style)
-                .foregroundStyle(c.onBackground)
-                .textLines(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
-            if mark {
-                // Its bottom on the text baseline.
-                TitleMark(fontSize: size).alignmentGuide(.lastTextBaseline) { d in d[.bottom] }
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -457,7 +385,7 @@ struct AutobotTopBar<Actions: View>: View {
                     if title == wordmarkTitle {
                         Wordmark()
                     } else {
-                        ScreenTitle(title, style: .titleMedium, mark: titleMark ?? true)
+                        TitleWithDot(title, mark: titleMark ?? true)
                     }
                 }
                 if Actions.self != EmptyView.self {
@@ -470,38 +398,6 @@ struct AutobotTopBar<Actions: View>: View {
 extension AutobotTopBar where Actions == EmptyView {
     init(title: String = wordmarkTitle, showMark: Bool = true, titleMark: Bool? = nil, onBack: (() -> Void)? = nil) {
         self.init(title: title, showMark: showMark, titleMark: titleMark, onBack: onBack, actions: { EmptyView() })
-    }
-}
-
-/// Small boxed counter (e.g. `16+` / running jobs).
-struct CountBadge: View {
-    let text: String
-    @Environment(\.scheme) private var c
-
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text)
-            .textStyle(.micro)
-            .foregroundStyle(c.onSurface)
-            .padding(.horizontal, Tokens.Spacing.tagPaddingHorizontal)
-            .padding(.vertical, Tokens.Spacing.tagPaddingVertical)
-            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.outline, lineWidth: Tokens.Stroke.border))
-    }
-}
-
-extension View {
-    /**
-     Keeps a halftone or living dot field from showing through this text: a soft-edged patch of
-     [ground] (the surface under the field) right behind it. Static, so the field's animation does
-     not re-render it.
-     */
-    func inkClearance(_ ground: Color, enabled: Bool = true) -> some View {
-        background {
-            if enabled {
-                RoundedRectangle(cornerRadius: 4).fill(ground).padding(-4).blur(radius: 3).accessibilityHidden(true)
-            }
-        }
     }
 }
 
@@ -571,18 +467,6 @@ extension RunRow where Leading == EmptyView {
 extension RunRow where Leading == EmptyView, Trailing == EmptyView {
     init(title: String, subtitle: String, action: (() -> Void)? = nil) {
         self.init(title: title, subtitle: subtitle, action: action, leading: { EmptyView() }, trailing: { EmptyView() })
-    }
-}
-
-/// The trailing `›` of a row that opens a screen (decorative: the row is the button).
-struct Chevron: View {
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        Image(systemName: "chevron.right")
-            .symbolSize(14, weight: .semibold)
-            .foregroundStyle(c.onSurfaceVariant)
-            .accessibilityHidden(true)
     }
 }
 

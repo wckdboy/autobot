@@ -179,68 +179,6 @@ struct Tag: View {
     }
 }
 
-/**
- Status dot; pulses while [live]. The pulse is a Core Animation opacity loop, so it runs in the
- render server: no SwiftUI animation ticking at the display rate in every live row. Still with
- Reduce Motion.
- */
-struct StatusDot: View {
-    let color: Color
-    var live = false
-    var size: CGFloat = Tokens.Spacing.statusDot
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.inkStill) private var still
-
-    var body: some View {
-        if live && !reduceMotion && !still {
-            PulseDot(color: UIColor(color))
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
-        } else {
-            Circle()
-                .fill(color)
-                .frame(width: size, height: size)
-        }
-    }
-}
-
-/// A circle whose layer pulses between full and `statusDotPulseMinAlpha` opacity.
-private struct PulseDot: UIViewRepresentable {
-    let color: UIColor
-
-    final class DotView: UIView {
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            layer.cornerRadius = min(bounds.width, bounds.height) / 2
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            // Animations are removed when a layer leaves the window; add it back on return.
-            guard window != nil, layer.animation(forKey: "pulse") == nil else { return }
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 1
-            pulse.toValue = Tokens.Motion.statusDotPulseMinAlpha
-            pulse.duration = Tokens.Motion.statusDotPulseMillis / 1000
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            layer.add(pulse, forKey: "pulse")
-        }
-    }
-
-    func makeUIView(context: Context) -> DotView {
-        let view = DotView()
-        view.isUserInteractionEnabled = false
-        view.backgroundColor = color
-        return view
-    }
-
-    func updateUIView(_ view: DotView, context: Context) {
-        view.backgroundColor = color
-    }
-}
-
 /// Riso slider: red active track, hairline inactive track, square red thumb bar.
 struct RisoSlider: View {
     @Binding var value: Double
@@ -305,20 +243,6 @@ struct ValueSlider: View {
             RisoSlider(value: $value, range: range, step: step, enabled: enabled)
         }
         .accessibilityLabel(label)
-    }
-}
-
-/// Its items side by side when they fit on one line at the reader's text size, else stacked
-/// (a run of labels at an accessibility size wraps whole, not word by word).
-struct AdaptiveRow<Content: View>: View {
-    var spacing: CGFloat = 8
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: spacing) { content() }
-            VStack(alignment: .leading, spacing: 2) { content() }
-        }
     }
 }
 
@@ -396,83 +320,4 @@ private struct SelectionBarModifier: ViewModifier {
 extension View {
     /// Draws the 2 pt purple selection bar along the bottom edge while [selected] (layout unchanged).
     func selectionBar(_ selected: Bool, inset: CGFloat = 0) -> some View { modifier(SelectionBarModifier(selected: selected, inset: inset)) }
-}
-
-enum BlockStatus: String, CaseIterable {
-    case pending = "pending", running = "running", ok = "ok", error = "error", denied = "denied"
-
-    /// The status ink on [c]'s ground (text and dot).
-    func color(_ c: AutobotScheme) -> Color {
-        switch self {
-        case .pending: c.inks.amber
-        case .running: c.primary
-        case .ok: c.onSurfaceVariant
-        case .error: c.inks.signal
-        case .denied: c.onSurfaceVariant
-        }
-    }
-}
-
-/**
- Terminal-style block for tool invocations: a header line (`▸ fs.read  path=notes.md`) with a
- status dot, and an optional collapsible mono body with the output.
- */
-struct TerminalBlock<Actions: View>: View {
-    let title: String
-    let status: BlockStatus
-    var subtitle: String? = nil
-    var bodyText: String? = nil
-    var expanded = false
-    var onToggle: (() -> Void)? = nil
-    var hasActions = true
-    @ViewBuilder var actions: () -> Actions
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            let header = HStack(spacing: 8) {
-                StatusDot(color: status.color(c), live: status == .running || status == .pending)
-                Text("▸ \(title)").textStyle(.code).foregroundStyle(c.onSurface).textLines(1)
-                Text(subtitle ?? "")
-                    .textStyle(.codeBlock)
-                    .foregroundStyle(c.onSurfaceVariant)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                MicroLabel(status == .ok ? "✓ done" : status == .error ? "✗ failed" : status.rawValue, color: status.color(c))
-            }
-            .padding(.horizontal, Tokens.Spacing.terminalPaddingHorizontal)
-            .padding(.vertical, Tokens.Spacing.terminalPaddingVertical)
-            .contentShape(Rectangle())
-            if let onToggle {
-                Button(action: onToggle) { header }.buttonStyle(PressStyle())
-            } else {
-                header
-            }
-            if expanded, let bodyText, !bodyText.isEmpty {
-                Hairline()
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(bodyText)
-                        .textStyle(.codeBlock)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(10)
-                }
-            }
-            if hasActions {
-                Hairline()
-                HStack { Spacer(); actions() }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.small).fill(c.surfaceContainerLowest))
-        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
-    }
-}
-
-extension TerminalBlock where Actions == EmptyView {
-    init(title: String, status: BlockStatus, subtitle: String? = nil, bodyText: String? = nil, expanded: Bool = false, onToggle: (() -> Void)? = nil) {
-        self.init(title: title, status: status, subtitle: subtitle, bodyText: bodyText, expanded: expanded, onToggle: onToggle, hasActions: false, actions: { EmptyView() })
-    }
 }

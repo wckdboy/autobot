@@ -334,59 +334,6 @@ private struct InkArrive: ViewModifier {
     }
 }
 
-/// A title's primary plate: a primary silhouette of the title, `registerOffset` pt up-left of the
-/// (arriving) title, settling into register over `transitionMillis`, then gone. The silhouette (a
-/// mask, rendered offscreen) only exists while it prints.
-private struct TitleGhost: ViewModifier {
-    let color: Color
-    @State private var printing = false
-    @State private var printed = false
-    @Environment(\.inkArrives) private var arrives
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        let offset = Tokens.Motion.registerOffset, duration = InkMath.transitionSeconds
-        let color = color
-        content
-            .background {
-                if printing {
-                    color.mask { content }
-                        .keyframeAnimator(initialValue: GhostKeyframe(), repeating: false) { view, frame in
-                            view
-                                .opacity(0.8 * frame.alpha)
-                                .offset(x: -offset * (1 - frame.settle), y: -offset * (1 - frame.settle))
-                        } keyframes: { _ in
-                            KeyframeTrack(\.settle) {
-                                MoveKeyframe(0.0)
-                                LinearKeyframe(1.0, duration: duration, timingCurve: .inkBack)
-                            }
-                            KeyframeTrack(\.alpha) {
-                                MoveKeyframe(1.0)
-                                LinearKeyframe(1.0, duration: duration * 0.6)
-                                LinearKeyframe(0.0, duration: duration * 0.6)
-                            }
-                        }
-                        .accessibilityHidden(true)
-                }
-            }
-            .onAppear {
-                guard arrives, !printed, !reduceMotion else { return }
-                printed = true
-                printing = true
-            }
-            .task(id: printing) {
-                guard printing else { return }
-                try? await Task.sleep(for: .seconds(duration * 1.3))
-                printing = false
-            }
-    }
-}
-
-private struct GhostKeyframe {
-    var settle = 1.0
-    var alpha = 0.0
-}
-
 /// A sheet section ink-entering [index] × `staggerMillis` after the sheet opens.
 private struct InkSection: ViewModifier {
     let index: Int
@@ -494,9 +441,6 @@ extension AnyTransition {
 extension View {
     /// Inks this screen in when it first appears (pushes, tab switches): see [InkArrive].
     func inkArrive() -> some View { modifier(InkArrive()) }
-
-    /// Prints this title's primary plate into register when the screen inks in ([inkArrive]).
-    func titleGhost(_ color: Color) -> some View { modifier(TitleGhost(color: color)) }
 
     /**
      Was a living paper dot field behind this view (motion specs v2 §2, v3 §2). App UI v4 has no

@@ -101,11 +101,11 @@ struct ProvidersScreen: View {
                     .accessibilityLabel("Add provider")
             }
             if providers.isEmpty {
-                MarkUnavailableView(
-                    title: "No providers yet",
-                    message: "Tap + to pick a cloud API, an open-model host or a server on your network.\nAPI keys are kept in the Keychain on this device.",
+                MarkUnavailable(
+                    "No providers yet",
+                    description: "Tap + to pick a cloud API, an open-model host or a server on your network.\nAPI keys are kept in the Keychain on this device.",
                 ) {
-                    Button("Add provider") { picking = true }.primaryActionStyle()
+                    Button("Add provider") { picking = true }.glassProminentButton()
                 }
             } else {
                 List {
@@ -185,7 +185,7 @@ struct ProvidersScreen: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if p.kind == .local {
-                    TintTag("\(Route.localGpu.glyph) \(Route.localGpu.label)", color: .secondary)
+                    CapsuleTag("\(Route.localGpu.glyph) \(Route.localGpu.label)", color: .secondary)
                 }
             }
             .contentShape(Rectangle())
@@ -263,8 +263,8 @@ private struct PresetPickerSheet: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(preset.displayName).font(.headline)
-                    if preset.kind == .anthropic { TintTag("native") }
-                    if !preset.requiresApiKey && !unavailable { TintTag("no key") }
+                    if preset.kind == .anthropic { CapsuleTag("native") }
+                    if !preset.requiresApiKey && !unavailable { CapsuleTag("no key") }
                 }
                 Text(preset.isThisPhone ? "added automatically" : preset.kind == .invincibleNode ? "pair with a code" : preset.host)
                     .font(.caption).foregroundStyle(.secondary)
@@ -305,7 +305,7 @@ private struct ProviderEditorSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent(preset.displayName) { TintTag(preset.group) }
+                    LabeledContent(preset.displayName) { CapsuleTag(preset.group) }
                         .font(.headline)
                     if ProviderDraft.loopbackNote(draft.baseUrl) == nil { OfflineNotice() }
                 } footer: {
@@ -378,7 +378,7 @@ private struct ProviderEditorSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
-                    .secondaryActionStyle()
+                    .glassButton()
                     .disabled(!draft.baseUrlValid || test == .running)
                     testResult
                     if let error { Text(error).foregroundStyle(.red) }

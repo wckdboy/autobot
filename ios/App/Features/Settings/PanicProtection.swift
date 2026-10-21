@@ -118,7 +118,7 @@ struct PanicSheet: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .primaryActionStyle()
+            .glassProminentButton()
             .controlSize(.large)
             .disabled(!enabled || busy)
         }

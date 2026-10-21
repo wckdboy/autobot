@@ -48,7 +48,7 @@ struct LicensesScreen: View {
                                     Text(notice.detail).font(.caption).foregroundStyle(.secondary)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                TintTag(notice.license, color: open == notice.id ? nil : .secondary)
+                                CapsuleTag(notice.license, color: open == notice.id ? nil : .secondary)
                             }
                         }
                     }

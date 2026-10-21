@@ -96,13 +96,13 @@ struct BackupSheet: View {
         Button { importing = true } label: {
             Group { if working && !exporting { ProgressView() } else { Text("Import") } }.frame(maxWidth: .infinity)
         }
-        .secondaryActionStyle()
+        .glassButton()
         .controlSize(.large)
         .disabled(passphrase.isEmpty || working)
         Button { export() } label: {
             Group { if working && exporting { ProgressView() } else { Text("Export") } }.frame(maxWidth: .infinity)
         }
-        .primaryActionStyle()
+        .glassProminentButton()
         .controlSize(.large)
         .disabled(!exportable || working)
     }

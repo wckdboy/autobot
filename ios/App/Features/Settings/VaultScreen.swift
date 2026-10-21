@@ -72,11 +72,11 @@ struct VaultScreen: View {
                     if vault.documents.isEmpty {
                         // Files need an embedding model; without one there is no "+" to point at.
                         if vault.modelId == nil {
-                            MarkUnavailableView(title: VaultWords.shared.empty(hasModel: false)) {
-                                Button("Models") { nav.switchTo(.models) }.primaryActionStyle()
+                            MarkUnavailable(VaultWords.shared.empty(hasModel: false)) {
+                                Button("Models") { nav.switchTo(.models) }.glassProminentButton()
                             }
                         } else {
-                            MarkUnavailableView(VaultWords.shared.empty(hasModel: true))
+                            MarkUnavailable(VaultWords.shared.empty(hasModel: true))
                         }
                     } else {
                         ForEach(vault.documents, id: \.id) { doc in row(doc) }

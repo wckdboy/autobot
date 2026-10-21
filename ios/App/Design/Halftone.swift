@@ -122,21 +122,3 @@ struct HalftoneImage: View {
         .accessibilityHidden(true)
     }
 }
-
-/// Procedural halftone field (hero art): dots swell along a soft diagonal wave.
-struct HalftoneField: View {
-    var dot: Color? = nil
-    var cell: CGFloat = Tokens.Halftone.fieldCell
-    var phase: CGFloat = 0
-    @Environment(\.scheme) private var scheme
-
-    var body: some View {
-        Canvas { context, size in
-            // Centred on a whole-pixel grid: no half dots cut by the edges.
-            let path = HalftonePaths.field(size: size, cell: cell, phase: -Double(phase), fill: 1, displayScale: Double(context.environment.displayScale))
-            context.fill(path, with: .color(dot ?? scheme.primary))
-        }
-        .clipped()
-        .accessibilityHidden(true)
-    }
-}

@@ -264,35 +264,6 @@ final class FlowState {
     func set(fill: Double) { self.fill = fill }
 }
 
-/**
- Animated procedural halftone (HalftoneField that flows): the wave advances at
- `flowCyclesPerSecond`·[speed] while [active]; the dot fill eases toward [fill] (per frame date, so
- a pulse can decay). One Path, one fill per frame. Static with Reduce Motion.
- */
-struct FlowingHalftone: View {
-    var active = true
-    var speed = 1.0
-    var dot: Color? = nil
-    var cell: CGFloat = Tokens.Halftone.fieldCell
-    var phase = 0.0
-    var fill: (Date) -> Double = { _ in 1 }
-    @Environment(\.scheme) private var scheme
-    @State private var flow = FlowState()
-
-    var body: some View {
-        InkTimeline(active: active) { date in
-            Canvas { context, size in
-                InkProbe.hit("ink.draw")
-                flow.advance(to: date, speed: speed, fill: fill(date))
-                let pitch = InkMath.dotCell(width: size.width, height: size.height, base: cell)
-                context.fill(HalftonePaths.field(size: size, cell: pitch, phase: phase + flow.phase, fill: flow.fill, displayScale: Double(context.environment.displayScale)), with: .color(dot ?? scheme.primary))
-            }
-        }
-        .clipped()
-        .accessibilityHidden(true)
-    }
-}
-
 /// Dot paths shared by the static and animated halftones.
 enum HalftonePaths {
     /// The procedural field on a centred grid of [cell] pitch, radius scaled by [fill].
@@ -312,47 +283,6 @@ enum HalftonePaths {
             }
         }
         return path
-    }
-}
-
-/**
- The thinking / composing indicator: a tiny halftone strip (3 × 8 dots) whose dots ripple with
- the flow. Shown only while a turn streams without visible text; static with Reduce Motion.
- */
-struct HalftoneStrip: View {
-    var color: Color? = nil
-    var rows = 3
-    var cols = 8
-    var cell: CGFloat = 4
-    @Environment(\.scheme) private var scheme
-    @State private var flow = FlowState(fill: 1)
-
-    var body: some View {
-        // App UI v4: no halftone; the plain loader stands in.
-        InkLoader(.inline, color: color ?? scheme.primary)
-            .accessibilityLabel("Working")
-    }
-
-    /// The v3 strip of rippling dots (not drawn in the app).
-    var halftone: some View {
-        InkTimeline(active: true) { date in
-            Canvas { context, _ in
-                InkProbe.hit("ink.draw")
-                flow.advance(to: date, speed: 2.2, fill: 1)
-                var path = Path()
-                for r in 0 ..< rows {
-                    for c in 0 ..< cols {
-                        let wave = 0.5 + 0.5 * sin((Double(c) * 0.45 + Double(r) * 0.3 - flow.phase) * .pi)
-                        let radius = cell * 0.46 * CGFloat(0.22 + 0.78 * wave)
-                        let cx = (CGFloat(c) + 0.5) * cell, cy = (CGFloat(r) + 0.5) * cell
-                        path.addEllipse(in: CGRect(x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2))
-                    }
-                }
-                context.fill(path, with: .color(color ?? scheme.primary))
-            }
-        }
-        .frame(width: CGFloat(cols) * cell, height: CGFloat(rows) * cell)
-        .accessibilityLabel("Working")
     }
 }
 
