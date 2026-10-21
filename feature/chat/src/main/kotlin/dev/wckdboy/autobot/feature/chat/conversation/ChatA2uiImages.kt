@@ -5,6 +5,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import dev.wckdboy.autobot.core.a2ui.A2uiMedia
 import dev.wckdboy.autobot.core.network.HttpClientFactory
+import dev.wckdboy.autobot.core.network.NetworkPolicy
+import dev.wckdboy.autobot.core.network.RouteOverride
+import dev.wckdboy.autobot.core.network.RouteResolver
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +20,14 @@ import okhttp3.Request
  * app's [HttpClientFactory] (kill switch, the global route, the audit log as `a2ui:image`, no
  * cookies, no redirects), at most [MAX_BYTES], decoded down to [MAX_SIDE] px.
  */
-class ChatA2uiImages @Inject constructor(private val clients: HttpClientFactory) : A2uiMedia {
+class ChatA2uiImages @Inject constructor(
+    private val clients: HttpClientFactory,
+    private val policy: NetworkPolicy,
+) : A2uiMedia {
+    /** Why images wait for a tap, on the route a load would take now. */
+    override val loadHint: String
+        get() = A2uiChat.imageHint(RouteResolver.effectiveMode(policy.mode.value, RouteOverride.INHERIT, policy.socksFallback.value))
+
     override suspend fun image(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
         if (!url.startsWith("https://", ignoreCase = true) && !url.startsWith("http://", ignoreCase = true)) return@withContext null
         try {

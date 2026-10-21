@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -78,6 +80,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -117,6 +122,12 @@ private val LocalInButton = compositionLocalOf { false }
 
 /** Card nesting depth: a card in a card is outlined, so it stays distinct. */
 private val LocalCardDepth = compositionLocalOf { 0 }
+
+/**
+ * True while drawing a surface that was already sent (the chat locked it): inputs are disabled
+ * and buttons that send an event too; local actions (open a link), tabs and modals still work.
+ */
+internal val LocalA2uiReadOnly = compositionLocalOf { false }
 
 /** Set while drawing a Modal's trigger: tapping it opens the modal instead of acting. */
 private val LocalModalTrigger = compositionLocalOf<(() -> Unit)?> { null }
@@ -240,7 +251,7 @@ private fun ImageNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
             !web -> Icon(AutobotIcons.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             small -> Icon(
                 AutobotIcons.Image,
-                contentDescription = "Load image from $host",
+                contentDescription = listOfNotNull("Load image from $host", ctx.media.loadHint).joinToString(". "),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clickable(enabled = s !is ImageState.Loading, onClick = load),
             )
@@ -248,6 +259,9 @@ private fun ImageNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
                 Icon(AutobotIcons.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 description?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2) }
                 Text(host, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (s !is ImageState.Loading && ctx.media !== A2uiMedia.None) {
+                    ctx.media.loadHint?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
                 when (s) {
                     ImageState.Loading -> Text("Loading…", style = MaterialTheme.typography.labelMedium)
                     else -> TextButton(onClick = load) {
@@ -313,11 +327,19 @@ private fun DividerNode(node: RenderNode, modifier: Modifier) {
 
 // ---- Layout ----
 
+/**
+ * A row. `align: stretch` (the default) gives every child the height of the tallest: the row
+ * takes its intrinsic height ([IntrinsicSize.Min]) and children fill it, so side-by-side cards
+ * line up. A row holding Tabs (a subcomposed layout, which has no intrinsic size) is aligned to
+ * the top instead.
+ */
 @Composable
 private fun RowNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
     val justify = node.string("justify")
+    val children = node.nodes("children")
+    val stretch = (node.string("align") ?: "stretch") == "stretch" && children.none(::hasNoIntrinsics)
     Row(
-        modifier.fillMaxWidth(),
+        modifier.fillMaxWidth().then(if (stretch) Modifier.height(IntrinsicSize.Min) else Modifier),
         horizontalArrangement = horizontal(justify),
         verticalAlignment = when (node.string("align")) {
             "center" -> Alignment.CenterVertically
@@ -325,19 +347,99 @@ private fun RowNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
             else -> Alignment.Top
         },
     ) {
-        node.nodes("children").forEach { child ->
+        children.forEach { child ->
             val weight = child.number("weight")?.takeIf { it > 0 }?.toFloat() ?: if (justify == "stretch") 1f else null
-            A2uiNode(child, ctx, if (weight != null) Modifier.weight(weight) else Modifier)
+            val fill = if (stretch) Modifier.fillMaxHeight() else Modifier
+            A2uiNode(child, ctx, if (weight != null) Modifier.weight(weight).then(fill) else fill)
         }
     }
 }
 
-/** A column; `weight` is ignored here (a chat column has no fixed height to share out). */
+/** True when [node] or a descendant cannot report an intrinsic size (Material tabs subcompose). */
+internal fun hasNoIntrinsics(node: RenderNode): Boolean {
+    val seen = HashSet<String>()
+    fun walk(n: RenderNode): Boolean {
+        if (!seen.add(n.key)) return false
+        if (n.type == "Tabs") return true
+        return n.children.any(::walk) || n.props.values.any { v -> nodesOf(v).any(::walk) }
+    }
+    return walk(node)
+}
+
+private fun nodesOf(v: RenderValue): List<RenderNode> = when (v) {
+    is RenderValue.NodeValue -> listOf(v.node)
+    is RenderValue.NodesValue -> v.nodes
+    is RenderValue.ListValue -> v.items.flatMap(::nodesOf)
+    is RenderValue.ObjectValue -> v.fields.values.flatMap(::nodesOf)
+    else -> emptyList()
+}
+
+/**
+ * A column. Children with a `weight` share the height left over when the column has a bounded
+ * height (in a stretched Row, a fixed-height parent); in the chat's own scrolling list a column
+ * has no height to share out, so weighted children take their natural height there.
+ */
 @Composable
 private fun ColumnNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
     val align = node.string("align") ?: "stretch"
-    Column(modifier, verticalArrangement = vertical(node.string("justify")), horizontalAlignment = horizontalAlignment(align)) {
-        node.nodes("children").forEach { child -> A2uiNode(child, ctx, stretch(child, align)) }
+    val children = node.nodes("children")
+    val weights = children.map { c -> c.number("weight")?.takeIf { it > 0 }?.toFloat() }
+    if (weights.all { it == null }) {
+        Column(modifier, verticalArrangement = vertical(node.string("justify")), horizontalAlignment = horizontalAlignment(align)) {
+            children.forEach { child -> A2uiNode(child, ctx, stretch(child, align)) }
+        }
+    } else {
+        WeightedColumn(weights, vertical(node.string("justify")), horizontalAlignment(align), modifier) {
+            children.forEach { child -> A2uiNode(child, ctx, stretch(child, align)) }
+        }
+    }
+}
+
+/**
+ * A Column whose weighted children ([weights], null for none) share the height left by the
+ * others, when the incoming constraints bound the height; with an unbounded height (a scrolling
+ * list) they are measured like any other child. Compose's own `Modifier.weight` would collapse
+ * them to nothing there.
+ */
+@Composable
+private fun WeightedColumn(
+    weights: List<Float?>,
+    arrangement: Arrangement.Vertical,
+    alignment: Alignment.Horizontal,
+    modifier: Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content, modifier) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val placeables = arrayOfNulls<Placeable>(measurables.size)
+        val bounded = constraints.hasBoundedHeight
+        var used = 0
+        measurables.forEachIndexed { i, m ->
+            if (weights.getOrNull(i) != null && bounded) return@forEachIndexed
+            val max = if (bounded) (constraints.maxHeight - used).coerceAtLeast(0) else Constraints.Infinity
+            placeables[i] = m.measure(loose.copy(maxHeight = max)).also { used += it.height }
+        }
+        if (bounded) {
+            val total = weights.sumOf { (it ?: 0f).toDouble() }.toFloat()
+            var left = (constraints.maxHeight - used).coerceAtLeast(0)
+            val share = left
+            val last = weights.indexOfLast { it != null }
+            measurables.forEachIndexed { i, m ->
+                val w = weights.getOrNull(i) ?: return@forEachIndexed
+                val h = if (i == last) left else (share * (w / total)).toInt().coerceAtMost(left)
+                left -= h
+                placeables[i] = m.measure(loose.copy(minHeight = h, maxHeight = h))
+            }
+        }
+        val all = placeables.map { it!! }
+        val width = (all.maxOfOrNull { it.width } ?: 0).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val natural = all.sumOf { it.height }
+        val height = (if (bounded) constraints.maxHeight else natural).coerceIn(constraints.minHeight, constraints.maxHeight)
+        val positions = IntArray(all.size)
+        with(arrangement) { arrange(height, all.map { it.height }.toIntArray(), positions) }
+        layout(width, height) {
+            all.forEachIndexed { i, p -> p.place(alignment.align(p.width, width, layoutDirection), positions[i]) }
+        }
     }
 }
 
@@ -443,11 +545,13 @@ private fun ModalNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
 private fun ButtonNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
     val trigger = LocalModalTrigger.current
     val child = node.node("child")
-    val enabled = trigger != null || (node.action != null && node.isValid)
+    // A sent surface: a button that would send again is off; one that opens a link still works.
+    val locked = LocalA2uiReadOnly.current && node.action?.eventName != null
+    val enabled = trigger != null || (node.action != null && node.isValid && !locked)
     val onClick: () -> Unit = trigger ?: { ctx.dispatch(node) }
     // An icon-only button is named after its icon.
     val label = child?.takeIf { it.type == "Icon" }?.string("name")?.let { A2uiChat.humanize(it) }
-    val problem = if (trigger == null && !node.isValid) node.firstError else null
+    val problem = if (trigger == null && !node.isValid && !locked) node.firstError else null
     val semantics = Modifier.semantics {
         if (label != null) contentDescription = label
         if (problem != null) stateDescription = problem
@@ -479,9 +583,11 @@ private fun TextFieldNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier
         field = TextFieldValue(bound, TextRange(bound.length))
     }
     val variant = node.string("variant") ?: "shortText"
-    val error = if (touched) node.firstError else null
+    val readOnly = LocalA2uiReadOnly.current
+    val error = if (touched && !readOnly) node.firstError else null
     OutlinedTextField(
         value = field,
+        enabled = !readOnly,
         onValueChange = { v ->
             field = v
             touched = true
@@ -506,12 +612,13 @@ private fun TextFieldNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier
 @Composable
 private fun CheckBoxNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
     val checked = node.boolOr("value", false)
+    val readOnly = LocalA2uiReadOnly.current
     Column(modifier.padding(LeafMargin)) {
         Row(
-            Modifier.toggleable(value = checked, role = Role.Checkbox) { ctx.host.setBoolean(node, "value", it) }.padding(vertical = 4.dp),
+            Modifier.toggleable(value = checked, enabled = !readOnly, role = Role.Checkbox) { ctx.host.setBoolean(node, "value", it) }.padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Checkbox(checked = checked, onCheckedChange = null)
+            Checkbox(checked = checked, onCheckedChange = null, enabled = !readOnly)
             Spacer(Modifier.width(8.dp))
             Text(node.stringOr("label", ""), style = MaterialTheme.typography.bodyLarge)
         }
@@ -530,6 +637,7 @@ private fun ChoicePickerNode(node: RenderNode, ctx: A2uiContext, modifier: Modif
     }
     val selected = node.strings("value")
     val multi = node.string("variant") == "multipleSelection"
+    val readOnly = LocalA2uiReadOnly.current
     var touched by rememberSaveable(node.key) { mutableStateOf(false) }
     var filter by rememberSaveable(node.key + "/filter") { mutableStateOf("") }
     fun pick(value: String) {
@@ -545,7 +653,7 @@ private fun ChoicePickerNode(node: RenderNode, ctx: A2uiContext, modifier: Modif
         }
         if (node.string("displayStyle") == "chips") {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                shown.forEach { c -> FilterChip(selected = c.value in selected, onClick = { pick(c.value) }, label = { Text(c.label) }) }
+                shown.forEach { c -> FilterChip(selected = c.value in selected, onClick = { pick(c.value) }, label = { Text(c.label) }, enabled = !readOnly) }
             }
         } else {
             Column(Modifier.selectableGroup()) {
@@ -553,12 +661,12 @@ private fun ChoicePickerNode(node: RenderNode, ctx: A2uiContext, modifier: Modif
                     val on = c.value in selected
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 48.dp).then(
-                            if (multi) Modifier.toggleable(on, role = Role.Checkbox) { pick(c.value) }
-                            else Modifier.selectable(on, role = Role.RadioButton) { pick(c.value) },
+                            if (multi) Modifier.toggleable(on, enabled = !readOnly, role = Role.Checkbox) { pick(c.value) }
+                            else Modifier.selectable(on, enabled = !readOnly, role = Role.RadioButton) { pick(c.value) },
                         ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (multi) Checkbox(checked = on, onCheckedChange = null) else RadioButton(selected = on, onClick = null)
+                        if (multi) Checkbox(checked = on, onCheckedChange = null, enabled = !readOnly) else RadioButton(selected = on, onClick = null, enabled = !readOnly)
                         Spacer(Modifier.width(8.dp))
                         Text(c.label, style = MaterialTheme.typography.bodyLarge)
                     }
@@ -584,6 +692,7 @@ private fun SliderNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier) {
             value = value.toFloat(),
             onValueChange = { ctx.host.setNumber(node, "value", (it.toDouble() * 1e6).roundToLong() / 1e6) },
             valueRange = min.toFloat()..max.toFloat(),
+            enabled = !LocalA2uiReadOnly.current,
             steps = node.number("steps")?.toInt()?.let { (it - 1).coerceAtLeast(0) } ?: 0,
             modifier = Modifier.semantics { if (label != null) contentDescription = label },
         )
@@ -606,15 +715,17 @@ private fun DateTimeNode(node: RenderNode, ctx: A2uiContext, modifier: Modifier)
     fun write(date: LocalDate?, time: LocalTime?) {
         ctx.host.setString(node, "value", A2uiDateTime.format(if (useDate) date ?: current?.date ?: LocalDate.now() else null, if (useTime) time else null))
     }
+    val readOnly = LocalA2uiReadOnly.current
     val source = remember { MutableInteractionSource() }
-    LaunchedEffect(source) {
-        source.interactions.collect { if (it is PressInteraction.Release) step = if (useDate) 1 else 2 }
+    LaunchedEffect(source, readOnly) {
+        if (!readOnly) source.interactions.collect { if (it is PressInteraction.Release) step = if (useDate) 1 else 2 }
     }
     val label = node.string("label") ?: if (useTime && !useDate) "Time" else "Date"
     OutlinedTextField(
         value = A2uiDateTime.display(current),
         onValueChange = {},
         readOnly = true,
+        enabled = !readOnly,
         modifier = modifier.padding(LeafMargin).semantics { role = Role.Button },
         label = { Text(label) },
         trailingIcon = { Icon(Icons.Filled.DateRange, contentDescription = null) },

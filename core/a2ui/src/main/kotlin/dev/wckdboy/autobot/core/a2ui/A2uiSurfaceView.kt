@@ -3,6 +3,8 @@ package dev.wckdboy.autobot.core.a2ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -42,6 +44,12 @@ interface A2uiMedia {
     /** Load images without a tap (false: the user decides per image). */
     val loadsWithoutAsking: Boolean get() = false
 
+    /**
+     * Why an image waits for a tap, shown under it (e.g. "Tap to load · goes through Tor", see
+     * [dev.wckdboy.autobot.shared.a2ui.A2uiChat.imageHint]); null shows nothing.
+     */
+    val loadHint: String? get() = null
+
     companion object {
         /** No loader: images offer to open their link instead. */
         val None: A2uiMedia = object : A2uiMedia {
@@ -57,6 +65,10 @@ interface A2uiMedia {
  * with the app's link prompt (nothing opens without "Open"), everything else goes to
  * [onAction] ([A2uiActionResult.SendEvent] for the agent, [A2uiActionResult.Refused] when a
  * check fails, [A2uiActionResult.Done]). Draws nothing while the surface has no root.
+ *
+ * A read-only surface ([A2uiHost.isReadOnly], a sent form) draws disabled inputs and disabled
+ * send buttons. [note] is read whenever the surface changes; a non-null text is drawn under it
+ * (the chat's "Sent").
  */
 @Composable
 fun A2uiSurfaceView(
@@ -65,13 +77,20 @@ fun A2uiSurfaceView(
     onAction: (A2uiActionResult) -> Unit,
     modifier: Modifier = Modifier,
     media: A2uiMedia = A2uiMedia.None,
+    note: () -> String? = { null },
 ) {
     var tree by remember(host, surfaceId) { mutableStateOf(host.render(surfaceId)) }
+    var readOnly by remember(host, surfaceId) { mutableStateOf(host.isReadOnly(surfaceId)) }
+    var footer by remember(host, surfaceId) { mutableStateOf(note()) }
+    val currentNote by rememberUpdatedState(note)
     DisposableEffect(host, surfaceId) {
         val target = surfaceId
         val listener = object : A2uiListener {
             override fun onSurfaceUpdated(surfaceId: String, root: RenderNode?) {
-                if (surfaceId == target) tree = root
+                if (surfaceId != target) return
+                tree = root
+                readOnly = host.isReadOnly(target)
+                footer = currentNote()
             }
 
             override fun onSurfaceDeleted(surfaceId: String) {
@@ -82,6 +101,8 @@ fun A2uiSurfaceView(
         }
         host.addListener(listener)
         tree = host.render(surfaceId)
+        readOnly = host.isReadOnly(surfaceId)
+        footer = currentNote()
         onDispose { host.removeListener(listener) }
     }
     var link by remember { mutableStateOf<String?>(null) }
@@ -101,8 +122,18 @@ fun A2uiSurfaceView(
     }
     // Leaves inherit their colour (the catalog guide): a surface starts from the theme's on-surface.
     tree?.let {
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-            Box(modifier.fillMaxWidth().testTag("a2ui:surface:$surfaceId")) { A2uiNode(it, ctx, Modifier.fillMaxWidth()) }
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface, LocalA2uiReadOnly provides readOnly) {
+            Column(modifier.fillMaxWidth()) {
+                Box(Modifier.fillMaxWidth().testTag("a2ui:surface:$surfaceId")) { A2uiNode(it, ctx, Modifier.fillMaxWidth()) }
+                footer?.let { text ->
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp).testTag("a2ui:note:$surfaceId"),
+                    )
+                }
+            }
         }
     }
     link?.let { LinkPrompt(it) { link = null } }
@@ -127,18 +158,45 @@ class A2uiChatState(
         transcript.sync(items())
         return transcript.surfaces(itemKey)
     }
+
+    /**
+     * Applies the current transcript now. Call it whenever the items change (rows that are not
+     * recomposed still lock or unlock: the host tells their views).
+     */
+    fun sync(): Boolean = transcript.sync(items())
+
+    /**
+     * A tap's result, before the app sends it: a [A2uiActionResult.SendEvent] locks its surface
+     * at once ([A2uiTranscript.markSubmitted]); the logged turn keeps it locked.
+     */
+    fun onAction(action: A2uiActionResult) {
+        if (action is A2uiActionResult.SendEvent) transcript.markSubmitted(action)
+    }
+
+    /** The line under [surfaceId]: "Sent" once its action is in the chat, "Sending…" before. */
+    fun note(surfaceId: String): String? = when {
+        transcript.isPending(surfaceId) -> SENDING
+        transcript.isSubmitted(surfaceId) -> SENT
+        else -> null
+    }
+
+    companion object {
+        const val SENT = "Sent"
+        const val SENDING = "Sending…"
+    }
 }
 
 /**
  * The surfaces a `show_ui` call created, drawn in place of its tool row (the chat's single call
- * site). Draws nothing when the call has none alive (deleted, or the history was replaced).
+ * site). Draws nothing when the call has none alive (deleted, or the history was replaced). A
+ * sent surface is drawn read-only with "Sent" under it ("Sending…" until its turn is logged).
  */
 @Composable
 fun A2uiToolSurfaces(state: A2uiChatState, itemKey: String, onAction: (A2uiActionResult) -> Unit, modifier: Modifier = Modifier) {
     val ids = state.surfaces(itemKey)
     if (ids.isEmpty()) return
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ids.forEach { id -> A2uiSurfaceView(state.host, id, onAction, media = state.media) }
+        ids.forEach { id -> A2uiSurfaceView(state.host, id, onAction, media = state.media, note = { state.note(id) }) }
     }
 }
 

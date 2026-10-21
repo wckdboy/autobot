@@ -521,7 +521,12 @@ class ChatViewModel @AssistedInject constructor(
         when (action) {
             is A2uiActionResult.SendEvent -> {
                 if (!uiState.value.running) ChatTiming.sent()
-                viewModelScope.launchSafely(::failed) { host.sendA2uiAction(conversationId, action) }
+                // The form locks at the tap; the logged turn keeps it locked (also after a restart).
+                a2ui.onAction(action)
+                viewModelScope.launchSafely({ e ->
+                    a2ui.transcript.unmarkSubmitted(action.surfaceId)
+                    failed(e)
+                }) { host.sendA2uiAction(conversationId, action) }
             }
             is A2uiActionResult.Refused -> notice.value = action.reason
             else -> Unit
@@ -1020,7 +1025,11 @@ class ChatViewModel @AssistedInject constructor(
     }
 
     override fun stop() {
-        viewModelScope.launchSafely(::failed) { host.agent(conversationId).cancel() }
+        viewModelScope.launchSafely(::failed) {
+            host.agent(conversationId).cancel()
+            // Cancelling drops queued turns: a form sent behind the running turn is editable again.
+            a2ui.transcript.clearPending()
+        }
     }
 
     override fun approve(callId: String, outcome: ApprovalOutcome) = host.answerApproval(conversationId, callId, outcome)
