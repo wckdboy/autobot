@@ -1245,7 +1245,7 @@ private fun LiveWords(words: () -> DictationText?, modifier: Modifier = Modifier
 
 private const val LIVE_WORDS_CHARS = 160
 
-/** Microphone peaks as riso bars, newest on the right, easing to each new reading; a flat rule when not listening. */
+/** Microphone peaks as bars, newest on the right, easing to each new reading; a flat rule when not listening. */
 @Composable
 private fun LevelMeter(readings: () -> List<Float>, modifier: Modifier = Modifier, live: Boolean = true) {
     // Read here, not by the panel: each reading recomposes the meter only.
