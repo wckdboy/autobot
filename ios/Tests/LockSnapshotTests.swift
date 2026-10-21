@@ -15,7 +15,7 @@ struct LockSnapshotTests {
     private var dir: String? { ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_DIR"] }
 
     @Test(.timeLimit(.minutes(2))) func renderLockAndWelcome() async throws {
-        for mode in [ThemeMode.dark, .light] {
+        for mode in [Autobot.ThemeMode.dark, .light] {
             let suffix = mode == .dark ? "dark" : "light"
             try await snapshot(LockScreen(message: "Face ID was cancelled") {}, mode, "lock-\(suffix)")
             try await snapshot(
@@ -30,7 +30,7 @@ struct LockSnapshotTests {
         }
     }
 
-    private func snapshot(_ view: some View, _ mode: ThemeMode, _ name: String) async throws {
+    private func snapshot(_ view: some View, _ mode: Autobot.ThemeMode, _ name: String) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
