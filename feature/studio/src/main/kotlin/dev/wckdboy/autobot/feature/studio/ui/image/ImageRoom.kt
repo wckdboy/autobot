@@ -2,8 +2,27 @@ package dev.wckdboy.autobot.feature.studio.ui.image
 
 import dev.wckdboy.autobot.shared.studio.StudioRoomWords
 import androidx.compose.material3.TextButton
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.DropdownField
+import dev.wckdboy.autobot.core.designsystem.component.EmptyPicture
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.InlineLoading
+import dev.wckdboy.autobot.core.designsystem.component.SearchField
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.SliderField
+import dev.wckdboy.autobot.core.designsystem.component.StepperField
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
+import dev.wckdboy.autobot.feature.studio.ui.ActionChip
+import dev.wckdboy.autobot.feature.studio.ui.PickChip
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import dev.wckdboy.autobot.core.diffusion.Aspect
 import dev.wckdboy.autobot.core.diffusion.SizeSupport
@@ -56,21 +75,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.SelectField
-import dev.wckdboy.autobot.core.designsystem.component.Stepper
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.diffusion.DiffusionMode
 import dev.wckdboy.autobot.core.diffusion.engine.LocalSseEngine
 import dev.wckdboy.autobot.core.diffusion.engine.OnDeviceEngine
@@ -137,8 +145,8 @@ fun ImageRoom(
             if (state.loaded && state.backends.isEmpty()) {
                 // One primary action; a PC is the quiet second path (as in Imagine).
                 EmptyRoom(StudioRoomWords.imageNoEngine) {
-                    PrimaryButton(StudioRoomWords.imageNoEngine.action!!, onOpenModels, Modifier.fillMaxWidth())
-                    TextButton(onClick = onOpenBackends) { ActionText("Use a PC instead") }
+                    Button(onClick = onOpenModels, Modifier.fillMaxWidth()) { Text(StudioRoomWords.imageNoEngine.action!!) }
+                    TextButton(onClick = onOpenBackends) { Text("Use a PC instead") }
                 }
             }
             val grid = state.grid
@@ -158,7 +166,7 @@ fun ImageRoom(
                             a,
                             Modifier
                                 .size(56.dp)
-                                .then(if (a.id == current?.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
+                                .then(if (a.id == current?.id) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small) else Modifier)
                                 .clickable { selected = a.id }
                                 .semantics { contentDescription = "Result ${a.label ?: ""}" },
                         )
@@ -166,16 +174,17 @@ fun ImageRoom(
                 }
             }
             if (current != null && running == null) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    MicroLabel("${current.width}×${current.height}" + (current.recipe.seed?.let { " · seed $it" } ?: ""), Modifier.padding(top = 4.dp))
-                    current.recipe.seed?.let { seed -> Tag("↺ seed", accent = MaterialTheme.colorScheme.primary, onClick = { actions.setSeedMode(SeedMode.LOCKED); actions.setSeed(seed) }) }
-                    Tag("→ input", onClick = { actions.useAsInput(current.id) })
-                    Tag("upscale ×2", onClick = { actions.upscale(current.id) })
-                    Tag("details", onClick = { onOpenAsset(current) })
+                Caption("${current.width}×${current.height}" + (current.recipe.seed?.let { " · seed $it" } ?: ""))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    current.recipe.seed?.let { seed -> ActionChip("↺ seed", onClick = { actions.setSeedMode(SeedMode.LOCKED); actions.setSeed(seed) }) }
+                    ActionChip("→ input", onClick = { actions.useAsInput(current.id) })
+                    ActionChip("upscale ×2", onClick = { actions.upscale(current.id) })
+                    ActionChip("details", onClick = { onOpenAsset(current) })
                 }
             }
         }
         ControlSheet(
+            modifier = Modifier.weight(1.5f, fill = false),
             expanded = controls,
             onToggle = { controls = !controls },
             summary = "${state.mode.label} · ${counted(state.request.steps, "step")} · cfg ${state.request.cfgScale} · ${state.request.width}×${state.request.height}",
@@ -219,6 +228,7 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
         Modifier
             .fillMaxWidth()
             .aspectRatio(if (current != null && current.height > 0 && running == null) (current.width.toFloat() / current.height).coerceIn(0.5f, 2f) else ratio)
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceContainer),
     ) {
         when {
@@ -226,9 +236,9 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
                 val preview = rememberDecoded(running.preview?.bytes)
                 DevelopingPreview(preview, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 if (running.steps > 0) {
-                    Tag("step ${running.step}/${running.steps}", Modifier.align(Alignment.BottomStart).padding(8.dp), filled = true)
+                    TonalLabel("step ${running.step}/${running.steps}", Modifier.align(Alignment.BottomStart).padding(8.dp))
                 } else {
-                    InkLoader(Modifier.align(Alignment.BottomStart).padding(10.dp), contentDescription = running.status ?: "Loading the model")
+                    InlineLoading(Modifier.align(Alignment.BottomStart).padding(10.dp), contentDescription = running.status ?: "Loading the model")
                 }
             }
             current != null -> {
@@ -245,7 +255,7 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
                 Image(state.inputImage, contentDescription = "Input image", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 if (state.inpaint) MaskOverlay(state.mask, Modifier.fillMaxSize())
             }
-            else -> EmptyCanvas(Modifier.fillMaxSize(), hint = "Describe an image, then Generate.")
+            else -> EmptyPicture(Modifier.fillMaxSize(), hint = "Describe an image, then Generate.")
         }
     }
 }
@@ -253,14 +263,14 @@ private fun Canvas(state: ImageRoomState, current: StudioAsset?, running: dev.wc
 @Composable
 private fun RunBar(state: ImageRoomState, pending: Int, onRun: () -> Unit, onGrid: () -> Unit) {
     val jobs = (Wildcards.expand(state.request.prompt).prompts.size.coerceAtLeast(1) * state.batch).coerceAtMost(Wildcards.DEFAULT_CAP)
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             RunsOn(state.backend?.takeIf { !it.onDevice }?.name, Modifier.weight(1f))
-            if (pending > 0) MicroLabel("$pending in queue")
+            if (pending > 0) Caption("$pending in queue")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhostButton("X/Y grid", onGrid, Modifier.weight(1f), enabled = state.canRun)
-            PrimaryButton(if (jobs > 1) "Queue $jobs" else "Generate", onRun, Modifier.weight(1.4f), enabled = state.canRun)
+            OutlinedButton(onClick = onGrid, Modifier.weight(1f), enabled = state.canRun) { Text("X/Y grid") }
+            Button(onClick = onRun, Modifier.weight(1.4f), enabled = state.canRun) { Text(if (jobs > 1) "Queue $jobs" else "Generate") }
         }
     }
 }
@@ -285,21 +295,21 @@ private fun Controls(
 
     if (state.backends.size > 1) {
         ChipRow(state.backends, state.backend, { actions.selectBackend(it.id) }, { it.name }, trailing = {
-            Tag("+ pc", accent = MaterialTheme.colorScheme.primary, onClick = onOpenBackends)
+            ActionChip("+ PC", onClick = onOpenBackends)
         })
     }
     if (state.models.isNotEmpty()) {
         ChipRow(state.models, state.models.firstOrNull { it.id == request.model } ?: state.models.firstOrNull { it.id == state.catalog.currentModel }, { actions.selectModel(it.id) }, { it.label }, trailing = {
-            Tag("+ model", accent = MaterialTheme.colorScheme.primary, onClick = onOpenModels)
+            ActionChip("+ model", onClick = onOpenModels)
         })
     }
 
-    ConsoleTextField(request.negativePrompt, actions::setNegative, Modifier.fillMaxWidth(), label = "Negative", minLines = 1, maxLines = 4, mono = true)
+    Field(request.negativePrompt, actions::setNegative, Modifier.fillMaxWidth(), label = "Negative", minLines = 1, maxLines = 4, mono = true)
     NegativePresets(request.negativePrompt, actions::setNegative)
 
     InputStrip(state, shell, actions, onEditMask)
 
-    SectionLabel("sampling")
+    SheetLabel("sampling")
     val kind = state.backend
     val (samplers, value) = when {
         kind?.onDevice == true -> OnDeviceEngine.SAMPLERS to OnDeviceEngine.samplerId(request.sampler).ifBlank { "model default" }
@@ -307,51 +317,54 @@ private fun Controls(
         else -> state.catalog.samplers.ifEmpty { DEFAULT_SAMPLERS } to request.sampler
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SelectField("Sampler", value, samplers, actions::setSampler, Modifier.weight(1f))
+        DropdownField("Sampler", value, samplers, actions::setSampler, Modifier.weight(1f))
         val schedulers = if (kind?.onDevice == true) OnDeviceEngine.SCHEDULERS else state.catalog.schedulers
-        if (schedulers.isNotEmpty()) SelectField("Schedule", request.scheduler ?: "default", schedulers, { actions.setScheduler(it) }, Modifier.weight(1f))
+        if (schedulers.isNotEmpty()) DropdownField("Schedule", request.scheduler ?: "default", schedulers, { actions.setScheduler(it) }, Modifier.weight(1f))
     }
-    ValueSlider("Steps", request.steps.toFloat(), { actions.setSteps(it.toInt()) }, 1f..(caps?.maxSteps ?: 150).toFloat(), format = { it.toInt().toString() })
-    ValueSlider("CFG", request.cfgScale, actions::setCfg, 1f..20f, format = { String.format(Locale.ROOT, "%.1f", it) })
-    if (request.cfgScale <= 1f) MicroLabel("cfg 1 skips the unconditional pass — right for turbo / lcm / distilled models")
+    SliderField("Steps", request.steps.toFloat(), { actions.setSteps(it.toInt()) }, 1f..(caps?.maxSteps ?: 150).toFloat(), format = { it.toInt().toString() })
+    SliderField("CFG", request.cfgScale, actions::setCfg, 1f..20f, format = { String.format(Locale.ROOT, "%.1f", it) })
+    if (request.cfgScale <= 1f) Caption("cfg 1 skips the unconditional pass — right for turbo / lcm / distilled models")
 
     SizeControls(state, actions)
 
-    SectionLabel("seed · batch")
+    SheetLabel("seed · batch")
     SeedControl(state.seed, state.seedMode, actions::setSeed, actions::setSeedMode)
-    Stepper("Batch", state.batch, actions::setBatch, 1..ImageRoomViewModel.MAX_BATCH)
+    StepperField("Batch", state.batch, actions::setBatch, 1..ImageRoomViewModel.MAX_BATCH)
 
     if (caps?.hires == true && state.mode == DiffusionMode.TXT2IMG) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Hires pass", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            Switch(checked = state.hires, onCheckedChange = actions::setHires)
+        Row(
+            Modifier.fillMaxWidth().toggleable(state.hires, role = Role.Switch, onValueChange = actions::setHires),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Hires pass", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Switch(checked = state.hires, onCheckedChange = null)
         }
         val hires = request.hires
         if (state.hires && hires != null) {
-            ValueSlider("Upscale by", hires.scale, actions::setHiresScale, 1.25f..4f, format = { "×" + String.format(Locale.ROOT, "%.2f", it) })
-            SelectField("Upscaler", hires.upscaler, state.catalog.upscalers.ifEmpty { listOf("Latent") }, actions::setHiresUpscaler, Modifier.fillMaxWidth())
-            ValueSlider("Hires denoise", hires.denoise, actions::setHiresDenoise, 0.05f..1f)
+            SliderField("Upscale by", hires.scale, actions::setHiresScale, 1.25f..4f, format = { "×" + String.format(Locale.ROOT, "%.2f", it) })
+            DropdownField("Upscaler", hires.upscaler, state.catalog.upscalers.ifEmpty { listOf("Latent") }, actions::setHiresUpscaler, Modifier.fillMaxWidth())
+            SliderField("Hires denoise", hires.denoise, actions::setHiresDenoise, 0.05f..1f)
         }
     } else if (state.mode == DiffusionMode.TXT2IMG) {
-        MicroLabel("hires: this backend has no second pass — use upscale ×2 on a result")
+        Caption("hires: this backend has no second pass — use upscale ×2 on a result")
     }
     if (caps?.vae == true) {
-        SelectField("VAE", request.vae ?: "automatic", listOf("automatic") + state.catalog.vaes, { actions.setVae(it.takeIf { v -> v != "automatic" }) }, Modifier.fillMaxWidth())
-        Stepper("Clip skip", request.clipSkip ?: 1, { actions.setClipSkip(it.takeIf { v -> v > 1 }) }, 1..4)
+        DropdownField("VAE", request.vae ?: "automatic", listOf("automatic") + state.catalog.vaes, { actions.setVae(it.takeIf { v -> v != "automatic" }) }, Modifier.fillMaxWidth())
+        StepperField("Clip skip", request.clipSkip ?: 1, { actions.setClipSkip(it.takeIf { v -> v > 1 }) }, 1..4)
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        SectionLabel("lora stack", Modifier.weight(1f))
-        if (caps?.runtimeLora == true) Tag("+ add", accent = MaterialTheme.colorScheme.primary, onClick = { showLoras = true })
+        SheetLabel("lora stack", Modifier.weight(1f))
+        if (caps?.runtimeLora == true) TextButton(onClick = { showLoras = true }) { Text("+ Add") }
     }
-    if (caps?.runtimeLora == false) MicroLabel("this backend runs a fixed model; merge loras before conversion")
+    if (caps?.runtimeLora == false) Caption("this backend runs a fixed model; merge loras before conversion")
     request.loras.forEach { lora ->
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ValueSlider(lora.name, lora.weight, { actions.setLoraWeight(lora.name, it) }, -1f..2f, Modifier.weight(1f))
+            SliderField(lora.name, lora.weight, { actions.setLoraWeight(lora.name, it) }, -1f..2f, Modifier.weight(1f))
             IconButton(onClick = { actions.removeLora(lora.name) }) { Icon(Icons.Filled.Close, contentDescription = "Remove ${lora.name}", modifier = Modifier.size(18.dp)) }
         }
     }
-    MicroLabel("controlnet and face / detail passes: import a ComfyUI workflow in Workflows")
+    Caption("controlnet and face / detail passes: import a ComfyUI workflow in Workflows")
     Spacer(Modifier.size(4.dp))
     if (showLoras) LoraSheet(state.catalog.loras, request.loras.map { it.name }.toSet(), { actions.addLora(it); showLoras = false }, { showLoras = false })
 }
@@ -361,12 +374,11 @@ private fun Controls(
 private fun SizeControls(state: ImageRoomState, actions: ImageActions) {
     val request = state.request
     val fixed = state.capabilities?.fixedSizes.orEmpty()
-    MicroLabel("size · ${request.width}×${request.height}")
+    SheetLabel("size · ${request.width}×${request.height}")
     if (fixed.isNotEmpty()) {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             fixed.forEach { (w, h) ->
-                val active = w == request.width && h == request.height
-                Tag("${w}×$h", accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = active, onClick = { actions.setSize(w, h) })
+                PickChip("${w}×$h", selected = w == request.width && h == request.height, onClick = { actions.setSize(w, h) })
             }
         }
         return
@@ -375,21 +387,20 @@ private fun SizeControls(state: ImageRoomState, actions: ImageActions) {
     // 1024 once gave 680×384), and a shape chip is lit by the request's shape, not an exact size.
     val sizes = state.capabilities?.sizes ?: SizeSupport()
     val base = sizes.baseOf(request.width, request.height)
-    dev.wckdboy.autobot.core.designsystem.component.Segmented(sizes.bases, base, { b ->
+    Choices(sizes.bases, base, { b ->
         val (w, h) = sizes.size(b, request.width.toDouble() / request.height.coerceAtLeast(1))
         actions.setSize(w, h)
-    }, { "~$it²" }, Modifier.fillMaxWidth())
+    }, Modifier.fillMaxWidth()) { "~$it²" }
     val shape = Aspect.of(request.width, request.height)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Aspect.ALL.forEach { aspect ->
             val (w, h) = sizes.size(base, aspect)
-            val active = aspect == shape
-            Tag("${aspect.label} · ${w}×$h", accent = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = active, onClick = { actions.setSize(w, h) })
+            PickChip("${aspect.label} · ${w}×$h", selected = aspect == shape, onClick = { actions.setSize(w, h) })
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Stepper("W", request.width, { actions.setSize(it, request.height) }, 64..2048, Modifier.weight(1f))
-        Stepper("H", request.height, { actions.setSize(request.width, it) }, 64..2048, Modifier.weight(1f))
+        StepperField("W", request.width, { actions.setSize(it, request.height) }, 64..2048, Modifier.weight(1f))
+        StepperField("H", request.height, { actions.setSize(request.width, it) }, 64..2048, Modifier.weight(1f))
     }
 }
 
@@ -400,9 +411,9 @@ private fun SizeControls(state: ImageRoomState, actions: ImageActions) {
 private fun InputStrip(state: ImageRoomState, shell: StudioShellState, actions: ImageActions, onEditMask: () -> Unit) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(actions::pickInput) }
     var choose by rememberSaveable { mutableStateOf(false) }
-    SectionLabel("input · ${state.mode.label}")
+    SheetLabel("input · ${state.mode.label}")
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.size(64.dp).background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(64.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
             val input = state.inputImage
             if (input != null) {
                 Image(input, contentDescription = "Input image", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -411,35 +422,34 @@ private fun InputStrip(state: ImageRoomState, shell: StudioShellState, actions: 
                 Icon(AutobotIcons.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Tag("library", onClick = { choose = !choose })
-            Tag("phone", onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
+        FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionChip("library", onClick = { choose = !choose })
+            ActionChip("phone", onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
             if (state.input != null) {
                 val inpaint = state.capabilities?.modes?.contains(DiffusionMode.INPAINT) == true
-                if (inpaint) Tag(if (state.inpaint) "mask · ${state.mask.strokes.size}" else "inpaint", accent = MaterialTheme.colorScheme.primary, filled = state.inpaint, onClick = { actions.setInpaint(true); onEditMask() })
-                Tag("clear", onClick = actions::clearInput)
+                if (inpaint) PickChip(if (state.inpaint) "Mask · ${state.mask.strokes.size}" else "Inpaint", selected = state.inpaint, onClick = { actions.setInpaint(true); onEditMask() })
+                ActionChip("clear", onClick = actions::clearInput)
             }
         }
     }
     if (choose) {
         val images = shell.assets.filter { it.type == dev.wckdboy.autobot.shared.studio.AssetType.IMAGE }.take(30)
-        if (images.isEmpty()) MicroLabel("no images in this project yet")
+        if (images.isEmpty()) Caption("no images in this project yet")
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             images.forEach { a -> AssetThumb(a, Modifier.size(56.dp).clickable { actions.useAsInput(a.id); choose = false }.semantics { contentDescription = "Use as input" }) }
         }
     }
     if (state.input != null) {
-        ValueSlider("Denoise", state.request.denoiseStrength, actions::setDenoise, 0.05f..1f)
+        SliderField("Denoise", state.request.denoiseStrength, actions::setDenoise, 0.05f..1f)
         if (state.capabilities?.modes?.contains(DiffusionMode.INPAINT) == true) {
-            MicroLabel("outpaint · extend the canvas (px)")
+            Caption("outpaint · extend the canvas (px)")
             val e = state.extend
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("←" to 0, "↑" to 1, "→" to 2, "↓" to 3).forEach { (glyph, side) ->
                     val v = when (side) { 0 -> e.left; 1 -> e.top; 2 -> e.right; else -> e.bottom }
-                    Tag(
+                    PickChip(
                         "$glyph ${v}",
-                        accent = if (v > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        filled = v > 0,
+                        selected = v > 0,
                         onClick = {
                             val next = if (v >= 256) 0 else v + 128
                             actions.setExtend(when (side) { 0 -> e.copy(left = next); 1 -> e.copy(top = next); 2 -> e.copy(right = next); else -> e.copy(bottom = next) })
@@ -457,16 +467,18 @@ private fun LoraSheet(available: List<String>, selected: Set<String>, onPick: (S
     var query by rememberSaveable { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionLabel("lora library · ${available.size}", Modifier.inkStagger(0))
-            ConsoleTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = "filter", singleLine = true, mono = true)
+            SheetLabel("lora library · ${available.size}", Modifier.inkStagger(0))
+            SearchField(query, { query = it }, "Filter", Modifier.fillMaxWidth())
             val filtered = available.filter { query.isBlank() || it.contains(query, ignoreCase = true) }
-            if (filtered.isEmpty()) MicroLabel(if (available.isEmpty()) "no loras on this backend" else "no match")
+            if (filtered.isEmpty()) Caption(if (available.isEmpty()) "no loras on this backend" else "no match")
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 filtered.forEach { name ->
-                    Row(Modifier.fillMaxWidth().clickable(enabled = name !in selected) { onPick(name) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (name in selected) MicroLabel("added")
-                    }
+                    ListItem(
+                        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        trailingContent = if (name in selected) { { TonalLabel("added") } } else null,
+                        colors = clearListItem(),
+                        modifier = Modifier.clickable(enabled = name !in selected) { onPick(name) },
+                    )
                 }
             }
         }
