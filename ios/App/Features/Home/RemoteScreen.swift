@@ -57,7 +57,7 @@ struct RemoteScreen: View {
                                 Text(nodes.count > 1 ? "Bots · \(n.displayName)" : "Bots")
                                 Spacer()
                                 // The node picks up a changed bot.toml or SOUL.md on its own within seconds; this is now.
-                                Button("Reload") { Task { await bots.reload(app: app, node: n.id) } }
+                                Button { Task { await bots.reload(app: app, node: n.id) } } label: { Text("Reload").headerActionTarget() }
                                     .font(.subheadline)
                                     .textCase(nil)
                             }

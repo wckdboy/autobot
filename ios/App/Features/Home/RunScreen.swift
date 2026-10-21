@@ -174,7 +174,7 @@ struct RunScreen: View {
                 HStack {
                     Text("Recent runs").textCase(nil)
                     Spacer()
-                    Button("All") { nav.push(.chatList) }
+                    Button { nav.push(.chatList) } label: { Text("All").headerActionTarget() }
                         .font(.subheadline)
                         .textCase(nil)
                         .accessibilityLabel("All chats")

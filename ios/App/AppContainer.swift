@@ -39,6 +39,8 @@ final class AppContainer {
     /// The spend and quota board (usage buckets, prices, subscription windows).
     let usage: UsageRepository
     let vault: VaultRepository
+    /// Unsent composer text per chat (memory only).
+    @ObservationIgnored let drafts = ComposerDrafts()
     /// The Creative Studio (projects, assets, queue, engines, ComfyUI, workflows).
     let studio: StudioHub
 

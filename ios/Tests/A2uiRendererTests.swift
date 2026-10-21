@@ -205,7 +205,7 @@ struct A2uiRendererTests {
                 let fit = host.sizeThatFits(in: CGSize(width: 440, height: CGFloat.greatestFiniteMagnitude))
                 #expect(fit.height > 300, "\(name) laid out at \(fit)")
                 guard let dir else { continue }
-                let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+                let scene = try await TestScene.first()
                 let window = UIWindow(windowScene: scene)
                 window.frame = CGRect(x: 0, y: 0, width: 440, height: min(fit.height + 40, 3200))
                 window.overrideUserInterfaceStyle = style

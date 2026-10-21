@@ -91,10 +91,10 @@ struct RecipesScreen: View {
                     .labelsHidden()
             }
             HStack(spacing: 16) {
-                Button(RecipeRules.copy.RUN_NOW) { center.runNow(r.id) }
+                Button { center.runNow(r.id) } label: { Text(RecipeRules.copy.RUN_NOW).minimumHitTarget() }
                     .disabled(!canRun)
                 if let session {
-                    Button(RecipeRules.copy.OPEN_RESULT) { nav.push(.chat(conversationId: session)) }
+                    Button { nav.push(.chat(conversationId: session)) } label: { Text(RecipeRules.copy.OPEN_RESULT).minimumHitTarget() }
                 }
             }
             .buttonStyle(.borderless)

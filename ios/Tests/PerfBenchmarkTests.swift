@@ -54,7 +54,7 @@ struct PerfBenchmarkTests {
         state.live = LiveState(text: "", reasoning: "", toolNames: [], tokensPerSecond: 20)
         app.agent.preview(conversation.id, state: state)
 
-        let window = try Self.window(ChatScreen(conversationId: conversation.id), app, nav)
+        let window = Self.window(ChatScreen(conversationId: conversation.id), app, nav, try await TestScene.first())
         defer { window.isHidden = true }
         try await Task.sleep(for: .milliseconds(800))
 
@@ -112,9 +112,10 @@ struct PerfBenchmarkTests {
             ids.append(c.id)
         }
         let clock = ContinuousClock()
+        let scene = try await TestScene.first()
         var window: UIWindow?
-        let first = try clock.measure {
-            window = try Self.window(ChatListScreen(), app, nav)
+        let first = clock.measure {
+            window = Self.window(ChatListScreen(), app, nav, scene)
             window?.rootViewController?.view.layoutIfNeeded()
         }
         defer { window?.isHidden = true }
@@ -170,8 +171,7 @@ struct PerfBenchmarkTests {
         print("PERF launch.appContainerInit=\(construct) unlockData=\(unlock)")
     }
 
-    private static func window(_ view: some View, _ app: AppContainer, _ nav: Navigator) throws -> UIWindow {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    private static func window(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ scene: UIWindowScene) -> UIWindow {
         let window = UIWindow(windowScene: scene)
         let root = view.environment(app).environment(nav).autobotTheme(.dark)
         window.rootViewController = UIHostingController(rootView: root)

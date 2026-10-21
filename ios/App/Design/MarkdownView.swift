@@ -33,7 +33,7 @@ private struct MarkdownBlockView: View {
             MdText.text(spans, style: .body)
                 .font(.body)
                 .foregroundStyle(muted ? .secondary : .primary)
-                .textRenderer(InlineCodeRenderer())
+                .inlineCodeCapsules(MdText.hasCodeRun(spans))
                 .fixedSize(horizontal: false, vertical: true)
         case .heading(let level, let spans):
             let (style, weight): (Font.TextStyle, Font.Weight) = switch level {
@@ -45,7 +45,7 @@ private struct MarkdownBlockView: View {
             MdText.text(spans, style: style, weight: weight)
                 .font(.system(style, weight: weight))
                 .foregroundStyle(level >= 4 || muted ? .secondary : .primary)
-                .textRenderer(InlineCodeRenderer())
+                .inlineCodeCapsules(MdText.hasCodeRun(spans))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, level <= 2 ? 4 : 2)
                 .accessibilityAddTraits(.isHeader)
@@ -148,7 +148,7 @@ private struct TableView: View {
         let long = MdPlain.spans(spans, speech: false).count > 28
         return MdText.text(spans, style: .subheadline, weight: header ? .semibold : nil)
             .font(.subheadline.monospacedDigit().weight(header ? .semibold : .regular))
-            .textRenderer(InlineCodeRenderer())
+            .inlineCodeCapsules(MdText.hasCodeRun(spans))
             .multilineTextAlignment(align == .center ? .center : align == .right ? .trailing : .leading)
             .frame(width: long ? 220 : nil, alignment: alignment)
             .fixedSize(horizontal: !long, vertical: true)
@@ -181,6 +181,8 @@ private struct CodeBlockView: View {
                     } label: {
                         Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                             .font(.caption)
+                            .minimumHitTarget()
+                            .padding(.vertical, -10)
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(copied ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
@@ -222,6 +224,17 @@ private struct InlineCodeRenderer: TextRenderer {
     }
 }
 
+extension View {
+    /**
+     The inline-code capsules ([InlineCodeRenderer]) only where a run needs one: a custom text
+     renderer draws every line through `Text.Layout`, which costs layout and drawing on each of a
+     long transcript's paragraphs that has no code at all.
+     */
+    @ViewBuilder func inlineCodeCapsules(_ active: Bool) -> some View {
+        if active { textRenderer(InlineCodeRenderer()) } else { self }
+    }
+}
+
 /// Spans as one `Text` in a base text style: plain runs as an `AttributedString`, inline code as
 /// monospaced runs marked for the capsule ([InlineCodeRenderer]).
 enum MdText {
@@ -250,6 +263,17 @@ enum MdText {
         }
 
         var codeFont: Font { .system(style == .body ? .callout : style == .subheadline ? .footnote : style, design: .monospaced) }
+    }
+
+    /// Whether [spans] hold a run drawn on a capsule (inline code, math, a never-loaded image).
+    static func hasCodeRun(_ spans: [MdSpan]) -> Bool {
+        spans.contains { span in
+            switch span {
+            case .inlineCode, .math, .image: true
+            case .text: false
+            case .strong(let c), .emphasis(let c), .strike(let c), .link(_, let c): hasCodeRun(c)
+            }
+        }
     }
 
     static func text(_ spans: [MdSpan], style: Font.TextStyle, weight: Font.Weight? = nil) -> Text {

@@ -90,7 +90,7 @@ struct PrivacyCenterScreen: View {
                         InfoTitle("Audit log · \(audit.count)", info: "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.")
                         Spacer()
                         if !audit.isEmpty {
-                            Button("Clear") { app.auditLog.clear() }
+                            Button { app.auditLog.clear() } label: { Text("Clear").headerActionTarget() }
                                 .font(.subheadline)
                                 .textCase(nil)
                         }

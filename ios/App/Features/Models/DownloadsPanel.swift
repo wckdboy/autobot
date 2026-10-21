@@ -37,7 +37,7 @@ struct DownloadsPanel: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(p.title).font(.headline).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                            Button("Pause") { app.downloader.pause(p.id) }.buttonStyle(.borderless)
+                            Button { app.downloader.pause(p.id) } label: { Text("Pause").minimumHitTarget().padding(.vertical, -10) }.buttonStyle(.borderless)
                         }
                         ProgressView(value: p.fraction)
                         Text([
@@ -59,7 +59,7 @@ struct DownloadsPanel: View {
                     Button {
                         Task { notify = await DownloadAlerts.setEnabled(!notify) }
                     } label: {
-                        Image(systemName: notify ? "bell.fill" : "bell.slash")
+                        Image(systemName: notify ? "bell.fill" : "bell.slash").minimumHitTarget().padding(.vertical, -12)
                     }
                     .buttonStyle(.borderless)
                     .tint(notify ? Color.accentColor : .secondary)
@@ -80,14 +80,14 @@ struct DownloadsPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Group {
                 switch m.status {
-                case .queued: Button("Pause") { app.downloader.pause(m.id) }
-                case .paused: Button("Resume") { app.downloader.resume(m.id) }
-                case .failed: Button("Retry") { app.downloader.resume(m.id) }.tint(.red)
+                case .queued: Button { app.downloader.pause(m.id) } label: { Text("Pause").minimumHitTarget() }
+                case .paused: Button { app.downloader.resume(m.id) } label: { Text("Resume").minimumHitTarget() }
+                case .failed: Button { app.downloader.resume(m.id) } label: { Text("Retry").minimumHitTarget() }.tint(.red)
                 default: EmptyView()
                 }
             }
             .buttonStyle(.borderless)
-            Button { app.downloader.remove(m.id) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+            Button { app.downloader.remove(m.id) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).minimumHitTarget() }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Cancel")
         }

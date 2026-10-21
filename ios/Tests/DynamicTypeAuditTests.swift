@@ -85,7 +85,7 @@ struct DynamicTypeAuditTests {
     }
 
     private func snapshot(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ path: String) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = .dark
         let root = view.background(Color.black.ignoresSafeArea()).environment(app).environment(nav)

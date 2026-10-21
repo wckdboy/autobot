@@ -120,6 +120,8 @@ struct UsageBoardView: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .textCase(nil)
+                // One line at the largest text sizes ("days", not "day / s").
+                .fixedSize()
             }
         }
 
@@ -131,7 +133,7 @@ struct UsageBoardView: View {
             HStack {
                 Text("By \(byModel ? "model" : "provider") · \(period.label)")
                 Spacer()
-                Button(byModel ? "providers" : "models") { byModel.toggle() }
+                Button { byModel.toggle() } label: { Text(byModel ? "providers" : "models").headerActionTarget() }
                     .font(.subheadline)
                     .textCase(nil)
             }
@@ -140,11 +142,11 @@ struct UsageBoardView: View {
         Section("Subscription windows") {
             ForEach(report.windows) { w in windowRow(w) }
             if let first = providers.first {
-                Button("+ window", systemImage: "plus") {
+                Button("Add a window", systemImage: "plus") {
                     onEditWindow(WindowDraft(window: .init(id: UUID().uuidString, provider: first.id, period: "FIVE_HOURS", anchor: nowMillis()), isNew: true))
                 }
                 ForEach(providers.filter { p in p.presetId == AutobotShared.ProviderPresets.shared.OPENCODE_GO && !report.plan.windows.contains { $0.provider == p.id } }) { p in
-                    Button("+ \(p.displayName) 5 h / week / month", systemImage: "plus") { onAddOpenCodeGo(p.id) }
+                    Button("\(p.displayName): 5 h / week / month", systemImage: "plus") { onAddOpenCodeGo(p.id) }
                 }
             } else {
                 Text("add a cloud provider to track its plan").foregroundStyle(.secondary)

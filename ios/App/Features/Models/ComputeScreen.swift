@@ -181,7 +181,7 @@ private struct ModelCompute: View {
                 Button {
                     onBenchmark()
                 } label: {
-                    if benchmarking { ProgressView() } else { Text("Benchmark") }
+                    Group { if benchmarking { ProgressView() } else { Text("Benchmark") } }.headerActionTarget()
                 }
                 .font(.subheadline)
                 .textCase(nil)

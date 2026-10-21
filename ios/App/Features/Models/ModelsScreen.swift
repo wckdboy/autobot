@@ -8,9 +8,9 @@ enum ModelsTab: String, CaseIterable, Hashable {
 
     var label: String {
         switch self {
-        case .recommended: "for this phone"
+        case .recommended: "For this phone"
         case .huggingFace: "Hugging Face"
-        case .civitai: "civitai"
+        case .civitai: "Civitai"
         }
     }
 }
