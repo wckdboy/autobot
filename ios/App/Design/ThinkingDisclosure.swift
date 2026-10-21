@@ -1,10 +1,10 @@
 import SwiftUI
 
 /**
- Collapsible reasoning trace: an ultraviolet rule with a `∴ thinking · N tokens` header. Collapsed it
- shows the last line as a ticker while [isThinking]; expanded it shows the full trace. [tokens] is the
- engine's count (without one the size is an estimate, marked ≈); [stop] says why the engine ended the
- reasoning early ("budget": "stopped at budget", "loop": "stopped: repeating").
+ Collapsible reasoning trace: a `Thinking · N tokens` header with a chevron. Collapsed it shows
+ the last line as a ticker while [isThinking]; expanded it shows the full trace. [tokens] is the
+ engine's count (without one the size is an estimate, marked ≈); [stop] says why the engine ended
+ the reasoning early ("budget": "stopped at budget", "loop": "stopped: repeating").
  */
 struct ThinkingDisclosure: View {
     let reasoning: String
@@ -12,7 +12,6 @@ struct ThinkingDisclosure: View {
     var tokens: Int? = nil
     var stop: String? = nil
     @State private var expanded: Bool
-    @Environment(\.scheme) private var c
 
     init(reasoning: String, isThinking: Bool = false, tokens: Int? = nil, stop: String? = nil, initiallyExpanded: Bool = false) {
         self.reasoning = reasoning
@@ -23,54 +22,49 @@ struct ThinkingDisclosure: View {
     }
 
     var body: some View {
-        let accent = c.secondary
-        HStack(alignment: .top, spacing: 0) {
-            Rectangle().fill(accent.opacity(0.6)).frame(width: Tokens.Stroke.thinkingRule)
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
-                } label: {
-                    HStack(spacing: 8) {
-                        if isThinking { HalftoneStrip(color: accent, cell: 3) }
-                        AdaptiveRow {
-                            MicroLabel(isThinking ? "∴ thinking" : "∴ thought", color: accent)
-                            MicroLabel("· " + Self.size(tokens: tokens, reasoning: reasoning), color: c.outline)
-                            if let note = Self.stopNote(stop) { MicroLabel("· " + note, color: c.tertiary) }
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.down")
-                            .symbolSize(12, weight: .semibold)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .rotationEffect(.degrees(expanded ? 180 : 0))
-                    }
-                    .padding(.horizontal, Tokens.Spacing.thinkingPaddingHorizontal)
-                    .padding(.vertical, Tokens.Spacing.thinkingPaddingVertical)
-                    .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isThinking { ProgressView().controlSize(.mini) } else { Image(systemName: "brain").foregroundStyle(.tint) }
+                    Text([isThinking ? "Thinking" : "Thought", Self.size(tokens: tokens, reasoning: reasoning), Self.stopNote(stop)].compactMap { $0 }.joined(separator: " · "))
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
                 }
-                .buttonStyle(PressStyle())
-                .accessibilityLabel(expanded ? "Hide reasoning" : "Show reasoning")
-                .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-
-                if !expanded && isThinking {
-                    Text(String(Self.lastLine(reasoning).suffix(160)))
-                        .textStyle(.codeBlock)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .lineLimit(1)
-                        .padding(.horizontal, Tokens.Spacing.thinkingPaddingHorizontal)
-                        .padding(.bottom, Tokens.Spacing.thinkingPaddingVertical)
-                }
-                if expanded {
-                    Text(reasoning)
-                        .textStyle(.codeBlock)
-                        .foregroundStyle(c.onSurfaceVariant)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, Tokens.Spacing.thinkingPaddingHorizontal)
-                        .padding(.bottom, 10)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Hide reasoning" : "Show reasoning")
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+
+            if !expanded && isThinking {
+                Text(String(Self.lastLine(reasoning).suffix(160)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
+            if expanded {
+                Text(reasoning)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
     }
 

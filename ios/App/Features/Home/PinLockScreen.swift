@@ -2,11 +2,11 @@ import AutobotShared
 import SwiftUI
 
 /**
- The lock screen with an app PIN (port of Android's `PinLockScreen.kt`): dots, a printed keypad and
+ The lock screen with an app PIN (port of Android's `PinLockScreen.kt`): dots, a round keypad and
  UNLOCK. The PIN is submitted only with UNLOCK (never on a length), so the length of either PIN
  shows nowhere. [status] carries the warning before a wipe and the back-off; [message] the last
  result ("Wrong PIN"). The real PIN and the duress PIN take the same path through this screen:
- [busy] while the PIN is checked, then the paper prints away.
+ [busy] while the PIN is checked, then it fades away.
  */
 struct PinLockScreen: View {
     let status: LockStatus
@@ -16,7 +16,6 @@ struct PinLockScreen: View {
     let biometryLabel: String
     let onSubmit: (String) -> Void
     let onBiometrics: () -> Void
-    @Environment(\.scheme) private var c
     @State private var pin = ""
     @State private var now = Date()
     @State private var waitUntil = Date()
@@ -27,32 +26,41 @@ struct PinLockScreen: View {
         VStack(spacing: 14) {
             Spacer()
             AutobotMark(size: 36)
-            SectionLabel(PanicCopy.shared.LOCKED)
-            Text(PanicCopy.shared.ENTER_PIN).textStyle(.headlineSmall).foregroundStyle(c.onSurface)
+            Text(PanicCopy.shared.LOCKED.sentenceCased)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+            Text(PanicCopy.shared.ENTER_PIN).font(.title2.weight(.semibold))
             dots
             Text(waiting ? PanicCopy.shared.tryAgainIn(millis: Int64(waitUntil.timeIntervalSince(now) * 1000)) : (message ?? " "))
-                .textStyle(.bodySmall)
-                .foregroundStyle(c.error)
+                .font(.footnote)
+                .foregroundStyle(.red)
                 .multilineTextAlignment(.center)
                 .frame(minHeight: 16)
             if status.warn, let remaining = status.remaining?.intValue {
                 Text(PanicCopy.shared.attemptsLeft(remaining: Int32(remaining)))
-                    .textStyle(.bodyMedium)
-                    .foregroundStyle(c.error)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
             }
             keypad(enabled: enabled)
-            PrimaryButton(PanicCopy.shared.UNLOCK, enabled: enabled && !pin.isEmpty, busy: busy) {
+            Button {
                 if !pin.isEmpty { onSubmit(pin) }
+            } label: {
+                Group {
+                    if busy { ProgressView() } else { Text(PanicCopy.shared.UNLOCK.sentenceCased) }
+                }
+                .frame(maxWidth: 240)
             }
-            .frame(maxWidth: 280)
+            .glassProminentButton()
+            .controlSize(.large)
+            .disabled(!enabled || pin.isEmpty)
             Spacer()
         }
         .padding(.horizontal, 32)
         .padding(.vertical, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .inkGround()
-        .background(c.background.ignoresSafeArea())
+        .background(Color(.systemBackground).ignoresSafeArea())
         .onAppear { waitUntil = Date().addingTimeInterval(Double(status.waitMillis) / 1000) }
         // A new result clears what was typed and restarts the wait.
         .onChange(of: status) { _, s in
@@ -74,9 +82,9 @@ struct PinLockScreen: View {
     private var dots: some View {
         HStack(spacing: 10) {
             ForEach(0 ..< min(pin.count, Int(PinRules.shared.MAX_LENGTH)), id: \.self) { _ in
-                Circle().fill(c.primary).frame(width: 10, height: 10)
+                Circle().fill(.tint).frame(width: 12, height: 12)
             }
-            if pin.isEmpty { Circle().stroke(c.outline, lineWidth: 1).frame(width: 10, height: 10) }
+            if pin.isEmpty { Circle().strokeBorder(.secondary, lineWidth: 1).frame(width: 12, height: 12) }
         }
         .frame(height: 16)
         .accessibilityElement()
@@ -84,19 +92,19 @@ struct PinLockScreen: View {
     }
 
     private func keypad(enabled: Bool) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 14) {
             ForEach(["123", "456", "789"], id: \.self) { row in
-                HStack(spacing: 8) {
+                HStack(spacing: 22) {
                     ForEach(Array(row), id: \.self) { d in key(String(d), enabled: enabled) { type(d) } }
                 }
             }
-            HStack(spacing: 8) {
+            HStack(spacing: 22) {
                 if biometrics && !busy {
                     key("", enabled: true, label: "Use \(biometryLabel)", action: onBiometrics) {
-                        Image(systemName: biometryLabel == "Touch ID" ? "touchid" : "faceid").foregroundStyle(c.primary)
+                        Image(systemName: biometryLabel == "Touch ID" ? "touchid" : "faceid").font(.title2).foregroundStyle(.tint)
                     }
                 } else {
-                    Color.clear.frame(width: 64, height: 64)
+                    Color.clear.frame(width: 72, height: 72)
                 }
                 key("0", enabled: enabled) { type("0") }
                 key("⌫", enabled: enabled, label: "Delete") { if !pin.isEmpty { pin.removeLast() } }
@@ -111,15 +119,18 @@ struct PinLockScreen: View {
     private func key(_ text: String, enabled: Bool, label: String? = nil, action: @escaping () -> Void, @ViewBuilder content: () -> some View = { EmptyView() }) -> some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: Tokens.Radius.extraSmall).stroke(enabled ? c.outline : c.outlineVariant, lineWidth: 1)
                 if text.isEmpty {
                     content()
+                } else if text == "⌫" {
+                    Image(systemName: "delete.left").font(.title2)
                 } else {
-                    Text(text).textStyle(.headlineSmall).foregroundStyle(enabled ? c.onSurface : c.onSurfaceVariant)
+                    Circle().fill(.fill.tertiary)
+                    Text(text).font(.title).monospacedDigit()
                 }
             }
-            .frame(width: 64, height: 64)
-            .contentShape(Rectangle())
+            .foregroundStyle(enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+            .frame(width: 72, height: 72)
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)

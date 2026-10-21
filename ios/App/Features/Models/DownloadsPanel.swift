@@ -9,7 +9,6 @@ import SwiftUI
 struct DownloadsPanel: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var reachability = NetworkReachability()
     @State private var notify = DownloadAlerts.enabled
 
@@ -19,68 +18,96 @@ struct DownloadsPanel: View {
             networkOff: app.settings.settings.mode == .offline, connected: reachability.connected,
         )
         if !state.isEmpty || app.downloader.forceQuitNotice {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    MicroLabel("downloads")
-                    InfoButton(title: "Downloads", text: "Downloads keep going in the background. Swiping Autobot away stops them until you open it again; they resume where they stopped.")
-                    Spacer(minLength: 0)
-                    IconAction(symbol: notify ? "bell.fill" : "bell.slash", label: notify ? "Notifications on" : "Notifications off",
-                               tint: notify ? c.primary : c.onSurfaceVariant, size: 17) {
-                        Task { notify = await DownloadAlerts.setEnabled(!notify) }
-                    }
-                }
+            Section {
                 if app.downloader.forceQuitNotice {
-                    HStack(alignment: .top) {
-                        MicroLabel("Resumed · swiping Autobot away stops downloads", color: c.primary, lines: 2)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Resumed · swiping Autobot away stops downloads").font(.footnote).foregroundStyle(.tint)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Tag("got it") { app.downloader.dismissForceQuitNotice() }
+                        Button("Got it") { app.downloader.dismissForceQuitNotice() }.buttonStyle(.borderless)
                     }
                 }
                 if let block = state.blocks.first {
-                    HStack(alignment: .top) {
-                        MicroLabel(block.label, color: c.inks.amber, lines: 2).frame(maxWidth: .infinity, alignment: .leading)
-                        if block == .killSwitch { Tag("privacy", accent: c.primary) { nav.push(.privacyCenter) } }
+                    HStack(alignment: .firstTextBaseline) {
+                        Label(block.label, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if block == .killSwitch { Button("Privacy") { nav.push(.privacyCenter) }.buttonStyle(.borderless) }
                     }
                 }
                 if let p = state.active {
-                    HStack(alignment: .center) {
-                        Text(p.title).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        TextAction("Pause", color: c.primary) { app.downloader.pause(p.id) }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(p.title).font(.headline).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Pause") { app.downloader.pause(p.id) }.buttonStyle(.borderless)
+                        }
+                        ProgressView(value: p.fraction)
+                        Text([
+                            "\(formatBytes(p.downloaded)) / \(formatBytes(p.total))",
+                            p.bytesPerSecond > 0 ? "\(formatBytes(p.bytesPerSecond))/s" : nil,
+                            p.etaSeconds.map { "\(DownloadQueue.formatEta($0)) left" },
+                        ].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
-                    ProgressLine(fraction: p.fraction, running: true)
-                    MicroLabel([
-                        "\(formatBytes(p.downloaded)) / \(formatBytes(p.total))",
-                        p.bytesPerSecond > 0 ? "\(formatBytes(p.bytesPerSecond))/s" : nil,
-                        p.etaSeconds.map { "\(DownloadQueue.formatEta($0)) left" },
-                    ].compactMap { $0 }.joined(separator: " · "))
                 }
                 ForEach(Array(state.queued.enumerated()), id: \.element.id) { i, m in row(m, status: "queued · \(i + 1)") }
                 ForEach(state.paused) { m in
                     row(m, status: DownloadQueue.pausedReason(m)?.label ?? m.error ?? (m.status == .failed ? "failed" : "paused"))
                 }
+            } header: {
+                HStack {
+                    InfoTitle("Downloads", info: "Downloads keep going in the background. Swiping Autobot away stops them until you open it again; they resume where they stopped.")
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { notify = await DownloadAlerts.setEnabled(!notify) }
+                    } label: {
+                        Image(systemName: notify ? "bell.fill" : "bell.slash")
+                    }
+                    .buttonStyle(.borderless)
+                    .tint(notify ? Color.accentColor : .secondary)
+                    .accessibilityLabel(notify ? "Notifications on" : "Notifications off")
+                }
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh))
-            .padding(.bottom, 14)
         }
     }
 
     private func row(_ m: InstalledModel, status: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(m.title).textStyle(.bodyMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                MicroLabel([status, m.totalBytes > 0 ? "\(formatBytes(m.downloadedBytes)) / \(formatBytes(m.totalBytes))" : nil]
-                    .compactMap { $0 }.joined(separator: " · "), lines: 2)
+                Text(m.title).lineLimit(1)
+                Text([status, m.totalBytes > 0 ? "\(formatBytes(m.downloadedBytes)) / \(formatBytes(m.totalBytes))" : nil]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                switch m.status {
+                case .queued: Button("Pause") { app.downloader.pause(m.id) }
+                case .paused: Button("Resume") { app.downloader.resume(m.id) }
+                case .failed: Button("Retry") { app.downloader.resume(m.id) }.tint(.red)
+                default: EmptyView()
+                }
+            }
+            .buttonStyle(.borderless)
+            Button { app.downloader.remove(m.id) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Cancel")
+        }
+        .swipeActions(edge: .trailing) {
+            Button("Cancel", role: .destructive) { app.downloader.remove(m.id) }
             switch m.status {
-            case .queued: Tag("pause") { app.downloader.pause(m.id) }
-            case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(m.id) }
-            case .failed: Tag("retry", accent: c.error) { app.downloader.resume(m.id) }
+            case .queued: Button("Pause") { app.downloader.pause(m.id) }
+            case .paused: Button("Resume") { app.downloader.resume(m.id) }.tint(.accentColor)
+            case .failed: Button("Retry") { app.downloader.resume(m.id) }.tint(.orange)
             default: EmptyView()
             }
-            Tag("cancel") { app.downloader.remove(m.id) }
+        }
+        .contextMenu {
+            switch m.status {
+            case .queued: Button("Pause", systemImage: "pause") { app.downloader.pause(m.id) }
+            case .paused: Button("Resume", systemImage: "play") { app.downloader.resume(m.id) }
+            case .failed: Button("Retry", systemImage: "arrow.clockwise") { app.downloader.resume(m.id) }
+            default: EmptyView()
+            }
+            Button("Cancel", systemImage: "xmark", role: .destructive) { app.downloader.remove(m.id) }
         }
     }
 }

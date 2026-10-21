@@ -59,23 +59,12 @@ enum Destination: Hashable {
     case nodeBot(providerId: String, name: String)
 }
 
-/// The Creative Studio's rooms (its own bar while the Studio is open).
+/// The Creative Studio's rooms (its own tabs while the Studio is open).
 enum StudioRoom: String, CaseIterable, Hashable {
     case image, audio, video, workflows, library
 
     var label: String { rawValue }
-
-    /// Darkroom for image and video, paper for the library, the app's theme elsewhere.
-    var surface: StudioSurface {
-        switch self {
-        case .image, .video: .darkroom
-        case .library: .paper
-        case .audio, .workflows: .app
-        }
-    }
 }
-
-enum StudioSurface { case darkroom, paper, app }
 
 /// A stack of screens per tab; [path] is the selected tab's.
 @MainActor
@@ -135,22 +124,27 @@ final class Navigator {
         #endif
     }
 
-    /// Pushes without the slide: the new screen inks in instead ([View.inkArrive]). Going back
-    /// (button or edge swipe) keeps the native, interactive pop.
+    /// Pushes [destination] with the system's slide (going back keeps the native, interactive pop).
     func push(_ destination: Destination) {
         guard path.last != destination else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { path.append(destination) }
+        path.append(destination)
     }
 
     /// Opens the Studio (Home, Imagine, the agent's results); the app stays where it was.
     func enterStudio(_ room: StudioRoom = .image) {
-        withAnimation(.inkSlide) { studio = room }
+        withAnimation(.smooth) { studio = room }
     }
 
     func leaveStudio() {
-        withAnimation(.inkSlide) { studio = nil }
+        withAnimation(.smooth) { studio = nil }
+    }
+
+    /// Shows [destination] alone on [tab]'s stack (a chat chosen in the chat list beside it), without the slide.
+    func show(_ destination: Destination, in tab: Tab) {
+        guard paths[tab] != [destination] else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { paths[tab] = [destination] }
     }
 
     func back() {
@@ -178,19 +172,19 @@ final class Navigator {
 /**
  Navigation host, adaptive: the system's tab view, a tab bar on iPhone and a sidebar on iPad and
  the Mac (`sidebarAdaptable`), each tab with its own stack that it keeps when another is chosen,
- and the system navigation bar (screens fill it through [AutobotTopBar]).
+ and the system navigation bar (screens fill it through [AutobotTopBar]). On a wide window the
+ Run tab puts the chat list beside its stack (a split view), and a chat chosen there opens in it.
  */
 struct AutobotNavHost: View {
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         // The app stays underneath (its stack and screens keep their state) while the Studio is open.
         let inStudio = nav.studio != nil
         ZStack {
             app
-                // Hidden, not removed: its living cards and grounds must not keep ticking.
-                .environment(\.inkOffscreen, inStudio)
+                // Hidden, not removed: its stacks keep their state.
                 .opacity(inStudio ? 0 : 1)
                 .allowsHitTesting(!inStudio)
                 .accessibilityHidden(inStudio)
@@ -206,21 +200,34 @@ struct AutobotNavHost: View {
         return TabView(selection: $nav.tab) {
             ForEach(Tab.allCases, id: \.self) { tab in
                 SwiftUI.Tab(tab.title, systemImage: tab.symbol, value: tab) {
-                    NavigationStack(path: nav.pathBinding(tab)) {
-                        root(tab)
-                            .inkArrive()
-                            .navigationDestination(for: Destination.self) { destination in
-                                screen(destination)
-                                    .inkArrive()
-                                    .background(c.background.ignoresSafeArea())
-                            }
+                    if tab == .run && sizeClass == .regular {
+                        // A wide window: the chats beside Run's own stack, where the chat opens.
+                        NavigationSplitView {
+                            ChatListScreen(sidebar: true)
+                                .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 420)
+                        } detail: {
+                            stack(tab)
+                        }
+                        .navigationSplitViewStyle(.balanced)
+                    } else {
+                        stack(tab)
                     }
                 }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
-        .tint(c.primary)
-        .background(c.background.ignoresSafeArea())
+        .tint(Color.brandPurple)
+    }
+
+    /// [tab]'s own stack.
+    private func stack(_ tab: Tab) -> some View {
+        NavigationStack(path: nav.pathBinding(tab)) {
+            root(tab)
+                .navigationDestination(for: Destination.self) { destination in
+                    screen(destination)
+                        .background(Color(.systemBackground).ignoresSafeArea())
+                }
+        }
     }
 
     @ViewBuilder private func root(_ tab: Tab) -> some View {

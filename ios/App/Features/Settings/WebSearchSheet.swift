@@ -34,41 +34,55 @@ struct WebSearchSheet: View {
     @State private var loaded = false
     @State private var error: String?
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     private static let keyRef = AutobotShared.AppSettings.companion.SEARCH_API_KEY_REF
 
     var body: some View {
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel("web search")
-                Text("Gives the agent a web_search tool. Each search sends only the query to the provider you choose, through your network route, and needs approval like web_fetch.")
-                    .textStyle(.bodySmall)
-                    .foregroundStyle(c.onSurfaceVariant)
-                    .fixedSize(horizontal: false, vertical: true)
-                MicroLabel("provider")
-                ChipRow(items: WebSearchDraft.providers.map(\.name), selected: draft.provider, label: WebSearchDraft.label) { draft.provider = $0 }
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Provider", selection: $draft.provider) {
+                        ForEach(WebSearchDraft.providers, id: \.name) { Text($0.label).tag($0.name) }
+                    }
+                } footer: {
+                    Text("Gives the agent a web_search tool. Each search sends only the query to the provider you choose, through your network route, and needs approval like web_fetch.")
+                }
                 if draft.provider == "SEARXNG" {
-                    ConsoleTextField(text: $draft.baseUrl, placeholder: "https://searx.example.org", label: "Instance URL", kind: .url)
-                    MicroLabel("the instance must allow the json format (search.formats)", lines: 2)
+                    Section {
+                        FormField("Instance URL", text: $draft.baseUrl, prompt: "https://searx.example.org", kind: .url)
+                    } footer: {
+                        Text("the instance must allow the json format (search.formats)")
+                    }
                 }
                 if draft.provider == "BRAVE" {
-                    ConsoleTextField(text: $draft.apiKey, placeholder: draft.hasStoredKey ? "•••••••• saved — type to replace" : "subscription token", label: "API key", kind: .secret)
-                    MicroLabel("kept in the keychain on this device · never logged or exported", lines: 2)
+                    Section {
+                        FormField("API key", text: $draft.apiKey, prompt: draft.hasStoredKey ? "•••••••• saved — type to replace" : "subscription token", kind: .secret)
+                    } footer: {
+                        Text("kept in the keychain on this device · never logged or exported")
+                    }
                 }
                 if draft.provider != "NONE" {
-                    MicroLabel("routing")
-                    ChipRow(items: ProviderRouting.allCases, selected: draft.route, label: { $0.label }) { draft.route = $0 }
+                    Section {
+                        Picker("Routing", selection: $draft.route) {
+                            ForEach(ProviderRouting.allCases, id: \.self) { Text($0.label).tag($0) }
+                        }
+                    }
                 }
-                if let problem = draft.problem { MicroLabel(problem, color: c.error, lines: 3) }
-                if let error { MicroLabel(error, color: c.error, lines: 3) }
-                PrimaryButton("Save", enabled: draft.problem == nil, action: save)
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss).frame(maxWidth: .infinity)
+                if draft.problem != nil || error != nil {
+                    Section {
+                        if let problem = draft.problem { Text(problem).foregroundStyle(.red) }
+                        if let error { Text(error).foregroundStyle(.red) }
+                    }
+                }
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+            .formStyle(.grouped)
+            .navigationTitle("Web search")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDismiss) }
+                ToolbarItem(placement: .confirmationAction) { Button("Save", action: save).disabled(draft.problem != nil) }
+            }
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
         .onAppear {
             guard !loaded else { return }

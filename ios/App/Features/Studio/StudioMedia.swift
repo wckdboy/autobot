@@ -56,8 +56,8 @@ struct AudioFileDocument: FileDocument {
 }
 
 /**
- Plays Studio audio from memory (no plain file): loop, the playhead for the waveform (read on the
- shared ink clock, see [PlayheadWaveform]), and A/B switching that keeps the position.
+ Plays Studio audio from memory (no plain file): loop, the playhead for the waveform (read once a
+ frame, see [PlayheadWaveform]), and A/B switching that keeps the position.
  */
 @MainActor
 @Observable
@@ -126,7 +126,7 @@ private final class PlaybackEnd: NSObject, AVAudioPlayerDelegate, @unchecked Sen
     }
 }
 
-/// A waveform whose playhead follows [player] on the shared ink clock while [id] plays.
+/// A waveform whose playhead follows [player] (once a frame, only while [id] plays).
 struct PlayheadWaveform: View {
     let id: String
     let peaks: [Float]
@@ -135,7 +135,7 @@ struct PlayheadWaveform: View {
 
     var body: some View {
         let playing = player.playingId == id
-        InkTimeline(active: playing) { _ in
+        TimelineView(.animation(paused: !playing)) { _ in
             WaveformView(peaks: peaks, progress: player.fraction(id), trim: trim) { f in if playing { player.seek(f) } }
         }
     }
@@ -147,7 +147,6 @@ struct WaveformView: View {
     var progress: Double = 0
     var trim: Binding<ClosedRange<Double>>? = nil
     var onScrub: ((Double) -> Void)? = nil
-    @Environment(\.scheme) private var c
 
     var body: some View {
         GeometryReader { geo in
@@ -161,18 +160,18 @@ struct WaveformView: View {
                     let rect = CGRect(x: CGFloat(i) * bar + bar * 0.15, y: (size.height - height) / 2, width: max(1, bar * 0.7), height: height)
                     if Double(i) / Double(n) < progress { played.addRect(rect) } else { rest.addRect(rect) }
                 }
-                context.fill(rest, with: .color(c.outline))
-                context.fill(played, with: .color(c.primary))
+                context.fill(rest, with: .color(Color(uiColor: .tertiaryLabel)))
+                context.fill(played, with: .color(.accentColor))
                 if let trim {
                     let r = trim.wrappedValue
-                    context.fill(Path(CGRect(x: 0, y: 0, width: size.width * r.lowerBound, height: size.height)), with: .color(c.background.opacity(0.7)))
-                    context.fill(Path(CGRect(x: size.width * r.upperBound, y: 0, width: size.width * (1 - r.upperBound), height: size.height)), with: .color(c.background.opacity(0.7)))
+                    context.fill(Path(CGRect(x: 0, y: 0, width: size.width * r.lowerBound, height: size.height)), with: .color(Color(uiColor: .systemBackground).opacity(0.7)))
+                    context.fill(Path(CGRect(x: size.width * r.upperBound, y: 0, width: size.width * (1 - r.upperBound), height: size.height)), with: .color(Color(uiColor: .systemBackground).opacity(0.7)))
                     for x in [r.lowerBound, r.upperBound] {
-                        context.fill(Path(CGRect(x: size.width * x - 1.5, y: 0, width: 3, height: size.height)), with: .color(c.primary))
+                        context.fill(Path(CGRect(x: size.width * x - 1.5, y: 0, width: 3, height: size.height)), with: .color(.accentColor))
                     }
                 }
                 let head = size.width * progress
-                context.fill(Path(CGRect(x: head - 0.5, y: 0, width: 1, height: size.height)), with: .color(c.onSurface))
+                context.fill(Path(CGRect(x: head - 0.5, y: 0, width: 1, height: size.height)), with: .color(.primary))
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { g in
@@ -200,7 +199,6 @@ struct WaveformView: View {
 struct StudioVideoPlayer: View {
     let url: URL
     var onExportFrame: ((CGImage) -> Void)? = nil
-    @Environment(\.scheme) private var c
     @State private var player = AVPlayer()
     @State private var position: Double = 0
     @State private var duration: Double = 0
@@ -215,9 +213,10 @@ struct StudioVideoPlayer: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .accessibilityLabel("Video")
             HStack(spacing: 10) {
-                IconAction(symbol: playing ? "pause.fill" : "play.fill", label: playing ? "Pause" : "Play") {
+                Button {
                     if playing {
                         player.pause()
                     } else {
@@ -226,18 +225,22 @@ struct StudioVideoPlayer: View {
                         player.play()
                     }
                     playing.toggle()
+                } label: {
+                    Image(systemName: playing ? "pause.fill" : "play.fill").frame(width: 28, height: 28)
                 }
-                RisoSlider(value: Binding(get: { position }, set: { v in
+                .buttonStyle(.borderless)
+                .accessibilityLabel(playing ? "Pause" : "Play")
+                Slider(value: Binding(get: { min(position, max(duration, 0.01)) }, set: { v in
                     position = v
                     player.seek(to: CMTime(seconds: v, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-                }), range: 0 ... max(duration, 0.01))
+                }), in: 0 ... max(duration, 0.01))
                 .accessibilityLabel("Scrub")
-                Text(String(format: "%.1f s", position)).textStyle(.readout).foregroundStyle(c.onSurfaceVariant).frame(width: 52, alignment: .trailing)
+                Text(String(format: "%.1f s", position)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                Tag(loop ? "loop on" : "loop off", accent: loop ? c.primary : c.onSurfaceVariant, filled: loop) { loop.toggle() }
+                StudioChip(loop ? "Loop on" : "Loop off", active: loop) { loop.toggle() }
                 if let onExportFrame {
-                    Tag("export frame", accent: c.primary) {
+                    StudioChip("Export frame", active: true) {
                         let at = position
                         let source = url
                         Task {

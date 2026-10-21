@@ -7,7 +7,7 @@ struct MaskOverlay: View {
 
     var body: some View {
         Canvas { context, size in
-            let tint = AutobotColors.acid.opacity(0.5)
+            let tint = Color.brandPurple.opacity(0.5)
             if mask.inverted { context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(tint)) }
             for stroke in mask.strokes {
                 var path = Path()
@@ -52,7 +52,6 @@ struct MaskEditor: View {
     let image: UIImage
     let model: any MaskEditing
     let onDone: () -> Void
-    @Environment(\.scheme) private var c
     @State private var erase = false
     @State private var brush: Double = 28
     @State private var scale: CGFloat = 1
@@ -62,18 +61,25 @@ struct MaskEditor: View {
     var body: some View {
         let mask = model.mask
         VStack(spacing: 0) {
-            HStack {
-                MicroLabel("Mask").padding(.leading, 8).frame(maxWidth: .infinity, alignment: .leading)
-                MicroLabel(mask.inverted ? "inverted · \(counted(mask.strokes.count, "stroke"))" : counted(mask.strokes.count, "stroke")).padding(.trailing, 8)
-                TextAction("Fit", color: c.primary) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Mask").font(.headline)
+                    Text(mask.inverted ? "Inverted · \(counted(mask.strokes.count, "stroke"))" : counted(mask.strokes.count, "stroke").sentenceCased)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Fit") {
                     scale = 1
                     offset = .zero
                 }
-                IconAction(symbol: "checkmark", label: "Done", tint: c.primary, action: onDone)
+                .glassButton()
+                Button("Done", action: onDone)
+                    .glassProminentButton()
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            Hairline()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            Divider()
             GeometryReader { geo in
                 let box = geo.size
                 let fit = min(box.width / image.size.width, box.height / image.size.height)
@@ -92,7 +98,7 @@ struct MaskEditor: View {
                         path.move(to: first)
                         live.dropFirst().forEach { path.addLine(to: $0) }
                         if live.count == 1 { path.addLine(to: CGPoint(x: first.x + 0.1, y: first.y)) }
-                        context.stroke(path, with: .color(erase ? Color.white.opacity(0.5) : AutobotColors.acid.opacity(0.6)),
+                        context.stroke(path, with: .color(erase ? Color.white.opacity(0.5) : Color.brandPurple.opacity(0.6)),
                                        style: StrokeStyle(lineWidth: brush, lineCap: .round, lineJoin: .round))
                     }
                     .allowsHitTesting(false)
@@ -119,25 +125,42 @@ struct MaskEditor: View {
                 .frame(width: box.width, height: box.height)
                 .clipped()
             }
-            Hairline()
-            VStack(alignment: .leading, spacing: 8) {
-                ValueSlider(label: "Brush", value: $brush, range: 6 ... 90, format: { "\(Int($0)) pt" })
-                HStack(spacing: 2) {
-                    IconAction(.brush, label: "Brush", tint: erase ? c.onSurfaceVariant : c.primary) { erase = false }
-                    IconAction(.eraser, label: "Eraser", tint: erase ? c.primary : c.onSurfaceVariant) { erase = true }
-                    Spacer().frame(width: 8)
-                    IconAction(.undo, label: "Undo", enabled: !mask.strokes.isEmpty, action: model.undoStroke)
-                    IconAction(.undo, label: "Redo", enabled: !mask.redo.isEmpty, action: model.redoStroke).scaleEffect(x: -1, y: 1)
-                    IconAction(.invert, label: "Invert", tint: mask.inverted ? c.primary : c.onSurface, action: model.invertMask)
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledSlider("Brush", value: $brush, in: 6 ... 90, format: { "\(Int($0)) pt" })
+                HStack(spacing: 16) {
+                    Picker("Tool", selection: $erase) {
+                        Label("Brush", systemImage: "paintbrush.pointed").tag(false)
+                        Label("Eraser", systemImage: "eraser").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelStyle(.iconOnly)
+                    .fixedSize()
+                    Button(action: model.undoStroke) { Image(systemName: "arrow.uturn.backward") }
+                        .disabled(mask.strokes.isEmpty)
+                        .accessibilityLabel("Undo")
+                    Button(action: model.redoStroke) { Image(systemName: "arrow.uturn.forward") }
+                        .disabled(mask.redo.isEmpty)
+                        .accessibilityLabel("Redo")
+                    Button(action: model.invertMask) {
+                        Image(systemName: "circle.lefthalf.filled").foregroundStyle(mask.inverted ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                    }
+                    .accessibilityLabel("Invert")
+                    .accessibilityAddTraits(mask.inverted ? .isSelected : [])
                     Spacer()
-                    TextAction("Clear", color: c.error, enabled: !mask.strokes.isEmpty || mask.inverted, action: model.clearMask)
+                    Button("Clear", role: .destructive, action: model.clearMask)
+                        .disabled(mask.strokes.isEmpty && !mask.inverted)
                 }
-                MicroLabel("1 finger paint · 2 fingers zoom/pan · painted = repainted")
+                .buttonStyle(.borderless)
+                .font(.title3)
+                Text("1 finger paints · 2 fingers zoom and pan · painted areas are repainted")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-        .background(c.surfaceContainerLowest.ignoresSafeArea())
+        .background(Color(.systemBackground).ignoresSafeArea())
     }
 
     /// Maps a point in the box to normalized image coordinates.

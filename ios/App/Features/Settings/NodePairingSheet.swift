@@ -12,7 +12,6 @@ import UIKit
  */
 struct NodePairingSheet: View {
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var code: String
     @State private var deviceName = UIDevice.current.name
     @State private var pairing: Task<Void, Never>?
@@ -31,32 +30,76 @@ struct NodePairingSheet: View {
     private var addresses: [String] { PairingCode.companion.parse(text: code.trimmingCharacters(in: .whitespacesAndNewlines))?.addresses ?? [] }
 
     var body: some View {
-        KeyboardForm {
-            Text(words.TITLE).textStyle(.titleLarge).foregroundStyle(c.onSurface)
-            OfflineNotice()
-            Text(words.HOW)
-                .textStyle(.bodySmall)
-                .foregroundStyle(c.onSurfaceVariant)
-                .fixedSize(horizontal: false, vertical: true)
-            ConsoleTextField(text: $code, label: words.CODE, kind: .mono)
-            if let fingerprint {
-                MicroLabel(words.KEY)
-                Text(fingerprint).textStyle(.titleMedium).foregroundStyle(c.onSurface).monospaced()
-                MicroLabel(words.COMPARE)
-                MicroLabel(addresses.joined(separator: " · "))
-            } else if !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(words.NOT_A_CODE).textStyle(.bodySmall).foregroundStyle(c.error)
+        let offline = app.settings.settings.mode == .offline
+        NavigationStack {
+            Form {
+                Section {
+                    // Invincible's pixel i: this is about the node.
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        NodeMark()
+                        Text(LocalizedStringKey(words.HOW))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if offline {
+                    Section { OfflineNotice() }
+                }
+                Section {
+                    TextField(words.CODE, text: $code, axis: .vertical)
+                        .font(.body.monospaced())
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .lineLimit(1 ... 4)
+                } header: {
+                    Text(words.CODE)
+                } footer: {
+                    if fingerprint == nil, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(words.NOT_A_CODE).foregroundStyle(.red)
+                    }
+                }
+                if let fingerprint {
+                    Section {
+                        Text(fingerprint).font(.title3.monospaced()).textSelection(.enabled)
+                    } header: {
+                        Text(words.KEY)
+                    } footer: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(LocalizedStringKey(words.COMPARE))
+                            // Where the node is: the addresses its code carries.
+                            if !addresses.isEmpty { Text(addresses.joined(separator: " · ")).monospaced() }
+                        }
+                    }
+                }
+                Section {
+                    TextField(words.NAME, text: $deviceName)
+                } header: {
+                    Text(words.NAME)
+                } footer: {
+                    Text(words.NOTE)
+                }
+                if let problem {
+                    Section { Text(problem).foregroundStyle(.red) }
+                }
+                Section {
+                    Button { pair() } label: {
+                        Group { if pairing != nil { ProgressView() } else { Text(words.PAIR) } }.frame(maxWidth: .infinity)
+                    }
+                    .glassProminentButton()
+                    .controlSize(.large)
+                    .disabled(fingerprint == nil || deviceName.trimmingCharacters(in: .whitespaces).isEmpty || pairing != nil)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
-            ConsoleTextField(text: $deviceName, label: words.NAME)
-            MicroLabel(words.NOTE)
-        } footer: {
-            if let problem {
-                Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+            .formStyle(.grouped)
+            .navigationTitle(words.TITLE)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Cancel means cancel: a pairing still running stops and saves nothing.
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { cancel() } }
             }
-            PrimaryButton(words.PAIR, enabled: fingerprint != nil && !deviceName.trimmingCharacters(in: .whitespaces).isEmpty, busy: pairing != nil) { pair() }
-            GhostButton("Cancel") { cancel() }
         }
-        .background(c.background)
         .presentationDetents([.large])
         .onDisappear { pairing?.cancel() }
     }
