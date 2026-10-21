@@ -1,3 +1,4 @@
+import AutobotShared
 import SwiftUI
 
 /// First-run welcome (App UI v4): the large purple pixel a, the wordmark, one sentence, one
@@ -48,7 +49,7 @@ struct WelcomeScreen: View {
     }
 
     @ViewBuilder private var actions: some View {
-        TextAction("Pair a PC", color: c.onSurfaceVariant, action: onPairPc)
+        TextAction(NodePairingWords.shared.REMOTE_ROW, color: c.onSurfaceVariant, action: onPairPc)
         TextAction("Add an API key", color: c.onSurfaceVariant, action: onAddApiKey)
     }
 }

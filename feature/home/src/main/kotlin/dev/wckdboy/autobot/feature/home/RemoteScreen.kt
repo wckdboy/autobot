@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.home
 
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -223,8 +224,8 @@ fun RemoteScreen(
                     }
                 }
                 if (nodes.isEmpty()) {
-                    // Bringing a PC is a first-run path (the welcome screen's "Pair a PC"): one row away here too.
-                    item { RemoteItem("Pair a PC", "your Invincible node · end to end encrypted", onClick = onPairNode, leading = { NodeMark() }, chevron = true) }
+                    // Bringing a PC is a first-run path (the welcome screen's "Pair a node"): one row away here too.
+                    item { RemoteItem(NodePairingWords.REMOTE_ROW, NodePairingWords.REMOTE_ROW_DETAIL, onClick = onPairNode, leading = { NodeMark() }, chevron = true) }
                 }
                 item { Subheader(labelCase("providers")) }
                 items(state.providers, key = { "p-${it.id}" }) { p ->

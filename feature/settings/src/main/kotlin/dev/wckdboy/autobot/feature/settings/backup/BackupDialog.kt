@@ -70,7 +70,7 @@ class BackupViewModel @Inject constructor(
         }
         "Imported ${counted(added.conversations, "session")}, ${counted(added.images, "image")}, ${counted(added.providers, "provider")}, " +
             "${counted(added.memories, "memory note")}, ${counted(added.studioAssets, "studio asset")}. " +
-            "Add API keys again under Model providers."
+            "Add API keys again in Remote › Providers."
     }
 
     fun reset() {

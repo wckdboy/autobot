@@ -68,7 +68,7 @@ object SpeculativeDrafts {
      * backend), the CPU otherwise.
      */
     fun draftBackend(platform: AppPlatform, target: Backend): String = when (platform) {
-        AppPlatform.IOS -> if (target == Backend.CPU) "cpu" else "gpu"
+        AppPlatform.IOS, AppPlatform.MACOS -> if (target == Backend.CPU) "cpu" else "gpu"
         AppPlatform.ANDROID -> "cpu"
     }
 

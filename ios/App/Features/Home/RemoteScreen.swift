@@ -1,3 +1,4 @@
+import AutobotShared
 import SwiftUI
 
 /// REMOTE tab: everything that leaves the phone — APIs, PCs on the LAN, hub accounts, the route.
@@ -60,8 +61,8 @@ struct RemoteScreen: View {
                         // No node yet: pairing is one tap from here (as on Android).
                         SectionLabel("agents · my node")
                         RunRow(
-                            title: "Pair a PC",
-                            subtitle: "your Invincible node · end to end encrypted",
+                            title: NodePairingWords.shared.REMOTE_ROW,
+                            subtitle: NodePairingWords.shared.REMOTE_ROW_DETAIL,
                             action: {
                                 nav.push(.providers)
                                 nav.pendingPairing = ""

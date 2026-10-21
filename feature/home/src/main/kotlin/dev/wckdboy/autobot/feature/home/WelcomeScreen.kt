@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.home
 
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -67,7 +68,7 @@ fun WelcomeScreen(onSetUp: () -> Unit, onPairPc: () -> Unit = {}, onAddApiKey: (
                     }
                     // Side by side; one under the other when a large font leaves no room.
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-                        TextButton(onClick = onPairPc) { Text("Pair a PC") }
+                        TextButton(onClick = onPairPc) { Text(NodePairingWords.REMOTE_ROW) }
                         TextButton(onClick = onAddApiKey) { Text("Add an API key") }
                     }
                 }

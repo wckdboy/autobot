@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.settings.providers
 
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,7 +70,7 @@ class ProviderDraftTest {
 
     @Test
     fun aPairingDraftChecksItsCode() {
-        assertEquals("Not an Invincible pairing code", PairingDraft(code = "hello", deviceName = "Pixel").problem)
+        assertEquals(NodePairingWords.NOT_A_CODE, PairingDraft(code = "hello", deviceName = "Pixel").problem)
         val good = PairingDraft(code = "invincible://pair?v=0&k=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc&s=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk&a=192.168.1.20:7778", deviceName = "Pixel")
         assertNull(good.problem)
         assertEquals("0707-0707-0707-0707", good.fingerprint)

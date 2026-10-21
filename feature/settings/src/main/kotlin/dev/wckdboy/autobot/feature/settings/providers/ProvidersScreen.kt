@@ -67,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -90,6 +91,8 @@ import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.PresetGroup
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.RemoteModel
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
+import dev.wckdboy.autobot.core.designsystem.component.KeyboardForm
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
@@ -103,7 +106,7 @@ fun ProvidersRoute(onBack: () -> Unit, start: ProvidersStart? = null, viewModel:
         if (start != null && !started) {
             started = true
             when (start) {
-                ProvidersStart.PAIR -> viewModel.openPairing("")
+                ProvidersStart.PAIR -> viewModel.startPairing()
                 ProvidersStart.ADD -> viewModel.startAdd()
             }
         }
@@ -188,7 +191,8 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
                             Column {
                                 Row {
                                     Text(
-                                        "${row.presetName} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
+                                        if (row.nodeAddresses != null) "${row.presetName} · ${row.model} · ${row.routing.label}"
+                                        else "${row.presetName} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
                                         modifier = Modifier.weight(1f, fill = false),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -199,7 +203,16 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
                                 row.problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                             }
                         },
-                        overlineContent = { Text(row.baseUrl, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        // A node's base URL is a placeholder: its addresses say where it is.
+                        // A node whose pairing is gone (a restored backup) says so, in the error color.
+                        overlineContent = {
+                            Text(
+                                row.nodeAddresses?.let(NodePairingWords::row) ?: row.baseUrl,
+                                color = if (row.nodeAddresses?.let(NodePairingWords::paired) == false) MaterialTheme.colorScheme.error else Color.Unspecified,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
                         trailingContent = {
                             IconButton(onClick = { deleting = row }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
@@ -341,14 +354,43 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
     val models = state.models
     ModalBottomSheet(onDismissRequest = actions::dismissEditor, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         NoPersonalizedLearning {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            // Save stays above the keyboard while a field (the API key) is being typed.
+            KeyboardForm(
+                horizontalPadding = 24.dp,
+                footer = {
+                    TestResult(test)
+                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    if (!state.saving) draft.saveProblem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+
+                    var confirmNoKey by remember { mutableStateOf(false) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = { if (test != TestState.Running) actions.test() },
+                            modifier = Modifier.weight(1f),
+                            enabled = draft.baseUrlValid,
+                        ) { BusyLabel("Test connection", busy = test == TestState.Running) }
+                        Button(
+                            onClick = { if (!state.saving) { if (draft.missingKey) confirmNoKey = true else actions.save() } },
+                            modifier = Modifier.weight(1f),
+                            enabled = draft.canSave || state.saving,
+                        ) { BusyLabel("Save", busy = state.saving) }
+                    }
+                    if (confirmNoKey) {
+                        AlertDialog(
+                            onDismissRequest = { confirmNoKey = false },
+                            title = { Text("Save without an API key?") },
+                            text = { Text("${preset.displayName} needs an API key; requests will be refused until you add one.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    confirmNoKey = false
+                                    actions.save()
+                                }) { Text("Save anyway") }
+                            },
+                            dismissButton = { TextButton(onClick = { confirmNoKey = false }) { Text("Cancel") } },
+                        )
+                    }
+                    TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
+                },
             ) {
                 SheetLabel(if (draft.isNew) "add provider" else "edit provider")
                 if (state.offline && !Loopback.isLoopbackUrl(draft.baseUrl)) OfflineLine(actions)
@@ -408,101 +450,58 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                     }
                 }
 
-                TestResult(test)
-                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (!state.saving) draft.saveProblem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-
-                var confirmNoKey by remember { mutableStateOf(false) }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(
-                        onClick = { if (test != TestState.Running) actions.test() },
-                        modifier = Modifier.weight(1f),
-                        enabled = draft.baseUrlValid,
-                    ) { BusyLabel("Test connection", busy = test == TestState.Running) }
-                    Button(
-                        onClick = { if (!state.saving) { if (draft.missingKey) confirmNoKey = true else actions.save() } },
-                        modifier = Modifier.weight(1f),
-                        enabled = draft.canSave || state.saving,
-                    ) { BusyLabel("Save", busy = state.saving) }
-                }
-                if (confirmNoKey) {
-                    AlertDialog(
-                        onDismissRequest = { confirmNoKey = false },
-                        title = { Text("Save without an API key?") },
-                        text = { Text("${preset.displayName} needs an API key; requests will be refused until you add one.") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                confirmNoKey = false
-                                actions.save()
-                            }) { Text("Save anyway") }
-                        },
-                        dismissButton = { TextButton(onClick = { confirmNoKey = false }) { Text("Cancel") } },
-                    )
-                }
-                TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
             }
         }
     }
 }
 
 /**
- * "My node": pair with an Invincible node from its code. The camera app reading the node's QR
+ * "Pair a node": pair with an Invincible node from its code. The camera app reading the node's QR
  * code fills it in (`invincible://pair?…`); pasting works too. The node's key fingerprint is shown
- * to compare with what the node printed before anything is sent.
+ * to compare with what the node printed before anything is sent. The words are shared with iOS
+ * ([NodePairingWords]); the form keeps Pair above the keyboard ([KeyboardForm]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PairingSheet(draft: PairingDraft, offline: Boolean, actions: ProvidersActions) {
     ModalBottomSheet(onDismissRequest = actions::dismissPairing, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         NoPersonalizedLearning {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            KeyboardForm(
+                horizontalPadding = 24.dp,
+                footer = {
+                    draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    Button(
+                        onClick = actions::pair,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = draft.problem == null && !draft.running,
+                    ) { BusyLabel(NodePairingWords.PAIR, busy = draft.running) }
+                    TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
+                },
             ) {
-                SheetLabel("pair with my node")
-                Text("My node (Invincible)", style = MaterialTheme.typography.titleLarge)
+                Text(NodePairingWords.TITLE, style = MaterialTheme.typography.titleLarge)
                 if (offline) OfflineLine(actions)
-                Text(
-                    "On the node, run `invincible pair`. Point the camera app at the QR code it shows, or paste the code below.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(NodePairingWords.HOW, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Field(
                     draft.code, { v -> actions.changePairing { it.copy(code = v.trim()) } }, Modifier.fillMaxWidth(),
-                    label = "Pairing code", mono = true,
+                    label = NodePairingWords.CODE, mono = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                     visualTransformation = PasswordVisualTransformation(),
                 )
                 draft.parsed?.let { code ->
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Caption("node key")
+                        Caption(NodePairingWords.KEY)
                         Text(draft.fingerprint.orEmpty(), style = MaterialTheme.typography.titleMedium)
-                        Caption("compare with the key the node printed · ${code.addresses.joinToString(" · ")}")
+                        Caption(NodePairingWords.COMPARE)
+                        Caption(code.addresses.joinToString(" · "))
                     }
                 }
+                // A code that is not one says so as it is typed; an empty one needs no second telling.
+                if (draft.code.isNotBlank() && draft.parsed == null) Text(NodePairingWords.NOT_A_CODE, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Field(
                     draft.deviceName, { v -> actions.changePairing { it.copy(deviceName = v) } }, Modifier.fillMaxWidth(),
-                    label = "This phone's name on the node", singleLine = true,
+                    label = NodePairingWords.NAME, singleLine = true,
                 )
-                Text(
-                    "Pairing is end-to-end encrypted (Noise) and needs no account. The kill switch and routing apply.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                // An empty code needs no second telling: the line above says where it comes from.
-                if (!draft.running && draft.code.isNotBlank()) draft.problem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-                Button(
-                    onClick = actions::pair,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = draft.problem == null && !draft.running,
-                ) { BusyLabel("Pair", busy = draft.running) }
-                TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
+                Caption(NodePairingWords.NOTE)
             }
         }
     }

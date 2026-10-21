@@ -154,6 +154,8 @@ final class EntryRouter {
         case .pairNode(let code):
             nav.pendingPairing = code
             nav.reset(.remote, [.providers])
+            // Opened from a node's QR code: the user chose to pair, so the welcome steps aside.
+            app.settings.setOnboarded()
         case .setup:
             nav.switchTo(.models)
         case .none:

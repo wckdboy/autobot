@@ -9,5 +9,5 @@ object ChatBannerWords {
     const val OFFLINE = "Offline mode: this provider is remote, so the kill switch blocks it."
 
     /** A cloud provider saved without the API key its preset needs: said before anything is sent. */
-    fun missingKey(provider: String): String = "$provider has no API key, so messages will fail. Add it in Model providers."
+    fun missingKey(provider: String): String = "$provider has no API key, so messages will fail. Add it in Remote › Providers."
 }

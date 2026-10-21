@@ -191,7 +191,7 @@ class ProviderLlmAdapter(
                 ErrorKind.PROTOCOL -> LlmErrorCode.PROTOCOL
                 ErrorKind.HTTP -> LlmErrorCode.UNKNOWN
             }
-            return LlmFailure(code, message, httpCode, retryAfterMs)
+            return LlmFailure(code, message, httpCode, retryAfterMs, retryable = code.retryable && retryable)
         }
     }
 }

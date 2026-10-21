@@ -3,8 +3,9 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
 // Code both apps run: the agent host (provider adapter, workspace tools, AGENTS.md / skills,
 // web_fetch), the OpenAI-compatible wire format and SSE decoding, the on-device engine request
 // codec, model management (catalogs, fit rules, hub clients, download state machine), and the
-// Swift-facing bridge. Android consumes the JVM target; iOS links
-// AutobotShared.xcframework (`./gradlew :shared:assembleAutobotSharedReleaseXCFramework`).
+// Swift-facing bridge. Android consumes the JVM target; iOS and the Mac app link
+// AutobotShared.xcframework (`./gradlew :shared:assembleAutobotSharedReleaseXCFramework`), which
+// has iOS, iOS simulator and macOS (Apple silicon) slices.
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
     id("org.jetbrains.kotlin.plugin.serialization")
@@ -14,7 +15,8 @@ kotlin {
     jvm()
 
     val xcf = XCFramework("AutobotShared")
-    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
+    // iOS and the Mac app; the Apple code is in appleMain, only HostPlatform differs.
+    listOf(iosArm64(), iosSimulatorArm64(), macosArm64()).forEach { target ->
         target.binaries.framework {
             baseName = "AutobotShared"
             isStatic = true

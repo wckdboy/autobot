@@ -40,14 +40,17 @@ class PairedNode(
         privateTurns: PrivateTurns? = null,
         connect: suspend (List<String>) -> NodeLink,
     ): NodeHttpTransport {
-        val plain = NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) })
+        val plain = NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) }, node = name, addresses = addresses)
         if (receipts == null && privateTurns == null) return plain
         // Answers made for agent turns: their signed receipts are fetched (over [plain]) and checked
         // with the pinned key when the turn's receipt is built.
         val onRequestId: (suspend (dev.wckdboy.autobot.agent.core.TurnTrace, String) -> Unit)? = receipts?.let { log ->
             { trace, id -> log.record(trace) { NodeReceiptLog.fetch(crypto, plain, name, receiptKey, id) } }
         }
-        return NodeHttpTransport(crypto, nodeKey, device, { connect(addresses) }, onRequestId = onRequestId, privateTurns = privateTurns)
+        return NodeHttpTransport(
+            crypto, nodeKey, device, { connect(addresses) },
+            onRequestId = onRequestId, privateTurns = privateTurns, node = name, addresses = addresses,
+        )
     }
 
     override fun toString(): String = "PairedNode($name, $fingerprint, $addresses)"
@@ -83,14 +86,47 @@ class PairedNode(
 
         /**
          * Pairs with the node in [code] (from a QR code or a pasted / deep-linked
-         * `invincible://pair?…`) under [deviceName], with a fresh device key. [connect] opens a
-         * connection to one of the node's addresses under the network policy.
+         * `invincible://pair?…`) under [deviceName], with a fresh device key, or [previous]'s when
+         * it is a pairing with the same node. [connect] opens a connection to one of the node's
+         * addresses under the network policy. Failures: [NodeBlockedException],
+         * [NodeConnectException], [NodeRefusedException], [NodeTimeoutException] ([NodeErrors.pairing] words them).
          */
-        suspend fun pair(crypto: NodeCrypto, code: PairingCode, deviceName: String, connect: suspend (List<String>) -> NodeLink): PairedNode {
-            val device = NodeKeyPair.generate(crypto)
-            val paired = InvincibleNode.pair(crypto, connect(code.addresses), code, device, deviceName)
+        suspend fun pair(
+            crypto: NodeCrypto,
+            code: PairingCode,
+            deviceName: String,
+            previous: PairedNode? = null,
+            connect: suspend (List<String>) -> NodeLink,
+        ): PairedNode {
+            // Pairing again with a node this device has: the same key, so the node keeps one entry
+            // for it (renamed) instead of a second one.
+            val device = previous?.takeIf { it.nodeKey.contentEquals(code.nodeKey) }?.device ?: NodeKeyPair.generate(crypto)
+            val link = open(code.addresses, connect)
+            val paired = try {
+                InvincibleNode.pair(crypto, link, code, device, deviceName)
+            } catch (e: Exception) {
+                link.close()
+                throw e
+            }
             paired.channel.close()
             return PairedNode(paired.node, paired.device, code.nodeKey, code.addresses, paired.receiptKey, device)
+        }
+
+        /** Whether [secret] (a stored pairing) is with the node [code] names: pairing again replaces it. */
+        fun sameNode(secret: String?, code: PairingCode): Boolean =
+            secret?.let(::fromSecret)?.nodeKey?.contentEquals(code.nodeKey) == true
+
+        /** [connect], with a failure that is not the network policy's as [NodeConnectException]. */
+        internal suspend fun open(addresses: List<String>, connect: suspend (List<String>) -> NodeLink): NodeLink = try {
+            connect(addresses)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: NodeBlockedException) {
+            throw e
+        } catch (e: NodeConnectException) {
+            throw e
+        } catch (e: Exception) {
+            throw NodeConnectException(e.message ?: "could not reach the node")
         }
     }
 }

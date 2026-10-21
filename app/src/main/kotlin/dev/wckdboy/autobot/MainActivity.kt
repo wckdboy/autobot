@@ -39,6 +39,7 @@ import dev.wckdboy.autobot.core.designsystem.theme.SystemBarsBase
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.core.security.LockState
 import dev.wckdboy.autobot.core.security.PinResult
+import dev.wckdboy.autobot.entry.EntryRequest
 import dev.wckdboy.autobot.entry.EntryViewModel
 import dev.wckdboy.autobot.feature.home.WelcomeScreen
 import dev.wckdboy.autobot.navigation.AutobotNavDisplay
@@ -148,6 +149,16 @@ class MainActivity : FragmentActivity() {
                     var lockMessage by rememberSaveable { mutableStateOf<String?>(null) }
                     var resetting by remember { mutableStateOf(false) }
                     val onboarded: () -> Unit = { scope.launch { runCatching { settingsRepository.setOnboarded() } } }
+                    // Opened from a node's QR code: the user chose to pair, so the welcome steps
+                    // aside and the pairing sheet opens with the code.
+                    val pendingEntry by entry.pending.collectAsStateWithLifecycle()
+                    var pairingLink by rememberSaveable { mutableStateOf(false) }
+                    LaunchedEffect(pendingEntry, loaded?.onboarded) {
+                        if (pendingEntry is EntryRequest.PairNode && loaded?.onboarded == false) {
+                            pairingLink = true
+                            onboarded()
+                        }
+                    }
                     if (!lockReady) {
                         // Settings not loaded yet: render nothing rather than risk showing content.
                     } else if (lockState is LockState.Locked) {
@@ -211,7 +222,7 @@ class MainActivity : FragmentActivity() {
                         )
                     } else if (databaseState != DatabaseState.Open || !demoReady) {
                         // Opening the database (a moment): screens must not query it before it is known to work.
-                    } else if (loaded?.onboarded == false && !debugLaunch.skipWelcome) {
+                    } else if (loaded?.onboarded == false && !debugLaunch.skipWelcome && !pairingLink) {
                         ReportDrawn()
                         WelcomeScreen(
                             onSetUp = {
