@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.settings.backup
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,9 +30,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.backup.BackupService
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import androidx.compose.material3.LinearProgressIndicator
+import dev.wckdboy.autobot.core.designsystem.component.Caption
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import java.time.LocalDate
 import javax.inject.Inject
@@ -71,7 +70,7 @@ class BackupViewModel @Inject constructor(
         }
         "Imported ${counted(added.conversations, "session")}, ${counted(added.images, "image")}, ${counted(added.providers, "provider")}, " +
             "${counted(added.memories, "memory note")}, ${counted(added.studioAssets, "studio asset")}. " +
-            "Add API keys again under Model providers."
+            "Add API keys again in Remote › Providers."
     }
 
     fun reset() {
@@ -142,12 +141,12 @@ fun BackupDialog(onDismiss: () -> Unit, viewModel: BackupViewModel = hiltViewMod
                         enabled = !working,
                     )
                 }
-                MicroLabel("at least $MIN_PASSPHRASE characters · it cannot be recovered")
+                Caption("at least $MIN_PASSPHRASE characters · it cannot be recovered")
                 when (val s = state) {
                     is BackupState.Working -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        MicroLabel(s.status.removeSuffix("…"))
+                        Caption(s.status.removeSuffix("…"))
                         // Export/import report phases, not a fraction: the indeterminate ink bar.
-                        InkProgressBar(null, Modifier.fillMaxWidth().height(2.dp))
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                     is BackupState.Done -> Text(s.message, style = MaterialTheme.typography.bodySmall)
                     is BackupState.Failed -> Text(s.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -156,10 +155,10 @@ fun BackupDialog(onDismiss: () -> Unit, viewModel: BackupViewModel = hiltViewMod
             }
         },
         confirmButton = {
-            TextButton(onClick = { exporter.launch("autobot-${LocalDate.now()}.autobot") }, enabled = exportable && !working) { ActionText("Export") }
+            TextButton(onClick = { exporter.launch("autobot-${LocalDate.now()}.autobot") }, enabled = exportable && !working) { Text("Export") }
         },
         dismissButton = {
-            TextButton(onClick = { importer.launch(arrayOf("*/*")) }, enabled = passphrase.isNotEmpty() && !working) { ActionText("Import") }
+            TextButton(onClick = { importer.launch(arrayOf("*/*")) }, enabled = passphrase.isNotEmpty() && !working) { Text("Import") }
         },
     )
 }

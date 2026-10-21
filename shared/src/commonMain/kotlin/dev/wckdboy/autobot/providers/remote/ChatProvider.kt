@@ -93,6 +93,8 @@ sealed interface ChatEvent {
      *   so a local route can tell a model that never loaded from one that failed mid-answer.
      * @param retryAfterMs when the provider said to come back (`Retry-After`, or a usage
      *   limit's reset time, see [QuotaErrors]).
+     * @param retryable false when trying again cannot help, whatever [kind] says (a paired node
+     *   that is down or cut the answer off: see [dev.wckdboy.autobot.shared.HttpSink.onFinalFailure]).
      */
     data class Error(
         val kind: ErrorKind,
@@ -100,6 +102,7 @@ sealed interface ChatEvent {
         val httpCode: Int? = null,
         val code: String? = null,
         val retryAfterMs: Long? = null,
+        val retryable: Boolean = true,
     ) : ChatEvent
 
     /** Another model than the requested one is answering (on-device fallback); [fallback] says why. */

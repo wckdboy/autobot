@@ -5,11 +5,10 @@ import UIKit
 @testable import Autobot
 
 /**
- The animation budget on real screens (motion spec v3 §4), measured in the simulator: process and
- main-thread CPU per second, frame pacing from a 60 Hz CADisplayLink (hitches = frames later than
- 1.5 intervals), ink draws and ticks per second and screen body evaluations per second (InkProbe).
- Scenarios: a long agent transcript streaming, the transcript / chat list / models list scrolling,
- Run and the empty gallery idle on living paper, the image studio generating, and a push.
+ The render budget on real screens, measured in the simulator: process and main-thread CPU per
+ second, frame pacing from a 60 Hz CADisplayLink (hitches = frames later than 1.5 intervals) and
+ screen body evaluations per second (RenderProbe). Scenarios: a long agent transcript streaming,
+ the transcript / chat list / models list scrolling, Run, the empty gallery and Image idle, and a push.
  Skipped unless `AUTOBOT_PERF_DIR` is set (`TEST_RUNNER_AUTOBOT_PERF_DIR=…`); writes perf.json.
  */
 @MainActor
@@ -61,14 +60,19 @@ struct MotionPerfTests {
         })
         app.agent.preview(long.id, state: base)
         results.append(try await measure("chat-scroll", ChatScreen(conversationId: long.id), app, nav, seconds: 3, scroll: true))
+        // A long markdown chat: headings, tables, code blocks, lists and quotes in every answer.
+        var rich = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
+        rich.title = "Rich transcript"
+        app.conversations.update(rich)
+        app.agent.preview(rich.id, state: Self.richState(rich.id))
+        results.append(try await measure("chat-rich-scroll", ChatScreen(conversationId: rich.id), app, nav, seconds: 3, scroll: true))
         results.append(try await measure("chat-list-scroll", ChatListScreen(), app, nav, seconds: 3, scroll: true))
+        results.append(try await measure("settings-scroll", SettingsScreen(), app, nav, seconds: 3, scroll: true))
         results.append(try await measure("models-scroll", ModelsScreen(), app, nav, seconds: 3, scroll: true))
         results.append(try await measure("run-idle", RunScreen(), app, nav, seconds: 3))
         results.append(try await measure("gallery-idle", GalleryScreen(openId: nil), app, nav, seconds: 3))
-        results.append(try await measure("imagine-generating", GeneratingProof().paperTheme(), app, nav, seconds: 3))
-        results.append(try await measure("bars-and-loaders", BarsKit(), app, nav, seconds: 3))
-        results.append(try await measure("live-tool-rows", LiveRows(), app, nav, seconds: 3))
-        // A push from the chat list into the long transcript (the screen inks in), then back.
+        results.append(try await measure("imagine-idle", ImagineScreen(), app, nav, seconds: 3))
+        // A push from the chat list into the long transcript, then back.
         nav.reset(.run, [.chatList])
         var pushed = false
         results.append(try await measure("push-chat", AutobotNavHost(), app, nav, seconds: 1.5) { t in
@@ -83,87 +87,6 @@ struct MotionPerfTests {
         try data.write(to: URL(fileURLWithPath: "\(dir)/perf.json"))
         for r in results {
             print(String(format: "PERF %@ cpu=%.0fms/s main=%.0fms/s frames=%d hitches=%d worst=%.1fms", r.scenario, r.cpuMsPerSec, r.mainCpuMsPerSec, r.frames, r.hitches, r.worstFrameMs), r.counts)
-        }
-    }
-
-    /// The app under an open Studio is hidden, not removed: nothing under it may draw ink while
-    /// the Studio is shown. Run's mode cards are flat (no living field), so Run itself is still.
-    @Test(.timeLimit(.minutes(2))) func appUnderTheStudioStopsItsInk() async throws {
-        let app = AppContainer()
-        let nav = Navigator()
-        nav.reset(.run, [])
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIHostingController(rootView: AutobotNavHost().environment(\.scenePhase, .active).environment(app).environment(nav).autobotTheme(.dark))
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-        }
-        // Ambient ink sleeps after a minute without a touch.
-        InkIdleClock.shared.touch(at: Date().addingTimeInterval(2))
-        func draws() async throws -> Int {
-            try await Task.sleep(for: .milliseconds(1200))
-            InkProbe.reset()
-            try await Task.sleep(for: .seconds(2))
-            return InkProbe.snapshot()["ink.draw", default: 0]
-        }
-        let run = try await draws()
-        nav.studio = .image
-        let studio = try await draws()
-        nav.studio = nil
-        // Whatever else draws (the test host's own hidden window) draws in both; Run's flat cards
-        // draw nothing, the Studio's empty canvas adds one field (~10 in 2 s), nothing more.
-        #expect(run <= 5, "Run at rest: \(run) draws")
-        #expect(studio <= run + 15, "Run: \(run) draws, Studio over Run: \(studio)")
-    }
-
-    /// The image studio while sampling: four proof plates (one flowing, three waiting), the step
-    /// tag with its loader and the running bar.
-    private struct GeneratingProof: View {
-        @Environment(\.scheme) private var c
-        var body: some View {
-            VStack(spacing: 12) {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
-                    ForEach(0 ..< 4) { i in
-                        ZStack(alignment: .bottomLeading) {
-                            c.surfaceContainerLow
-                            InkPlate(ink: i == 0 ? .flow(progress: 0.4, loading: false) : .idle, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, phase: Double(i) * 0.37)
-                            if i == 0 { Tag("loading", accent: c.primary, filled: true, busy: true).padding(6) }
-                        }
-                        .aspectRatio(1, contentMode: .fit)
-                        .clipped()
-                    }
-                }
-                InkProgressBar(.progress(0.4, running: true), height: 2)
-                Spacer()
-            }
-            .padding(16)
-        }
-    }
-
-    /// Twelve running tool steps (a busy agent run): each has a pulsing status dot.
-    private struct LiveRows: View {
-        var body: some View {
-            VStack(spacing: 6) {
-                ForEach(0 ..< 12, id: \.self) { i in TerminalBlock(title: "read", status: .running, subtitle: "notes/day\(i).md") }
-                Spacer()
-            }
-            .padding(16)
-        }
-    }
-
-    private struct BarsKit: View {
-        var body: some View {
-            VStack(spacing: 14) {
-                InkProgressBar(fraction: 0.41, running: true)
-                InkProgressBar(.indeterminate, height: 2)
-                InkProgressBar(.paused(0.63))
-                InkProgressBar(.error(0.3))
-                HStack { InkLoader(); InkLoader(.button); InkLoader(.block, caption: "decrypting") }
-                Spacer()
-            }
-            .padding(16)
         }
     }
 
@@ -185,10 +108,49 @@ struct MotionPerfTests {
         return s
     }
 
+    /// 24 answers of rich markdown (a table, a code block, a list, a quote, headings).
+    static func richState(_ id: String, exchanges: Int = 24) -> ChatSessionState {
+        var s = ChatSessionState(sessionId: id)
+        var items: [SessionItem] = []
+        for i in 0 ..< exchanges {
+            items.append(.user(key: "u\(i)", text: "Compare the options for step \(i)", images: []))
+            let rows = (0 ..< 6).map { r in "| option \(r) | \(r * 3 + i) ms | `flag-\(r)` | **\(r % 2 == 0 ? "yes" : "no")** |" }.joined(separator: "\n")
+            let text = """
+            ## Step \(i): the options
+
+            Here is how they compare, with *timings* and the `config` keys that switch them.
+
+            | Option | Latency | Key | Default |
+            | --- | ---: | --- | :---: |
+            \(rows)
+
+            ```swift
+            struct Step\(i): Sendable {
+                let latency: Duration = .milliseconds(\(i * 7))
+                func run() async throws -> Int { try await Task.sleep(for: latency); return \(i) }
+            }
+            ```
+
+            1. Measure first
+            2. Change one thing
+               - keep the rest
+               - note the result
+            3. Measure again
+
+            > A quote with a [link](https://example.com/\(i)) and ~~old~~ new words.
+            """
+            items.append(.assistant(key: "a\(i)", text: text, reasoning: nil, interrupted: false, outputTokens: 240, model: "deepseek-chat"))
+        }
+        s.projection = SessionProjection(items: items, lastUsage: TokenUsage(inputTokens: 9_000, outputTokens: 5_000), contextWindow: 128_000)
+        s.provider = "p"
+        s.model = "deepseek-chat"
+        return s
+    }
+
     // MARK: Harness
 
     private func measure(_ name: String, _ view: some View, _ app: AppContainer, _ nav: Navigator, seconds: Double, scroll: Bool = false, step: ((Double) -> Void)? = nil) async throws -> Result {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let others = scene.windows.filter { !$0.isHidden }
         others.forEach { $0.isHidden = true }
         defer { others.forEach { $0.isHidden = false } }
@@ -202,7 +164,7 @@ struct MotionPerfTests {
 
         let scrollView = scroll ? Self.scrollView(in: window) : nil
         let pacer = FramePacer()
-        InkProbe.reset()
+        RenderProbe.reset()
         let cpu0 = Self.processCpu(), main0 = Self.mainThreadCpu()
         let start = CACurrentMediaTime()
         pacer.onFrame = { now in
@@ -227,7 +189,7 @@ struct MotionPerfTests {
         pacer.stop()
         let wall = CACurrentMediaTime() - start
         let cpu = Self.processCpu() - cpu0, main = Self.mainThreadCpu() - main0
-        let counts = InkProbe.snapshot().mapValues { Double($0) / wall }
+        let counts = RenderProbe.snapshot().mapValues { Double($0) / wall }
         window.isHidden = true
         window.rootViewController = nil
         return Result(scenario: name, seconds: wall, cpuMsPerSec: cpu * 1000 / wall, mainCpuMsPerSec: main * 1000 / wall,

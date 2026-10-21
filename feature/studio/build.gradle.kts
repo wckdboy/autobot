@@ -18,6 +18,14 @@ android {
     testOptions.unitTests.all { it.forkEvery = 1 }
 }
 
+// The large-text audit (renders at 200 % font and lists text that does not fit), shared by the
+// feature modules' LargeTextTest.
+androidComponents {
+    onVariants { variant ->
+        variant.hostTests.values.forEach { it.sources.kotlin?.addStaticSourceDirectory(rootProject.file("core/designsystem/src/largeTextTest/kotlin").path) }
+    }
+}
+
 dependencies {
     implementation(projects.core.designsystem)
     implementation(projects.core.data)
@@ -41,4 +49,5 @@ dependencies {
 
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.activity.compose)
 }

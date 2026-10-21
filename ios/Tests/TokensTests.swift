@@ -3,7 +3,8 @@ import Testing
 @testable import Autobot
 
 /// The generated Swift tokens must match `shared/design/tokens.json` (the Android side asserts
-/// Theme.kt against the same file).
+/// Theme.kt against the same file). The iOS screens draw in system colours and type; the brand
+/// marks take their purple and orange from this palette (Brand.swift).
 struct TokensTests {
     nonisolated(unsafe) private static let json: [String: Any] = {
         let url = URL(fileURLWithPath: #filePath)
@@ -26,6 +27,7 @@ struct TokensTests {
         #expect(Tokens.Palette.orangeLight == hex("palette", "orangeLight"))
         #expect(Tokens.Palette.lilac == hex("palette", "lilac"))
         #expect(Tokens.Palette.lilacDeep == hex("palette", "lilacDeep"))
+        #expect(Tokens.Palette.purple == hex("palette", "purple"))
         #expect((Self.json["palette"] as! [String: Any]).count == 28)
     }
 
@@ -37,35 +39,6 @@ struct TokensTests {
         #expect(Tokens.light.onSurfaceVariant == hex("light", "onSurfaceVariant"))
         #expect(Tokens.light.onError == hex("lightMaterialDefaults", "onError"))
         #expect(Tokens.Amoled.surfaceContainer == hex("amoled", "surfaceContainer"))
-    }
-
-    @Test func inksMatch() {
-        let inks = Self.json["inks"] as! [String: [String: String]]
-        func hex(_ theme: String, _ key: String) -> UInt32 { UInt32(inks[theme]![key]!.dropFirst(), radix: 16)! }
-        for (theme, set) in [("dark", Tokens.darkInks), ("light", Tokens.lightInks)] {
-            #expect(set.amber == hex(theme, "amber"))
-            #expect(set.cyan == hex(theme, "cyan"))
-            #expect(set.uv == hex(theme, "uv"))
-            #expect(set.signal == hex(theme, "signal"))
-        }
-        #expect(AutobotScheme.light.inks == .light)
-        #expect(AutobotScheme.dark.amoled().inks == .dark)
-    }
-
-    /// WCAG AA for the text colours on paper and ink (Android's ContrastTest covers every pair).
-    @Test func accentTextReads() {
-        for scheme in [AutobotScheme.dark, .light] {
-            for ground in [scheme.background, scheme.surfaceContainer, scheme.surfaceContainerHigh] {
-                for ink in [scheme.onSurface, scheme.onSurfaceVariant, scheme.primary, scheme.tertiary, scheme.error,
-                            scheme.inks.amber, scheme.inks.cyan, scheme.inks.uv, scheme.inks.signal] {
-                    let (a, b) = (ink.luminance(), ground.luminance())
-                    let ratio = (max(a, b) + 0.05) / (min(a, b) + 0.05)
-                    #expect(ratio >= 4.5, "\(scheme.isDark ? "dark" : "light") \(ink) on \(ground): \(ratio)")
-                }
-            }
-            let (p, on) = (scheme.primary.luminance(), scheme.onPrimary.luminance())
-            #expect((max(p, on) + 0.05) / (min(p, on) + 0.05) >= 4.5)
-        }
     }
 
     @Test func typeScaleMatches() {

@@ -1,10 +1,5 @@
 package dev.wckdboy.autobot.feature.settings.providers
 
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import dev.wckdboy.autobot.core.network.Loopback
 import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import androidx.compose.foundation.clickable
@@ -33,6 +28,24 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.text.font.FontWeight
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -43,7 +56,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
@@ -65,20 +78,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.ProviderKind
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.providers.remote.ModelCache
 import dev.wckdboy.autobot.providers.remote.ModelDataPolicies
@@ -87,6 +91,8 @@ import dev.wckdboy.autobot.providers.remote.ModelsApi
 import dev.wckdboy.autobot.providers.remote.PresetGroup
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.RemoteModel
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
+import dev.wckdboy.autobot.core.designsystem.component.KeyboardForm
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
@@ -100,7 +106,7 @@ fun ProvidersRoute(onBack: () -> Unit, start: ProvidersStart? = null, viewModel:
         if (start != null && !started) {
             started = true
             when (start) {
-                ProvidersStart.PAIR -> viewModel.openPairing("")
+                ProvidersStart.PAIR -> viewModel.startPairing()
                 ProvidersStart.ADD -> viewModel.startAdd()
             }
         }
@@ -165,12 +171,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
     val dissolve = rememberInkDissolve()
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Providers") },
-                navigationIcon = {
-                    IconButton(onClick = actions::back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
-            )
+            AppBar("Providers", actions::back)
         },
         floatingActionButton = {
             FloatingActionButton(onClick = actions::add) { Icon(Icons.Filled.Add, contentDescription = "Add provider") }
@@ -178,10 +179,10 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
     ) { padding ->
         if (state.providers.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState("No providers yet. Tap + to add a cloud API, a server on your network or your node.")
+                EmptyContent("No providers yet. Tap + to add a cloud API, a server on your network or your node.")
             }
-        } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+        } else Centered(Modifier.padding(padding)) { width ->
+            LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 items(state.providers, key = { it.id }, contentType = { "provider" }) { row ->
                     ListItem(
                         modifier = Modifier.inkDissolve(dissolve, row.id).clickable { actions.edit(row.id) },
@@ -190,18 +191,28 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
                             Column {
                                 Row {
                                     Text(
-                                        "${row.presetName} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
+                                        if (row.nodeAddresses != null) "${row.presetName} · ${row.model} · ${row.routing.label}"
+                                        else "${row.presetName} · ${row.model} · ${row.routing.label}" + if (row.hasKey) " · key ✓" else "",
                                         modifier = Modifier.weight(1f, fill = false),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     if (row.requiresKey && !row.hasKey) Text(" · no key", color = MaterialTheme.colorScheme.error, maxLines = 1)
                                 }
-                                row.models?.let { MicroLabel(it) }
+                                row.models?.let { Caption(it) }
                                 row.problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                             }
                         },
-                        overlineContent = { Text(row.baseUrl, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        // A node's base URL is a placeholder: its addresses say where it is.
+                        // A node whose pairing is gone (a restored backup) says so, in the error color.
+                        overlineContent = {
+                            Text(
+                                row.nodeAddresses?.let(NodePairingWords::row) ?: row.baseUrl,
+                                color = if (row.nodeAddresses?.let(NodePairingWords::paired) == false) MaterialTheme.colorScheme.error else Color.Unspecified,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
                         trailingContent = {
                             IconButton(onClick = { deleting = row }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
@@ -222,12 +233,15 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
             title = { Text("Delete ${row.name}?") },
             text = { Text(deleteMessage(row, state.providers)) },
             confirmButton = {
-                TextButton(onClick = {
-                    dissolve.dissolve(row.id) { actions.delete(row.id) }
-                    deleting = null
-                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        dissolve.dissolve(row.id) { actions.delete(row.id) }
+                        deleting = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
 }
@@ -235,7 +249,7 @@ fun ProvidersScreen(state: ProvidersUiState, actions: ProvidersActions) {
 @Composable
 private fun ApiKeyField(draft: ProviderDraft, preset: ProviderPreset, actions: ProvidersActions) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        ConsoleTextField(
+        Field(
             draft.apiKeyInput, { v -> actions.change { it.copy(apiKeyInput = v, clearStoredKey = false) } }, Modifier.fillMaxWidth(),
             label = if (preset.requiresApiKey) "API key" else "API key (optional)",
             placeholder = if (draft.hasStoredKey && !draft.clearStoredKey) "•••••••• saved — type to replace" else null,
@@ -244,12 +258,12 @@ private fun ApiKeyField(draft: ProviderDraft, preset: ProviderPreset, actions: P
             visualTransformation = PasswordVisualTransformation(),
         )
         // A new provider's empty key is a step still to do, not an error yet.
-        if (draft.missingKey) MicroLabel("This provider needs an API key", color = if (draft.isNew) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        if (draft.missingKey) Caption("This provider needs an API key", color = if (draft.isNew) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
         draft.keyProblem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-        MicroLabel("encrypted with Android Keystore · sent only to ${preset.host.ifBlank { "this host" }}")
+        Caption("encrypted with Android Keystore · sent only to ${preset.host.ifBlank { "this host" }}")
         if (draft.hasStoredKey && draft.apiKeyInput.isEmpty()) {
             TextButton(onClick = { actions.change { it.copy(clearStoredKey = !it.clearStoredKey) } }) {
-                ActionText(if (draft.clearStoredKey) "Keep saved key" else "Remove saved key")
+                Text(if (draft.clearStoredKey) "Keep saved key" else "Remove saved key")
             }
         }
     }
@@ -259,7 +273,7 @@ private fun ApiKeyField(draft: ProviderDraft, preset: ProviderPreset, actions: P
 
 @Composable
 private fun OfflineLine(actions: ProvidersActions) {
-    Notice(OFFLINE_LINE, tone = NoticeTone.WARNING, action = "Allow network", onAction = actions::allowNetwork)
+    NoticeCard(OFFLINE_LINE, tone = NoticeTone.WARNING, action = "Allow network", onAction = actions::allowNetwork)
 }
 
 internal const val OFFLINE_LINE = "Offline mode is on, so this can't reach the network."
@@ -287,14 +301,14 @@ private fun PresetPickerSheet(initialQuery: String, actions: ProvidersActions) {
     val groups = remember(query) { ProviderPresets.search(query) }
     ModalBottomSheet(onDismissRequest = actions::dismissPicker, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).imePadding().padding(horizontal = 16.dp)) {
-            SectionLabel("add provider")
+            SheetLabel("add provider")
             Spacer(Modifier.height(8.dp))
-            ConsoleTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = "Search providers or hosts", singleLine = true)
+            Field(query, { query = it }, Modifier.fillMaxWidth(), placeholder = "Search providers or hosts", singleLine = true)
             Spacer(Modifier.height(8.dp))
             LazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
-                if (groups.isEmpty()) item { MicroLabel("no match · try “Other OpenAI-compatible”", Modifier.padding(vertical = 16.dp)) }
+                if (groups.isEmpty()) item { Caption("no match · try “Other OpenAI-compatible”", Modifier.padding(vertical = 16.dp)) }
                 groups.forEach { (group, presets) ->
-                    item(key = "g-${group.name}") { MicroLabel("${group.label} · ${presets.size}", Modifier.padding(top = 14.dp, bottom = 4.dp)) }
+                    item(key = "g-${group.name}") { SheetLabel("${group.label} · ${presets.size}", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
                     if (group == PresetGroup.LOCAL_SERVERS) {
                         item(key = "n-${group.name}") {
                             Text(
@@ -307,22 +321,24 @@ private fun PresetPickerSheet(initialQuery: String, actions: ProvidersActions) {
                     }
                     items(presets, key = { it.id }) { preset ->
                         val selectable = preset.group != PresetGroup.THIS_PHONE
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .then(if (selectable) Modifier.clickable { actions.choosePreset(preset.id) } else Modifier)
-                                .padding(vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(preset.displayName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f, fill = false))
-                                if (preset.kind == ProviderKind.ANTHROPIC) Tag("native")
-                                if (!preset.requiresApiKey && selectable) Tag("no key")
-                            }
-                            MicroLabel(if (selectable) preset.host else "added automatically")
-                            preset.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        }
-                        Hairline()
+                        ListItem(
+                            modifier = if (selectable) Modifier.clickable { actions.choosePreset(preset.id) } else Modifier,
+                            colors = clearListItem(),
+                            headlineContent = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(preset.displayName, modifier = Modifier.weight(1f, fill = false))
+                                    if (preset.kind == ProviderKind.ANTHROPIC) TonalLabel("native")
+                                    if (!preset.requiresApiKey && selectable) TonalLabel("no key")
+                                }
+                            },
+                            supportingContent = {
+                                Column {
+                                    Text(if (selectable) preset.host else "Added automatically")
+                                    preset.note?.let { Text(it) }
+                                }
+                            },
+                        )
+                        HorizontalDivider()
                     }
                 }
             }
@@ -338,21 +354,50 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
     val models = state.models
     ModalBottomSheet(onDismissRequest = actions::dismissEditor, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         NoPersonalizedLearning {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            // Save stays above the keyboard while a field (the API key) is being typed.
+            KeyboardForm(
+                horizontalPadding = 24.dp,
+                footer = {
+                    TestResult(test)
+                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    if (!state.saving) draft.saveProblem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+
+                    var confirmNoKey by remember { mutableStateOf(false) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = { if (test != TestState.Running) actions.test() },
+                            modifier = Modifier.weight(1f),
+                            enabled = draft.baseUrlValid,
+                        ) { BusyLabel("Test connection", busy = test == TestState.Running) }
+                        Button(
+                            onClick = { if (!state.saving) { if (draft.missingKey) confirmNoKey = true else actions.save() } },
+                            modifier = Modifier.weight(1f),
+                            enabled = draft.canSave || state.saving,
+                        ) { BusyLabel("Save", busy = state.saving) }
+                    }
+                    if (confirmNoKey) {
+                        AlertDialog(
+                            onDismissRequest = { confirmNoKey = false },
+                            title = { Text("Save without an API key?") },
+                            text = { Text("${preset.displayName} needs an API key; requests will be refused until you add one.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    confirmNoKey = false
+                                    actions.save()
+                                }) { Text("Save anyway") }
+                            },
+                            dismissButton = { TextButton(onClick = { confirmNoKey = false }) { Text("Cancel") } },
+                        )
+                    }
+                    TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
+                },
             ) {
-                SectionLabel(if (draft.isNew) "add provider" else "edit provider")
+                SheetLabel(if (draft.isNew) "add provider" else "edit provider")
                 if (state.offline && !Loopback.isLoopbackUrl(draft.baseUrl)) OfflineLine(actions)
 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(preset.displayName, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                    Tag(preset.group.label)
+                    TonalLabel(preset.group.label)
                 }
                 preset.note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
@@ -361,12 +406,12 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 val keyFirst = draft.isNew && preset.requiresApiKey && !draft.isNode
                 if (keyFirst) ApiKeyField(draft, preset, actions)
 
-                ConsoleTextField(draft.displayName, { v -> actions.change { it.copy(displayName = v) } }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
+                Field(draft.displayName, { v -> actions.change { it.copy(displayName = v) } }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
                 if (draft.isNode) {
                     // Its address and keys come from pairing; delete the provider to unpair.
-                    MicroLabel("paired end to end · keys encrypted with Android Keystore · delete to unpair")
+                    Caption("paired end to end · keys encrypted with Android Keystore · delete to unpair")
                 } else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    ConsoleTextField(
+                    Field(
                         draft.baseUrl, { v -> actions.change { it.copy(baseUrl = v) } }, Modifier.fillMaxWidth(),
                         label = "Base URL", singleLine = true, mono = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
@@ -376,7 +421,7 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                     if (urlProblem != null) {
                         Text(urlProblem, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     } else {
-                        MicroLabel("cleartext http only for 127.0.0.1 / localhost")
+                        Caption("cleartext http only for 127.0.0.1 / localhost")
                     }
                 }
 
@@ -385,11 +430,11 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 ModelPicker(draft, models, state.now, preset.modelsApi != ModelsApi.NONE, actions)
                 HelperModelField(draft, models, actions)
 
-                MicroLabel("routing")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SheetLabel("routing")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProviderRouting.entries.forEach { routing ->
                         val active = draft.routing == routing
-                        ChoiceChip(routing.label, selected = active, onClick = { actions.change { it.copy(routing = routing) } })
+                        FilterChip(selected = active, onClick = { actions.change { it.copy(routing = routing) } }, label = { Text(routing.label) })
                     }
                 }
                 Text(
@@ -399,95 +444,64 @@ private fun ProviderEditorSheet(draft: ProviderDraft, state: ProvidersUiState, a
                 )
                 preset.privacyNote?.let { note ->
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        MicroLabel("privacy")
+                        SheetLabel("privacy")
                         Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        preset.privacyUrl?.let { MicroLabel(it) }
+                        preset.privacyUrl?.let { Caption(it) }
                     }
                 }
 
-                TestResult(test)
-                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                if (!state.saving) draft.saveProblem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-
-                var confirmNoKey by remember { mutableStateOf(false) }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GhostButton("Test connection", actions::test, Modifier.weight(1f), enabled = draft.baseUrlValid, busy = test == TestState.Running)
-                    PrimaryButton("Save", { if (draft.missingKey) confirmNoKey = true else actions.save() }, Modifier.weight(1f), enabled = draft.canSave || state.saving, busy = state.saving)
-                }
-                if (confirmNoKey) {
-                    AlertDialog(
-                        onDismissRequest = { confirmNoKey = false },
-                        title = { Text("Save without an API key?") },
-                        text = { Text("${preset.displayName} needs an API key; requests will be refused until you add one.") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                confirmNoKey = false
-                                actions.save()
-                            }) { ActionText("Save anyway") }
-                        },
-                        dismissButton = { TextButton(onClick = { confirmNoKey = false }) { ActionText("Cancel") } },
-                    )
-                }
-                TextButton(onClick = actions::dismissEditor, modifier = Modifier.align(Alignment.CenterHorizontally)) { ActionText("Cancel") }
             }
         }
     }
 }
 
 /**
- * "My node": pair with an Invincible node from its code. The camera app reading the node's QR
+ * "Pair a node": pair with an Invincible node from its code. The camera app reading the node's QR
  * code fills it in (`invincible://pair?…`); pasting works too. The node's key fingerprint is shown
- * to compare with what the node printed before anything is sent.
+ * to compare with what the node printed before anything is sent. The words are shared with iOS
+ * ([NodePairingWords]); the form keeps Pair above the keyboard ([KeyboardForm]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PairingSheet(draft: PairingDraft, offline: Boolean, actions: ProvidersActions) {
     ModalBottomSheet(onDismissRequest = actions::dismissPairing, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         NoPersonalizedLearning {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .imePadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            KeyboardForm(
+                horizontalPadding = 24.dp,
+                footer = {
+                    draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    Button(
+                        onClick = actions::pair,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = draft.problem == null && !draft.running,
+                    ) { BusyLabel(NodePairingWords.PAIR, busy = draft.running) }
+                    TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Cancel") }
+                },
             ) {
-                SectionLabel("pair with my node")
-                Text("My node (Invincible)", style = MaterialTheme.typography.titleLarge)
+                Text(NodePairingWords.TITLE, style = MaterialTheme.typography.titleLarge)
                 if (offline) OfflineLine(actions)
-                Text(
-                    "On the node, run `invincible pair`. Point the camera app at the QR code it shows, or paste the code below.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                ConsoleTextField(
+                Text(NodePairingWords.HOW, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Field(
                     draft.code, { v -> actions.changePairing { it.copy(code = v.trim()) } }, Modifier.fillMaxWidth(),
-                    label = "Pairing code", mono = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                    label = NodePairingWords.CODE, mono = true,
+                    keyboardOptions = SecretKeyboardOptions,
                     visualTransformation = PasswordVisualTransformation(),
                 )
                 draft.parsed?.let { code ->
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        MicroLabel("node key")
+                        Caption(NodePairingWords.KEY)
                         Text(draft.fingerprint.orEmpty(), style = MaterialTheme.typography.titleMedium)
-                        MicroLabel("compare with the key the node printed · ${code.addresses.joinToString(" · ")}")
+                        Caption(NodePairingWords.COMPARE)
+                        Caption(code.addresses.joinToString(" · "))
                     }
                 }
-                ConsoleTextField(
+                // A code that is not one says so as it is typed; an empty one needs no second telling.
+                if (draft.code.isNotBlank() && draft.parsed == null) Text(NodePairingWords.NOT_A_CODE, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                Field(
                     draft.deviceName, { v -> actions.changePairing { it.copy(deviceName = v) } }, Modifier.fillMaxWidth(),
-                    label = "This phone's name on the node", singleLine = true,
+                    label = NodePairingWords.NAME, singleLine = true,
                 )
-                Text(
-                    "Pairing is end-to-end encrypted (Noise) and needs no account. The kill switch and routing apply.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                // An empty code needs no second telling: the line above says where it comes from.
-                if (!draft.running && draft.code.isNotBlank()) draft.problem?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-                PrimaryButton("Pair", actions::pair, Modifier.fillMaxWidth(), enabled = draft.problem == null && !draft.running, busy = draft.running)
-                TextButton(onClick = actions::dismissPairing, modifier = Modifier.align(Alignment.CenterHorizontally)) { ActionText("Cancel") }
+                Caption(NodePairingWords.NOTE)
             }
         }
     }
@@ -499,7 +513,7 @@ private fun PairingSheet(draft: PairingDraft, offline: Boolean, actions: Provide
 private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, canFetch: Boolean, actions: ProvidersActions) {
     var confirm by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ConsoleTextField(
+        Field(
             draft.defaultModel, { v -> actions.change { it.copy(defaultModel = v) } }, Modifier.fillMaxWidth(),
             label = "Default model", singleLine = true, mono = true,
         )
@@ -511,9 +525,9 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
                 canFetch -> "offline list · refresh to fetch"
                 else -> "no models endpoint · documented list"
             }
-            MicroLabel(status, Modifier.weight(1f), if (models.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            Caption(status, Modifier.weight(1f), if (models.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if (canFetch) {
-                TextButton(onClick = actions::refreshModels, enabled = draft.baseUrlValid && !models.loading) { InkBusyLabel(models.loading) { ActionText("Refresh") } }
+                TextButton(onClick = actions::refreshModels, enabled = draft.baseUrlValid && !models.loading) { BusyLabel("Refresh", busy = models.loading) }
             }
         }
         val query = if (models.models.any { it.id == draft.defaultModel }) "" else draft.defaultModel
@@ -525,7 +539,7 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
                 }
             }
             val more = ModelLists.filter(models.models, query, limit = Int.MAX_VALUE).size - shown.size
-            if (more > 0) MicroLabel("+$more more · type to search")
+            if (more > 0) Caption("+$more more · type to search")
         }
     }
     confirm?.let { id -> TrainsDialog(id, onConfirm = { actions.change { it.copy(defaultModel = id) } }, onDismiss = { confirm = null }) }
@@ -536,13 +550,13 @@ private fun ModelPicker(draft: ProviderDraft, models: EditorModels, now: Long, c
 private fun HelperModelField(draft: ProviderDraft, models: EditorModels, actions: ProvidersActions) {
     var confirm by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ConsoleTextField(
+        Field(
             draft.helperModel, { v -> actions.change { it.copy(helperModel = v) } }, Modifier.fillMaxWidth(),
             label = "Helper model (optional)", singleLine = true, mono = true,
         )
         val helper = draft.helperModel.trim()
         val chosen = models.models.firstOrNull { it.id == helper }
-        chosen?.let { ModelDataPolicies.modelCaption(draft.presetId, it).ifEmpty { null } }?.let { MicroLabel(it) }
+        chosen?.let { ModelDataPolicies.modelCaption(draft.presetId, it).ifEmpty { null } }?.let { Caption(it) }
         Text(HELPER_HINT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (helper.isNotEmpty() && chosen == null) {
             ModelLists.filter(models.models, helper, limit = 5).forEach { m ->
@@ -558,24 +572,26 @@ private fun HelperModelField(draft: ProviderDraft, models: EditorModels, actions
 /** One model of a list: its id, then context, price and (per-model) data policy. */
 @Composable
 private fun ModelRow(m: RemoteModel, presetId: String, active: Boolean, onClick: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-    ) {
-        Text(
-            (if (active) "● " else "") + m.id,
-            style = AutobotTheme.styles.code,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.SemiBold else null,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        ModelDataPolicies.modelCaption(presetId, m).takeIf { it.isNotEmpty() }?.let {
-            MicroLabel(it, color = if (ModelDataPolicies.trains(presetId, m.id)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    val caption = ModelDataPolicies.modelCaption(presetId, m).takeIf { it.isNotEmpty() }
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        colors = clearListItem(),
+        headlineContent = {
+            Text(
+                m.id,
+                style = AutobotTheme.styles.code,
+                fontWeight = if (active) FontWeight.SemiBold else null,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        supportingContent = caption?.let {
+            { Caption(it, color = if (ModelDataPolicies.trains(presetId, m.id)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+        },
+        trailingContent = if (active) {
+            { Icon(Icons.Filled.Check, contentDescription = "Default", tint = MaterialTheme.colorScheme.primary) }
+        } else null,
+    )
 }
 
 /** Asks before choosing a model whose provider trains on prompts. */
@@ -589,9 +605,9 @@ private fun TrainsDialog(model: String, onConfirm: () -> Unit, onDismiss: () -> 
             TextButton(onClick = {
                 onDismiss()
                 onConfirm()
-            }) { ActionText("Use anyway") }
+            }) { Text("Use anyway") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

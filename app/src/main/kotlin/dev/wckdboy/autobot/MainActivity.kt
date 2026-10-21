@@ -34,12 +34,12 @@ import dev.wckdboy.autobot.core.data.debug.DemoMode
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
-import dev.wckdboy.autobot.core.designsystem.component.InkSpecimen
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.SystemBarsBase
 import dev.wckdboy.autobot.core.security.AppLockManager
 import dev.wckdboy.autobot.core.security.LockState
 import dev.wckdboy.autobot.core.security.PinResult
+import dev.wckdboy.autobot.entry.EntryRequest
 import dev.wckdboy.autobot.entry.EntryViewModel
 import dev.wckdboy.autobot.feature.home.WelcomeScreen
 import dev.wckdboy.autobot.navigation.AutobotNavDisplay
@@ -105,12 +105,6 @@ class MainActivity : FragmentActivity() {
         DemoMode.on = debugLaunch.demo
         DemoMode.digestFailed = debugLaunch.digestFailed
 
-        // Debug builds only: `--ez ink_specimen true` shows the ink components on one sheet for pixel inspection.
-        if (BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_INK_SPECIMEN, false)) {
-            setContent { AutobotTheme { InkSpecimen() } }
-            return
-        }
-
         // Not on recreation (rotation): the request was already taken or is still pending.
         if (savedInstanceState == null) entry.receive(intent)
 
@@ -155,6 +149,16 @@ class MainActivity : FragmentActivity() {
                     var lockMessage by rememberSaveable { mutableStateOf<String?>(null) }
                     var resetting by remember { mutableStateOf(false) }
                     val onboarded: () -> Unit = { scope.launch { runCatching { settingsRepository.setOnboarded() } } }
+                    // Opened from a node's QR code: the user chose to pair, so the welcome steps
+                    // aside and the pairing sheet opens with the code.
+                    val pendingEntry by entry.pending.collectAsStateWithLifecycle()
+                    var pairingLink by rememberSaveable { mutableStateOf(false) }
+                    LaunchedEffect(pendingEntry, loaded?.onboarded) {
+                        if (pendingEntry is EntryRequest.PairNode && loaded?.onboarded == false) {
+                            pairingLink = true
+                            onboarded()
+                        }
+                    }
                     if (!lockReady) {
                         // Settings not loaded yet: render nothing rather than risk showing content.
                     } else if (lockState is LockState.Locked) {
@@ -218,7 +222,7 @@ class MainActivity : FragmentActivity() {
                         )
                     } else if (databaseState != DatabaseState.Open || !demoReady) {
                         // Opening the database (a moment): screens must not query it before it is known to work.
-                    } else if (loaded?.onboarded == false && !debugLaunch.skipWelcome) {
+                    } else if (loaded?.onboarded == false && !debugLaunch.skipWelcome && !pairingLink) {
                         ReportDrawn()
                         WelcomeScreen(
                             onSetUp = {
@@ -280,4 +284,3 @@ class MainActivity : FragmentActivity() {
 /** How long the lock screen stays up after a duress restart before it prints away (a PIN check's time). */
 private const val QUIET_START_MILLIS = 250L
 private const val EXTRA_ALLOW_SCREENSHOTS = "allow_screenshots"
-private const val EXTRA_INK_SPECIMEN = "ink_specimen"

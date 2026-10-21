@@ -130,6 +130,30 @@ class TaskToolTest {
     }
 
     @Test
+    fun aToolNotOfferedToAnAgentStaysOutOfItsRequests() = runTest {
+        // Like show_ui: offered to the chat's own agent, never to a subagent.
+        val mainOnly = object : ToolDefinition by Probe("main_only", ToolKind.INTERACT) {
+            override fun offeredTo(agent: Agent) = !TaskTool.isSubagent(agent.id)
+        }
+        val adapter = RoutingAdapter { call ->
+            when {
+                call.isSubagent -> reply("report")
+                call.toolResults.isEmpty() -> listOf(task("t1", "job", "a"), StreamChunk.Finish("tool_calls"))
+                else -> reply("ok")
+            }
+        }
+        val agent = agent(adapter, mainOnly, Probe("read", ToolKind.READ))
+        agent.followup("go")
+        advanceUntilIdle()
+
+        assertTrue(adapter.calls.filterNot { it.isSubagent }.all { c -> c.tools.any { it.name == "main_only" } })
+        val child = adapter.calls.filter { it.isSubagent }
+        assertEquals(1, child.size)
+        assertTrue(child.single().tools.none { it.name == "main_only" })
+        assertTrue(child.single().tools.any { it.name == "read" })
+    }
+
+    @Test
     fun subagentsRunOnTheHelperModelUnlessAskedForTheMainOne() = runTest {
         val adapter = RoutingAdapter(helper = "fast") { call ->
             when {

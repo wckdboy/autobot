@@ -256,6 +256,7 @@ enum Tokens {
         static let primaryButtonPaddingHorizontal: CGFloat = 20.0
         static let readoutGap: CGFloat = 2.0
         static let rowGap: CGFloat = 12.0
+        static let rowMinHeight: CGFloat = 56.0
         static let rowPaddingVertical: CGFloat = 12.0
         static let rowTextGap: CGFloat = 3.0
         static let segmentedHeight: CGFloat = 34.0

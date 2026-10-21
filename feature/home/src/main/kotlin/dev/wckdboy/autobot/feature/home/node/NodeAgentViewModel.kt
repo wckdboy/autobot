@@ -204,7 +204,7 @@ class NodeAgentViewModel @AssistedInject constructor(
             }
             _state.update { it.copy(node = provider.displayName, problem = null) }
             val (agent, device) = agents.forProvider(provider) ?: run {
-                _state.update { it.copy(problem = "The pairing with ${provider.displayName} is unreadable; pair again in Providers.") }
+                _state.update { it.copy(problem = "The pairing with ${provider.displayName} is unreadable. Pair it again in Remote.") }
                 return@launch
             }
             this@NodeAgentViewModel.agent = agent

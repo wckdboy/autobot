@@ -4,13 +4,24 @@ import dev.wckdboy.autobot.BuildConfig
 
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
+import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,9 +38,10 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import androidx.navigation3.scene.Scene
 import dev.wckdboy.autobot.MainActivity
-import dev.wckdboy.autobot.core.designsystem.component.AutobotNavBar
-import dev.wckdboy.autobot.core.designsystem.component.NavItem
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.inkScreenTransition
 import dev.wckdboy.autobot.core.designsystem.motion.misregisterEnter
@@ -66,18 +78,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private enum class Tab(val label: String, val root: TopLevel) {
-    RUN("Run", Run),
-    MODELS("Models", Models),
-    REMOTE("Remote", Remote),
-    SETTINGS("Settings", Settings),
+private enum class Tab(val label: String, val root: TopLevel, val icon: () -> ImageVector) {
+    RUN("Run", Run, { Icons.Filled.Home }),
+    MODELS("Models", Models, { AutobotIcons.Chip }),
+    REMOTE("Remote", Remote, { AutobotIcons.Terminal }),
+    SETTINGS("Settings", Settings, { Icons.Filled.Settings }),
 }
 
 private fun NavKey.tab(): Tab? = Tab.entries.firstOrNull { it.root == this }
-
-private val TABS = Tab.entries.map { NavItem(it, it.label) }
-
-/** Entry metadata: the screen is printed on paper (light), whatever the app theme. */
 
 /**
  * Wraps each entry so one that enters while a push is in flight ([pushing], judged once when it
@@ -96,9 +104,13 @@ private fun inkEnterDecorator(pushing: () -> Boolean): NavEntryDecorator<NavKey>
 }
 
 /**
- * Navigation 3 host: one back stack whose first entry is a tab root. Detail screens push on
- * top and hide the bottom bar. The image studio is printed on paper (light) as in the mockups.
+ * Navigation 3 host, adaptive: one back stack whose first entry is a tab root. The tabs are a
+ * bottom bar on a phone and a rail (or a drawer) on a tablet, a foldable or a desktop window,
+ * where they stay beside the screens pushed on top; on a phone a pushed screen takes the whole
+ * window. On a wide window a list and what it opens sit side by side (Run or the chat list and
+ * a chat, Settings and its pages, Remote and a node); on a phone they take turns.
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     // A forward push is in flight (cleared after its transition): the screen composed now is the
@@ -109,7 +121,13 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     val scope = rememberCoroutineScope()
     val settle = remember { arrayOfNulls<Job>(1) }
 
-    fun navigate(key: NavKey) {
+    // A list and what it opens side by side: opening another item from the list replaces the
+    // detail beside it, so back returns to the list instead of walking every item opened.
+    val adaptive = currentWindowAdaptiveInfo()
+    val twoPane = calculatePaneScaffoldDirective(adaptive).maxHorizontalPartitions > 1
+
+    /** Pushes [key]; opened from the list [from], it replaces the detail beside that list on a wide window. */
+    fun navigate(key: NavKey, from: NavKey? = null) {
         if (backStack.lastOrNull() != key) {
             pushing = true
             settle[0]?.cancel()
@@ -117,9 +135,11 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                 delay(Motion.transitionMillis.toLong())
                 pushing = false
             }
-            backStack.add(key)
+            if (from != null) backStack.openDetail(from, key, twoPane) else backStack.add(key)
         }
     }
+
+    fun open(list: NavKey, key: NavKey) = navigate(key, from = list)
 
     fun back() {
         pushing = false
@@ -134,86 +154,114 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
 
     val reduced = LocalInkMotion.current.reduced
     val context = LocalContext.current
-    val current = backStack.lastOrNull()
-    val tab = current?.tab()
-    val showBar = tab != null && backStack.size == 1
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize()) {
+    // The tab is the stack's root; a screen pushed on top keeps it.
+    val tab = backStack.firstOrNull()?.tab()
+    val suite = NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptive)
+    // A phone's bottom bar gives the whole window to a pushed screen (and to the Studio, which has
+    // its own bar); a rail or a drawer stays.
+    val layout = when {
+        tab == null -> NavigationSuiteType.None
+        suite == NavigationSuiteType.NavigationBar && backStack.size > 1 -> NavigationSuiteType.None
+        else -> suite
+    }
+    val listDetail = rememberAutobotListDetail()
+    // The pane beside a list before anything is opened in it.
+    val nothingOpen = remember {
+        ListDetailSceneStrategy.listPane(
+            detailPlaceholder = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyContent("Nothing open") }
+            },
+        )
+    }
+    val detail = remember { ListDetailSceneStrategy.detailPane() }
+    NavigationSuiteScaffold(
+        navigationSuiteItems = {
+            Tab.entries.forEach { item ->
+                item(
+                    selected = item == tab,
+                    onClick = { if (item != tab || backStack.size > 1) switchTo(item.root) },
+                    icon = { Icon(item.icon(), contentDescription = null) },
+                    label = { Text(item.label) },
+                )
+            }
+        },
+        layoutType = layout,
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
             NavDisplay(
                 backStack = backStack,
-                // The bar owns the navigation-bar inset while it is shown.
-                modifier = Modifier.weight(1f).then(if (showBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
+                modifier = Modifier.fillMaxSize(),
                 onBack = { back() },
+                sceneStrategies = listOf(listDetail),
                 entryDecorators = listOf(
                     rememberSaveableStateHolderNavEntryDecorator(),
                     rememberViewModelStoreNavEntryDecorator(),
                     inkEnterDecorator { pushing },
                 ),
-                transitionSpec = inkScreenTransition(reduced),
-                popTransitionSpec = inkScreenTransition(reduced),
+                transitionSpec = inkScreenTransition<Scene<NavKey>>(reduced),
+                popTransitionSpec = inkScreenTransition<Scene<NavKey>>(reduced),
                 // predictivePopTransitionSpec stays the platform default so the back gesture keeps
                 // its interactive, seekable preview.
                 entryProvider = entryProvider {
-                    entry<Run> {
+                    entry<Run>(metadata = nothingOpen) {
                         RunRoute(
-                            onOpenSession = { navigate(Chat(it)) },
+                            onOpenSession = { open(Run, Chat(it)) },
                             onOpenImagine = { navigate(Imagine()) },
                             onOpenStudio = { navigate(Studio()) },
-                            onOpenAllRuns = { navigate(ChatList) },
+                            onOpenAllRuns = { open(Run, ChatList) },
                             onOpenGalleryItem = { navigate(Gallery(it)) },
                             onOpenModels = { switchTo(Models) },
-                            onOpenNodeAgent = { id, open, session -> navigate(NodeAgent(id, open, session)) },
+                            onOpenNodeAgent = { id, sheet, session -> open(Run, NodeAgent(id, sheet, session)) },
                         )
                     }
-                    entry<Models> {
+                    entry<Models>(metadata = nothingOpen) {
                         ModelsRoute(
-                            onOpenAccounts = { navigate(Accounts) },
-                            onOpenCompute = { navigate(Compute()) },
-                            onOpenSession = { navigate(Chat(it)) },
+                            onOpenAccounts = { open(Models, Accounts) },
+                            onOpenCompute = { open(Models, Compute()) },
+                            onOpenSession = { open(Models, Chat(it)) },
                             onOpenImagine = { navigate(Imagine(modelId = it)) },
                             onOpenGallery = { navigate(Gallery()) },
-                            onOpenNetwork = { navigate(PrivacyCenter) },
+                            onOpenNetwork = { open(Models, PrivacyCenter) },
                             // The same new voice chat the voice tile and widget open.
                             onOpenVoice = { context.startActivity(Intent(context, MainActivity::class.java).setAction(EntryActions.VOICE)) },
                         )
                     }
-                    entry<Remote> {
+                    entry<Remote>(metadata = nothingOpen) {
                         RemoteRoute(
-                            onOpenProviders = { navigate(Providers()) },
-                            onOpenBackends = { navigate(ImageBackends) },
-                            onOpenAccounts = { navigate(Accounts) },
-                            onOpenPrivacy = { navigate(PrivacyCenter) },
-                            onOpenNodeAgent = { navigate(NodeAgent(it)) },
-                            onPairNode = { navigate(Providers(Providers.PAIR)) },
-                            onOpenBot = { id, bot -> navigate(NodeBot(id, bot)) },
+                            onOpenProviders = { open(Remote, Providers()) },
+                            onOpenBackends = { open(Remote, ImageBackends) },
+                            onOpenAccounts = { open(Remote, Accounts) },
+                            onOpenPrivacy = { open(Remote, PrivacyCenter) },
+                            onOpenNodeAgent = { open(Remote, NodeAgent(it)) },
+                            onPairNode = { open(Remote, Providers(Providers.PAIR)) },
+                            onOpenBot = { id, bot -> open(Remote, NodeBot(id, bot)) },
                         )
                     }
-                    entry<NodeAgent> { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open, session = key.session, bot = key.bot) }
-                    entry<NodeBot> { key ->
+                    entry<NodeAgent>(metadata = detail) { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open, session = key.session, bot = key.bot) }
+                    entry<NodeBot>(metadata = detail) { key ->
                         NodeBotRoute(key.providerId, key.name, onBack = ::back, onOpenSession = { session, bot -> navigate(NodeAgent(key.providerId, session = session, bot = bot)) })
                     }
-                    entry<Settings> {
+                    entry<Settings>(metadata = nothingOpen) {
                         SettingsRoute(
                             onBack = null,
-                            onOpenPrivacyCenter = { navigate(PrivacyCenter) },
-                            onOpenMemory = { navigate(Memory) },
-                            onOpenUsage = { navigate(Usage) },
-                            onOpenRecipes = { navigate(Recipes) },
-                            onOpenVault = { navigate(Vault) },
-                            onOpenMcpServers = { navigate(McpServers) },
-                            onOpenAbout = { navigate(About) },
+                            onOpenPrivacyCenter = { open(Settings, PrivacyCenter) },
+                            onOpenMemory = { open(Settings, Memory) },
+                            onOpenUsage = { open(Settings, Usage) },
+                            onOpenRecipes = { open(Settings, Recipes) },
+                            onOpenVault = { open(Settings, Vault) },
+                            onOpenMcpServers = { open(Settings, McpServers) },
+                            onOpenAbout = { open(Settings, About) },
                             about = aboutRowTitle(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()),
                         )
                     }
-                    entry<ChatList> {
+                    entry<ChatList>(metadata = nothingOpen) {
                         ChatListRoute(
                             onBack = ::back,
-                            onOpenChat = { navigate(Chat(it)) },
-                            onOpenProviders = { navigate(Providers()) },
-                            onOpenPrivacyCenter = { navigate(PrivacyCenter) },
+                            onOpenChat = { open(ChatList, Chat(it)) },
+                            onOpenProviders = { open(ChatList, Providers()) },
                         )
                     }
-                    entry<Chat> { key ->
+                    entry<Chat>(metadata = detail) { key ->
                         ChatRoute(
                             conversationId = key.conversationId,
                             onBack = ::back,
@@ -258,28 +306,48 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onReuse = { id, action -> navigate(Imagine(id, asInit = action == ViewerAction.IMG2IMG, action = action.name)) },
                         )
                     }
-                    entry<Providers> { key -> ProvidersRoute(onBack = ::back, start = when (key.start) { Providers.PAIR -> ProvidersStart.PAIR; Providers.ADD -> ProvidersStart.ADD; else -> null }) }
-                    entry<McpServers> { McpServersRoute(onBack = ::back) }
-                    entry<PrivacyCenter> { PrivacyCenterRoute(onBack = ::back) }
-                    entry<ImageBackends> { BackendsRoute(onBack = ::back) }
-                    entry<Accounts> { AccountsRoute(onBack = ::back) }
-                    entry<Compute> { key -> ComputeRoute(onBack = ::back, openReport = key.report) }
-                    entry<About> {
+                    entry<Providers>(metadata = detail) { key -> ProvidersRoute(onBack = ::back, start = when (key.start) { Providers.PAIR -> ProvidersStart.PAIR; Providers.ADD -> ProvidersStart.ADD; else -> null }) }
+                    entry<McpServers>(metadata = detail) { McpServersRoute(onBack = ::back) }
+                    entry<PrivacyCenter>(metadata = detail) { PrivacyCenterRoute(onBack = ::back) }
+                    entry<ImageBackends>(metadata = detail) { BackendsRoute(onBack = ::back) }
+                    entry<Accounts>(metadata = detail) { AccountsRoute(onBack = ::back) }
+                    entry<Compute>(metadata = detail) { key -> ComputeRoute(onBack = ::back, openReport = key.report) }
+                    entry<About>(metadata = detail) {
                         AboutRoute(
                             info = AboutInfo(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.BUILD_DATE, BuildConfig.DEBUG),
                             onBack = ::back,
                             onOpenDiagnostics = { navigate(Compute(report = true)) },
                         )
                     }
-                    entry<Memory> { MemoryRoute(onBack = ::back) }
-                    entry<Usage> { UsageRoute(onBack = ::back) }
-                    entry<Recipes> { RecipesRoute(onBack = ::back, onOpenChat = { navigate(Chat(it)) }) }
-                    entry<Vault> { VaultRoute(onBack = ::back, onOpenModels = { switchTo(Models) }) }
+                    entry<Memory>(metadata = detail) { MemoryRoute(onBack = ::back) }
+                    entry<Usage>(metadata = detail) { UsageRoute(onBack = ::back) }
+                    entry<Recipes>(metadata = detail) { RecipesRoute(onBack = ::back, onOpenChat = { navigate(Chat(it)) }) }
+                    entry<Vault>(metadata = detail) { VaultRoute(onBack = ::back, onOpenModels = { switchTo(Models) }) }
                 },
             )
-            if (showBar && tab != null) {
-                AutobotNavBar(TABS, tab, { selected -> if (selected != tab) switchTo(selected.root) })
-            }
-        }
     }
+}
+
+/**
+ * The list-detail scenes. Back pops one entry ([BackNavigationBehavior.PopLatest]): the default
+ * (pop until the panes change) found nothing to pop on a wide window, where closing a detail
+ * leaves the "Nothing open" placeholder in the same two panes, so back left the app instead.
+ */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+internal fun rememberAutobotListDetail(): ListDetailSceneStrategy<NavKey> =
+    rememberListDetailSceneStrategy(backNavigationBehavior = BackNavigationBehavior.PopLatest)
+
+/**
+ * Opens [key] from the list [list]. With two panes the list stays and [key] takes the detail
+ * pane: what was open beside the list is closed first, so back returns to the list. With one
+ * pane [key] is pushed as usual.
+ */
+internal fun MutableList<NavKey>.openDetail(list: NavKey, key: NavKey, twoPane: Boolean) {
+    if (lastOrNull() == key) return
+    if (twoPane) {
+        val at = lastIndexOf(list)
+        if (at >= 0) while (size > at + 1) removeAt(lastIndex)
+    }
+    add(key)
 }

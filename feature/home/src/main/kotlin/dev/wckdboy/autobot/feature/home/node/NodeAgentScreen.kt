@@ -1,12 +1,33 @@
 package dev.wckdboy.autobot.feature.home.node
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.produceState
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
+import dev.wckdboy.autobot.core.designsystem.component.MessageComposer
+import dev.wckdboy.autobot.core.designsystem.component.SendIconButton
+import dev.wckdboy.autobot.core.designsystem.component.TitleWithDot
+import dev.wckdboy.autobot.core.designsystem.component.readingWidth
+import androidx.compose.material.icons.outlined.Warning
+import dev.wckdboy.autobot.core.designsystem.component.BackIcon
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.graphics.Color
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,7 +43,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
@@ -41,27 +61,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import androidx.compose.material3.TextButton
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.keyboardUp
+import dev.wckdboy.autobot.shared.composer.Composer
+import dev.wckdboy.autobot.shared.composer.Composer.Part
+import androidx.compose.foundation.layout.consumeWindowInsets
 import dev.wckdboy.autobot.shared.invincible.AgentAction
 import dev.wckdboy.autobot.shared.invincible.ApprovalAnswer
 import dev.wckdboy.autobot.shared.invincible.NodeBots
 import dev.wckdboy.autobot.shared.invincible.NodeImages
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import android.graphics.BitmapFactory
@@ -125,6 +138,7 @@ fun NodeAgentRoute(providerId: String, onBack: () -> Unit, open: String? = null,
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NodeAgentScreen(
     state: NodeAgentUiState,
@@ -152,17 +166,21 @@ fun NodeAgentScreen(
     }
     val retryKey = AgentTranscript.retryTarget(state.rows, state.running)
     val list = rememberLazyListState()
-    LaunchedEffect(state.rows.size) { if (state.rows.isNotEmpty()) list.animateScrollToItem(state.rows.size - 1) }
+    // The list is reversed (first item lowest): the newest row sits on the composer, also as the keyboard opens.
+    LaunchedEffect(state.rows.size) { if (state.rows.isNotEmpty()) list.animateScrollToItem(0) }
+    val keyboard = keyboardUp()
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = "Agent · ${state.node}",
-                showMark = false,
-                navigation = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    // A screen about the node: Invincible's pixel i says which product is speaking.
-                    NodeMark(size = 14.dp)
+            TopAppBar(
+                title = {
+                    // A screen about the node: Invincible's pixel i after the title, where the dot sits
+                    // on the app's own screens, says which product is speaking.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TitleWithDot("Agent · ${state.node}", Modifier.weight(1f, fill = false), mark = false)
+                        NodeMark(size = 14.dp)
+                    }
                 },
+                navigationIcon = { BackIcon(onBack) },
                 actions = {
                     IconButton(onClick = onOpenActivity) {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Activity: what the node and the agent did")
@@ -177,18 +195,25 @@ fun NodeAgentScreen(
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+        // The scaffold already pads for the navigation bar: consumed, so the keyboard's padding does not add it twice.
+        Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             LazyColumn(
                 state = list,
-                modifier = Modifier.weight(1f).fillMaxWidth().testTag("node-agent"),
+                // A reading width on a wide window.
+                modifier = Modifier.weight(1f).readingWidth().fillMaxWidth().testTag("node-agent"),
+                reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
             ) {
+                if (state.running) item(key = "busy") { Loading() }
+                items(state.rows.asReversed(), key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
                 item(key = "head") {
                     when {
-                        state.problem != null -> Notice(state.problem, tone = NoticeTone.WARNING, action = "Retry", onAction = onRetry)
-                        state.info == null -> InkLoader()
-                        else -> Text(style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, text = labelCase(
+                        state.problem != null -> NoticeCard(state.problem, tone = NoticeTone.WARNING, action = "Retry", onAction = onRetry)
+                        state.info == null -> Loading()
+                        // What the conversation runs with: it steps aside while typing.
+                        !Composer.shows(Part.DECOR, keyboard) -> Unit
+                        else -> Text(style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, text = labelCase(
                             listOfNotNull(
                                 // Several bots: which one this conversation is with.
                                 "bot ${NodeBots.of(state.bot)}".takeIf { state.severalBots },
@@ -201,35 +226,31 @@ fun NodeAgentScreen(
                         ))
                     }
                 }
-                items(state.rows, key = { it.key }) { row -> AgentRowView(row, onAnswer, onInstead, retry = if (row.key == retryKey) onRetryTurn else null) }
-                if (state.running) item(key = "busy") { InkLoader() }
             }
-            if (state.photos.isNotEmpty() || state.photoProblem != null || state.encoding > 0) {
-                PendingPhotos(state.photos, state.photoProblem, state.encoding, onRemovePhoto)
-            }
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                PhotoButton(enabled = state.info != null && !state.running && state.photos.size + state.encoding < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
-                Spacer(Modifier.width(4.dp))
-                ConsoleTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = "A task for your machine",
-                    maxLines = 5,
-                    enabled = state.info != null,
-                )
-                Spacer(Modifier.width(8.dp))
-                // Filled purple when it can send, as in chat.
-                FilledIconButton(
+            MessageComposer(
+                value = draft,
+                onValueChange = { draft = it },
+                placeholder = Composer.placeholder(state.running, node = true),
+                modifier = Modifier.readingWidth(),
+                enabled = state.info != null,
+                maxLines = Composer.MAX_LINES,
+                above = {
+                    if (state.photos.isNotEmpty() || state.photoProblem != null || state.encoding > 0) {
+                        PendingPhotos(state.photos, state.photoProblem, state.encoding, onRemovePhoto)
+                    }
+                },
+                tools = {
+                    PhotoButton(enabled = state.info != null && !state.running && state.photos.size + state.encoding < NodeImages.MAX_PHOTOS, onAttach = onAttach, onProblem = onPhotoProblem)
+                },
+            ) {
+                // The node's agent neither queues nor stops a turn: Send waits for it, and for a photo still being downscaled.
+                SendIconButton(
                     onClick = {
                         onSend(draft)
                         draft = ""
                     },
-                    // A photo still being downscaled goes with this message: it waits for it.
-                    enabled = draft.isNotBlank() && !state.running && state.info != null && state.encoding == 0,
-                    shape = MaterialTheme.shapes.extraSmall,
-                    modifier = Modifier.size(52.dp),
-                ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send") }
+                    enabled = Composer.enabled(Composer.Action.SEND, draft, 0, ready = !state.running && state.info != null && state.encoding == 0),
+                )
             }
         }
     }
@@ -242,7 +263,7 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
             if (row.photos.isNotEmpty()) SentPhotos(row.photos)
             ChatBubble(BubbleRole.USER, row.text)
             // From the node's history: the photos stay there; how many.
-            if (row.photos.isEmpty() && row.photoCount > 0) MicroLabel(NodeImages.label(row.photoCount))
+            if (row.photos.isEmpty() && row.photoCount > 0) Caption(NodeImages.label(row.photoCount))
         }
         is AgentRow.Reply -> ChatBubble(
             BubbleRole.ASSISTANT,
@@ -250,27 +271,25 @@ private fun AgentRowView(row: AgentRow, onAnswer: (String, ApprovalAnswer) -> Un
             footer = if (row.route == null && retry == null) null else {
                 {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(row.route.orEmpty(), Modifier.weight(1f), style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(row.route.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (retry != null) RetryButton(retry)
                     }
                 }
             },
         )
-        is AgentRow.Note -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                (if (row.tone == AgentRow.Tone.TOOL) "› " else "✗ ") + row.text,
-                Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = if (row.tone == AgentRow.Tone.TOOL) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-            )
+        // What the agent did (a tool) or what went wrong: a quiet line with its icon.
+        is AgentRow.Note -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val tool = row.tone == AgentRow.Tone.TOOL
+            val color = if (tool) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+            Icon(if (tool) AutobotIcons.Wrench else Icons.Outlined.Warning, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+            Text(row.text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = color)
             if (retry != null) RetryButton(retry)
         }
         // Quiet: what the agent kept about the owner or the work, on its own.
         is AgentRow.Kept -> Text(
             row.text,
             Modifier.testTag("kept"),
-            style = AutobotTheme.styles.micro,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         is AgentRow.Question -> QuestionCard(row, onAnswer, onInstead)
@@ -284,17 +303,43 @@ private fun RetryButton(onClick: () -> Unit) {
     }
 }
 
-/** Thumbnails of JPEGs, decoded small. */
+/**
+ * Thumbnails of JPEGs, decoded small off the main thread (a node's chat can hold several photos:
+ * decoding them while composing dropped frames on opening and scrolling it). The square keeps
+ * its place while decoding; a photo that cannot be read takes none.
+ */
 @Composable
-private fun PhotoThumb(jpeg: ByteArray, side: Int, description: String) {
-    val bitmap = remember(jpeg) { decodeThumb(jpeg, side * 3) }
-    if (bitmap == null) return
-    Image(
-        bitmap,
-        contentDescription = description,
-        modifier = Modifier.size(side.dp).clip(MaterialTheme.shapes.small).border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small),
-        contentScale = ContentScale.Crop,
-    )
+internal fun PhotoThumb(jpeg: ByteArray, side: Int, description: String) {
+    val decoded by produceState<Thumb>(Thumb.Pending, jpeg, side) {
+        value = withContext(Dispatchers.Default) { decodeThumb(jpeg, side * 3)?.let(Thumb::Ready) ?: Thumb.Unreadable }
+    }
+    val thumb = decoded
+    if (thumb == Thumb.Unreadable) return
+    val shape = MaterialTheme.shapes.small
+    Box(
+        Modifier
+            .size(side.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .semantics {
+                contentDescription = description
+                role = Role.Image
+            },
+    ) {
+        if (thumb is Thumb.Ready) {
+            Image(thumb.bitmap, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        }
+    }
+}
+
+/** Test hook: told the thread each thumbnail is decoded on. Null in the app. */
+internal var thumbDecodeProbe: ((Thread) -> Unit)? = null
+
+private sealed interface Thumb {
+    data object Pending : Thumb
+    data object Unreadable : Thumb
+    class Ready(val bitmap: ImageBitmap) : Thumb
 }
 
 @Composable
@@ -318,9 +363,9 @@ private fun PendingPhotos(photos: List<ByteArray>, problem: String?, encoding: I
             }
         }
         when {
-            problem != null -> MicroLabel(problem, color = MaterialTheme.colorScheme.error, maxLines = 2)
-            encoding > 0 -> MicroLabel("preparing ${NodeImages.label(encoding)}…")
-            else -> MicroLabel("sent to the node at up to ${NodeImages.MAX_SIDE} px, without location")
+            problem != null -> Caption(problem, color = MaterialTheme.colorScheme.error)
+            encoding > 0 -> Caption("preparing ${NodeImages.label(encoding)}…")
+            else -> Caption("sent to the node at up to ${NodeImages.MAX_SIDE} px, without location")
         }
     }
 }
@@ -338,7 +383,7 @@ private fun PhotoButton(enabled: Boolean, onAttach: (Uri, Boolean) -> Unit, onPr
         shot = null
     }
     Box {
-        IconButton(onClick = { menu = true }, enabled = enabled, modifier = Modifier.size(48.dp)) {
+        IconButton(onClick = { menu = true }, enabled = enabled) {
             Icon(AutobotIcons.Image, contentDescription = "Attach a photo")
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -359,6 +404,7 @@ private fun PhotoButton(enabled: Boolean, onAttach: (Uri, Boolean) -> Unit, onPr
 }
 
 private fun decodeThumb(jpeg: ByteArray, maxPx: Int): ImageBitmap? {
+    thumbDecodeProbe?.invoke(Thread.currentThread())
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
     var sample = 1
@@ -377,13 +423,14 @@ internal fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAns
         is AgentAction.Mcp -> "Use ${a.tool}?" to a.arguments
         is AgentAction.Other -> "Approve?" to row.text
     }.let { (title, detail) -> (row.agent?.let { "$it: $title" } ?: title) to detail }
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.small).padding(12.dp).semantics { contentDescription = "Approval: $title $detail" }) {
+    Card(Modifier.fillMaxWidth()) {
+    Column(Modifier.padding(16.dp).semantics { contentDescription = "Approval: $title $detail" }) {
         // Several bots: which one asks.
-        if (row.bot != null) SectionLabel("bot ${row.bot}", Modifier.padding(bottom = 4.dp))
+        if (row.bot != null) Text(labelCase("bot ${row.bot}"), Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Text(title, style = MaterialTheme.typography.titleSmall)
-        Text(detail, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(vertical = 8.dp))
+        Text(detail, style = AutobotTheme.styles.code, modifier = Modifier.padding(vertical = 8.dp))
         if (row.instead != null) {
-            Text("Asked instead: ${row.instead}", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Asked instead: ${row.instead}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
         when (row.answer) {
@@ -391,24 +438,31 @@ internal fun QuestionCard(row: AgentRow.Question, onAnswer: (String, ApprovalAns
                 var other by rememberSaveable(row.id) { mutableStateOf(false) }
                 var text by rememberSaveable(row.id) { mutableStateOf("") }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryButton("Allow", { onAnswer(row.id, ApprovalAnswer.ONCE) })
-                    GhostButton("Always", { onAnswer(row.id, ApprovalAnswer.ALWAYS) })
-                    GhostButton("Deny", { onAnswer(row.id, ApprovalAnswer.DENY) })
+                    Button(onClick = { onAnswer(row.id, ApprovalAnswer.ONCE) }) { Text("Allow") }
+                    OutlinedButton(onClick = { onAnswer(row.id, ApprovalAnswer.ALWAYS) }) { Text("Always") }
+                    OutlinedButton(onClick = { onAnswer(row.id, ApprovalAnswer.DENY) }) { Text("Deny") }
                     // The quiet third answer: no, and do this instead.
                     if (!other) {
-                        TextButton(onClick = { other = true }) { ActionText("Something else…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        TextButton(onClick = { other = true }) { Text("Something else…") }
                     }
                 }
                 if (other) {
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ConsoleTextField(text, { text = it }, Modifier.weight(1f), placeholder = "What to do instead", singleLine = true)
-                        GhostButton("Send", { onInstead(row.id, text) }, enabled = text.isNotBlank())
+                        Field(text, { text = it }, Modifier.weight(1f), placeholder = "What to do instead", singleLine = true)
+                        FilledTonalButton(onClick = { onInstead(row.id, text) }, enabled = text.isNotBlank()) { Text("Send") }
                     }
                 }
             }
-            ApprovalAnswer.ONCE -> Text("Allowed", style = AutobotTheme.styles.micro)
-            ApprovalAnswer.ALWAYS -> Text("Allowed for this conversation", style = AutobotTheme.styles.micro)
-            ApprovalAnswer.DENY -> Text("Denied", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error)
+            ApprovalAnswer.ONCE -> Text("Allowed", style = MaterialTheme.typography.labelLarge)
+            ApprovalAnswer.ALWAYS -> Text("Allowed for this conversation", style = MaterialTheme.typography.labelLarge)
+            ApprovalAnswer.DENY -> Text("Denied", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
         }
     }
+    }
+}
+
+/** A quiet caption line in sentence case. */
+@Composable
+private fun Caption(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Text(labelCase(text), style = MaterialTheme.typography.labelMedium, color = color)
 }

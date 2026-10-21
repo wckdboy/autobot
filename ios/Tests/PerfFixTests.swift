@@ -469,9 +469,9 @@ struct BlankChatRegressionTests {
         let nav = Navigator()
         let conversation = app.conversations.create(incognito: true, providerId: nil, model: "m")
         #expect(app.agent.existingSession(conversation.id) == nil)
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIHostingController(rootView: ChatScreen(conversationId: conversation.id).environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(.dark))
+        window.rootViewController = UIHostingController(rootView: ChatScreen(conversationId: conversation.id).environment(app).environment(nav).autobotTheme(.dark))
         window.makeKeyAndVisible()
         defer {
             window.isHidden = true
@@ -484,17 +484,17 @@ struct BlankChatRegressionTests {
             session = app.agent.existingSession(conversation.id)
         }
         let opened = try #require(session)
-        InkProbe.reset()
+        RenderProbe.reset()
         opened.apply(SessionUpdate(transcriptOnly: SessionTranscript(SessionProjection(items: [
             .tool(.init(key: "t1", callId: "c", name: "read", summary: "notes.md", state: .ok, output: "x", code: nil, galleryIds: [], durationMs: 3)),
         ]))))
-        for _ in 0 ..< 50 where (InkProbe.snapshot()["body.stepRow"] ?? 0) == 0 {
+        for _ in 0 ..< 50 where (RenderProbe.snapshot()["body.stepRow"] ?? 0) == 0 {
             window.rootViewController?.view.setNeedsLayout()
             window.rootViewController?.view.layoutIfNeeded()
             try await Task.sleep(for: .milliseconds(20))
         }
         // Before the fix the body never observed the session the task opened: no row rendered.
-        #expect((InkProbe.snapshot()["body.stepRow"] ?? 0) > 0)
+        #expect((RenderProbe.snapshot()["body.stepRow"] ?? 0) > 0)
     }
 }
 

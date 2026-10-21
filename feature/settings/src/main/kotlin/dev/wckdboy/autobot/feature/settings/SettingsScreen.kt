@@ -1,13 +1,14 @@
 package dev.wckdboy.autobot.feature.settings
 
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.settings.SettingsWords
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,13 +16,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.NavListItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.SwitchItem
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -46,11 +55,7 @@ import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.NavRow
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
@@ -84,6 +89,8 @@ data class SettingsUiState(
     val memoryEnabled: Boolean = false,
     val vaultEnabled: Boolean = false,
     val quotaFallback: Boolean = false,
+    /** Generative UI (`show_ui`, Settings `generative_ui`): on by default. */
+    val generativeUi: Boolean = true,
     val redactCloud: Boolean = true,
     val cascade: CascadePolicy = CascadePolicy.DEFAULT,
     val searchProvider: SearchProvider = SearchProvider.NONE,
@@ -131,6 +138,7 @@ class SettingsViewModel @Inject constructor(
             memoryEnabled = it.memoryEnabled,
             vaultEnabled = it.vaultEnabled,
             quotaFallback = it.quotaFallback,
+            generativeUi = it.generativeUi,
             redactCloud = it.redactCloud,
             cascade = it.cascade,
             searchProvider = it.searchProvider,
@@ -148,6 +156,7 @@ class SettingsViewModel @Inject constructor(
     fun setIncognitoByDefault(enabled: Boolean) = launch { settings.setIncognitoByDefault(enabled) }
     fun setMemoryEnabled(enabled: Boolean) = launch { settings.setMemoryEnabled(enabled) }
     fun setQuotaFallback(enabled: Boolean) = launch { settings.setQuotaFallback(enabled) }
+    fun setGenerativeUi(enabled: Boolean) = launch { settings.setGenerativeUi(enabled) }
     fun setRedactCloud(enabled: Boolean) = launch { settings.setRedactCloud(enabled) }
     fun setCascade(policy: CascadePolicy) = launch { settings.setCascade(policy) }
 
@@ -211,15 +220,18 @@ fun SettingsRoute(
     if (confirmDeleteChats) {
         AlertDialog(
             onDismissRequest = { confirmDeleteChats = false },
-            title = { Text("Delete all chats?") },
-            text = { Text("Every session is removed from this phone. Folders, memory and files stay.") },
+            title = { Text(SettingsWords.DELETE_ALL_TITLE) },
+            text = { Text(SettingsWords.DELETE_ALL_TEXT) },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteAllChats()
-                    confirmDeleteChats = false
-                }) { ActionText("Delete all", color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        viewModel.deleteAllChats()
+                        confirmDeleteChats = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(SettingsWords.DELETE_ALL_CONFIRM) }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { Text("Cancel") } },
         )
     }
     if (showWipe) {
@@ -256,6 +268,7 @@ fun SettingsRoute(
         onOpenVault = onOpenVault,
         onOpenWebSearch = { showSearch = true },
         onQuotaFallback = viewModel::setQuotaFallback,
+        onGenerativeUi = viewModel::setGenerativeUi,
         onRedactCloud = viewModel::setRedactCloud,
         onCascade = viewModel::setCascade,
         onOpenUsage = onOpenUsage,
@@ -266,8 +279,8 @@ fun SettingsRoute(
     )
 }
 
-/** Settings: the same header as Models and Remote, sections in [SettingsSections] order. */
-@OptIn(ExperimentalLayoutApi::class)
+/** Settings: a Material list under a top app bar, sections in [SettingsSections] order. */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
@@ -290,6 +303,7 @@ fun SettingsScreen(
     onOpenVault: () -> Unit = {},
     onOpenWebSearch: () -> Unit = {},
     onQuotaFallback: (Boolean) -> Unit = {},
+    onGenerativeUi: (Boolean) -> Unit = {},
     onRedactCloud: (Boolean) -> Unit = {},
     onCascade: (CascadePolicy) -> Unit = {},
     onOpenUsage: () -> Unit = {},
@@ -299,139 +313,102 @@ fun SettingsScreen(
     about: String = "About",
 ) {
     val (privacy, agent, appearance, data, aboutSection) = SettingsSections
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        topBar = {
-            AutobotTopBar(
-                title = "Settings",
-                mark = onBack == null,
-                navigation = onBack?.let { back -> { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } } },
-            )
-        },
+        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        topBar = { AppBar("Settings", onBack, scrollBehavior = scroll) },
     ) { padding ->
-        Column(
-            Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            SectionHeader(privacy)
-            NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel, info = "Network mode, the kill switch and the log of every request.")
-            // An app PIN always locks: the wipe and the duress PIN depend on it.
-            val pinLocks = state.panic.hasPin
-            SwitchRow(
-                "App lock",
-                pinLocks || (state.appLockEnabled && state.appLockAvailable),
-                onAppLock,
-                state = if (state.appLockAvailable || pinLocks) null else "Needs a screen lock",
-                info = if (state.appLockAvailable || pinLocks) "Require biometrics or the device credential." else null,
-                enabled = state.appLockAvailable && !pinLocks,
-            )
-            if (pinLocks || (state.appLockEnabled && state.appLockAvailable)) {
-                ChoiceTitle("Lock after")
-                FlowRow(
-                    modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    LockTimeoutOptions.forEach { (millis, label) ->
-                        ChoiceChip(label, selected = state.lockTimeoutMillis == millis, onClick = { onLockTimeout(millis) })
+        Centered(Modifier.padding(padding)) { width ->
+            Column(width.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Subheader(privacy)
+                NavListItem("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
+                // An app PIN always locks: the wipe and the duress PIN depend on it.
+                val pinLocks = state.panic.hasPin
+                SwitchItem(
+                    "App lock",
+                    pinLocks || (state.appLockEnabled && state.appLockAvailable),
+                    onAppLock,
+                    state = if (state.appLockAvailable || pinLocks) null else "Needs a screen lock",
+                    info = if (state.appLockAvailable || pinLocks) "Require biometrics or the device credential." else null,
+                    enabled = state.appLockAvailable && !pinLocks,
+                )
+                if (pinLocks || (state.appLockEnabled && state.appLockAvailable)) {
+                    ChoiceTitle("Lock after")
+                    FlowRow(
+                        modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp).selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        LockTimeoutOptions.forEach { (millis, label) ->
+                            FilterChip(
+                                selected = state.lockTimeoutMillis == millis,
+                                onClick = { onLockTimeout(millis) },
+                                label = { Text(label) },
+                            )
+                        }
                     }
                 }
+                PanicRows(state.panic, onOpenPanic, onPinBiometrics, onWipeModels)
+                SwitchItem("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = SettingsWords.INCOGNITO)
+                SwitchItem("Redact before cloud", state.redactCloud, onRedactCloud, info = SettingsWords.REDACT)
+                ChoiceTitle("Phone first", info = SettingsWords.cascade)
+                Choices(CascadePolicy.entries, state.cascade, onCascade, ChoicesModifier) { it.title }
+                NavListItem(
+                    "Panic wipe",
+                    onPanicWipe,
+                    titleColor = MaterialTheme.colorScheme.error,
+                    info = SettingsWords.PANIC_WIPE,
+                    chevron = false,
+                )
+
+                Subheader(agent)
+                SwitchItem("Memory", state.memoryEnabled, onMemoryEnabled, info = SettingsWords.MEMORY)
+                NavListItem("Memory notes", onOpenMemory)
+                NavListItem("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
+                NavListItem(
+                    "Web search",
+                    onOpenWebSearch,
+                    value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
+                    info = SettingsWords.WEB_SEARCH,
+                )
+                if (state.searchProvider != SearchProvider.NONE && state.offline) {
+                    NoticeCard(SettingsWords.OFFLINE_BLOCKS_SEARCH, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), tone = NoticeTone.ERROR)
+                }
+                SwitchItem("Fallback on limit", state.quotaFallback, onQuotaFallback, info = SettingsWords.QUOTA_FALLBACK)
+                SwitchItem("Generative UI", state.generativeUi, onGenerativeUi, info = SettingsWords.GENERATIVE_UI)
+                NavListItem("Usage", onOpenUsage)
+                NavListItem("MCP servers", onOpenMcpServers)
+                NavListItem("Recipes", onOpenRecipes)
+
+                Subheader(appearance)
+                ChoiceTitle("Theme")
+                Choices(ThemeMode.entries, state.themeMode, onThemeMode, ChoicesModifier) { it.name.lowercase().replaceFirstChar(Char::uppercaseChar) }
+                SwitchItem("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
+                SwitchItem("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the brand's.")
+
+                Subheader(data)
+                NavListItem("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
+                NavListItem("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
+
+                Subheader(aboutSection)
+                NavListItem(about, onOpenAbout)
+                Spacer(Modifier.height(24.dp))
             }
-            PanicRows(state.panic, onOpenPanic, onPinBiometrics, onWipeModels)
-            SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = "New chats are kept in memory only, never written to disk.")
-            SwitchRow(
-                "Redact before cloud",
-                state.redactCloud,
-                onRedactCloud,
-                info = "Names, emails, numbers, addresses and memory facts become placeholders before a cloud model sees them. Answers show the real values.",
-            )
-            ChoiceTitle("Phone first")
-            Segmented(
-                CascadePolicy.entries,
-                state.cascade,
-                onCascade,
-                { it.title },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
-            )
-            Text(
-                state.cascade.detail + " " + CASCADE_SCOPE,
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            NavRow(
-                "Panic wipe",
-                onPanicWipe,
-                titleColor = MaterialTheme.colorScheme.error,
-                info = "Erases keys, chats, providers and settings, then closes the app.",
-                chevron = false,
-            )
-            Divider()
-
-            SectionHeader(agent)
-            SwitchRow("Memory", state.memoryEnabled, onMemoryEnabled, info = "The agent recalls and saves notes, kept encrypted on this phone.")
-            NavRow("Memory notes", onOpenMemory)
-            NavRow("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
-            NavRow(
-                "Web search",
-                onOpenWebSearch,
-                value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
-                info = "Used by sessions with agent tools on. Only the query is sent, through your network route.",
-            )
-            if (state.searchProvider != SearchProvider.NONE && state.offline) Note("Offline mode blocks searches", MaterialTheme.colorScheme.error)
-            SwitchRow(
-                "Fallback on limit",
-                state.quotaFallback,
-                onQuotaFallback,
-                info = "When a provider's usage limit is used up, answer once with its helper model, else the on-device model, and say so.",
-            )
-            NavRow("Usage", onOpenUsage, info = "Tokens, cost and subscription windows, counted on this phone from each provider's reports.")
-            NavRow("MCP servers", onOpenMcpServers)
-            NavRow("Recipes", onOpenRecipes, info = "Scheduled on-device agents: a prompt that runs on this phone's model at set times.")
-            Divider()
-
-            SectionHeader(appearance)
-            ChoiceTitle("Theme")
-            Segmented(
-                ThemeMode.entries,
-                state.themeMode,
-                onThemeMode,
-                { it.name.lowercase().replaceFirstChar(Char::uppercaseChar) },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
-            )
-            SwitchRow("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
-            SwitchRow("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the ink palette.")
-            Divider()
-
-            SectionHeader(data)
-            NavRow("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
-            NavRow("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
-            Divider()
-
-            SectionHeader(aboutSection)
-            NavRow(about, onOpenAbout)
-            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
-@Composable
-private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
+/** The title over a choice (Lock after, Phone first, Theme): a list headline without an action, its ⓘ after it. */
+private val ChoicesModifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp)
 
 @Composable
-private fun Note(text: String, color: androidx.compose.ui.graphics.Color) =
-    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = color)
-
-/** The title over a choice row (Lock after, Phone first, Theme): a row title without a row. */
-@Composable
-private fun ChoiceTitle(text: String) {
-    Text(text, Modifier.padding(horizontal = 16.dp).padding(top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-}
-
-/** `Privacy & security`: the app's section label (as on iOS). */
-@Composable
-internal fun SectionHeader(text: String) {
-    SectionLabel(text, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp))
+private fun ChoiceTitle(text: String, info: String? = null) {
+    Row(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = if (info == null) 12.dp else 0.dp, bottom = if (info == null) 8.dp else 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        if (info != null) InfoButton(text, info)
+    }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0B0C0F)
@@ -446,6 +423,3 @@ private fun SettingsScreenPreview() {
         )
     }
 }
-
-/** What "Phone first" covers, under its choice (the same words on iOS). */
-internal const val CASCADE_SCOPE = "For plain chats on a cloud model; chats can choose their own."

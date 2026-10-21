@@ -9,7 +9,23 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import dev.wckdboy.autobot.core.designsystem.component.TitleWithDot
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -22,10 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.wckdboy.autobot.core.designsystem.component.AutobotNavBar
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.NavItem
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.theme.DarkroomTheme
 import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
 import dev.wckdboy.autobot.feature.studio.ui.audio.AudioActions
@@ -57,12 +69,11 @@ import dev.wckdboy.autobot.shared.studio.StudioAsset
 /** The Studio's rooms, in bar order. */
 enum class StudioRoom(val label: String) { IMAGE("Image"), AUDIO("Audio"), VIDEO("Video"), WORKFLOWS("Workflows"), LIBRARY("Library") }
 
-private val ROOMS = StudioRoom.entries.map { NavItem(it, it.label) }
-
 /**
- * Studio mode: its own bar (Image · Audio · Video · Workflows · Library) in place of the app's,
- * the queue strip above it, darkroom (ink) for image and video, paper for the library. Back
- * leaves the Studio; jobs keep running (the queue lives in the app scope).
+ * Studio mode: a top app bar, Material tabs for its rooms (Image · Audio · Video · Workflows ·
+ * Library) in place of the app's bar, the queue strip at the bottom, the brand's dark scheme for
+ * image and video and its light scheme for the library. Back leaves the Studio; jobs keep running
+ * (the queue lives in the app scope).
  */
 @Composable
 fun StudioRoute(
@@ -108,6 +119,7 @@ fun StudioRoute(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StudioScreen(
     initialRoom: StudioRoom,
@@ -138,14 +150,30 @@ fun StudioScreen(
         StudioRoom.LIBRARY -> { c -> PaperTheme(c) }
         else -> { c -> c() }
     }
+    val large = isLargeText()
     theme {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize()) {
-                AutobotTopBar(
-                    title = "Studio",
-                    navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Leave the Studio") } },
-                    actions = { shell.project?.let { Tag(it.name, accent = MaterialTheme.colorScheme.onSurface, onClick = { room = StudioRoom.LIBRARY }, asWritten = true) } },
+                TopAppBar(
+                    // "Studio · Image": the room is in the title, as on iOS.
+                    // At a large font the bar has room for "Studio" alone: the tabs say the room.
+                    title = { TitleWithDot(if (large) "Studio" else "Studio · ${room.label}") },
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Leave the Studio") } },
+                    actions = {
+                        if (!large) shell.project?.let { p ->
+                            AssistChip(
+                                onClick = { room = StudioRoom.LIBRARY },
+                                label = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                modifier = Modifier.padding(end = 8.dp).widthIn(max = 200.dp),
+                            )
+                        }
+                    },
                 )
+                PrimaryScrollableTabRow(selectedTabIndex = room.ordinal, edgePadding = 8.dp) {
+                    StudioRoom.entries.forEach { r ->
+                        Tab(selected = r == room, onClick = { room = r }, text = { Text(r.label, maxLines = 1) })
+                    }
+                }
                 Box(Modifier.weight(1f).consumeWindowInsets(WindowInsets.navigationBars).imePadding()) {
                     when (room) {
                         StudioRoom.IMAGE -> ImageRoom(image, shell, imageActions, onOpenModels, onOpenImageBackends, openInLibrary)
@@ -164,7 +192,7 @@ fun StudioScreen(
                     }
                 }
                 QueueStrip(shell.jobs, shell.assets.associateBy { it.id }, shellActions)
-                AutobotNavBar(ROOMS, room, { room = it })
+                Spacer(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
         }
     }

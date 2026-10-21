@@ -61,10 +61,12 @@ data class DebugLaunch(
         const val EXTRA_SKIP_WELCOME = "skip_welcome"
         const val EXTRA_DEMO_DIGEST = "demo_digest"
 
-        /** The demo's chats (`DemoSeed`), so `open chat|agent|phone-first` can name them. */
+        /** The demo's chats (`DemoSeed`), so `open chat|agent|phone-first|ui` can name them. */
         const val DEMO_CHAT = "demo-chat-swift"
         const val DEMO_AGENT = "demo-chat-plan"
         const val DEMO_PHONE_FIRST = "demo-chat-stiller"
+        /** A chat whose agent answered with a generative UI form (`show_ui`). */
+        const val DEMO_UI = "demo-chat-ui"
         const val DEMO_NODE = "demo-node"
         const val DEMO_IMAGE = "demo-image-0"
 
@@ -110,6 +112,7 @@ data class DebugLaunch(
             "chat" -> listOf(Run, Chat(DEMO_CHAT))
             "agent" -> listOf(Run, Chat(DEMO_AGENT))
             "phone-first" -> listOf(Run, Chat(DEMO_PHONE_FIRST))
+            "ui", "a2ui" -> listOf(Run, Chat(DEMO_UI))
             "studio" -> listOf(Run, Studio())
             else -> if (screen.startsWith("studio-")) listOf(Run, Studio(screen.removePrefix("studio-").uppercase())) else null
         }

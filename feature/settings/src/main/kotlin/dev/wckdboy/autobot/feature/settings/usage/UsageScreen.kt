@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.settings.usage
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -46,17 +45,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BigReadout
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
+import dev.wckdboy.autobot.core.designsystem.component.InfoButton
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.shared.usage.UsageWords
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedCard
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.SectionCard
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.Stat
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.usage.LimitUnit
 import dev.wckdboy.autobot.shared.usage.PriceRow
@@ -109,99 +118,107 @@ fun UsageScreen(state: UsageUiState, actions: UsageActions, onBack: () -> Unit) 
             onDismissRequest = { confirmClear = false },
             title = { Text("Clear usage history?") },
             text = { Text("The counted tokens are removed from this phone. Prices and windows stay.") },
-            confirmButton = { TextButton(onClick = { actions.clearHistory(); confirmClear = false }) { ActionText("Clear", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { ActionText("Cancel") } },
+            confirmButton = {
+                TextButton(
+                    onClick = { actions.clearHistory(); confirmClear = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
         )
     }
     state.message?.let { m ->
-        AlertDialog(onDismissRequest = actions::dismissMessage, text = { Text(m) }, confirmButton = { TextButton(onClick = actions::dismissMessage) { ActionText("OK") } })
+        AlertDialog(onDismissRequest = actions::dismissMessage, text = { Text(m) }, confirmButton = { TextButton(onClick = actions::dismissMessage) { Text("OK") } })
     }
 
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = "Usage",
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-            )
+            AppBar("Usage", onBack) {
+                InfoButton("Usage", UsageWords.ABOUT)
+            }
         },
     ) { padding ->
+        Centered(Modifier.padding(padding)) { width ->
         LazyColumn(
-            Modifier.padding(padding).fillMaxSize(),
+            width.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (report == null) {
-                item { MicroLabel("counting…") }
+                item { Loading(caption = "Counting…") }
                 return@LazyColumn
             }
             val period = report.periods.firstOrNull { it.key == periodKey } ?: report.periods.first()
             item {
-                Segmented(report.periods, period, { periodKey = it.key }, { it.label }, Modifier.fillMaxWidth())
+                Choices(report.periods, period, { periodKey = it.key }, Modifier.fillMaxWidth()) { it.label }
             }
             item {
-                // Wraps: "$6.00 + unknown" in the display face, at a large font size, leaves no room for requests.
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BigReadout("tokens", UsageFormat.tokens(period.sums.tokens))
-                    BigReadout("cost · usd", period.sums.costLine)
-                    BigReadout("requests", period.sums.requests.toString())
+                // Wraps: "$6.00 + unknown", at a large font size, leaves no room for requests.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Stat("tokens", UsageFormat.tokens(period.sums.tokens))
+                    Stat(UsageWords.COST, period.sums.costLine)
+                    Stat("requests", period.sums.requests.toString())
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 val s = period.sums
-                MicroLabel("${UsageFormat.tokens(s.input)} in · ${UsageFormat.tokens(s.output)} out · ${UsageFormat.tokens(s.cacheRead)} cached")
-                if (s.onDeviceTokens > 0) MicroLabel("on this phone · ${UsageFormat.tokens(s.onDeviceTokens)} tokens · $0")
-                if (s.unpricedTokens > 0) MicroLabel("${UsageFormat.tokens(s.unpricedTokens)} tokens without a price", color = AutobotTheme.inks.amber)
+                Caption("${UsageFormat.tokens(s.input)} in · ${UsageFormat.tokens(s.output)} out · ${UsageFormat.tokens(s.cacheRead)} cached")
+                if (s.onDeviceTokens > 0) Caption("on this phone · ${UsageFormat.tokens(s.onDeviceTokens)} tokens · $0")
+                if (s.unpricedTokens > 0) Caption("${UsageFormat.tokens(s.unpricedTokens)} tokens without a price", color = MaterialTheme.colorScheme.tertiary)
             }
             item {
                 val series = report.series.firstOrNull { it.key == seriesKey } ?: report.series.first()
-                Panel(title = "per ${series.key}", trailing = {
-                    report.series.forEach { s ->
-                        Tag(s.label, accent = if (s.key == series.key) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = s.key == series.key, onClick = { seriesKey = s.key })
+                SectionCard(title = labelCase("per ${series.key}")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        report.series.forEach { s ->
+                            FilterChip(selected = s.key == series.key, onClick = { seriesKey = s.key }, label = { Text(labelCase(s.label)) })
+                        }
                     }
-                }) {
                     Bars(series)
                 }
             }
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    SectionLabel("by ${if (byModel) "model" else "provider"} · ${period.label}", Modifier.weight(1f))
-                    Tag(if (byModel) "providers" else "models", onClick = { byModel = !byModel })
+                    SheetLabel("by ${if (byModel) "model" else "provider"} · ${period.label}", Modifier.weight(1f))
+                    AssistChip(onClick = { byModel = !byModel }, label = { Text(labelCase(if (byModel) "providers" else "models")) })
                 }
             }
             val groups = if (byModel) period.models else period.providers
-            if (groups.isEmpty()) item { MicroLabel("nothing counted ${period.label}") }
+            if (groups.isEmpty()) item { Caption("nothing counted ${period.label}") }
             items(groups, key = { "${it.provider}|${it.model}" }) { GroupRow(it) }
 
-            item { SectionLabel("subscription windows", Modifier.padding(top = 8.dp)) }
+            item { SheetLabel("subscription windows", Modifier.padding(top = 8.dp)) }
             items(report.windows, key = { it.id }) { w -> WindowRow(w, onEdit = { editingWindow = report.plan.windows.firstOrNull { it.id == w.id } }) }
             item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.providers.firstOrNull()?.let { first ->
-                        Tag("+ window", accent = MaterialTheme.colorScheme.primary, onClick = {
-                            editingWindow = SubscriptionWindow(UUID.randomUUID().toString(), first.id, WindowPeriod.FIVE_HOURS, anchor = System.currentTimeMillis())
-                        })
+                        AssistChip(
+                            onClick = {
+                                editingWindow = SubscriptionWindow(UUID.randomUUID().toString(), first.id, WindowPeriod.FIVE_HOURS, anchor = System.currentTimeMillis())
+                            },
+                            label = { Text(labelCase("+ window")) },
+                        )
                     }
                     state.providers.filter { p -> p.openCodeGo && report.plan.windows.none { it.provider == p.id } }.forEach { p ->
-                        Tag("+ ${p.name} 5 h / week / month", accent = MaterialTheme.colorScheme.primary, onClick = { actions.addOpenCodeGoWindows(p.id) })
+                        AssistChip(onClick = { actions.addOpenCodeGoWindows(p.id) }, label = { Text(labelCase("+ ${p.name} 5 h / week / month")) })
                     }
                 }
-                if (state.providers.isEmpty()) MicroLabel("add a cloud provider to track its plan", maxLines = 3)
+                if (state.providers.isEmpty()) Caption("add a cloud provider to track its plan")
             }
 
-            item { SectionLabel("prices · usd per 1m tokens", Modifier.padding(top = 8.dp)) }
-            if (report.prices.isEmpty()) item { MicroLabel("models show up here once they have answered", maxLines = 3) }
+            item { SheetLabel(UsageWords.PRICES, Modifier.padding(top = 8.dp)) }
+            if (report.prices.isEmpty()) item { Caption("models show up here once they have answered") }
             items(report.prices, key = { "${it.provider}|${it.model}" }) { row -> PriceRowView(row, onClick = { editingPrice = row }) }
 
             item {
-                Hairline(Modifier.padding(vertical = 4.dp))
-                Text(
-                    "Counted on this phone from each provider's own usage report; nothing is sent. Costs use your price table: " +
-                        "only Anthropic's published prices ship, every other model stays unknown until you enter its price. " +
-                        "Incognito chats are not kept.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!report.empty) TextButton(onClick = { confirmClear = true }) { ActionText("Clear history", color = MaterialTheme.colorScheme.error) }
+                HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                if (!report.empty) {
+                    TextButton(
+                        onClick = { confirmClear = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text("Clear history") }
+                }
             }
+        }
         }
     }
 }
@@ -228,10 +245,10 @@ private fun Bars(series: UsageSeries) {
         }
     }
     Row(Modifier.fillMaxWidth()) {
-        MicroLabel(series.bars.firstOrNull()?.label.orEmpty(), Modifier.weight(1f))
+        Caption(series.bars.firstOrNull()?.label.orEmpty(), Modifier.weight(1f))
         val max = series.bars.maxOfOrNull { it.tokens } ?: 0
-        MicroLabel("peak ${UsageFormat.tokens(max)}", Modifier.weight(1f))
-        MicroLabel(series.bars.lastOrNull()?.label.orEmpty())
+        Caption("peak ${UsageFormat.tokens(max)}", Modifier.weight(1f))
+        Caption(series.bars.lastOrNull()?.label.orEmpty())
     }
 }
 
@@ -240,10 +257,10 @@ private fun GroupRow(group: UsageGroup) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(group.model ?: group.name, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (group.onDevice) Tag("on device", accent = MaterialTheme.colorScheme.primary)
-            Text(if (group.onDevice) "$0" else group.sums.costLine, style = AutobotTheme.styles.readout)
+            if (group.onDevice) TonalLabel("on device")
+            Text(if (group.onDevice) "$0" else group.sums.costLine, style = MaterialTheme.typography.titleMedium)
         }
-        MicroLabel(
+        Caption(
             listOfNotNull(
                 group.name.takeIf { group.model != null },
                 "${UsageFormat.tokens(group.sums.tokens)} tokens",
@@ -251,38 +268,36 @@ private fun GroupRow(group: UsageGroup) {
                 group.sums.cacheRead.takeIf { it > 0 }?.let { "${UsageFormat.tokens(it)} cached" },
                 group.sums.unreported.takeIf { it > 0 }?.let { "$it without usage report" },
             ).joinToString(" · "),
-            maxLines = 3,
         )
     }
 }
 
 @Composable
 private fun WindowRow(status: WindowStatus, onEdit: () -> Unit) {
-    val accent = if (status.over) AutobotTheme.inks.amber else MaterialTheme.colorScheme.primary
-    Panel(
+    val accent = if (status.over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    SectionCard(
         modifier = Modifier.clickable(onClick = onEdit),
-        title = "${status.providerName} · ${status.period.label}${if (status.rolling) " · rolling" else ""}",
-        accent = accent,
-        trailing = { Tag("edit", onClick = onEdit) },
+        title = labelCase("${status.providerName} · ${status.period.label}${if (status.rolling) " · rolling" else ""}"),
+        trailing = { TextButton(onClick = onEdit) { Text("Edit") } },
     ) {
-        status.fraction?.let { f -> InkProgressBar(f.toFloat().coerceIn(0f, 1f), Modifier.fillMaxWidth().height(2.dp), color = accent) }
-        Text(status.line, style = MaterialTheme.typography.bodySmall, color = if (status.over) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurface)
-        if (status.limit == null) MicroLabel("no limit set · tap edit to enter your plan's limit", maxLines = 3)
+        status.fraction?.let { f -> LinearProgressIndicator(progress = { f.toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = accent) }
+        Text(status.line, style = MaterialTheme.typography.bodyMedium, color = if (status.over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+        if (status.limit == null) Caption("no limit set · tap edit to enter your plan's limit")
     }
 }
 
 @Composable
 private fun PriceRowView(row: PriceRow, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(row.model, style = AutobotTheme.styles.code, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             when (row.source) {
-                PriceSource.DEFAULT -> Tag("published")
-                PriceSource.YOURS -> Tag("yours", accent = MaterialTheme.colorScheme.primary)
-                PriceSource.NONE -> Tag("unknown", accent = AutobotTheme.inks.amber)
+                PriceSource.DEFAULT -> TonalLabel("published")
+                PriceSource.YOURS -> TonalLabel("yours", containerColor = MaterialTheme.colorScheme.primaryContainer)
+                PriceSource.NONE -> TonalLabel("unknown", containerColor = MaterialTheme.colorScheme.tertiaryContainer)
             }
         }
-        MicroLabel(
+        Caption(
             if (row.input == null && row.output == null) {
                 "${row.providerName} · tap to enter"
             } else {
@@ -294,7 +309,6 @@ private fun PriceRowView(row: PriceRow, onClick: () -> Unit) {
                     row.cacheWrite?.let { "cache write ${UsageFormat.price(it)}" },
                 ).joinToString(" · ")
             },
-            maxLines = 3,
         )
     }
 }
@@ -312,7 +326,7 @@ private fun PriceDialog(row: PriceRow, onDismiss: () -> Unit, onSave: (String, S
         title = { Text(row.model, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                MicroLabel("${row.providerName} · usd per 1m tokens")
+                Caption("${row.providerName} · ${UsageWords.PRICE_UNIT}")
                 NoPersonalizedLearning {
                     PriceField("Input", input) { input = it }
                     PriceField("Output", output) { output = it }
@@ -326,8 +340,8 @@ private fun PriceDialog(row: PriceRow, onDismiss: () -> Unit, onSave: (String, S
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(input, output, cacheRead, cacheWrite) }, enabled = valid) { ActionText("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        confirmButton = { TextButton(onClick = { onSave(input, output, cacheRead, cacheWrite) }, enabled = valid) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -363,22 +377,22 @@ private fun WindowDialog(
         title = { Text(if (isNew) "New window" else "Window") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MicroLabel("provider")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SheetLabel("provider")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     providers.forEach { p ->
-                        Tag(p.name, accent = if (p.id == draft.provider) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = p.id == draft.provider, onClick = { draft = draft.copy(provider = p.id) })
+                        FilterChip(selected = p.id == draft.provider, onClick = { draft = draft.copy(provider = p.id) }, label = { Text(p.name) })
                     }
                 }
-                MicroLabel("length")
-                Segmented(WindowPeriod.entries, draft.period, { draft = draft.copy(period = it) }, { it.short }, Modifier.fillMaxWidth())
-                MicroLabel("counts")
-                Segmented(listOf(true, false), draft.rolling, { draft = draft.copy(rolling = it, anchor = draft.anchor ?: System.currentTimeMillis()) }, { if (it) "rolling" else "fixed" }, Modifier.fillMaxWidth())
+                SheetLabel("length")
+                Choices(WindowPeriod.entries, draft.period, { draft = draft.copy(period = it) }, Modifier.fillMaxWidth()) { it.short }
+                SheetLabel("counts")
+                Choices(listOf(true, false), draft.rolling, { draft = draft.copy(rolling = it, anchor = draft.anchor ?: System.currentTimeMillis()) }, Modifier.fillMaxWidth()) { if (it) "Rolling" else "Fixed" }
                 if (!draft.rolling) {
-                    MicroLabel("resets every ${draft.period.short} from ${dates.format(Date(draft.anchor ?: System.currentTimeMillis()))}")
-                    Tag("it reset just now", accent = MaterialTheme.colorScheme.primary, onClick = { draft = draft.copy(anchor = System.currentTimeMillis()) })
+                    Caption("resets every ${draft.period.short} from ${dates.format(Date(draft.anchor ?: System.currentTimeMillis()))}")
+                    AssistChip(onClick = { draft = draft.copy(anchor = System.currentTimeMillis()) }, label = { Text("It reset just now") })
                 }
-                MicroLabel("limit")
-                Segmented(LimitUnit.entries, draft.unit, { draft = draft.copy(unit = it) }, { it.label }, Modifier.fillMaxWidth())
+                SheetLabel("limit")
+                Choices(LimitUnit.entries, draft.unit, { draft = draft.copy(unit = it) }, Modifier.fillMaxWidth()) { labelCase(it.label) }
                 NoPersonalizedLearning {
                     OutlinedTextField(
                         value = limit,
@@ -395,13 +409,15 @@ private fun WindowDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!isNew) TextButton(onClick = onDelete) { ActionText("Delete window", color = MaterialTheme.colorScheme.error) }
+                if (!isNew) {
+                    TextButton(onClick = onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete window") }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(draft.copy(limit = parseLimit(limit, draft.unit))) }, enabled = limit.isBlank() || parseLimit(limit, draft.unit) != null) { ActionText("Save") }
+            TextButton(onClick = { onSave(draft.copy(limit = parseLimit(limit, draft.unit))) }, enabled = limit.isBlank() || parseLimit(limit, draft.unit) != null) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

@@ -12,7 +12,6 @@ struct WorkflowsRoom: View {
     let session: StudioSession
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var editing: ServerEdit?
     @State private var testing: String?
     @State private var results: [String: (Bool, String)] = [:]
@@ -22,59 +21,97 @@ struct WorkflowsRoom: View {
 
     var body: some View {
         let studio = app.studio
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionLabel("comfyui pcs")
+        List {
+            Section("ComfyUI PCs") {
                 if studio.comfyServers.isEmpty {
-                    Text("Workflows run on your own PC with ComfyUI. Add its address: https (Tailscale, a reverse proxy), or http://127.0.0.1 only for a server on this iPhone.")
-                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                    StudioEmpty(StudioRoomWords.shared.workflowsNoPc)
                 }
                 ForEach(studio.comfyServers) { s in
-                    Panel(title: s.name, accent: AutobotColors.cyan) {
-                        RouteTag(route: s.route)
-                    } content: {
-                        Text(s.baseUrl).textStyle(.codeBlock).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
-                        HStack(spacing: 8) {
-                            GhostButton("Test", enabled: testing == nil, busy: testing == s.id) { test(s) }.frame(width: 110)
-                            TextAction("Edit") { editing = ServerEdit(server: s, isNew: false) }
-                            if let r = results[s.id] { MicroLabel(r.1, color: r.0 ? c.primary : c.error, lines: 2) }
-                            Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(s.name).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                            RouteBadge(route: s.route)
+                        }
+                        Text(s.baseUrl).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                        HStack(spacing: 12) {
+                            Button {
+                                test(s)
+                            } label: {
+                                if testing == s.id { ProgressView().controlSize(.small) } else { Text("Test") }
+                            }
+                            .glassButton()
+                            .disabled(testing != nil)
+                            Button("Edit") { editing = ServerEdit(server: s, isNew: false) }
+                                .buttonStyle(.borderless)
+                            if let r = results[s.id] {
+                                Text(r.1).font(.caption).foregroundStyle(r.0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.red)).lineLimit(2)
+                            }
                         }
                     }
-                    .transition(.inkDissolve)
+                    .padding(.vertical, 4)
+                    .swipeActions {
+                        Button("Edit", systemImage: "pencil") { editing = ServerEdit(server: s, isNew: false) }
+                    }
                 }
-                GhostButton("+ Add ComfyUI PC") {
+                Button("Add ComfyUI PC", systemImage: "plus") {
                     editing = ServerEdit(server: ComfyServer(id: UUID().uuidString.lowercased(), name: "Studio PC", baseUrl: "https://"), isNew: true)
                 }
+            }
 
-                HStack {
-                    SectionLabel("workflows · \(studio.library.workflows.count)")
-                    TextAction("Import", color: c.primary) { importing = ImportStart(json: "") }
-                }
+            Section {
                 if studio.library.workflows.isEmpty {
                     Text("In ComfyUI, enable dev mode and use Workflow › Export (API). Paste that JSON, open the file, or share it to Autobot. Prompts, seeds, steps, sizes, models, LoRAs and input images are detected.")
-                        .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 ForEach(studio.library.workflows, id: \.id) { w in
-                    RunRow(title: w.name, subtitle: "\(w.output.name.lowercased()) · \(counted(w.params.count, "param")) · v\(w.version) · \(studio.comfyServer(w.backendId)?.name ?? "any pc")", action: { opened = w.id }) {
-                        Tag(w.output.name.lowercased(), accent: c.primary)
+                    Button { opened = w.id } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(w.name).font(.body)
+                                Text("\(w.output.name.lowercased()) · \(counted(w.params.count, "param")) · v\(w.version) · \(studio.comfyServer(w.backendId)?.name ?? "any pc")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            CapsuleTag(w.output.name.lowercased())
+                        }
                     }
+                    .tint(.primary)
                 }
+                Button("Import", systemImage: "square.and.arrow.down") { importing = ImportStart(json: "") }
+            } header: {
+                Text("Workflows · \(studio.library.workflows.count)")
+            }
 
-                SectionLabel("recipes")
-                MicroLabel("multi-step · each step's result lands in the project", lines: 2)
+            Section {
                 ForEach(BuiltInPipelines.shared.all, id: \.id) { p in
                     let missing = missingEngines(p)
-                    RunRow(title: p.name, subtitle: missing.isEmpty ? p.description_ : "needs \(missing.joined(separator: ", "))", action: missing.isEmpty ? { running = p } : nil) {
-                        if missing.isEmpty { Tag("run", accent: c.primary) } else { Tag("unavailable") }
+                    Button { running = p } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.name).font(.body)
+                                Text(missing.isEmpty ? p.description_ : "needs \(missing.joined(separator: ", "))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            if missing.isEmpty { CapsuleTag("run") } else { CapsuleTag("unavailable", color: .secondary) }
+                        }
                     }
+                    .tint(.primary)
+                    .disabled(!missing.isEmpty)
                 }
-                Spacer().frame(height: 12)
+            } header: {
+                Text("Recipes")
+            } footer: {
+                Text("Multi-step: each step's result lands in the project.")
             }
-            .padding(.horizontal, Tokens.Spacing.gutter)
-            .padding(.top, 8)
-            .animation(.inkDissolve, value: studio.comfyServers.map(\.id))
         }
+        .listStyle(.insetGrouped)
+        .animation(.smooth, value: studio.comfyServers.map(\.id))
         .sheet(item: $editing) { edit in
             ComfyServerEditor(initial: edit.server, isNew: edit.isNew) { saved, header in
                 studio.saveComfy(saved, headerValue: header)
@@ -146,7 +183,7 @@ private struct ComfyServerEditor: View {
     let isNew: Bool
     let onSave: (ComfyServer, String?) -> Void
     let onDelete: () -> Void
-    @Environment(\.scheme) private var c
+    @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var url = ""
     @State private var routing: RouteOverride = .inherit
@@ -157,26 +194,39 @@ private struct ComfyServerEditor: View {
         let trimmed = url.trimmingCharacters(in: .whitespaces)
         let problem = ProviderDraft.cleartextProblem(trimmed)
         let valid = URL(string: trimmed).flatMap { $0.host() }.map { !$0.isEmpty } ?? false
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                MicroLabel(isNew ? "new comfyui pc" : "edit comfyui pc")
-                ConsoleTextField(text: $name, label: "Name")
-                ConsoleTextField(text: $url, placeholder: "https://studio-pc.tailnet.ts.net", label: "Base URL", kind: .url)
-                if let problem {
-                    MicroLabel(problem, color: c.error, lines: 3)
-                } else if let note = ProviderDraft.loopbackNote(trimmed) {
-                    MicroLabel(note, lines: 3)
-                } else {
-                    MicroLabel("progress over wss · previews stream into the queue · every request follows your kill switch and is in the audit log", lines: 3)
+        NavigationStack {
+            Form {
+                Section {
+                    FormField("Name", text: $name)
+                    FormField("Base URL", text: $url, prompt: "https://studio-pc.tailnet.ts.net", kind: .url)
+                    Picker("Route", selection: $routing) {
+                        ForEach(RouteOverride.allCases, id: \.self) { Text($0.rawValue.lowercased().sentenceCased).tag($0) }
+                    }
+                } footer: {
+                    if let problem {
+                        Text(problem).foregroundStyle(.red)
+                    } else if let note = ProviderDraft.loopbackNote(trimmed) {
+                        Text(note)
+                    } else {
+                        Text("Progress over wss · previews stream into the queue · every request follows your kill switch and is in the audit log")
+                    }
                 }
-                SelectField(label: "Route", value: routing.rawValue.lowercased(), options: RouteOverride.allCases, optionLabel: { $0.rawValue.lowercased() }) { routing = $0 }
-                SectionLabel("auth header · optional")
-                ConsoleTextField(text: $headerName, placeholder: "Authorization", label: "Header", kind: .mono)
-                ConsoleTextField(text: $headerValue, placeholder: initial.headerRef != nil ? "saved · leave empty to keep" : "Bearer …", label: "Value", kind: .secret)
-                HStack {
-                    if !isNew { TextAction("Delete", color: c.error, action: onDelete) }
-                    Spacer()
-                    PrimaryButton("Save", enabled: valid && problem == nil) {
+                Section("Auth header · optional") {
+                    FormField("Header", text: $headerName, prompt: "Authorization", kind: .mono)
+                    FormField("Value", text: $headerValue, prompt: initial.headerRef != nil ? "Saved · leave empty to keep" : "Bearer …", kind: .secret)
+                }
+                if !isNew {
+                    Section {
+                        Button("Delete", role: .destructive, action: onDelete)
+                    }
+                }
+            }
+            .navigationTitle(isNew ? "New ComfyUI PC" : "Edit ComfyUI PC")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
                         var s = initial
                         s.name = name.trimmingCharacters(in: .whitespaces).isEmpty ? "ComfyUI" : name.trimmingCharacters(in: .whitespaces)
                         s.baseUrl = trimmed
@@ -184,12 +234,10 @@ private struct ComfyServerEditor: View {
                         s.headerName = headerName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : headerName.trimmingCharacters(in: .whitespaces)
                         onSave(s, s.headerName == nil ? "" : headerValue.isEmpty ? nil : headerValue)
                     }
-                    .frame(width: 140)
+                    .disabled(!valid || problem != nil)
                 }
             }
-            .padding(16)
         }
-        .background(c.surfaceContainerLow)
         .onAppear {
             name = initial.name
             url = initial.baseUrl
@@ -206,7 +254,6 @@ struct WorkflowImportSheet: View {
     let initialJson: String
     let onDone: (String?) -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var json = ""
     @State private var name = ""
     @State private var serverId: String?
@@ -216,52 +263,73 @@ struct WorkflowImportSheet: View {
 
     var body: some View {
         let studio = app.studio
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel("import workflow")
-                MicroLabel("api format · comfyui › workflow › export (api)", lines: 2)
-                ConsoleTextField(text: $name, placeholder: "Portrait SDXL", label: "Name")
-                HStack(spacing: 8) {
-                    GhostButton("Paste") { json = UIPasteboard.general.string ?? json }
-                    GhostButton("Files") { showFiles = true }
+        NavigationStack {
+            Form {
+                Section {
+                    FormField("Name", text: $name, prompt: "Portrait SDXL")
+                    HStack(spacing: 12) {
+                        Button("Paste", systemImage: "doc.on.clipboard") { json = UIPasteboard.general.string ?? json }
+                            .glassButton()
+                        Button("Files", systemImage: "folder") { showFiles = true }
+                            .glassButton()
+                    }
+                    StackedField(label: "Workflow JSON", text: $json, prompt: "{\"3\": {\"class_type\": \"KSampler\", …}}", kind: .mono, lines: 4 ... 10, code: true)
+                    if !studio.comfyServers.isEmpty {
+                        OptionPicker("Check against", selection: serverId ?? "", options: [""] + studio.comfyServers.map(\.id),
+                                     optionLabel: { id in id.isEmpty ? "Don't check" : studio.comfyServer(id)?.name ?? id }) { serverId = $0.isEmpty ? nil : $0 }
+                    }
+                } footer: {
+                    Text("API format: ComfyUI › Workflow › Export (API).")
                 }
-                ConsoleTextField(text: $json, placeholder: "{\"3\": {\"class_type\": \"KSampler\", …}}", label: "Workflow JSON", kind: .mono, minLines: 4, maxLines: 10)
-                if !studio.comfyServers.isEmpty {
-                    SelectField(label: "Check against", value: studio.comfyServer(serverId)?.name ?? "don't check", options: [""] + studio.comfyServers.map(\.id),
-                                optionLabel: { id in id.isEmpty ? "don't check" : studio.comfyServer(id)?.name ?? id }) { serverId = $0.isEmpty ? nil : $0 }
+                Section {
+                    Button {
+                        detect()
+                    } label: {
+                        HStack {
+                            Text("Detect parameters")
+                            if working { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(json.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
                 }
-                PrimaryButton("Detect parameters", enabled: !json.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, busy: working) { detect() }
                 if let result {
                     if let error = result.error {
-                        Text(error).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+                        Section { Text(error).foregroundStyle(.red) }
                     } else if let w = result.workflow {
-                        SectionLabel("detected · makes \(w.output.name.lowercased())")
-                        ForEach(w.params, id: \.name) { p in
-                            HStack {
-                                Text(p.label).textStyle(.titleSmall).foregroundStyle(c.onSurface)
-                                MicroLabel("\(p.type.name.lowercased())\(p.role.map { " · \($0)" } ?? "")")
-                                Spacer()
-                                MicroLabel(p.default_?.display().prefix(24).description ?? "")
+                        Section {
+                            ForEach(w.params, id: \.name) { p in
+                                LabeledContent {
+                                    Text(p.default_?.display().prefix(24).description ?? "").lineLimit(1)
+                                } label: {
+                                    Text(p.label)
+                                    Text("\(p.type.name.lowercased())\(p.role.map { " · \($0)" } ?? "")")
+                                }
+                            }
+                            if w.params.isEmpty { Text("Nothing detected · expose inputs after saving").foregroundStyle(.secondary) }
+                        } header: {
+                            Text("Detected · makes \(w.output.name.lowercased())")
+                        } footer: {
+                            if let v = result.validation {
+                                Text(v).foregroundStyle(.red)
+                            } else if result.checked {
+                                Text("✓ Every node and model is on \(studio.comfyServer(serverId)?.name ?? "the server")").foregroundStyle(.tint)
+                            } else {
+                                Text("Not checked against a server yet")
                             }
                         }
-                        if w.params.isEmpty { MicroLabel("nothing detected · expose inputs after saving", lines: 2) }
-                        if let v = result.validation {
-                            Text(v).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
-                        } else if result.checked {
-                            MicroLabel("✓ every node and model is on \(studio.comfyServer(serverId)?.name ?? "the server")", color: c.primary, lines: 2)
-                        } else {
-                            MicroLabel("not checked against a server yet", lines: 2)
-                        }
-                        PrimaryButton("Save workflow") {
-                            studio.saveWorkflow(w)
-                            onDone(w.id)
+                        Section {
+                            Button("Save workflow") {
+                                studio.saveWorkflow(w)
+                                onDone(w.id)
+                            }
                         }
                     }
                 }
             }
-            .padding(16)
+            .navigationTitle("Import workflow")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { onDone(nil) } } }
         }
-        .background(c.surfaceContainerLow)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.json, .plainText, .data]) { r in
             guard case .success(let url) = r else { return }
             let scoped = url.startAccessingSecurityScopedResource()
@@ -295,7 +363,6 @@ struct WorkflowDetail: View {
     let workflowId: String
     let onDone: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var tab = "run"
     @State private var values: [String: ParamValue] = [:]
     @State private var validation: String?
@@ -308,29 +375,37 @@ struct WorkflowDetail: View {
         let studio = app.studio
         if let w = studio.library.workflow(workflowId) {
             let server = studio.comfyServer(w.backendId) ?? studio.comfyServers.first
-            ScrollView {
-                InkStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        SectionLabel("\(w.name) · v\(w.version)")
-                        TextAction("Done", action: onDone)
+            NavigationStack {
+                Form {
+                    Section {
+                        if let server { RunsOnTag(label: server.name, route: server.route) } else { Text("Add a ComfyUI PC to run it").foregroundStyle(.red) }
+                        Picker("View", selection: $tab) {
+                            Text("Run").tag("run")
+                            Text("Parameters").tag("parameters")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
-                    if let server { RunsOnTag(label: server.name, route: server.route) } else { MicroLabel("add a comfyui pc to run it", color: c.error) }
-                    Segmented(options: ["run", "parameters"], selected: tab, label: { $0 }) { tab = $0 }
                     if tab == "run" {
-                        WorkflowForm(workflow: w, values: $values)
-                        PrimaryButton("Queue", enabled: server != nil) {
-                            let seed = w.params.first { $0.type == .seed }.flatMap { values[$0.name]?.asLong()?.int64Value }.flatMap { $0 >= 0 ? $0 : nil }
-                            let r = Recipe(engine: EngineKinds.shared.COMFYUI, backendId: server?.id, model: nil, params: values, inputs: [], workflowId: w.id,
-                                           workflowVersion: KotlinInt(value: w.version), seed: seed.map { KotlinLong(value: $0) }, output: w.output)
-                            studio.submit(r, label: w.name)
-                            onDone()
+                        Section {
+                            WorkflowForm(workflow: w, values: $values)
+                        }
+                        Section {
+                            Button("Queue") {
+                                let seed = w.params.first { $0.type == .seed }.flatMap { values[$0.name]?.asLong()?.int64Value }.flatMap { $0 >= 0 ? $0 : nil }
+                                let r = Recipe(engine: EngineKinds.shared.COMFYUI, backendId: server?.id, model: nil, params: values, inputs: [], workflowId: w.id,
+                                               workflowVersion: KotlinInt(value: w.version), seed: seed.map { KotlinLong(value: $0) }, output: w.output)
+                                studio.submit(r, label: w.name)
+                                onDone()
+                            }
+                            .disabled(server == nil)
                         }
                     } else {
                         review(w)
                     }
-                    HStack(spacing: 8) {
+                    Section {
                         if let server {
-                            GhostButton("Validate", busy: validating) {
+                            Button {
                                 validating = true
                                 Task {
                                     let r = await studio.validate(w, on: server.id)
@@ -339,18 +414,26 @@ struct WorkflowDetail: View {
                                     if refreshed !== w { studio.saveWorkflow(refreshed) }
                                     validating = false
                                 }
+                            } label: {
+                                HStack {
+                                    Text("Validate")
+                                    if validating { Spacer(); ProgressView() }
+                                }
                             }
+                            .disabled(validating)
                         }
-                        TextAction("Delete", color: c.error) { confirmDelete = true }
-                    }
-                    if let validation {
-                        Text(validation).textStyle(.bodySmall).foregroundStyle(validation.hasPrefix("✓") ? c.primary : c.error).fixedSize(horizontal: false, vertical: true)
+                        Button("Delete", role: .destructive) { confirmDelete = true }
+                    } footer: {
+                        if let validation {
+                            Text(validation).foregroundStyle(validation.hasPrefix("✓") ? AnyShapeStyle(.tint) : AnyShapeStyle(.red))
+                        }
                     }
                 }
-                .padding(16)
+                .navigationTitle("\(w.name) · v\(w.version)")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) } }
             }
-            .background(c.surfaceContainerLow)
-            .risoAlert($confirmDelete, title: "Delete workflow?", message: "Assets it made stay in the library.", confirm: "Delete") {
+            .confirmAlert($confirmDelete, title: "Delete workflow?", message: "Assets it made stay in the library.", confirm: "Delete") {
                 studio.deleteWorkflow(w.id)
                 onDone()
             }
@@ -370,48 +453,64 @@ struct WorkflowDetail: View {
     /// The schema: rename, reorder, remove, mark advanced; expose any other literal input.
     @ViewBuilder private func review(_ w: StudioWorkflow) -> some View {
         let studio = app.studio
-        ForEach(Array(w.params.enumerated()), id: \.element.name) { i, p in
-            HStack(spacing: 4) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(p.label).textStyle(.titleSmall).foregroundStyle(c.onSurface)
-                    MicroLabel("\(p.name) · \(p.type.name.lowercased())\(p.advanced ? " · more" : "") · \(p.targets.count) input\(p.targets.count == 1 ? "" : "s")")
+        Section("Parameters") {
+            ForEach(Array(w.params.enumerated()), id: \.element.name) { i, p in
+                HStack(spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(p.label)
+                        Text("\(p.name) · \(p.type.name.lowercased())\(p.advanced ? " · more" : "") · \(p.targets.count) input\(p.targets.count == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button { studio.saveWorkflow(WorkflowSchema.shared.move(workflow: w, name: p.name, index: Int32(i - 1), now: nowMillis())) } label: {
+                        Image(systemName: "arrow.up")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(i == 0)
+                    .accessibilityLabel("Move \(p.label) up")
+                    Menu {
+                        Button("Rename", systemImage: "pencil") { newLabel = p.label; renaming = p }
+                        Button(p.advanced ? "Show up front" : "Move under More", systemImage: p.advanced ? "eye" : "eye.slash") {
+                            let updated = p.doCopy(name: p.name, label: p.label, type: p.type, targets: p.targets, default: p.default_, min: p.min, max: p.max, step: p.step,
+                                                   options: p.options, multiline: p.multiline, role: p.role, advanced: !p.advanced)
+                            if let next = try? WorkflowSchema.shared.update(workflow: w, param: updated, now: nowMillis()) { studio.saveWorkflow(next) }
+                        }
+                        Button("Remove", systemImage: "minus.circle", role: .destructive) {
+                            studio.saveWorkflow(WorkflowSchema.shared.remove(workflow: w, name: p.name, now: nowMillis()))
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Edit \(p.label)")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                IconAction(symbol: "arrow.up", label: "Move \(p.label) up", size: 13, enabled: i > 0) {
-                    studio.saveWorkflow(WorkflowSchema.shared.move(workflow: w, name: p.name, index: Int32(i - 1), now: nowMillis()))
-                }
-                IconAction(symbol: "pencil", label: "Rename \(p.label)", size: 13) { newLabel = p.label; renaming = p }
-                IconAction(symbol: p.advanced ? "eye" : "eye.slash", label: p.advanced ? "Show up front" : "Move under More", size: 13) {
-                    let updated = p.doCopy(name: p.name, label: p.label, type: p.type, targets: p.targets, default: p.default_, min: p.min, max: p.max, step: p.step,
-                                           options: p.options, multiline: p.multiline, role: p.role, advanced: !p.advanced)
-                    if let next = try? WorkflowSchema.shared.update(workflow: w, param: updated, now: nowMillis()) { studio.saveWorkflow(next) }
-                }
-                IconAction(symbol: "minus.circle", label: "Remove \(p.label)", size: 13) {
-                    studio.saveWorkflow(WorkflowSchema.shared.remove(workflow: w, name: p.name, now: nowMillis()))
+                .swipeActions {
+                    Button("Remove \(p.label)", systemImage: "minus.circle", role: .destructive) {
+                        studio.saveWorkflow(WorkflowSchema.shared.remove(workflow: w, name: p.name, now: nowMillis()))
+                    }
                 }
             }
-            Hairline()
         }
         let exposable = WorkflowSchema.shared.exposable(workflow: w, info: nil)
         if !exposable.isEmpty {
-            SectionLabel("expose an input · \(exposable.count)")
-            ForEach(Array(exposable.prefix(40).enumerated()), id: \.offset) { _, e in
-                Button {
-                    if let next = try? WorkflowSchema.shared.expose(workflow: w, nodeId: e.nodeId, input: e.input, label: nil, info: nil, now: nowMillis()) { studio.saveWorkflow(next) }
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(e.nodeTitle) · \(e.input)").textStyle(.labelMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                            MicroLabel("\(e.type.name.lowercased()) · \(e.value.content.prefix(30))")
+            Section("Expose an input · \(exposable.count)") {
+                ForEach(Array(exposable.prefix(40).enumerated()), id: \.offset) { _, e in
+                    Button {
+                        if let next = try? WorkflowSchema.shared.expose(workflow: w, nodeId: e.nodeId, input: e.input, label: nil, info: nil, now: nowMillis()) { studio.saveWorkflow(next) }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(e.nodeTitle) · \(e.input)").lineLimit(1)
+                                Text("\(e.type.name.lowercased()) · \(e.value.content.prefix(30))").font(.caption).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "plus.circle").foregroundStyle(.tint)
                         }
-                        Spacer()
-                        Text("+").textStyle(.titleMedium).foregroundStyle(c.primary)
                     }
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
+                    .tint(.primary)
+                    .accessibilityLabel("Expose \(e.input) of \(e.nodeTitle)")
                 }
-                .buttonStyle(PressStyle())
-                .accessibilityLabel("Expose \(e.input) of \(e.nodeTitle)")
             }
         }
     }
@@ -424,37 +523,46 @@ private struct PipelineRunSheet: View {
     let pipeline: Pipeline
     let onDone: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var vars: [String: String] = [:]
     @State private var input: ParamValue?
     @State private var running = false
 
     var body: some View {
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel(pipeline.name)
-                Text(pipeline.description_).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-                MicroLabel(pipeline.steps.map(\.label).joined(separator: " → "))
-                ForEach(pipeline.variables, id: \.name) { v in
-                    ConsoleTextField(text: Binding(get: { vars[v.name] ?? v.default_ }, set: { vars[v.name] = $0 }), label: v.label + (v.required ? "" : " · optional"),
-                                     kind: v.multiline ? .prose : .mono, minLines: v.multiline ? 2 : 1, maxLines: v.multiline ? 6 : 1)
+        NavigationStack {
+            Form {
+                Section {
+                    Text(pipeline.description_).foregroundStyle(.secondary)
+                } footer: {
+                    Text(pipeline.steps.map(\.label).joined(separator: " → "))
                 }
-                if let type = pipeline.input {
-                    AssetParamPicker(label: "Input \(type.name.lowercased())", type: type, role: "image", value: $input)
-                }
-                PrimaryButton("Run", busy: running) {
-                    running = true
-                    let ids = (input as? ParamValue.AssetValue).map { [$0.ref.assetId] } ?? []
-                    Task {
-                        let r = await app.studio.runPipeline(pipeline, vars: vars, input: ids)
-                        app.studio.notice(r.ok ? "\(pipeline.name): \(r.message)" : "\(pipeline.name): \(r.message)")
-                        running = false
+                Section {
+                    ForEach(pipeline.variables, id: \.name) { v in
+                        StackedField(label: v.label + (v.required ? "" : " · optional"), text: Binding(get: { vars[v.name] ?? v.default_ }, set: { vars[v.name] = $0 }),
+                                     kind: v.multiline ? .prose : .mono, lines: v.multiline ? 2 ... 6 : nil)
                     }
-                    onDone()
+                    if let type = pipeline.input {
+                        AssetParamPicker(label: "Input \(type.name.lowercased())", type: type, role: "image", value: $input)
+                    }
                 }
             }
-            .padding(16)
+            .navigationTitle(pipeline.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDone) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Run") {
+                        running = true
+                        let ids = (input as? ParamValue.AssetValue).map { [$0.ref.assetId] } ?? []
+                        Task {
+                            let r = await app.studio.runPipeline(pipeline, vars: vars, input: ids)
+                            app.studio.notice(r.ok ? "\(pipeline.name): \(r.message)" : "\(pipeline.name): \(r.message)")
+                            running = false
+                        }
+                        onDone()
+                    }
+                    .disabled(running)
+                }
+            }
         }
-        .background(c.surfaceContainerLow)
     }
 }

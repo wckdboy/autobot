@@ -11,6 +11,8 @@ import dev.wckdboy.autobot.agent.core.session.TokenUsage
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
+import dev.wckdboy.autobot.shared.a2ui.A2uiSubmission
 import dev.wckdboy.autobot.providers.remote.QuotaErrors
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import kotlinx.serialization.SerialName
@@ -35,7 +37,13 @@ sealed interface SessionItem {
 
     @Serializable
     @SerialName("user")
-    data class User(override val key: String, val text: String, val images: List<String> = emptyList()) : SessionItem
+    data class User(
+        override val key: String,
+        val text: String,
+        val images: List<String> = emptyList(),
+        /** The generated-UI action this turn sent, if it came from one ([dev.wckdboy.autobot.shared.a2ui.A2uiTranscript] locks that surface). */
+        val a2ui: A2uiSubmission? = null,
+    ) : SessionItem
 
     @Serializable
     @SerialName("assistant")
@@ -79,6 +87,8 @@ sealed interface SessionItem {
         val undone: Boolean = false,
         /** The revert that undid it, for "Redo". */
         val revertId: String? = null,
+        /** The A2UI messages a successful `show_ui` call showed (replayed by [dev.wckdboy.autobot.shared.a2ui.A2uiTranscript]). */
+        val a2ui: String? = null,
     ) : SessionItem
 
     @Serializable
@@ -208,7 +218,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
         val key = "e${entry.seq}"
         when (val e = entry.event) {
             is SessionEvent.UserMessage -> when (e.kind) {
-                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.text, e.images)
+                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.display ?: e.text, e.images, A2uiChat.submission(e.meta, e.display ?: e.text))
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
                 UserMessageKind.CONTEXT -> if (e.contextId == CASCADE_ESCALATION) {
                     items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty(), localCascade?.target), NoticeKind.INFO)
@@ -262,6 +272,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
                         listOf(name, summary).filter { it.isNotBlank() }.joinToString(" · ", prefix = "$mark ")
                     },
                     change = if (e.isError) null else FileChange.from(e.meta),
+                    a2ui = if (e.isError || e.name != A2uiChat.TOOL) null else A2uiChat.stream(e.meta),
                 )
             }
             is SessionEvent.WorkspaceRevert -> {
@@ -414,8 +425,11 @@ fun explainFailure(detail: String?): String {
     val code = detail.substringBefore(": ", "")
     val message = if (code.isNotEmpty() && code.all { it.isUpperCase() || it == '_' }) detail.substringAfter(": ") else return detail
     if (code == "QUOTA" && QuotaErrors.isLimitMessage(message)) return "$message $QUOTA_ADVICE"
+    // A node says what went wrong in its own words (unreachable, unpaired: not an API key).
+    if (code == "AUTH" && dev.wckdboy.autobot.shared.invincible.NodeErrors.isUnpaired(message)) return message.removePrefix("HTTP 403: ")
+    if (code == "TRANSPORT" && dev.wckdboy.autobot.shared.invincible.NodeErrors.isWorded(message)) return message
     val lead = when (code) {
-        "AUTH" -> "The provider rejected the API key. Check it under Settings › Model providers"
+        "AUTH" -> "The provider rejected the API key. Check it in Remote › Providers"
         "QUOTA" -> "The provider says the account is out of credit or quota"
         "RATE_LIMIT" -> "The provider is rate limiting requests. Wait a moment and send again"
         "TRANSPORT" -> "Couldn't reach the provider"

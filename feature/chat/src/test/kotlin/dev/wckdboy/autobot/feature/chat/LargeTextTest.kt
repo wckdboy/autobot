@@ -66,13 +66,36 @@ class LargeTextTest {
     )
 
     private fun auditList(width: Int, scale: Float) = LargeTextAudit.render(compose, "chat-list", width, scale) {
-        Themed { ChatListScreen(list, listActions, onOpenChat = {}, onOpenProviders = {}, onOpenPrivacyCenter = {}) }
+        Themed { ChatListScreen(list, listActions, onOpenChat = {}, onOpenProviders = {}) }
     }
 
     // The composer is pinned to the bottom: rendered at a real phone's height.
     private fun auditChat(width: Int, scale: Float) = LargeTextAudit.render(compose, "chat", width, scale, heightDp = 800) {
         Themed { ChatScreen(chat, chatActions, onBack = {}, onOpenPrivacyCenter = {}, onOpenProviders = {}, onOpenGallery = {}) }
     }
+
+    // Markdown with code: a user message with inline code (on the tonal bubble), a reply with a
+    // code block, inline code and a table.
+    private val codeChat = chat.copy(
+        items = listOf(
+            SessionItem.User("u1", "Why does `xs.reverse()` return Unit?"),
+            SessionItem.Assistant(
+                "a1",
+                "`reverse()` reverses a `MutableList` in place; `reversed()` returns a new list.\n\n" +
+                    "```kotlin\nval xs = mutableListOf(1, 2, 3)\nxs.reverse()\nprintln(xs.reversed())\n```\n\n" +
+                    "| call | returns |\n| --- | --- |\n| `reverse()` | Unit |\n| `reversed()` | List |",
+                null, false, 60, "claude-opus-5-5",
+            ),
+        ),
+    )
+
+    private fun auditCodeChat(width: Int, scale: Float) = LargeTextAudit.render(compose, "chat-code", width, scale, heightDp = 1200) {
+        Themed { ChatScreen(codeChat, chatActions, onBack = {}, onOpenPrivacyCenter = {}, onOpenProviders = {}, onOpenGallery = {}) }
+    }
+
+    @Test fun codeChatDefaultTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditCodeChat(411, 1f))
+
+    @Test fun codeChatLargestTextFitsOnANarrowPhone() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditCodeChat(360, 2f))
 
     @Test fun listDefaultTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditList(411, 1f))
 
@@ -81,4 +104,11 @@ class LargeTextTest {
     @Test fun chatDefaultTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditChat(411, 1f))
 
     @Test fun chatLargestTextFitsOnANarrowPhone() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditChat(360, 2f))
+
+    /** A tablet or unfolded window: the list and the transcript keep a reading width, centred. */
+    @Test fun aWideWindowFits() {
+        assertEquals(emptyList<LargeTextAudit.Finding>(), auditList(900, 1f))
+    }
+
+    @Test fun aWideChatFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), auditChat(900, 1f))
 }

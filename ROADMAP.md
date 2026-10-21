@@ -12,8 +12,12 @@ Android, Neural Engine/Metal on iOS. Both apps are built from one shared core.
 3. **One app, two platforms.** Android and iOS ship the same features, version and behaviour.
    Logic lives in `:shared` (Kotlin Multiplatform) or the shared C cores; only UI and OS glue is
    per platform.
-4. **The riso feel.** One signal red on ink or paper, Antonio and JetBrains Mono, halftones.
-   Design tokens come from `shared/design/tokens.json` on both platforms.
+4. **System look, one brand.** Standard platform components: Material 3 Expressive on Android,
+   SwiftUI with Liquid Glass on iOS. The brand shows only as the purple (the Material scheme is
+   made from it; on iOS it is the tint), the pixel a and the purple pixel dot after a title.
+   Nothing custom where a standard component does the job. The riso look (signal red on ink or
+   paper, halftones) is retired and its kits are deleted on both platforms. Design tokens come
+   from `shared/design/tokens.json` on both platforms.
 
 ## Release rules
 
@@ -42,6 +46,7 @@ Get 1.2 into hands, prove the accelerator paths on real hardware, and close the 
 | ✅ | Compute benchmark: image step time excludes model load | iOS |
 | ✅ | Tool card → open the exact gallery image | iOS |
 | ✅ | dSYMs for the engine frameworks (symbolicated TestFlight crash logs) | iOS |
+| ✅ | Chat polish: one composer for every chat, one keyboard pattern (field, last message and the question stay while typing; 5-line composer; one banner) | both |
 
 **Exit:** TestFlight and GitHub builds of the same version. A diagnostics report from an 8 Elite
 Gen 5 shows chat and images on the NPU.
@@ -93,6 +98,31 @@ session exported on Android opens on iOS.
 - ✅ **OS models as fallback**: "This phone" falls back to the system's on-device model (Apple
   Foundation Models on iOS 26+; Gemini Nano via AICore on Android only where it does not pull Google
   Play Services into the default build) when no downloaded model fits or loads, always labelled.
+
+- **Generative UI (A2UI v1.0)**, first in the phone chats: the agent answers with native forms,
+  lists and cards (Compose on Android, SwiftUI on iOS) instead of only text. *(shared core in
+  `:shared/a2ui`: JSONL/array message parser with version routing, a catalog-driven validator
+  that passes all 157 v1.0 spec cases and reports A2UI error codes with JSON Pointer paths for
+  the model to fix its output, surface state with bindings, templates and the basic catalog's
+  functions, input write-back, `action` messages, `openUrl` http(s) only, size limits. Android
+  (in review): the `show_ui` tool with a compact prompt (Settings `generative_ui`, on by default,
+  in the phone's chats), invalid UI returned to the model to fix (3 tries a turn), surfaces stored
+  with the chat and replayed (`A2uiTranscript`), actions as the next user turn (the sent form
+  locks, read-only with its input, until the agent updates it; only interactive chats get the
+  tool, not subagents or recipes), and `:core:a2ui`,
+  a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
+  video and audio open in the browser). iOS (in review): the SwiftUI renderer (system controls,
+  Liquid Glass, the brand purple tint) in the phone chats over the same shared tool, replay and
+  lock rules, images on tap through the policy-bound client. Both on the native kits (Material 3
+  Expressive, NativeKit), with a Generative UI switch in Settings › Agent on both. Still to do:
+  an in-app media player, `callRendererFunction` and custom catalogs' functions)*
+  An eval (`:shared:a2uiEval`, 33 phone-chat tasks) measures the on-device risk. With the first
+  `show_ui` (a string argument holding the JSON) Qwen3 4B/1.7B and Llama 3.2 3B got valid UI
+  within 3 tries in 0-6% of tasks. `show_ui` now takes `messages` as a JSON array, repairs what
+  has one reading in front of the strict validator (`A2uiIntake`: unclosed brackets, a missing
+  envelope, version or catalogId, Button labels, inlined children, ChoicePicker strings, a
+  misplaced dataModel, a missing root) and tells the model what it repaired; errors say what to
+  fix (`A2uiFeedback`). Qwen3 4B Instruct: 2/31 → 22/31, Qwen3 1.7B: 1/31 → 10/31.
 
 **Exit:** an agent can use an MCP server, delegate to a subagent and recall a memory, offline
 where possible, on both platforms.
@@ -160,8 +190,11 @@ models, shared core). Ordered by value.
    own cloud"; sessions and the vault sync without a server.
    *(in progress: the computer side is [Invincible](https://github.com/wckdboy/invincible); the
    protocol layer (Noise pairing and sessions, signed receipts, shared conformance vectors) is in
-   `:shared`, checked against the node byte for byte and live. Not yet: the provider and QR scanner
-   in both apps, routing node connections through the kill switch and Tor/SOCKS5. The node's
+   `:shared`, checked against the node byte for byte and live. "My node" is a provider in both
+   apps, paired from Remote › Pair a node with the node's QR code (the camera opens its
+   `invincible://pair` link) or a pasted code; its connections go through the kill switch, Tor and
+   SOCKS5. Pairing again replaces the pairing, handshakes give up after 15 s, Cancel stops one, and
+   failures are said in plain words, an unreachable node once rather than retried. The node's
    agent and its bots are in both apps: chats with approvals, the Bots view and Bot detail with
    each bot's personality, what it knows about you (`USER.md`) and its usage over the last week;
    photos in node chats (downscaled to 1568 px, JPEG), retry on the node and the agent's `kept`
@@ -272,7 +305,8 @@ CPU-only 1.1.
   font (200 %) on a 360 dp phone: crowded rows stack, the top bar's actions take a row under the
   title, labels wrap instead of cutting off, and Robolectric renders audit each screen for
   clipped, ellipsized, overlapping or mid-word-broken text, unlabelled controls and touch areas
-  under 48 dp. iOS follows Dynamic Type with the same accent inks. Not yet: a TalkBack/VoiceOver
+  under 48 dp. iOS uses the system text styles and colours, so Dynamic Type and the system
+  contrast apply as they do in Apple's apps. Not yet: a TalkBack/VoiceOver
   pass on a real phone, Studio, sheets and dialogs in the large-text audit, a gallery
   audit with thumbnails, reduced-transparency and bold-text handling.)*
 - **Baseline profiles** and startup time budgets. *(Android: Baseline and startup profiles

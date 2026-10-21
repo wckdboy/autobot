@@ -81,19 +81,18 @@ struct StudioSnapshotTests {
             let only = ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_ROOMS"].map { $0.split(separator: ",").map(String.init) }
             for room in StudioRoom.allCases where only?.contains(room.rawValue) ?? true {
                 nav.studio = room
-                try await snapshot(StudioScreen(), app, nav, mode, darkOnTop: room.surface == .darkroom, "\(dir)/studio-\(room.rawValue)-\(suffix).png")
+                try await snapshot(StudioScreen(), app, nav, mode, "\(dir)/studio-\(room.rawValue)-\(suffix).png")
             }
             nav.studio = .library
-            try await snapshot(CompareView(a: assets[0], b: assets[1], player: StudioAudioPlayer()) {}.paperTheme(), app, nav, mode, darkOnTop: false, "\(dir)/studio-compare-\(suffix).png")
+            try await snapshot(CompareView(a: assets[0], b: assets[1], player: StudioAudioPlayer()) {}, app, nav, mode, "\(dir)/studio-compare-\(suffix).png")
             try await snapshot(GridSample(run: GridRun(id: "g", title: "steps × cfg", columns: ["10", "20", "30"], rows: ["4", "7"], xLabel: "steps", yLabel: "cfg",
-                                                       jobIds: [["j-1", "j-2", "j-3"], ["j-1", "j-4", "j-1"]], truncated: false)).darkroomTheme(),
-                               app, nav, mode, darkOnTop: true, "\(dir)/studio-grid-\(suffix).png")
+                                                       jobIds: [["j-1", "j-2", "j-3"], ["j-1", "j-4", "j-1"]], truncated: false)),
+                               app, nav, mode, "\(dir)/studio-grid-\(suffix).png")
         }
     }
 
     private struct GridSample: View {
         let run: GridRun
-        @Environment(\.scheme) private var c
 
         var body: some View {
             VStack(alignment: .leading) {
@@ -101,15 +100,15 @@ struct StudioSnapshotTests {
                 Spacer()
             }
             .padding(16)
-            .background(c.background)
+            .background(Color(.systemBackground))
         }
     }
 
-    private func snapshot(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ mode: Autobot.ThemeMode, darkOnTop: Bool, _ path: String) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    private func snapshot(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ mode: Autobot.ThemeMode, _ path: String) async throws {
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
-        let root = view.environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(mode, darkOnTop: darkOnTop)
+        let root = view.environment(app).environment(nav).autobotTheme(mode)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         try await Task.sleep(for: .milliseconds(1800))

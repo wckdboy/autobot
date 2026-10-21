@@ -15,7 +15,7 @@ class FailureAndReceiptTest {
     @Test
     fun everyTurnFailureDetailTheAgentWritesIsExplained() {
         val cases = mapOf(
-            "AUTH: bad key" to "The provider rejected the API key. Check it under Settings › Model providers (bad key)",
+            "AUTH: bad key" to "The provider rejected the API key. Check it in Remote › Providers (bad key)",
             "RATE_LIMIT: slow down" to "The provider is rate limiting requests. Wait a moment and send again (slow down)",
             "TRANSPORT: connection reset" to "Couldn't reach the provider (connection reset)",
             "TIMEOUT: " to "The provider didn't answer in time",

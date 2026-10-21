@@ -52,11 +52,10 @@ struct ChatSnapshotTests {
     }
 
     private func snapshot(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ mode: ThemeMode, _ path: String) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
-        // Ink animations render their end states, so snapshots are deterministic.
-        let root = RootBackground(content: view).environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(mode)
+        let root = RootBackground(content: view).environment(app).environment(nav).autobotTheme(mode)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         try await Task.sleep(for: .milliseconds(1500))
@@ -69,8 +68,7 @@ struct ChatSnapshotTests {
 
     private struct RootBackground<Content: View>: View {
         let content: Content
-        @Environment(\.scheme) private var c
-        var body: some View { content.background(c.background.ignoresSafeArea()) }
+        var body: some View { content.background(Color(.systemBackground).ignoresSafeArea()) }
     }
 
     static func agentState(_ id: String) -> ChatSessionState {

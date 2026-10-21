@@ -72,26 +72,23 @@ struct VideoRoom: View {
     let session: StudioSession
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if model.workflows.isEmpty || app.studio.comfyServers.isEmpty {
             ScrollView {
-                StudioEmpty(
-                    title: "video runs on your pc",
-                    text: "Generating video isn't practical on a phone with today's open models. The Studio runs video on your own PC with ComfyUI (LTX-Video, Wan 2.x …): "
-                        + (app.studio.comfyServers.isEmpty ? "add the PC, then import a video workflow saved in API format." : "import a video workflow saved in API format."),
-                    action: app.studio.comfyServers.isEmpty ? "Add a ComfyUI PC" : "Import a workflow",
-                ) { nav.studio = .workflows }
-                if !model.videos.isEmpty { library.padding(.horizontal, Tokens.Spacing.gutter) }
+                VStack(spacing: 16) {
+                    StudioEmpty(app.studio.comfyServers.isEmpty ? StudioRoomWords.shared.videoNoPc : StudioRoomWords.shared.videoNoWorkflow) { nav.studio = .workflows }
+                        .padding(.top, 24)
+                    if !model.videos.isEmpty { library.padding(.horizontal, 16) }
+                }
             }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
         } else {
-            VStack(spacing: 0) {
-                stage.frame(minHeight: 170, maxHeight: .infinity)
-                StudioPanel(title: "shot", collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) { controls }
-                    .frame(maxHeight: session.collapsed ? nil : 320)
-                    // The controls get their height first; the canvas takes the rest.
-                    .layoutPriority(1)
+            StudioRoomLayout(collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) {
+                stage
+            } controls: {
+                controls
+            } runBar: {
                 runBar
             }
         }
@@ -99,36 +96,45 @@ struct VideoRoom: View {
 
     private var stage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 if let job = model.runningJob {
                     ZStack(alignment: .bottomLeading) {
-                        RunningPlate(job: job).aspectRatio(16 / 9, contentMode: .fit)
-                        Tag(job.status ?? (job.steps > 0 ? "step \(job.step)/\(job.steps)" : job.state.label), accent: c.primary, filled: true).padding(8)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground))
+                        RunningPlate(job: job)
+                        Text(job.status ?? (job.steps > 0 ? "Step \(job.step)/\(job.steps)" : job.state.label.sentenceCased))
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .glassSurface(in: Capsule())
+                            .padding(10)
                     }
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 } else if let v = model.selected {
                     VideoStage(asset: v)
                 } else {
-                    ZStack(alignment: .bottomLeading) {
-                        Color.clear
-                    }
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .background(c.surfaceContainerLowest)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .accessibilityHidden(true)
                 }
                 if !model.videos.isEmpty { library }
             }
-            .padding(.horizontal, Tokens.Spacing.gutter)
-            .padding(.top, 6)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
     }
 
     private var library: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("takes · \(model.videos.count)")
+            Text("Takes · \(model.videos.count)").font(.headline).accessibilityAddTraits(.isHeader)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
                     ForEach(model.videos.prefix(30), id: \.id) { v in
                         AssetThumb(asset: v, size: 64)
-                            .overlay { if v.id == model.selected?.id { Rectangle().strokeBorder(c.primary, lineWidth: Tokens.Stroke.selection) } }
+                            .overlay {
+                                if v.id == model.selected?.id { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.tint, lineWidth: 2) }
+                            }
                             .onTapGesture { model.selectedId = v.id }
                             .accessibilityAddTraits(v.id == model.selected?.id ? [.isButton, .isSelected] : .isButton)
                     }
@@ -139,33 +145,35 @@ struct VideoRoom: View {
 
     @ViewBuilder private var controls: some View {
         if model.workflows.count > 1 {
-            SelectField(label: "Workflow", value: model.workflow?.name ?? "", options: model.workflows.map(\.id), optionLabel: { id in model.workflows.first { $0.id == id }?.name ?? id }) {
-                model.workflowId = $0
-                model.values = [:]
+            Section {
+                OptionPicker("Workflow", selection: model.workflow?.id, options: model.workflows.map(\.id), optionLabel: { id in model.workflows.first { $0.id == id }?.name ?? id }) {
+                    model.workflowId = $0
+                    model.values = [:]
+                }
             }
         }
         if let w = model.workflow {
-            RunsOnTag(label: model.server?.name ?? "your pc", route: model.server?.route ?? .pcLan)
-            if w.param(name: "prompt") != nil {
-                PromptBox(prompt: $model.prompt, negative: $model.negative, placeholder: "a slow dolly through fog at dawn", showNegative: w.param(name: "negative") != nil,
-                          negativePresets: PromptLibrary.shared.negativePresets.filter { $0.id == "neg-video" || $0.id == "neg-general" })
+            Section {
+                RunsOnTag(label: model.server?.name ?? "your pc", route: model.server?.route ?? .pcLan)
+                if w.param(name: "prompt") != nil {
+                    PromptBox(prompt: $model.prompt, negative: $model.negative, placeholder: "a slow dolly through fog at dawn", showNegative: w.param(name: "negative") != nil,
+                              negativePresets: PromptLibrary.shared.negativePresets.filter { $0.id == "neg-video" || $0.id == "neg-general" })
+                }
             }
-            WorkflowForm(workflow: w, values: $model.values) { ["prompt", "negative"].contains($0.name) || $0.type == .seed }
+            Section(w.name) {
+                WorkflowForm(workflow: w, values: $model.values) { ["prompt", "negative"].contains($0.name) || $0.type == .seed }
+            }
             SeedControl(mode: $model.seedMode, seed: $model.seed)
         }
     }
 
     private var runBar: some View {
         let blocker = model.blocker
-        return VStack(spacing: 6) {
-            Text(blocker ?? "\(model.workflow?.name ?? "") · runs on \(model.server?.name ?? "your pc")").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-                .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-            PrimaryButton("Generate", enabled: blocker == nil) { model.generate() }
+        return StudioRunBar(status: blocker ?? "\(model.workflow?.name ?? "") · runs on \(model.server?.name ?? "your pc")") {
+            Button { model.generate() } label: { Text("Generate").frame(maxWidth: .infinity) }
+                .glassProminentButton()
+                .disabled(blocker != nil)
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .padding(.vertical, 8)
-        .background(c.background)
-        .hairlineEdge(top: true, bottom: false)
     }
 }
 
@@ -183,7 +191,7 @@ struct VideoStage: View {
                 if let animated {
                     AnimatedImageView(data: animated).id(asset.id)
                 } else {
-                    InkLoader(.block, caption: "decrypting").frame(maxWidth: .infinity, minHeight: 180)
+                    decrypting
                 }
             } else if let url {
                 StudioVideoPlayer(url: url) { frame in
@@ -198,9 +206,9 @@ struct VideoStage: View {
                 }
                 .id(url)
             } else {
-                InkLoader(.block, caption: "decrypting").frame(maxWidth: .infinity, minHeight: 180)
+                decrypting
             }
-            MicroLabel(StudioText.meta(asset))
+            Text(StudioText.meta(asset)).font(.caption).foregroundStyle(.secondary)
         }
         .task(id: asset.id) {
             if !asset.mimeType.hasPrefix("video/") {
@@ -215,5 +223,9 @@ struct VideoStage: View {
         .onDisappear {
             if let url { try? FileManager.default.removeItem(at: url) }
         }
+    }
+
+    private var decrypting: some View {
+        ProgressView("Decrypting").frame(maxWidth: .infinity, minHeight: 180)
     }
 }

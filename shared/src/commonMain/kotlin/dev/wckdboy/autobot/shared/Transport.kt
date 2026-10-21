@@ -72,6 +72,13 @@ interface HttpSink {
     fun onLine(line: String)
     fun onComplete()
     fun onFailure(blocked: Boolean, message: String)
+
+    /**
+     * Like [onFailure] (no response, not blocked), for a failure trying again would not fix: a
+     * paired node that is down, silent or cut the answer off ([dev.wckdboy.autobot.shared.invincible.NodeHttpTransport]).
+     * A chat shows it once instead of retrying.
+     */
+    fun onFinalFailure(message: String) = onFailure(blocked = false, message = message)
 }
 
 interface HttpTransport {
@@ -148,6 +155,11 @@ class TransportChatProvider(
 
                 override fun onFailure(blocked: Boolean, message: String) {
                     trySend(ChatEvent.Error(if (blocked) ErrorKind.BLOCKED else ErrorKind.NETWORK, message))
+                    close()
+                }
+
+                override fun onFinalFailure(message: String) {
+                    trySend(ChatEvent.Error(ErrorKind.NETWORK, message, retryable = false))
                     close()
                 }
             },

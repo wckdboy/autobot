@@ -2,7 +2,10 @@ package dev.wckdboy.autobot.core.designsystem.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -25,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamicColorScheme
 import dev.wckdboy.autobot.core.designsystem.R
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkTickers
@@ -148,6 +153,17 @@ val GraphiteLightColorScheme: ColorScheme = lightColorScheme(
     inverseOnSurface = AutobotColors.Bone100,
 )
 
+/**
+ * The app's colors: Material's scheme generated from the brand purple ([AutobotColors.Purple]),
+ * light or dark, the way Material You builds one from a wallpaper. Every component gets its roles
+ * from it; the brand shows in primary and its containers.
+ */
+fun brandColorScheme(dark: Boolean): ColorScheme =
+    dynamicColorScheme(seedColor = AutobotColors.Purple, isDark = dark, style = PaletteStyle.TonalSpot)
+
+val BrandDarkColorScheme: ColorScheme = brandColorScheme(dark = true)
+val BrandLightColorScheme: ColorScheme = brandColorScheme(dark = false)
+
 /** Pure-black variant for OLED panels: every background-ish surface becomes #000. */
 fun ColorScheme.toAmoled(): ColorScheme = copy(
     background = AutobotColors.Black,
@@ -198,36 +214,11 @@ private fun label(size: Double, line: Int, tracking: Double, weight: FontWeight 
     lineHeightStyle = Tight,
 )
 
-/**
- * Headings in the system sans (semibold, tight), sans for reading, mono for every label. The
- * condensed display face is kept for the few places that print a single large word.
- */
-val AutobotTypography = Typography(
-    displayLarge = heading(44, 50, -0.8),
-    displayMedium = heading(36, 42, -0.6),
-    displaySmall = heading(30, 36, -0.4),
-    headlineLarge = heading(26, 32, -0.3),
-    headlineMedium = heading(22, 28, -0.2),
-    headlineSmall = heading(19, 24, -0.1),
-    titleLarge = heading(18, 24, 0.0),
-    titleMedium = Base.titleMedium.copy(fontWeight = FontWeight.Medium, fontSize = 16.sp, letterSpacing = 0.sp),
-    titleSmall = Base.titleSmall.copy(fontWeight = FontWeight.Medium),
-    bodyLarge = Base.bodyLarge.copy(fontSize = 15.sp, lineHeight = 23.sp, letterSpacing = 0.1.sp),
-    bodyMedium = Base.bodyMedium.copy(fontSize = 14.sp, lineHeight = 20.sp),
-    bodySmall = Base.bodySmall.copy(fontSize = 12.5.sp, lineHeight = 17.sp),
-    labelLarge = label(13.0, 16, 0.0, FontWeight.SemiBold),
-    labelMedium = label(12.0, 16, 0.0),
-    labelSmall = label(11.0, 14, 0.0),
-)
+/** Material's type scale in the system sans: what every standard component expects. */
+val AutobotTypography = Typography()
 
-/** Hard edges: small radii so cards read as printed blocks. */
-val AutobotShapes = Shapes(
-    extraSmall = RoundedCornerShape(2.dp),
-    small = RoundedCornerShape(3.dp),
-    medium = RoundedCornerShape(4.dp),
-    large = RoundedCornerShape(6.dp),
-    extraLarge = RoundedCornerShape(10.dp),
-)
+/** Material's shapes (the rounder Expressive corners come with its components). */
+val AutobotShapes = Shapes()
 
 @Immutable
 data class AutobotExtraStyles(
@@ -248,52 +239,23 @@ data class AutobotExtraStyles(
 val DefaultExtraStyles = AutobotExtraStyles(
     code = TextStyle(fontFamily = CodeFontFamily, fontSize = 13.sp, lineHeight = 18.sp),
     codeBlock = TextStyle(fontFamily = CodeFontFamily, fontSize = 12.sp, lineHeight = 17.sp),
-    micro = TextStyle(
-        fontFamily = CodeFontFamily,
-        fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.sp,
-    ),
-    action = TextStyle(
-        fontFamily = CodeFontFamily,
-        fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.sp,
-        lineHeightStyle = Tight,
-    ),
-    tab = TextStyle(
-        fontFamily = CodeFontFamily,
-        fontWeight = FontWeight.Medium,
-        fontSize = 11.5.sp,
-        lineHeight = 14.sp,
-        letterSpacing = 0.sp,
-        lineHeightStyle = Tight,
-    ),
-    readout = TextStyle(
-        fontFamily = CodeFontFamily,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.5.sp,
-        lineHeight = 16.sp,
-        fontFeatureSettings = "tnum",
-    ),
-    number = TextStyle(
-        fontFamily = CodeFontFamily,
-        fontWeight = FontWeight.Medium,
-        fontSize = 26.sp,
-        lineHeight = 30.sp,
-        fontFeatureSettings = "tnum",
-        lineHeightStyle = Tight,
-    ),
+    // Labels, actions and readouts in the system sans, as Material's own labels are; only code
+    // stays monospace.
+    micro = Base.labelMedium,
+    action = Base.labelLarge,
+    tab = Base.labelMedium,
+    readout = Base.labelMedium.copy(fontFeatureSettings = "tnum"),
+    number = Base.headlineSmall.copy(fontFeatureSettings = "tnum"),
 )
 
 /**
- * App theme. Dark (ink) by default; light is "paper".
+ * App theme: Material 3 Expressive (its components, shapes and springy motion) in the brand's
+ * colors ([brandColorScheme]), dark or light.
  *
  * @param amoled pure black backgrounds (dark only).
- * @param dynamicColor Material You colors from the wallpaper instead of the riso palette.
+ * @param dynamicColor Material You colors from the wallpaper instead of the brand's.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AutobotTheme(
     darkTheme: Boolean = true,
@@ -306,12 +268,17 @@ fun AutobotTheme(
         val base = when {
             dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
             dynamicColor -> dynamicLightColorScheme(context)
-            darkTheme -> GraphiteDarkColorScheme
-            else -> GraphiteLightColorScheme
+            darkTheme -> BrandDarkColorScheme
+            else -> BrandLightColorScheme
         }
         if (darkTheme && amoled) base.toAmoled() else base
     }
-    MaterialTheme(colorScheme = scheme, typography = AutobotTypography, shapes = AutobotShapes) {
+    MaterialExpressiveTheme(
+        colorScheme = scheme,
+        motionScheme = MotionScheme.expressive(),
+        typography = AutobotTypography,
+        shapes = AutobotShapes,
+    ) {
         CompositionLocalProvider(LocalInkMotion provides rememberInkMotion()) {
             // One frame loop per motion tier for the whole window (nested themes reuse the outer one).
             CompositionLocalProvider(LocalInkTickers provides (LocalInkTickers.current ?: rememberInkTickers()), content = content)
@@ -326,7 +293,7 @@ fun AutobotTheme(
 @Composable
 fun PaperTheme(content: @Composable () -> Unit) {
     SystemBarsFor(lightSurface = true)
-    MaterialTheme(colorScheme = GraphiteLightColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
+    MaterialTheme(colorScheme = BrandLightColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
 }
 
 /**
@@ -336,7 +303,7 @@ fun PaperTheme(content: @Composable () -> Unit) {
 @Composable
 fun DarkroomTheme(content: @Composable () -> Unit) {
     SystemBarsFor(lightSurface = false)
-    MaterialTheme(colorScheme = GraphiteDarkColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
+    MaterialTheme(colorScheme = BrandDarkColorScheme, typography = AutobotTypography, shapes = AutobotShapes, content = content)
 }
 
 

@@ -77,7 +77,6 @@
 	<string>The harness can add reminders when you approve each request.</string>
 	<key>UIAppFonts</key>
 	<array>
-		<string>antonio.ttf</string>
 		<string>jetbrains_mono.ttf</string>
 	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

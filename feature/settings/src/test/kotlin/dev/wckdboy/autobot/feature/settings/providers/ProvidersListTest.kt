@@ -9,6 +9,7 @@ import dev.wckdboy.autobot.core.data.model.ProviderRouting
 import dev.wckdboy.autobot.core.designsystem.motion.InkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import java.lang.reflect.Proxy
 import org.junit.Rule
 import org.junit.Test
@@ -49,5 +50,21 @@ class ProvidersListTest {
         compose.onNodeWithText("Couldn't list models: The provider rejected the API key (HTTP 401)").assertIsDisplayed()
         compose.onNodeWithText(" · no key").assertIsDisplayed()
         compose.onNodeWithText("1 model · just now").assertIsDisplayed()
+    }
+
+    /** A node whose pairing is gone (an imported backup has no secrets) does not claim to be paired. */
+    @Test
+    fun aNodeWithoutItsPairingSaysToPairItAgain() {
+        fun node(id: String, addresses: List<String>) =
+            ProviderRow(id, id, ProviderKind.INVINCIBLE_NODE, "My node (Invincible)", "http://invincible/v1", "auto", ProviderRouting.INHERIT, hasKey = addresses.isNotEmpty(), models = null, requiresKey = false, nodeAddresses = addresses)
+        compose.setContent {
+            AutobotTheme {
+                CompositionLocalProvider(LocalInkMotion provides InkMotion(reduced = true)) {
+                    ProvidersScreen(ProvidersUiState(providers = listOf(node("node-a", listOf("127.0.0.1:7802")), node("node-b", emptyList()))), actions)
+                }
+            }
+        }
+        compose.onNodeWithText("127.0.0.1:7802 · paired").assertIsDisplayed()
+        compose.onNodeWithText(NodePairingWords.NOT_PAIRED).assertIsDisplayed()
     }
 }

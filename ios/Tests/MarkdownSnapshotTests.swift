@@ -15,7 +15,7 @@ struct MarkdownSnapshotTests {
     @Test(.timeLimit(.minutes(2))) func renderRichAnswer() async throws {
         guard let dir else { return }
         for mode in [ThemeMode.dark, .light] {
-            let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+            let scene = try await TestScene.first()
             let window = UIWindow(windowScene: scene)
             window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
             let root = Sample().autobotTheme(mode)
@@ -31,18 +31,16 @@ struct MarkdownSnapshotTests {
     }
 
     private struct Sample: View {
-        @Environment(\.scheme) private var c
-
         var body: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ChatBubble(role: .user, text: "When is the next train to **Berlin**?")
-                    ChatBubble(role: .assistant, text: MarkdownSnapshotTests.sample)
+                    PromptLine(text: "When is the next train to **Berlin**?")
+                    ChatBubble(text: MarkdownSnapshotTests.sample)
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
+                .padding(.horizontal)
                 .padding(.top, 8)
             }
-            .background(c.background.ignoresSafeArea())
+            .background(Color(.systemBackground).ignoresSafeArea())
         }
     }
 

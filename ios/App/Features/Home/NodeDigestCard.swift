@@ -92,74 +92,82 @@ struct NodeDigestCard: View {
     let onNeedsYou: () -> Void
     let onDetails: () -> Void
     let onDismiss: () -> Void
-    @Environment(\.scheme) private var c
     @Environment(\.dynamicTypeSize) private var dynamicType
     private let words = NodeDigestWords.shared
 
     var body: some View {
         let needsYou = words.needsYou(d: state.digest)
-        VStack(alignment: .leading, spacing: 8) {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) {
+                // The lines take the card's whole width (large text wraps them less).
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(words.lines(d: state.digest).enumerated()), id: \.offset) { _, line in lineView(line) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityHidden(true)
+                actions(needsYou)
+            }
+            .padding(.top, 4)
+        } label: {
             HStack(alignment: .top, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     NodeMark()
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(NodeDigestWords.shared.TITLE).textStyle(.titleSmall).foregroundStyle(c.onSurface)
+                        Text(NodeDigestWords.shared.TITLE).font(.headline)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text(state.node).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).textLines(1, accessibility: 2)
+                        Text(state.node).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicType.isAccessibilitySize ? 2 : 1)
                     }
                 }
-                .padding(.top, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // The title, the node and the lines are read as one: the card's story, without the glyphs.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(words.spoken(d: state.digest, node: state.node))
                 .accessibilityAddTraits(.isHeader)
-                IconAction(symbol: "xmark", label: "Dismiss: mark as seen", action: onDismiss)
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Dismiss: mark as seen")
             }
-            // The lines take the card's whole width (large text wraps them less).
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(words.lines(d: state.digest).enumerated()), id: \.offset) { _, line in lineView(line) }
-            }
-            .padding(.trailing, 8)
-            .accessibilityHidden(true)
-            actions(needsYou)
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 4)
-        .padding(.vertical, 10)
-        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.outlineVariant, lineWidth: Tokens.Stroke.border))
     }
 
     @ViewBuilder private func actions(_ needsYou: String?) -> some View {
-        let details = TextAction("Details", color: c.onSurfaceVariant, action: onDetails).accessibilityLabel("Details: the node's activity")
+        let details = Button("Details", action: onDetails)
+            .glassButton()
+            .accessibilityLabel("Details: the node's activity")
+        let primary = needsYou.map { text in
+            Button(action: onNeedsYou) { Text(text).frame(maxWidth: .infinity) }
+                .glassProminentButton()
+        }
         if dynamicType.isAccessibilitySize || (needsYou?.count ?? 0) > 20 {
             // Large text, or a long action ("2 approvals, 1 question waiting"): it gets the whole width, Details goes under it.
-            VStack(alignment: .leading, spacing: 4) {
-                if let needsYou { PaperButton(needsYou, action: onNeedsYou) }
+            VStack(alignment: .leading, spacing: 8) {
+                primary
                 details
             }
-            .padding(.trailing, 8)
         } else {
             HStack(spacing: 8) {
-                if let needsYou { PaperButton(needsYou, action: onNeedsYou) }
+                primary
                 details
             }
-            .padding(.trailing, 8)
         }
     }
 
-    /// Words first; an error is in the error color and stands out, a warning's `!` is amber, a check stays quiet.
+    /// Words first; an error is in red and stands out, a warning's `!` is orange, a check stays quiet.
     @ViewBuilder private func lineView(_ line: NodeDigestLine) -> some View {
         switch line.tone {
         case .error:
-            Text(line.text).textStyle(.bodyMedium).fontWeight(.medium).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+            Text(line.text).font(.callout.weight(.medium)).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
         case .ok:
-            Text(line.text).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+            Text(line.text).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         case .warning:
-            (Text(words.unmarked(text: line.text) + " ").foregroundStyle(c.onSurface) + Text("!").foregroundStyle(c.inks.amber).bold())
-                .textStyle(.bodyMedium).fixedSize(horizontal: false, vertical: true)
+            (Text(words.unmarked(text: line.text) + " ") + Text("!").foregroundStyle(.orange).bold())
+                .font(.callout).fixedSize(horizontal: false, vertical: true)
         default:
-            Text(line.text).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
+            Text(line.text).font(.callout).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

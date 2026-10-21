@@ -56,15 +56,16 @@ frameworks = target.frameworks_build_phase.files.map(&:file_ref)
 # dsh supervisor files that Autobot's SwiftUI harness uses. The ObjC UIKit
 # screens of dsh-ios (root controller, overlays, log view, capabilities list)
 # are replaced by the native Liquid Glass screen.
+# HealthKit requires the com.apple.developer.healthkit capability, which this app
+# does not declare; linking it makes App Store processing reject the binary. The
+# harness works without the health capability. (A comment inside %w[] would be
+# split into words and emitted as exclude patterns, so it lives up here.)
 DSH_EXCLUDES = %w[
   DSHMain.m DSHAppDelegate.h DSHAppDelegate.m DSHSceneDelegate.h DSHSceneDelegate.m
   DSHRootViewController.h DSHRootViewController.m DSHStatusOverlayView.h DSHStatusOverlayView.m
   DSHLogViewController.h DSHLogViewController.m
   DSHActivityViewController.h DSHActivityViewController.m DSHCapabilitiesViewController.h
   DSHCapabilitiesViewController.m
-  # HealthKit requires the com.apple.developer.healthkit capability, which this app
-  # does not declare; linking it makes App Store processing reject the binary.
-  # The harness works without the health capability.
   DSHHealthCapability.h DSHHealthCapability.m
   Info.plist DSH.entitlements AppDSH.xcconfig
   DSHAssets.xcassets DSHLaunchScreen.storyboard PrivacyInfo.xcprivacy

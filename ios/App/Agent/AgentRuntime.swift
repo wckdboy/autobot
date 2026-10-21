@@ -27,7 +27,7 @@ struct SessionTranscript: Equatable, Sendable {
     let projection: SessionProjection
     /// [projection]'s items with each key once (`ForEach` ids).
     let items: [SessionItem]
-    /// Item keys in order (the ink ledger).
+    /// Item keys in order.
     let keys: [String]
     /// Tool step numbers by item key (1-based; a repeated key keeps its first number).
     let stepNumbers: [String: Int]
@@ -224,6 +224,10 @@ protocol AgentRuntime: AnyObject {
     func setCascade(_ conversationId: String, _ policy: String)
     /// "Ask <cloud model>": sends the prompt of the phone's offered answer to the chat's cloud model.
     func escalate(_ conversationId: String)
+    /// A tap on a generated UI (`show_ui`, A2UI): a `.send` action becomes the chat's next user
+    /// turn (queued behind a running one), shown in the transcript as its label. False when it
+    /// could not be handed to the chat's agent (the form unlocks again).
+    func sendA2uiAction(_ conversationId: String, _ action: A2uiAction) async -> Bool
 }
 
 /// The chat's Think switch, as the shared `ThinkingSetting`: `mode` is OFF, AUTO or ON; `budget`
@@ -269,6 +273,8 @@ extension AgentRuntime {
     func setRedaction(_ conversationId: String, _ enabled: Bool) {}
     func setCascade(_ conversationId: String, _ policy: String) {}
     func escalate(_ conversationId: String) {}
+    /// No tools, no generated UI.
+    func sendA2uiAction(_ conversationId: String, _ action: A2uiAction) async -> Bool { false }
 }
 
 /// Runtimes without file tools have nothing to undo.

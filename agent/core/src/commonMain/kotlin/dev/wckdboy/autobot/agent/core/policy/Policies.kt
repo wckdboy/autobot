@@ -23,7 +23,7 @@ fun llmRetryPlugin(
 ): Plugin = plugin("llm-retry") { ctx ->
     ctx.intercept(Hooks.RequestError) { input, next ->
         val failure = input.failure
-        if (!failure.code.retryable || input.attempt >= maxRetries) return@intercept next(input)
+        if (!failure.retryable || input.attempt >= maxRetries) return@intercept next(input)
         val backoff = min(maxDelayMs.toDouble(), initialDelayMs * 2.0.pow(input.attempt))
         val jittered = backoff * (1 + (random.nextDouble() * 2 - 1) * jitter)
         RequestErrorDecision.Retry(failure.retryAfterMs?.coerceAtMost(60_000) ?: jittered.toLong())

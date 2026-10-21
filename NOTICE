@@ -46,6 +46,13 @@ Third-party software built into the app:
   Apache-2.0. Its notices ship in assets/licenses/qnn-runtime-NOTICE.txt. The QNN SDK headers
   used to build Autobot are downloaded from Qualcomm at build time and are not in this repository.
 
+  A2UI v1.0 specification (https://github.com/google/A2UI, commit d71cc92): the JSON schemas
+  common_types.json, agent_to_renderer.json and catalog_definition.json and the basic catalog,
+  embedded in :shared (a2ui/A2uiSpecJson.kt); the spec's conformance cases are test resources
+  (shared/src/jvmTest/resources/a2ui/v1_0, see its NOTICE)
+  Copyright 2024-2026 Google LLC
+  Licensed under the Apache License, Version 2.0.
+
   Antonio (https://github.com/vernnobile/antonioFont)
   JetBrains Mono (https://github.com/JetBrains/JetBrainsMono)
   Licensed under the SIL Open Font License 1.1.

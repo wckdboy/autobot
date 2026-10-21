@@ -1,3 +1,4 @@
+import AutobotShared
 import Foundation
 import Testing
 @testable import Autobot
@@ -86,9 +87,27 @@ struct SettingsStructureTests {
         #expect(SettingsSection.privacy.rows.contains(.panicWipe))
         #expect(SettingsSection.privacy.rows.contains(.redactCloud))
         #expect(SettingsRow.redactCloud.title() == "Redact before cloud")
-        #expect(SettingsSection.agent.rows == [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .usage, .mcpServers, .recipes])
+        #expect(SettingsSection.agent.rows == [.memory, .memoryNotes, .vault, .webSearch, .quotaFallback, .generativeUi, .usage, .mcpServers, .recipes])
         #expect(SettingsSection.data.rows == [.exportImport, .deleteAll])
         #expect(SettingsSection.about.rows == [.about])
+    }
+
+    /// The Generative UI switch: in the Agent section, on by default, explained in one line, and
+    /// stored as the shared `generative_ui` setting.
+    @MainActor @Test func generativeUiSwitch() {
+        #expect(SettingsSection.agent.rows.contains(.generativeUi))
+        #expect(SettingsRow.generativeUi.title() == "Generative UI")
+        #expect(SettingsWords.shared.GENERATIVE_UI == "Lets the on-device agent show forms and choices in phone chats.")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("prefs-\(UUID().uuidString).json")
+        let prefs = Preferences(url: url)
+        let store = SettingsStore(preferences: prefs, policy: NetworkPolicy(), lock: AppLockManager())
+        #expect(store.settings.generativeUi)
+        store.setGenerativeUi(false)
+        #expect(!store.settings.generativeUi)
+        #expect(prefs.get(SettingsStore.key, as: [String: String].self)?["generative_ui"] == "false")
+        // A fresh store reads it back.
+        let again = SettingsStore(preferences: Preferences(url: url), policy: NetworkPolicy(), lock: AppLockManager())
+        #expect(!again.settings.generativeUi)
     }
 
     @Test func everyRowHasExactlyOneHome() {

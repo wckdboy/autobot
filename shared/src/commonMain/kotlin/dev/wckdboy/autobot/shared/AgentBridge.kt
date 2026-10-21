@@ -89,6 +89,9 @@ import dev.wckdboy.autobot.shared.vault.VaultHost
 import dev.wckdboy.autobot.shared.vault.vaultPlugin
 import dev.wckdboy.autobot.shared.search.WebSearchSource
 import dev.wckdboy.autobot.shared.search.webSearchPlugin
+import dev.wckdboy.autobot.shared.a2ui.A2uiActionResult
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
+import dev.wckdboy.autobot.shared.a2ui.a2uiPlugin
 import dev.wckdboy.autobot.shared.studio.StudioRunner
 import dev.wckdboy.autobot.shared.studio.studioPlugin
 import dev.wckdboy.autobot.core.network.AuditLog
@@ -603,23 +606,39 @@ class AgentBridge(
     /**
      * Pairs with the node in [code] (an `invincible://pair?…` link) as [deviceName], over the
      * connector (route `INHERIT`). [callback] gets the pairing to store as the provider's secret,
-     * the node's name and key fingerprint, or an error.
+     * the node's name and key fingerprint, or an error. Cancelling the returned handle (the sheet's
+     * Cancel) stops the handshake and closes its connection, so a cancelled pairing does not go on
+     * to use up the one-time code; [callback] then gets "Cancelled".
      */
-    fun pairNode(code: String, deviceName: String, callback: (secret: String?, node: String?, fingerprint: String?, error: String?) -> Unit) {
+    fun pairNode(code: String, deviceName: String, previous: String?, callback: (secret: String?, node: String?, fingerprint: String?, error: String?) -> Unit): Cancellable {
         val connector = nodeConnector
         val crypto = nodeCrypto
         val parsed = PairingCode.parse(code.trim())
         when {
-            connector == null || crypto == null -> return callback(null, null, null, "My node is not available on this device yet")
-            parsed == null -> return callback(null, null, null, "That is not an Invincible pairing code (invincible://pair?…)")
+            connector == null || crypto == null -> return Cancellable {}.also { callback(null, null, null, "My node is not available on this device yet") }
+            parsed == null -> return Cancellable {}.also { callback(null, null, null, dev.wckdboy.autobot.shared.invincible.NodePairingWords.NOT_A_CODE) }
         }
-        launchAnswering(
+        val job = launchAnsweringJob(
             callback = { r: List<String?> -> callback(r[0], r[1], r[2], r[3]) },
             failed = { listOf(null, null, null, it) },
         ) {
-            val paired = PairedNode.pair(crypto!!, parsed!!, deviceName) { addresses -> connector!!(addresses, "INHERIT") }
-            listOf(paired.toSecret(), paired.name, paired.fingerprint, null)
+            try {
+                // [previous]: this device's pairing with the same node, whose key it keeps.
+                val paired = PairedNode.pair(crypto!!, parsed!!, deviceName, previous?.let(PairedNode::fromSecret)) { addresses -> connector!!(addresses, "INHERIT") }
+                listOf(paired.toSecret(), paired.name, paired.fingerprint, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                listOf(null, null, null, dev.wckdboy.autobot.shared.invincible.NodeErrors.pairing(e, parsed!!.addresses))
+            }
         }
+        return Cancellable { job.cancel() }
+    }
+
+    /** Which of [secrets] (stored pairings) is with the node in [code]: pairing again replaces it; -1 for none. */
+    fun pairedNodeIndex(code: String, secrets: List<String>): Int {
+        val parsed = PairingCode.parse(code.trim()) ?: return -1
+        return secrets.indexOfFirst { PairedNode.sameNode(it, parsed) }
     }
 
     /** The key fingerprint of a pairing code, to compare with what `invincible pair` printed; null when it is not one. */
@@ -974,17 +993,24 @@ class AgentBridge(
      * resumes.
      */
     private fun <R> launchAnswering(callback: (R) -> Unit, failed: (String) -> R, block: suspend () -> R) {
+        launchAnsweringJob(callback, failed, block)
+    }
+
+    /** [launchAnswering], with its job to cancel (the callback then gets `failed("Cancelled")`). */
+    private fun <R> launchAnsweringJob(callback: (R) -> Unit, failed: (String) -> R, block: suspend () -> R): kotlinx.coroutines.Job {
         val answered = AtomicBoolean(false)
         fun answer(result: R) {
             if (answered.compareAndSet(expectedValue = false, newValue = true)) callback(result)
         }
-        scope.launch { answer(block()) }.invokeOnCompletion { cause ->
+        val job = scope.launch { answer(block()) }
+        job.invokeOnCompletion { cause ->
             when (cause) {
                 null -> Unit
                 is CancellationException -> answer(failed("Cancelled"))
                 else -> answer(failed(cause.message ?: (cause::class.simpleName ?: "error")))
             }
         }
+        return job
     }
 
     @OptIn(ExperimentalTime::class)
@@ -1299,6 +1325,31 @@ class AgentBridge(
     @OptIn(ExperimentalTime::class)
     private fun nowMillis(): Long = Clock.System.now().toEpochMilliseconds()
 
+    /**
+     * A tap on a generated UI ([A2uiChat]): the action goes to [sessionId]'s agent as the next
+     * user turn (queued behind a running one); the model reads the A2UI `action` message, the
+     * transcript shows [userMessage] or the action's name in words, and the turn's meta keeps
+     * [snapshotJson] (the surface's input, which locks it on replay). The fields are those of the
+     * [A2uiActionResult.SendEvent] the host's dispatch returned ([A2uiTranscriptItems.sendEvent]).
+     * [callback] answers once: false when the chat's agent could not be reached (unlock the form).
+     */
+    fun sendA2uiAction(
+        sessionId: String,
+        surfaceId: String,
+        name: String,
+        messageJson: String,
+        dataModelJson: String?,
+        userMessage: String?,
+        snapshotJson: String,
+        callback: (Boolean) -> Unit,
+    ) {
+        val event = A2uiActionResult.SendEvent(surfaceId, name, messageJson, dataModelJson, userMessage, snapshotJson)
+        withAgent(sessionId, missing = { callback(false) }) {
+            it.queueTurn(A2uiChat.actionMessage(event))
+            callback(true)
+        }
+    }
+
     /** Delivers [text] at the next step boundary of the running turn. */
     fun steer(sessionId: String, text: String) = withAgent(sessionId) { it.steer(text) }
 
@@ -1492,6 +1543,7 @@ class AgentBridge(
     private var vaultHandle: Disposable? = null
     private var searchHandle: Disposable? = null
     private var studioHandle: Disposable? = null
+    private var a2uiHandle: Disposable? = null
 
     private class QuotaFallback(val enabled: Boolean, val onDevice: LlmCallConfig?)
 
@@ -1530,6 +1582,16 @@ class AgentBridge(
     fun setWebSearch(source: WebSearchSource?) {
         searchHandle?.dispose()
         searchHandle = source?.let { s -> harness.root.plugin(webSearchPlugin(transport) { withContext(IoDispatcher) { s.config() } }) }
+    }
+
+    /**
+     * Generative UI (Settings `generative_ui`, on by default) on or off: `show_ui` and its prompt
+     * in every session, as Android's `AgentHost` toggles it. The tool itself refuses subagents,
+     * and recipes only offer their allowlisted tools.
+     */
+    fun setGenerativeUi(enabled: Boolean) {
+        a2uiHandle?.dispose()
+        a2uiHandle = if (enabled) harness.root.plugin(a2uiPlugin()) else null
     }
 
     /**
@@ -1608,13 +1670,13 @@ class AgentBridge(
      * Runs [block] on the session's agent. A call made right after [open] (e.g. "chat" turning
      * tools off) waits for the agent [open] is still creating instead of being dropped.
      */
-    private fun withAgent(sessionId: String, block: suspend (Agent) -> Unit) {
+    private fun withAgent(sessionId: String, missing: () -> Unit = {}, block: suspend (Agent) -> Unit) {
         scope.launch {
             val agent = mutex.withLock { used(sessionId) }
                 // Closed to save memory ([evictIdle]): reopen it from the store.
                 ?: mutex.withLock { routes[sessionId] }?.let { (provider, model) -> agent(sessionId, provider, model) }
                 ?: withTimeoutOrNull(OPEN_WAIT_MS) { created.map { it[sessionId] }.filterNotNull().first() }
-                ?: return@launch
+                ?: return@launch missing()
             try {
                 block(agent)
             } catch (e: CancellationException) {
@@ -1622,6 +1684,7 @@ class AgentBridge(
             } catch (t: Throwable) {
                 // e.g. the store failing to log a settings change: the call is dropped, the bridge lives.
                 println("AgentBridge: ${t::class.simpleName}: ${t.message}")
+                missing()
             }
         }
     }

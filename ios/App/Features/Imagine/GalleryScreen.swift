@@ -37,63 +37,61 @@ struct GalleryScreen: View {
     var openId: String? = nil
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var favoritesOnly = false
     @State private var query = ""
     @State private var open: ImageViewerTarget?
     @State private var openedInitial = false
-    @State private var message: String?
 
     var body: some View {
-        let _ = InkProbe.hit("body.gallery")
+        let _ = RenderProbe.hit("body.gallery")
         let all = app.gallery.items
         let items = all.filter { item in
             (!favoritesOnly || item.favorite) &&
                 (query.isEmpty || item.prompt.localizedCaseInsensitiveContains(query) || item.engine.localizedCaseInsensitiveContains(query))
         }
         VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                // The same top bar as every other screen (it was a smaller, one-off title).
-                AutobotTopBar(title: "Gallery", onBack: { nav.back() }) {
-                    MicroLabel(items.count == all.count ? "\(all.count)" : "\(items.count)/\(all.count)")
-                    IconAction(symbol: "star.fill", label: "Favorites only", tint: favoritesOnly ? c.inks.amber : c.onSurfaceVariant) { favoritesOnly.toggle() }
-                        .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
+            AutobotTopBar(title: "Gallery", onBack: { nav.back() }) {
+                Text(items.count == all.count ? "\(all.count)" : "\(items.count)/\(all.count)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(items.count == all.count ? counted(all.count, "image") : "\(items.count) of \(all.count) images")
+                Button { favoritesOnly.toggle() } label: {
+                    Image(systemName: favoritesOnly ? "star.fill" : "star")
                 }
-                ConsoleTextField(text: $query, placeholder: "Search", kind: .mono)
-                    .padding(.horizontal, Tokens.Spacing.gutter)
-                    .padding(.bottom, 8)
+                .accessibilityLabel("Favorites only")
+                .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
             }
-            .hairlineEdge()
             Group {
-                if let message {
-                    HStack {
-                        MicroLabel(message, color: c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-                        TextAction("OK") { self.message = nil }
+                if items.isEmpty {
+                    if all.isEmpty {
+                        MarkUnavailable("Nothing generated yet", description: "Images you make land here.")
+                    } else if !query.isEmpty {
+                        ContentUnavailableView.search(text: query)
+                    } else {
+                        MarkUnavailable("No images match")
                     }
-                    .padding(.horizontal, 16)
-                }
-            }
-            .stamp(message) { $0 != nil }
-            if items.isEmpty {
-                EmptyState(all.isEmpty ? "Nothing generated yet. Images you make land here." : "No images match.")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 4)], spacing: 4) {
-                        ForEach(items) { item in
-                            Thumb(item: item)
-                                .onTapGesture { open = ImageViewerTarget(ids: items.map(\.id), start: item.id) }
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityHint("Opens the image full screen")
-                                .transition(.inkDissolve)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 112), spacing: 4)], spacing: 4) {
+                            ForEach(items) { item in
+                                Thumb(item: item)
+                                    .onTapGesture { open = ImageViewerTarget(ids: items.map(\.id), start: item.id) }
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityHint("Opens the image full screen")
+                                    .transition(.opacity)
+                            }
                         }
+                        .padding(.horizontal, 4)
+                        .animation(.easeOut(duration: 0.25), value: items.map(\.id))
                     }
-                    .padding(8)
-                    .animation(.inkDissolve, value: items.map(\.id))
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(c.background)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search images")
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .background(Color(.systemBackground))
         // Once, as soon as the item is there (the gallery can still be loading when this appears).
         .task(id: all.count) {
             guard !openedInitial, let openId else { return }
@@ -109,7 +107,6 @@ struct GalleryScreen: View {
 private struct Thumb: View {
     let item: GalleryItem
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var image: UIImage?
 
     var body: some View {
@@ -117,12 +114,16 @@ private struct Thumb: View {
             Color.clear
             if let image { Image(uiImage: image).resizable().scaledToFill().transition(.opacity) }
             if item.favorite {
-                Image(systemName: "star.fill").symbolSize(12).foregroundStyle(AutobotColors.amber).padding(4)
+                Image(systemName: "star.fill")
+                    .font(.caption)
+                    .foregroundStyle(.yellow)
+                    .shadow(radius: 2)
+                    .padding(6)
             }
         }
         .aspectRatio(1, contentMode: .fit)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerLow))
-        .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityLabel((item.favorite ? "Favorite. " : "") + String(item.prompt.prefix(60)))
         .task(id: item.id) {
@@ -132,8 +133,7 @@ private struct Thumb: View {
             }
             guard let bytes = await app.gallery.thumbnail(item.id), let decoded = await decodeImage(bytes, maxSide: GalleryThumbs.maxSide) else { return }
             GalleryThumbs.put(item.id, decoded)
-            withAnimation(.inkReduced) { image = decoded }
+            withAnimation(.easeOut(duration: 0.2)) { image = decoded }
         }
     }
 }
-

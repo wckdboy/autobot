@@ -48,10 +48,10 @@ struct StateSnapshotTests {
     }
 
     private func snapshot(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ mode: ThemeMode, _ name: String) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
-        let root = Background(content: view).environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(mode)
+        let root = Background(content: view).environment(app).environment(nav).autobotTheme(mode)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         try await Task.sleep(for: .milliseconds(dir == nil ? 300 : 1500))
@@ -66,8 +66,7 @@ struct StateSnapshotTests {
 
     private struct Background<Content: View>: View {
         let content: Content
-        @Environment(\.scheme) private var c
-        var body: some View { content.background(c.background.ignoresSafeArea()) }
+        var body: some View { content.background(Color(.systemBackground).ignoresSafeArea()) }
     }
 
     static func errorState(_ id: String) -> ChatSessionState {
@@ -76,7 +75,7 @@ struct StateSnapshotTests {
         s.projection = SessionProjection(
             items: [
                 .user(key: "e1", text: "Summarise my notes from this week", images: []),
-                .notice(key: "e2", text: "The provider rejected the API key. Check it under Settings › Model providers", kind: .error),
+                .notice(key: "e2", text: "The provider rejected the API key. Check it in Remote › Providers", kind: .error),
                 .user(key: "e3", text: "Try again", images: []),
                 .assistant(key: "e4", text: "Here is what you wrote on Monday", reasoning: nil, interrupted: true, outputTokens: 9, model: "deepseek-chat"),
                 .notice(key: "e5", text: "stopped", kind: .warn),

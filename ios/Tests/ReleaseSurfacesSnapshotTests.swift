@@ -31,7 +31,7 @@ struct ReleaseSurfacesSnapshotTests {
             let suffix = mode == .dark ? "dark" : "light"
             try await snapshot(ChatScreen(conversationId: chat.id), app, nav, mode, "chat-redact-\(suffix)")
             try await snapshot(ReceiptSheet(receipt: receipt) {}, app, nav, mode, "receipt-redacted-\(suffix)")
-            try await snapshot(ScrollView { board.padding(16) }, app, nav, mode, "usage-board-\(suffix)")
+            try await snapshot(List { board }.listStyle(.insetGrouped), app, nav, mode, "usage-board-\(suffix)")
         }
     }
 
@@ -91,10 +91,10 @@ struct ReleaseSurfacesSnapshotTests {
     }
 
     private func snapshot(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ mode: Autobot.ThemeMode, _ name: String) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let window = UIWindow(windowScene: scene)
         window.overrideUserInterfaceStyle = mode == .dark ? .dark : .light
-        let root = Background(content: view).environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(mode)
+        let root = Background(content: view).environment(app).environment(nav).autobotTheme(mode)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         try await Task.sleep(for: .milliseconds(dir == nil ? 300 : 1500))
@@ -109,7 +109,6 @@ struct ReleaseSurfacesSnapshotTests {
 
     private struct Background<Content: View>: View {
         let content: Content
-        @Environment(\.scheme) private var c
-        var body: some View { content.background(c.background.ignoresSafeArea()) }
+        var body: some View { content.background(Color(.systemBackground).ignoresSafeArea()) }
     }
 }

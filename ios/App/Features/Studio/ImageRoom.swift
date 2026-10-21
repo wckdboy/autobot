@@ -347,7 +347,6 @@ struct ImageRoom: View {
     let session: StudioSession
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var showMask = false
     @State private var showGrid = false
     @State private var showLoras = false
@@ -355,31 +354,29 @@ struct ImageRoom: View {
 
     var body: some View {
         if model.backends.isEmpty && model.workflows.isEmpty {
-            ScrollView {
-                StudioEmpty(title: "no image engine yet",
-                            text: "Download a Core ML image model to run on this iPhone, point Autobot at a PC (A1111 / Forge / Local Dream), or add a ComfyUI workflow.",
-                            action: "Get a model") {
+            // One primary action; a PC is the quiet second path (as on Android and in Imagine).
+            VStack(spacing: 8) {
+                StudioEmpty(StudioRoomWords.shared.imageNoEngine) {
                     nav.leaveStudio()
                     nav.switchTo(.models)
                 }
-                HStack(spacing: 8) {
-                    GhostButton("Add a pc") { nav.leaveStudio(); nav.reset(.run, [.imageBackends]) }
-                    GhostButton("Workflows") { nav.studio = .workflows }
-                }
-                .padding(.horizontal, Tokens.Spacing.gutter)
+                .frame(maxHeight: .infinity)
+                Button("Use a PC instead") { nav.leaveStudio(); nav.reset(.run, [.imageBackends]) }
+                    .buttonStyle(.borderless)
+                    .padding(.bottom, 24)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
         } else {
-            VStack(spacing: 0) {
+            StudioRoomLayout(collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) {
                 canvas
-                    .frame(maxHeight: .infinity)
-                StudioPanel(title: "controls", collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) { controls }
-                    .frame(maxHeight: session.collapsed ? nil : 320)
-                    // The controls get their height first; the canvas takes the rest.
-                    .layoutPriority(1)
+            } controls: {
+                controls
+            } runBar: {
                 runBar
             }
             .fullScreenCover(isPresented: $showMask) {
-                if let image = model.initImage { MaskEditor(image: image, model: model) { showMask = false }.darkroomTheme() }
+                if let image = model.initImage { MaskEditor(image: image, model: model) { showMask = false } }
             }
             .sheet(isPresented: $showGrid) {
                 GridBuilderSheet(params: model.gridParams) { x, y in
@@ -414,33 +411,46 @@ struct ImageRoom: View {
         return VStack(spacing: 6) {
             if let grid = model.gridRunId.flatMap({ id in app.studio.grids.first { $0.id == id } }) {
                 ScrollView {
-                    HStack {
-                        SectionLabel("grid · \(grid.title.prefix(30))")
-                        TextAction("Close") { model.gridRunId = nil }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Grid · \(grid.title.prefix(30))").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Close") { model.gridRunId = nil }.buttonStyle(.borderless)
+                        }
+                        GridResultView(run: grid) { a in model.canvasId = a.id; model.gridRunId = nil }
                     }
-                    GridResultView(run: grid) { a in model.canvasId = a.id; model.gridRunId = nil }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
             } else {
                 ZStack(alignment: .bottomLeading) {
-                    c.surfaceContainerLowest
+                    RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.secondarySystemGroupedBackground))
                     if let running {
                         RunningPlate(job: running)
                     } else if let asset {
                         CanvasImage(asset: asset)
                     } else {
-                        Color.clear
+                        AutobotMark(size: 18)
+                            .opacity(0.5)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .accessibilityElement()
                             .accessibilityLabel("Empty canvas")
                     }
                     if let running {
-                        Tag(running.state == .queued ? "queued" : running.steps > 0 ? "step \(running.step)/\(running.steps)" : (running.status ?? "loading"),
-                            accent: c.primary, filled: true, busy: running.steps == 0 && running.state == .running).padding(8)
+                        HStack(spacing: 6) {
+                            if running.steps == 0 && running.state == .running { ProgressView().controlSize(.mini) }
+                            Text(running.state == .queued ? "Queued" : running.steps > 0 ? "Step \(running.step)/\(running.steps)" : (running.status ?? "Loading"))
+                        }
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .glassSurface(in: Capsule())
+                        .padding(10)
                     }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .frame(minHeight: 170)
-                .clipped()
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.top, 6)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
                 if !model.projectImages.isEmpty && running == nil { contactSheet(selected: asset) }
             }
         }
@@ -453,26 +463,29 @@ struct ImageRoom: View {
                 HStack(spacing: 4) {
                     ForEach(model.projectImages.prefix(30), id: \.id) { a in
                         AssetThumb(asset: a, size: 48)
-                            .overlay { if a.id == selected?.id { Rectangle().strokeBorder(c.primary, lineWidth: Tokens.Stroke.selection) } }
+                            .overlay {
+                                if a.id == selected?.id { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.tint, lineWidth: 2) }
+                            }
                             .onTapGesture { model.canvasId = a.id }
-                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAddTraits(a.id == selected?.id ? [.isButton, .isSelected] : .isButton)
                     }
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
+                .padding(.horizontal, 16)
             }
             if let selected {
                 HStack(spacing: 6) {
-                    MicroLabel(StudioText.meta(selected)).frame(maxWidth: .infinity, alignment: .leading)
-                    Tag("→ input") { Task { await model.useAsInput(selected) } }
-                    Tag("↺ recipe", accent: c.primary) { Task { await model.reuse(selected.recipe) } }
+                    Text(StudioText.meta(selected)).font(.caption).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    StudioChip("→ Input") { Task { await model.useAsInput(selected) } }
+                    StudioChip("↺ Recipe", active: true) { Task { await model.reuse(selected.recipe) } }
                     if app.studio.has(EngineKinds.shared.UPSCALE) {
-                        Tag("4×") {
+                        StudioChip("4×") {
                             app.studio.submit(Recipe(engine: EngineKinds.shared.UPSCALE, backendId: nil, model: nil, params: [:], inputs: [AssetRef(assetId: selected.id, role: "image")],
                                                      workflowId: nil, workflowVersion: nil, seed: nil, output: .image), label: "upscale 4×", parent: selected.id)
                         }
+                        .accessibilityLabel("Upscale 4×")
                     }
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
+                .padding(.horizontal, 16)
             }
         }
         .padding(.bottom, 6)
@@ -481,168 +494,190 @@ struct ImageRoom: View {
     // MARK: Controls
 
     @ViewBuilder private var controls: some View {
-        targetRow
+        targetSection
         if let w = model.workflow {
-            PromptBox(prompt: Binding(get: { (model.workflowValues["prompt"] as? ParamValue.StringValue)?.value ?? model.request.prompt },
-                                      set: { model.workflowValues["prompt"] = .text($0) }),
-                      negative: Binding(get: { (model.workflowValues["negative"] as? ParamValue.StringValue)?.value ?? model.request.negativePrompt },
-                                        set: { model.workflowValues["negative"] = .text($0) }),
-                      showNegative: w.param(name: "negative") != nil)
-            WorkflowForm(workflow: w, values: $model.workflowValues) { $0.name == "prompt" || $0.name == "negative" || $0.type == .seed }
+            Section("Prompt") {
+                PromptBox(prompt: Binding(get: { (model.workflowValues["prompt"] as? ParamValue.StringValue)?.value ?? model.request.prompt },
+                                          set: { model.workflowValues["prompt"] = .text($0) }),
+                          negative: Binding(get: { (model.workflowValues["negative"] as? ParamValue.StringValue)?.value ?? model.request.negativePrompt },
+                                            set: { model.workflowValues["negative"] = .text($0) }),
+                          showNegative: w.param(name: "negative") != nil)
+            }
+            Section(w.name) {
+                WorkflowForm(workflow: w, values: $model.workflowValues) { $0.name == "prompt" || $0.name == "negative" || $0.type == .seed }
+            }
         } else {
-            PromptBox(prompt: Binding(get: { model.request.prompt }, set: { v in model.edit { $0.prompt = v } }),
-                      negative: Binding(get: { model.request.negativePrompt }, set: { v in model.edit { $0.negativePrompt = v } }))
+            Section("Prompt") {
+                PromptBox(prompt: Binding(get: { model.request.prompt }, set: { v in model.edit { $0.prompt = v } }),
+                          negative: Binding(get: { model.request.negativePrompt }, set: { v in model.edit { $0.negativePrompt = v } }))
+            }
             backendControls
         }
         SeedControl(mode: $model.seedMode, seed: $model.seed)
-        HStack(alignment: .bottom, spacing: 12) {
-            StepperField(label: "Batch", value: model.batch, range: 1 ... 8) { model.batch = $0 }
+        Section {
+            Stepper("Batch · \(model.batch)", value: $model.batch, in: 1 ... 8)
             if app.studio.has(EngineKinds.shared.UPSCALE) {
-                VStack(alignment: .leading, spacing: 4) {
-                    MicroLabel("upscale pass 4×")
-                    RisoToggle(isOn: $model.upscalePass)
-                }
+                Toggle("Upscale pass 4×", isOn: $model.upscalePass)
             }
-            Spacer()
         }
     }
 
-    private var targetRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private var targetSection: some View {
+        Section {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(model.backends) { b in
-                        chip(b.kind == .onDevice ? "this iphone" : b.name, active: model.target == .backend(b.id)) { model.select(.backend(b.id)) }
+                        StudioChip(b.kind == .onDevice ? "This iPhone" : b.name, active: model.target == .backend(b.id)) { model.select(.backend(b.id)) }
                     }
                     ForEach(model.workflows, id: \.id) { w in
-                        chip("◐ \(w.name)", active: model.target == .workflow(w.id)) { model.select(.workflow(w.id)) }
+                        StudioChip("◐ \(w.name)", active: model.target == .workflow(w.id)) { model.select(.workflow(w.id)) }
                     }
                 }
             }
-            if let runs = model.runsOn { RouteTag(route: runs.route).accessibilityLabel("Runs on \(runs.label)") }
+            if let runs = model.runsOn { RouteBadge(route: runs.route).accessibilityLabel("Runs on \(runs.label)") }
             if let error = model.catalogError {
                 HStack {
-                    MicroLabel("can't reach \(model.backend?.name ?? "the backend"): \(error)", color: c.error, lines: 2)
-                    TextAction("Retry") { model.refreshCatalog() }
+                    Text("Can't reach \(model.backend?.name ?? "the backend"): \(error)").font(.footnote).foregroundStyle(.red).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Retry") { model.refreshCatalog() }.buttonStyle(.borderless)
                 }
             }
+        } header: {
+            Text("Runs on")
         }
-    }
-
-    private func chip(_ label: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Tag(label, accent: active ? c.primary : c.onSurfaceVariant, filled: active, action: action)
-            .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     @ViewBuilder private var backendControls: some View {
         let r = model.request
         let caps = model.capabilities
         let kind = model.backend?.kind
-        if kind == .onDevice {
-            if model.onDeviceModels.count > 1 {
-                SelectField(label: "Model", value: model.onDeviceModels.first { $0.id == r.model }?.title ?? model.onDeviceModels.first?.title ?? "", options: model.onDeviceModels.map(\.id),
-                            optionLabel: { id in model.onDeviceModels.first { $0.id == id }?.title ?? id }) { id in
-                    if let m = model.onDeviceModels.first(where: { $0.id == id }) { model.selectOnDeviceModel(m) }
+        Section("Model") {
+            if kind == .onDevice {
+                if model.onDeviceModels.count > 1 {
+                    OptionPicker("Model", selection: r.model ?? model.onDeviceModels.first?.id, options: model.onDeviceModels.map(\.id),
+                                 optionLabel: { id in model.onDeviceModels.first { $0.id == id }?.title ?? id }) { id in
+                        if let m = model.onDeviceModels.first(where: { $0.id == id }) { model.selectOnDeviceModel(m) }
+                    }
                 }
+            } else if !model.catalog.models.isEmpty {
+                OptionPicker("Checkpoint", selection: r.model ?? model.catalog.currentModel, options: model.catalog.models, optionLabel: shortModelName) { v in model.selectRemoteModel(v) }
             }
-        } else if !model.catalog.models.isEmpty {
-            SelectField(label: "Checkpoint", value: shortModelName(r.model ?? model.catalog.currentModel ?? ""), options: model.catalog.models, optionLabel: shortModelName) { v in model.selectRemoteModel(v) }
+            Picker("Mode", selection: $model.mode) {
+                ForEach(model.modes, id: \.self) { Text($0.rawValue.sentenceCased).tag($0) }
+            }
+            .pickerStyle(.segmented)
         }
-        Segmented(options: model.modes, selected: model.mode, label: { $0.rawValue }) { m in model.mode = m }
-        if model.mode != .txt2img { inputStrip }
+        if model.mode != .txt2img { inputSection }
         let (samplers, value): ([String], String) = switch kind {
         case .onDevice: (LocalDiffusion.samplers, r.sampler)
         case .localSse: (LocalSseEngine.schedulers, LocalSseEngine.schedulerId(r.sampler, r.scheduler))
         default: (model.catalog.samplers.isEmpty ? ["DPM++ 2M", "Euler a", "Euler", "DDIM", "UniPC"] : model.catalog.samplers, r.sampler)
         }
-        HStack(alignment: .top, spacing: 8) {
-            SelectField(label: "Sampler", value: value, options: samplers) { v in model.edit { $0.sampler = v; if kind == .localSse { $0.scheduler = nil } } }
+        Section("Sampling") {
+            OptionPicker("Sampler", selection: value, options: samplers) { v in model.edit { $0.sampler = v; if kind == .localSse { $0.scheduler = nil } } }
             let schedulers: [String] = kind == .onDevice ? LocalDiffusion.schedulers : kind == .sdApi ? model.catalog.schedulers : []
-            if !schedulers.isEmpty { SelectField(label: "Schedule", value: r.scheduler ?? "default", options: schedulers) { v in model.edit { $0.scheduler = v } } }
+            if !schedulers.isEmpty { OptionPicker("Schedule", selection: r.scheduler ?? "default", options: schedulers) { v in model.edit { $0.scheduler = v } } }
+            LabeledSlider("Steps", value: Binding(get: { Double(model.request.steps) }, set: { v in model.edit { $0.steps = Int(v) } }),
+                          in: 1 ... Double(caps?.maxSteps ?? 150), step: 1, format: { "\(Int($0))" })
+            LabeledSlider("CFG", value: Binding(get: { model.request.cfgScale }, set: { v in model.edit { $0.cfgScale = (v * 2).rounded() / 2 } }), in: 1 ... 20, format: { String(format: "%.1f", $0) })
         }
-        ValueSlider(label: "Steps", value: Binding(get: { Double(model.request.steps) }, set: { v in model.edit { $0.steps = Int(v) } }),
-                    range: 1 ... Double(caps?.maxSteps ?? 150), step: 1, format: { "\(Int($0))" })
-        ValueSlider(label: "CFG", value: Binding(get: { model.request.cfgScale }, set: { v in model.edit { $0.cfgScale = (v * 2).rounded() / 2 } }), range: 1 ... 20, format: { String(format: "%.1f", $0) })
         if kind == .onDevice, let native = model.nativeSize {
             let out = ImageSizing.fixed(native: native, requested: (r.width, r.height))
-            MicroLabel("size · \(out.width)×\(out.height) · \(ImageSizing.compiledNote(native))", lines: 3)
-            ImagineTagFlow(spacing: 6) {
-                ForEach(AspectRatio.all) { aspect in
-                    let s = ImageSizing.fixedSize(native: native, aspect: aspect)
-                    let active = s.width == out.width && s.height == out.height
-                    Tag("\(aspect.label) · \(s.width)×\(s.height)", accent: active ? c.primary : c.onSurfaceVariant, filled: active) { model.setSize(s.width, s.height) }
-                        .accessibilityLabel("\(aspect.spoken), \(s.width) by \(s.height)")
-                        .accessibilityAddTraits(active ? .isSelected : [])
+            Section {
+                ImagineTagFlow(spacing: 6) {
+                    ForEach(AspectRatio.all) { aspect in
+                        let s = ImageSizing.fixedSize(native: native, aspect: aspect)
+                        StudioChip("\(aspect.label) · \(s.width)×\(s.height)", active: s.width == out.width && s.height == out.height) { model.setSize(s.width, s.height) }
+                            .accessibilityLabel("\(aspect.spoken), \(s.width) by \(s.height)")
+                    }
                 }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Size · \(out.width)×\(out.height)")
+            } footer: {
+                Text(ImageSizing.compiledNote(native))
             }
         } else {
-            MicroLabel("size · \(r.width)×\(r.height)")
-            ImagineTagFlow(spacing: 6) {
-                ForEach(ImageRoomModel.sizes, id: \.0) { label, w, h in
-                    let active = w == r.width && h == r.height
-                    Tag("\(label) \(w)", accent: active ? c.primary : c.onSurfaceVariant, filled: active) { model.setSize(w, h) }
+            Section("Size · \(r.width)×\(r.height)") {
+                ImagineTagFlow(spacing: 6) {
+                    ForEach(ImageRoomModel.sizes, id: \.0) { label, w, h in
+                        StudioChip("\(label) \(w)", active: w == r.width && h == r.height) { model.setSize(w, h) }
+                    }
+                }
+                .padding(.vertical, 4)
+                Stepper("Width · \(r.width)", value: Binding(get: { r.width / 64 }, set: { model.setSize($0 * 64, r.height) }), in: 4 ... 32)
+                Stepper("Height · \(r.height)", value: Binding(get: { r.height / 64 }, set: { model.setSize(r.width, $0 * 64) }), in: 4 ... 32)
+            }
+        }
+        Section {
+            ForEach(r.loras, id: \.name) { lora in
+                HStack(alignment: .center) {
+                    LabeledSlider(lora.name, value: Binding(get: { lora.weight }, set: { model.setLora(lora.name, $0) }), in: -1 ... 2)
+                    Button { model.removeLora(lora.name) } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Remove \(lora.name)")
                 }
             }
-            HStack(spacing: 8) {
-                StepperField(label: "Width ÷64", value: r.width / 64, range: 4 ... 32) { model.setSize($0 * 64, r.height) }
-                StepperField(label: "Height ÷64", value: r.height / 64, range: 4 ... 32) { model.setSize(r.width, $0 * 64) }
+            if caps?.runtimeLora == true {
+                Button("Add LoRA", systemImage: "plus") { showLoras = true }
             }
+        } header: {
+            Text("LoRA stack")
+        } footer: {
+            if caps?.runtimeLora == false { Text("This backend runs a fixed model; merge LoRAs before conversion.") }
         }
-        HStack {
-            MicroLabel("lora stack").frame(maxWidth: .infinity, alignment: .leading)
-            if caps?.runtimeLora == true { Tag("+ add", accent: c.primary) { showLoras = true } }
+        Section {
+            Button("X/Y grid", systemImage: "square.grid.3x3") { showGrid = true }
+                .accessibilityLabel("Build an X/Y grid")
         }
-        if caps?.runtimeLora == false { MicroLabel("this backend runs a fixed model; merge loras before conversion", lines: 2) }
-        ForEach(r.loras, id: \.name) { lora in
-            HStack {
-                ValueSlider(label: lora.name, value: Binding(get: { lora.weight }, set: { model.setLora(lora.name, $0) }), range: -1 ... 2)
-                IconAction(symbol: "xmark", label: "Remove \(lora.name)", size: 14) { model.removeLora(lora.name) }
-            }
-        }
-        Tag("x/y grid", accent: c.primary) { showGrid = true }.accessibilityLabel("Build an X/Y grid")
     }
 
-    private var inputStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
+    private var inputSection: some View {
+        Section {
+            HStack(spacing: 12) {
                 PhotosPicker(selection: $picked, matching: .images, photoLibrary: .shared()) {
                     ZStack {
-                        c.surfaceContainer
+                        Color(.tertiarySystemFill)
                         if let image = model.initImage {
                             Image(uiImage: image).resizable().scaledToFill()
                             if model.mode == .inpaint { MaskOverlay(mask: model.mask) }
                         } else {
-                            AutobotIconView(icon: .image, color: c.onSurfaceVariant)
+                            Image(systemName: "photo.badge.plus").font(.title2).foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 72, height: 72)
-                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Pick an input photo")
-                VStack(alignment: .leading, spacing: 4) {
-                    MicroLabel(model.initAssetId == nil ? "input · pick a photo or “→ input” a result" : "input · \(model.mode.rawValue)", lines: 2)
-                    if model.mode != .outpaint {
-                        ValueSlider(label: "Denoise", value: Binding(get: { model.request.denoiseStrength }, set: { v in model.edit { $0.denoiseStrength = (v * 100).rounded() / 100 } }), range: 0.05 ... 1)
-                    }
-                }
+                Text(model.initAssetId == nil ? "Pick a photo or “→ Input” a result" : model.mode.rawValue.sentenceCased)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if model.initAssetId != nil {
-                    IconAction(symbol: "xmark", label: "Remove the input", size: 14) { model.clearInput() }
+                    Button { model.clearInput() } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Remove the input")
                 }
+            }
+            if model.mode != .outpaint {
+                LabeledSlider("Denoise", value: Binding(get: { model.request.denoiseStrength }, set: { v in model.edit { $0.denoiseStrength = (v * 100).rounded() / 100 } }), in: 0.05 ... 1)
             }
             if model.mode == .inpaint && model.initImage != nil {
-                GhostButton(model.mask.isEmpty ? "Paint the mask" : "Edit mask · \(counted(model.mask.strokes.count, "stroke"))") { showMask = true }
+                Button(model.mask.isEmpty ? "Paint the mask" : "Edit mask · \(counted(model.mask.strokes.count, "stroke"))", systemImage: "paintbrush.pointed") { showMask = true }
             }
             if model.mode == .outpaint {
-                MicroLabel("extend the canvas · px added on each side")
-                HStack(spacing: 6) {
-                    StepperField(label: "Left", value: model.outpaint.left / 64, range: 0 ... 8) { model.outpaint.left = $0 * 64 }
-                    StepperField(label: "Right", value: model.outpaint.right / 64, range: 0 ... 8) { model.outpaint.right = $0 * 64 }
-                }
-                HStack(spacing: 6) {
-                    StepperField(label: "Top", value: model.outpaint.top / 64, range: 0 ... 8) { model.outpaint.top = $0 * 64 }
-                    StepperField(label: "Bottom", value: model.outpaint.bottom / 64, range: 0 ... 8) { model.outpaint.bottom = $0 * 64 }
-                }
+                Stepper("Left · \(model.outpaint.left) px", value: Binding(get: { model.outpaint.left / 64 }, set: { model.outpaint.left = $0 * 64 }), in: 0 ... 8)
+                Stepper("Right · \(model.outpaint.right) px", value: Binding(get: { model.outpaint.right / 64 }, set: { model.outpaint.right = $0 * 64 }), in: 0 ... 8)
+                Stepper("Top · \(model.outpaint.top) px", value: Binding(get: { model.outpaint.top / 64 }, set: { model.outpaint.top = $0 * 64 }), in: 0 ... 8)
+                Stepper("Bottom · \(model.outpaint.bottom) px", value: Binding(get: { model.outpaint.bottom / 64 }, set: { model.outpaint.bottom = $0 * 64 }), in: 0 ... 8)
             }
+        } header: {
+            Text("Input")
+        } footer: {
+            if model.mode == .outpaint { Text("Extend the canvas: pixels added on each side.") }
         }
     }
 
@@ -650,19 +685,16 @@ struct ImageRoom: View {
 
     private var runBar: some View {
         let blocker = model.blocker
-        return VStack(spacing: 6) {
-            HStack {
-                Text(blocker ?? summary).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+        return StudioRunBar(status: blocker ?? summary) {
+            if model.workflow != nil {
+                Button("Grid") { showGrid = true }.glassButton()
             }
-            HStack(spacing: 8) {
-                if model.workflow != nil { GhostButton("Grid") { showGrid = true }.frame(width: 96) }
-                PrimaryButton(model.batch > 1 ? "Generate × \(model.batch)" : "Generate", enabled: blocker == nil) { model.generate() }
+            Button { model.generate() } label: {
+                Text(model.batch > 1 ? "Generate × \(model.batch)" : "Generate").frame(maxWidth: .infinity)
             }
+            .glassProminentButton()
+            .disabled(blocker != nil)
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .padding(.vertical, 8)
-        .background(c.background)
-        .hairlineEdge(top: true, bottom: false)
     }
 
     private var summary: String {
@@ -672,44 +704,48 @@ struct ImageRoom: View {
     }
 }
 
-/// A running job on the canvas: the ink plate flowing with its progress, developing into previews.
+/// A running job on the canvas: the backend's latest preview as it arrives, a progress ring until then.
 struct RunningPlate: View {
     let job: StudioJob
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
-    @State private var preview: PlateImage?
-    @State private var serial = 0
+    @State private var preview: UIImage?
 
     var body: some View {
         let data = app.studio.previews[job.id]
-        let ink: PlateInk = {
-            if let preview, data != nil { return .preview(preview) }
-            if job.state == .queued { return .idle }
-            return .flow(progress: Double(job.progress), loading: job.steps == 0)
-        }()
-        InkPlate(ink: ink, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary)
-            .task(id: data) {
-                guard let data, let image = await decodeImage(data, maxSide: 768), let cg = image.cgImage, let grid = LumaGrid(image: cg) else { return }
-                serial += 1
-                preview = PlateImage(id: "\(job.id)-\(serial)", grid: grid)
+        ZStack {
+            if let preview, data != nil {
+                Image(uiImage: preview).resizable().scaledToFit()
+            } else if job.state == .queued {
+                ProgressView().controlSize(.large).tint(.secondary)
+            } else if job.steps > 0 {
+                ProgressView(value: Double(job.progress)).progressViewStyle(.circular).controlSize(.large)
+            } else {
+                ProgressView().controlSize(.large)
             }
-            .accessibilityElement()
-            .accessibilityLabel(job.state == .queued ? "Queued" : "Generating, \(Int(job.progress * 100)) percent")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: data) {
+            guard let data, let image = await decodeImage(data, maxSide: 768) else { return }
+            preview = image
+        }
+        .accessibilityElement()
+        .accessibilityLabel(job.state == .queued ? "Queued" : "Generating, \(Int(job.progress * 100)) percent")
     }
 }
 
-/// A finished image on the canvas (prints from the plate the first time it shows).
+/// A finished image on the canvas, fitted.
 struct CanvasImage: View {
     let asset: StudioAsset
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var image: UIImage?
 
     var body: some View {
         ZStack {
-            if let image, let grid = LumaCache.grid(image) {
-                InkPlate(ink: .final(PlateImage(id: asset.id, grid: grid, image: image)), dot: c.primary, idleDot: c.outlineVariant, plate: c.primary)
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
                     .aspectRatio(CGFloat(max(asset.width, 1)) / CGFloat(max(asset.height, 1)), contentMode: .fit)
+                    .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -717,7 +753,8 @@ struct CanvasImage: View {
         .accessibilityLabel(StudioText.describe(asset))
         .task(id: asset.id) {
             guard let data = await app.studio.bytes(asset.id) else { return }
-            image = await decodeImage(data, maxSide: 1536)
+            let decoded = await decodeImage(data, maxSide: 1536)
+            withAnimation(.smooth) { image = decoded }
         }
     }
 }
@@ -727,32 +764,30 @@ private struct LoraPicker: View {
     let selected: Set<String>
     let onPick: (String) -> Void
     @State private var query = ""
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let filtered = available.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("lora library · \(available.count)")
-            ConsoleTextField(text: $query, placeholder: "filter", kind: .mono)
-            if filtered.isEmpty { MicroLabel(available.isEmpty ? "no loras — add them to your pc backend" : "no match") }
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(filtered, id: \.self) { name in
-                        Button { onPick(name) } label: {
-                            HStack {
-                                Text(name).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                                if selected.contains(name) { MicroLabel("added") }
-                            }
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressStyle())
-                        .disabled(selected.contains(name))
+        NavigationStack {
+            List(filtered, id: \.self) { name in
+                Button { onPick(name) } label: {
+                    HStack {
+                        Text(name).font(.body.monospaced()).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        if selected.contains(name) { Text("Added").font(.caption).foregroundStyle(.secondary) }
                     }
                 }
+                .tint(.primary)
+                .disabled(selected.contains(name))
             }
+            .overlay {
+                if filtered.isEmpty {
+                    ContentUnavailableView(available.isEmpty ? "No LoRAs" : "No match",
+                                           systemImage: "square.stack.3d.up",
+                                           description: Text(available.isEmpty ? "Add them to your PC backend." : "Try another filter."))
+                }
+            }
+            .searchable(text: $query, prompt: "Filter")
+            .navigationTitle("LoRA library · \(available.count)")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .padding(16)
-        .background(c.surfaceContainerLow)
     }
 }

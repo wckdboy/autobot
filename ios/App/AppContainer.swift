@@ -39,6 +39,8 @@ final class AppContainer {
     /// The spend and quota board (usage buckets, prices, subscription windows).
     let usage: UsageRepository
     let vault: VaultRepository
+    /// Unsent composer text per chat (memory only).
+    @ObservationIgnored let drafts = ComposerDrafts()
     /// The Creative Studio (projects, assets, queue, engines, ComfyUI, workflows).
     let studio: StudioHub
 
@@ -62,6 +64,8 @@ final class AppContainer {
     @ObservationIgnored private var memoryOn = false
     @ObservationIgnored private var vaultOn = false
     @ObservationIgnored private var searchOn = false
+    /// Nil until the first settings pass (generative UI is on by default, so "unknown" must differ from off).
+    @ObservationIgnored private var generativeUiOn: Bool?
     /// The speculative decoding setting the bridge's model snapshot was built with.
     @ObservationIgnored private var speculativeShown = "auto"
     #endif
@@ -261,6 +265,11 @@ final class AppContainer {
         if s.webSearchOn != searchOn {
             searchOn = s.webSearchOn
             shared.setWebSearch(searchOn ? searchSource : nil)
+        }
+        // Generative UI (A2UI `show_ui`) in the phone's chats, as Android's AgentHost toggles it.
+        if s.generativeUi != generativeUiOn {
+            generativeUiOn = s.generativeUi
+            shared.setGenerativeUi(s.generativeUi)
         }
         shared.setQuotaFallback(s.quotaFallback, onDevice: providers.get(ProviderPresets.localProviderId))
         shared.setRedactionDefault(s.redactCloud)

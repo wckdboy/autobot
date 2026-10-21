@@ -198,6 +198,17 @@ final class SharedAgentRuntime: AgentRuntime {
 
     func cancel(_ id: String) { bridge.cancel(sessionId: id) }
 
+    func sendA2uiAction(_ id: String, _ action: A2uiAction) async -> Bool {
+        guard case let .send(surfaceId, name, messageJson, dataModelJson, userMessage, snapshotJson) = action else { return false }
+        _ = session(id)
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            bridge.sendA2uiAction(
+                sessionId: id, surfaceId: surfaceId, name: name, messageJson: messageJson, dataModelJson: dataModelJson,
+                userMessage: userMessage, snapshotJson: snapshotJson,
+            ) { @Sendable sent in done.resume(returning: sent.boolValue) }
+        }
+    }
+
     func answerApproval(_ id: String, callId: String, outcome: ApprovalOutcome) {
         bridge.answerApproval(sessionId: id, callId: callId, outcome: SharedMapping.outcome(outcome))
     }
@@ -327,13 +338,29 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// Pairs with the node in [code] as [deviceName]: the pairing to store as the provider's
     /// secret, the node's name and key fingerprint, or an error.
-    func pairNode(code: String, deviceName: String) async -> (secret: String?, node: String?, fingerprint: String?, error: String?) {
-        let result = await call(stopped: PairReply(error: Self.stoppedMessage), late: PairReply(error: "The node did not answer within \(Self.testTimeout.components.seconds) seconds")) { done in
-            bridge.pairNode(code: code, deviceName: deviceName) { @Sendable secret, node, fingerprint, error in
-                done(PairReply(secret: secret, node: node, fingerprint: fingerprint, error: error))
+    /// [previous]: this phone's pairing with the same node, when it has one (its key is kept).
+    /// Cancelling the calling task cancels the pairing in Kotlin too: its connection closes, so a
+    /// cancelled pairing does not go on to use up the one-time code.
+    func pairNode(code: String, deviceName: String, previous: String? = nil) async -> (secret: String?, node: String?, fingerprint: String?, error: String?) {
+        let running = KotlinCancelOnce()
+        let result = await withTaskCancellationHandler {
+            await call(stopped: PairReply(error: Self.stoppedMessage), late: PairReply(error: NodeErrors.shared.timeout(node: "The node"))) { done in
+                running.hold(bridge.pairNode(code: code, deviceName: deviceName, previous: previous) { @Sendable secret, node, fingerprint, error in
+                    done(PairReply(secret: secret, node: node, fingerprint: fingerprint, error: error))
+                })
             }
+        } onCancel: {
+            running.cancel()
         }
+        // Given up on (past the deadline): stop the handshake as well. A no-op once it has ended.
+        running.cancel()
         return (result.secret, result.node, result.fingerprint, result.error)
+    }
+
+    /// Which of [secrets] (stored pairings) is with the node in [code]; nil for none.
+    func pairedNodeIndex(_ code: String, secrets: [String]) -> Int? {
+        let i = Int(bridge.pairedNodeIndex(code: code, secrets: secrets))
+        return i >= 0 ? i : nil
     }
 
     /// The node key fingerprint in a pairing code, to compare with what `invincible pair` printed.
@@ -602,6 +629,9 @@ final class SharedAgentRuntime: AgentRuntime {
 
     /// `web_search` on (settings read per call) or off.
     func setWebSearch(_ source: WebSearchSourceHost?) { bridge.setWebSearch(source: source) }
+
+    /// Generative UI (`show_ui`, Settings `generative_ui`) on or off in every session.
+    func setGenerativeUi(_ enabled: Bool) { bridge.setGenerativeUi(enabled: enabled) }
 
     /// The Studio's `run_workflow` on (the queue runner) or off.
     func setStudio(_ runner: (any StudioRunner)?) { bridge.setStudio(runner: runner) }
@@ -927,6 +957,31 @@ private final class RunningListenerBox: NSObject, RunningListener, @unchecked Se
     func onRunning(sessionIds: [String]) {
         let deliver = deliver
         DispatchQueue.main.async { MainActor.assumeIsolated { deliver(sessionIds) } }
+    }
+}
+
+/// A Kotlin operation to cancel from any thread (a task's cancellation handler), once; one
+/// cancelled before it was handed over is cancelled as it arrives.
+final class KotlinCancelOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handle: (any AutobotShared.Cancellable)?
+    private var cancelled = false
+
+    func hold(_ handle: any AutobotShared.Cancellable) {
+        lock.lock()
+        let late = cancelled
+        if !late { self.handle = handle }
+        lock.unlock()
+        if late { handle.cancel() }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let held = handle
+        handle = nil
+        lock.unlock()
+        held?.cancel()
     }
 }
 #endif

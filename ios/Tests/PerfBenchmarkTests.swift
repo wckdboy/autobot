@@ -54,7 +54,7 @@ struct PerfBenchmarkTests {
         state.live = LiveState(text: "", reasoning: "", toolNames: [], tokensPerSecond: 20)
         app.agent.preview(conversation.id, state: state)
 
-        let window = try Self.window(ChatScreen(conversationId: conversation.id), app, nav)
+        let window = Self.window(ChatScreen(conversationId: conversation.id), app, nav, try await TestScene.first())
         defer { window.isHidden = true }
         try await Task.sleep(for: .milliseconds(800))
 
@@ -89,7 +89,7 @@ struct PerfBenchmarkTests {
         let replay = SessionStreamDecoder()
         _ = try replay.transcript(transcript)
         let updates = try deltas.map { try replay.frame($0).update }
-        InkProbe.reset()
+        RenderProbe.reset()
         let render = clock.measure {
             for update in updates {
                 session.apply(update)
@@ -97,7 +97,7 @@ struct PerfBenchmarkTests {
                 host.view.layoutIfNeeded()
             }
         }
-        print("PERF chat.render frames=\(frames) total=\(render) perFrame=\(render / frames) bodies=\(InkProbe.snapshot())")
+        print("PERF chat.render frames=\(frames) total=\(render) perFrame=\(render / frames) bodies=\(RenderProbe.snapshot())")
     }
 
     @Test(.timeLimit(.minutes(5))) func chatList300() async throws {
@@ -112,15 +112,16 @@ struct PerfBenchmarkTests {
             ids.append(c.id)
         }
         let clock = ContinuousClock()
+        let scene = try await TestScene.first()
         var window: UIWindow?
-        let first = try clock.measure {
-            window = try Self.window(ChatListScreen(), app, nav)
+        let first = clock.measure {
+            window = Self.window(ChatListScreen(), app, nav, scene)
             window?.rootViewController?.view.layoutIfNeeded()
         }
         defer { window?.isHidden = true }
         try await Task.sleep(for: .milliseconds(500))
         let host = try #require(window?.rootViewController)
-        InkProbe.reset()
+        RenderProbe.reset()
         let updates = 60
         let render = clock.measure {
             for i in 0 ..< updates {
@@ -140,7 +141,7 @@ struct PerfBenchmarkTests {
             }
         }
         print("PERF list.rebuild perBuild=\(rebuild / 20) n=\(n)")
-        print("PERF list.first=\(first) list.update n=\(updates) total=\(render) perUpdate=\(render / updates) bodies=\(InkProbe.snapshot())")
+        print("PERF list.first=\(first) list.update n=\(updates) total=\(render) perUpdate=\(render / updates) bodies=\(RenderProbe.snapshot())")
     }
 
     @Test(.timeLimit(.minutes(5))) func downloadProgress() async throws {
@@ -170,10 +171,9 @@ struct PerfBenchmarkTests {
         print("PERF launch.appContainerInit=\(construct) unlockData=\(unlock)")
     }
 
-    private static func window(_ view: some View, _ app: AppContainer, _ nav: Navigator) throws -> UIWindow {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    private static func window(_ view: some View, _ app: AppContainer, _ nav: Navigator, _ scene: UIWindowScene) -> UIWindow {
         let window = UIWindow(windowScene: scene)
-        let root = view.environment(app).environment(nav).environment(\.inkStill, true).autobotTheme(.dark)
+        let root = view.environment(app).environment(nav).autobotTheme(.dark)
         window.rootViewController = UIHostingController(rootView: root)
         window.makeKeyAndVisible()
         return window

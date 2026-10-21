@@ -18,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,10 +40,11 @@ import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 
 /**
- * Collapsible reasoning trace: an ultraviolet rule with a `∴ thinking · 412 tokens` header.
- * Collapsed it shows the last line as a ticker while [isThinking]; expanded it shows the full
- * trace. [tokens] is the engine's count (null: an estimate from the text, marked `≈`); [stop]
- * says when the engine ended the reasoning early ("budget", "loop").
+ * Collapsible reasoning trace: a tonal surfaceContainerLow card in the medium shape with a
+ * `∴ Thinking · 412 tokens` header (a small loading indicator while [isThinking]). Collapsed it
+ * shows the last line as a ticker while [isThinking]; expanded it shows the full trace. [tokens]
+ * is the engine's count (null: an estimate from the text, marked `≈`); [stop] says when the engine
+ * ended the reasoning early ("budget", "loop").
  */
 @Composable
 fun ThinkingDisclosure(
@@ -54,36 +57,45 @@ fun ThinkingDisclosure(
 ) {
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
     val rotation = animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
-    val accent = MaterialTheme.colorScheme.secondary
-    // The rule is drawn, not measured: intrinsic measurement of a very long trace overflows layout.
-    Row(modifier.fillMaxWidth().drawBehind { drawRect(accent.copy(alpha = 0.6f), size = Size(2.dp.toPx(), size.height)) }) {
-        Spacer(Modifier.width(2.dp))
-        Column(Modifier.weight(1f)) {
+    Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(role = Role.Button, onClickLabel = if (expanded) "Hide reasoning" else "Show reasoning") { expanded = !expanded }
                     .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .heightIn(min = 40.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (isThinking) InkLoader(contentDescription = null)
-                MicroLabel(if (isThinking) "∴ thinking" else "∴ thought", color = accent)
-                MicroLabel(thinkingMeta(reasoning, tokens, stop), color = MaterialTheme.colorScheme.outline)
-                Box(Modifier.weight(1f))
+                if (isThinking) InlineLoading(Modifier.size(20.dp), color = MaterialTheme.colorScheme.secondary, contentDescription = null)
+                Text(
+                    labelCase(if (isThinking) "∴ thinking" else "∴ thought"),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = linesFor(1, 2),
+                )
+                Text(
+                    thinkingMeta(reasoning, tokens, stop),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = linesFor(1, 3),
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Icon(
                     Icons.Filled.KeyboardArrowDown,
                     contentDescription = null,
                     // Read in the layer, so the chevron turns without recomposing the header.
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rotation.value },
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rotation.value },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (!expanded && isThinking) {
                 Text(
                     reasoning.trimEnd().substringAfterLast('\n').takeLast(160),
-                    modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 6.dp),
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
                     style = AutobotTheme.styles.codeBlock,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -94,7 +106,7 @@ fun ThinkingDisclosure(
                 VerbatimText(
                     reasoning,
                     AutobotTheme.styles.codeBlock,
-                    Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                    Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                     MaterialTheme.colorScheme.onSurfaceVariant,
                     wrap = true,
                 )

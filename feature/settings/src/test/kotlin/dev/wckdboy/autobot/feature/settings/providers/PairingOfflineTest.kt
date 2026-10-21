@@ -4,6 +4,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertCountEquals
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import dev.wckdboy.autobot.core.designsystem.motion.InkMotion
@@ -18,7 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * "Pair a PC" on a new install: offline mode (the default) would make pairing fail, so the sheet
+ * "Pair a node" on a new install: offline mode (the default) would make pairing fail, so the sheet
  * says so and allows the network in one tap. (One sheet per JVM, see [ProviderEditorTest].)
  */
 @RunWith(RobolectricTestRunner::class)
@@ -44,7 +47,7 @@ class PairingOfflineTest {
         }
         compose.onNodeWithText(OFFLINE_LINE).performScrollTo().assertIsDisplayed()
         // An empty code is not an error yet: the instructions above already say where it comes from.
-        compose.onNodeWithText("Scan the node's QR code with the camera app, or paste its code").assertDoesNotExist()
+        compose.onAllNodesWithText(NodePairingWords.HOW).assertCountEquals(1)
         compose.onNodeWithText("Allow network").performClick()
         assertEquals(listOf("allowNetwork"), calls.filter { it == "allowNetwork" })
     }

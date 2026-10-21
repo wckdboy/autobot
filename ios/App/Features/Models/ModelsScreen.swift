@@ -8,9 +8,9 @@ enum ModelsTab: String, CaseIterable, Hashable {
 
     var label: String {
         switch self {
-        case .recommended: "for this phone"
+        case .recommended: "For this phone"
         case .huggingFace: "Hugging Face"
-        case .civitai: "civitai"
+        case .civitai: "Civitai"
         }
     }
 }
@@ -298,48 +298,50 @@ final class ModelsModel {
 struct ModelsScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var model = ModelsModel()
 
     var body: some View {
-        let _ = InkProbe.hit("body.models")
+        let _ = RenderProbe.hit("body.models")
         let installedIds = Set(app.library.models.map(\.id))
+        @Bindable var model = model
         VStack(spacing: 0) {
             AutobotTopBar(title: "Models") {
-                TextAction("Compute", color: c.onSurfaceVariant) { nav.push(.compute) }
-                .accessibilityHint("Benchmarks for this phone")
+                Button("Compute") { nav.push(.compute) }
+                    .accessibilityHint("Benchmarks for this phone")
             }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    profile
-                    firstModel
-                    DownloadsPanel()
-                    if !app.library.models.isEmpty {
-                        SectionLabel("installed · \(app.library.models.count)")
-                        ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) }.transition(.inkDissolve) }
-                        Spacer().frame(height: 18)
+            List {
+                profile
+                firstModel
+                DownloadsPanel()
+                if !app.library.models.isEmpty {
+                    Section("Installed · \(app.library.models.count)") {
+                        ForEach(app.library.models) { m in InstalledRow(model: m) { model.use(m, nav: nav) } }
                     }
-                    Segmented(options: ModelsTab.allCases, selected: model.tab, label: \.label) { model.tab = $0 }
-                    Spacer().frame(height: 12)
-                    switch model.tab {
-                    case .recommended: recommended(installedIds)
-                    case .huggingFace: huggingFace
-                    case .civitai: civitaiTab(installedIds)
-                    }
-                    Spacer().frame(height: 24)
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .padding(.vertical, 8)
-                .animation(.inkDissolve, value: app.library.models.map(\.id))
+                Section {
+                    Picker("Source", selection: $model.tab) {
+                        ForEach(ModelsTab.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+                switch model.tab {
+                case .recommended: recommended(installedIds)
+                case .huggingFace: huggingFace
+                case .civitai: civitaiTab(installedIds)
+                }
             }
+            .listStyle(.insetGrouped)
+            .modifier(HubSearch(model: model))
             .scrollDismissesKeyboard(.interactively)
+            .animation(.default, value: app.library.models.map(\.id))
         }
-        .background(c.background)
         .overlay(alignment: .bottom) { Snackbar(message: $model.message) }
         .sheet(item: $model.openRepo) { open in
             RepoSheet(repo: open.repo, model: model)
                 .presentationDetents([.large])
-                .environment(\.scheme, c)
         }
         .task { model.attach(app) }
     }
@@ -348,9 +350,12 @@ struct ModelsScreen: View {
         if let d = model.device, let info = model.deviceInfo {
             // One line: what decides which models fit.
             let chip = info.chip ?? d.chip ?? info.name ?? d.machine
-            SectionLabel("\(chip) · \(formatBytes(d.totalRamBytes)) RAM · \(formatBytes(d.freeStorageBytes)) free")
+            Section {
+                Label("\(chip) · \(formatBytes(d.totalRamBytes)) RAM · \(formatBytes(d.freeStorageBytes)) free", systemImage: "iphone")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
-        Spacer().frame(height: 16)
     }
 
     /// "Start here": the first-run model for this phone, until it chats on one.
@@ -376,58 +381,57 @@ struct ModelsScreen: View {
     @ViewBuilder private func recommended(_ installed: Set<String>) -> some View {
         // Chat first: it is what a new phone needs; images and the rest follow.
         let sections: [(String, [ModelPlan])] = [
-            ("chat", Catalog.chat),
-            ("code", Catalog.code),
-            ("image · neural engine", CoreMLCatalog.all),
-            ("upscale · neural engine", CoreMLCatalog.upscalers),
+            ("Chat", Catalog.chat),
+            ("Code", Catalog.code),
+            ("Image · neural engine", CoreMLCatalog.all),
+            ("Upscale · neural engine", CoreMLCatalog.upscalers),
 
-            ("speech · dictation", Catalog.speech),
-            ("voice · read aloud", CoreMLCatalog.voices),
-            ("audio · studio", CoreMLCatalog.audio),
-            ("embedding · vault", Catalog.embedding),
+            ("Speech · dictation", Catalog.speech),
+            ("Voice · read aloud", CoreMLCatalog.voices),
+            ("Audio · studio", CoreMLCatalog.audio),
+            ("Embedding · vault", Catalog.embedding),
         ]
         ForEach(sections, id: \.0) { label, plans in
-            SectionLabel(label, color: c.onSurfaceVariant)
-            ForEach(plans) { plan in
-                CatalogRow(plan: plan, fit: model.device?.fit(plan.kind, bytes: plan.totalBytes, engine: plan.engine), installed: installed.contains(plan.id)) {
-                    model.install(plan)
+            Section(label) {
+                ForEach(plans) { plan in
+                    CatalogRow(plan: plan, fit: model.device?.fit(plan.kind, bytes: plan.totalBytes, engine: plan.engine), installed: installed.contains(plan.id)) {
+                        model.install(plan)
+                    }
                 }
             }
-            Spacer().frame(height: 14)
         }
     }
 
     @ViewBuilder private var huggingFace: some View {
         @Bindable var model = model
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                MicroLabel(app.accounts.state.huggingFaceUser ?? "anonymous")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Tag("account") { nav.push(.accounts) }
+        Section {
+            AccountRow(text: app.accounts.state.huggingFaceUser ?? "anonymous") { nav.push(.accounts) }
+            Picker("Search for", selection: Binding(get: { model.hfScope }, set: { model.setHfScope($0) })) {
+                ForEach(HfScope.allCases, id: \.self) { Text($0.label).tag($0) }
             }
-            Segmented(options: HfScope.allCases, selected: model.hfScope, label: \.label) { model.setHfScope($0) }
-            ConsoleTextField(
-                text: $model.hfQuery,
-                placeholder: model.hfScope == .image ? "search core ml repos (stable diffusion, sdxl…)" : "search gguf repos (qwen, gemma, phi…)",
-                kind: .mono,
-                onSubmit: model.searchHf,
-            )
-            if model.hfLoading || model.openLoading { InkLoader() }
-            Hairline()
+            .pickerStyle(.segmented)
+            if model.hfLoading || model.openLoading { ProgressView().frame(maxWidth: .infinity) }
         }
-        if let notice = ModelsModel.searchNotice(hub: "Hugging Face", loading: model.hfLoading, hasResults: !model.hfResults.isEmpty,
-                                                 searched: model.hfSearched, error: model.hfError, offline: app.settings.settings.mode == .offline) {
-            SearchNoticeView(notice: notice) { act(notice.action, retry: model.searchHf) }
-        } else if model.hfResults.isEmpty && !model.hfLoading {
-            EmptyResults()
-        }
-        ForEach(model.hfResults) { m in
-            RunRow(
-                title: String(m.id.split(separator: "/").last ?? Substring(m.id)),
-                subtitle: "\(m.id.split(separator: "/").first ?? "") · \(m.downloads) dl\(m.license.map { " · \($0)" } ?? "")",
-                action: { model.open(m.id) },
-            ) {
-                if m.gated { Tag("gated", accent: c.inks.amber) }
+        Section {
+            if let notice = ModelsModel.searchNotice(hub: "Hugging Face", loading: model.hfLoading, hasResults: !model.hfResults.isEmpty,
+                                                     searched: model.hfSearched, error: model.hfError, offline: app.settings.settings.mode == .offline) {
+                SearchNoticeView(notice: notice) { act(notice.action, retry: model.searchHf) }
+            }
+            ForEach(model.hfResults) { m in
+                Button { model.open(m.id) } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(String(m.id.split(separator: "/").last ?? Substring(m.id))).foregroundStyle(Color.primary).lineLimit(1)
+                            Text("\(m.id.split(separator: "/").first ?? "") · \(m.downloads) dl\(m.license.map { " · \($0)" } ?? "")")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if m.gated { CapsuleTag("gated", color: .orange) }
+                        Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(Color(uiColor: .tertiaryLabel))
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
             }
         }
     }
@@ -444,28 +448,67 @@ struct ModelsScreen: View {
     @ViewBuilder private func civitaiTab(_ installed: Set<String>) -> some View {
         @Bindable var model = model
         let account = app.accounts.state
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                MicroLabel([account.civitaiUser ?? "no api key", account.showMature ? "mature on" : "sfw"].joined(separator: " · "))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Tag("account") { nav.push(.accounts) }
+        Section {
+            AccountRow(text: [account.civitaiUser ?? "no api key", account.showMature ? "mature on" : "sfw"].joined(separator: " · ")) { nav.push(.accounts) }
+            Picker("Type", selection: Binding(get: { model.civitaiScope }, set: { model.setCivitaiScope($0) })) {
+                ForEach(CivitaiScope.allCases, id: \.self) { Text($0.label).tag($0) }
             }
-            Segmented(options: CivitaiScope.allCases, selected: model.civitaiScope, label: \.label) { model.setCivitaiScope($0) }
-            ConsoleTextField(text: $model.civitaiQuery, placeholder: "search sd 1.5 / sdxl / pony / illustrious", kind: .mono) { model.searchCivitai() }
-            if model.civitaiLoading { InkLoader() }
-            Hairline()
+            .pickerStyle(.segmented)
+            if model.civitaiLoading { ProgressView().frame(maxWidth: .infinity) }
         }
-        if let notice = ModelsModel.searchNotice(hub: "Civitai", loading: model.civitaiLoading, hasResults: !model.civitaiResults.isEmpty,
-                                                 searched: model.civitaiSearched, error: model.civitaiError, offline: app.settings.settings.mode == .offline) {
-            SearchNoticeView(notice: notice) { act(notice.action, retry: { model.searchCivitai() }) }
-        } else if model.civitaiResults.isEmpty && !model.civitaiLoading {
-            EmptyResults()
+        Section {
+            if let notice = ModelsModel.searchNotice(hub: "Civitai", loading: model.civitaiLoading, hasResults: !model.civitaiResults.isEmpty,
+                                                     searched: model.civitaiSearched, error: model.civitaiError, offline: app.settings.settings.mode == .offline) {
+                SearchNoticeView(notice: notice) { act(notice.action, retry: { model.searchCivitai() }) }
+            }
+            ForEach(model.civitaiResults) { m in
+                CivitaiRow(model: m, installed: installed, previews: model.previews) { model.installCivitai(m) }
+            }
+            if model.civitaiCursor != nil {
+                Button("More") { model.searchCivitai(reset: false) }
+                    .frame(maxWidth: .infinity)
+            }
         }
-        ForEach(model.civitaiResults) { m in
-            CivitaiRow(model: m, installed: installed, previews: model.previews) { model.installCivitai(m) }
+    }
+}
+
+/// The hub search: the system search field (in the navigation bar's drawer) on the Hugging Face and
+/// Civitai tabs, bound to that tab's query; Search runs it.
+private struct HubSearch: ViewModifier {
+    @Bindable var model: ModelsModel
+
+    func body(content: Content) -> some View {
+        switch model.tab {
+        case .recommended:
+            content
+        case .huggingFace:
+            content
+                .searchable(text: $model.hfQuery, placement: .navigationBarDrawer(displayMode: .always),
+                            prompt: model.hfScope == .image ? "search core ml repos (stable diffusion, sdxl…)" : "search gguf repos (qwen, gemma, phi…)")
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .onSubmit(of: .search) { model.searchHf() }
+        case .civitai:
+            content
+                .searchable(text: $model.civitaiQuery, placement: .navigationBarDrawer(displayMode: .always),
+                            prompt: "search sd 1.5 / sdxl / pony / illustrious")
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .onSubmit(of: .search) { model.searchCivitai() }
         }
-        if model.civitaiCursor != nil {
-            TextAction("More", color: c.primary) { model.searchCivitai(reset: false) }
+    }
+}
+
+/// Who the hub sees (signed-in user or anonymous) and the way to the account screen.
+private struct AccountRow: View {
+    let text: String
+    let onAccount: () -> Void
+
+    var body: some View {
+        HStack {
+            Label(text, systemImage: "person.crop.circle").foregroundStyle(.secondary).lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Account", action: onAccount).buttonStyle(.borderless)
         }
     }
 }
@@ -474,55 +517,52 @@ struct ModelsScreen: View {
 struct SearchNoticeView: View {
     let notice: SearchNotice
     let onAction: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(notice.title).textStyle(.titleMedium).foregroundStyle(c.onSurface)
-            MicroLabel(notice.detail, lines: 4)
+        ContentUnavailableView {
+            Label(notice.title, systemImage: symbol)
+        } description: {
+            Text(notice.detail)
+        } actions: {
             if let label = notice.actionLabel {
-                Tag(label, accent: c.primary, filled: notice.action == .networkSettings, action: onAction)
-                    .padding(.top, 4)
+                Button(label.prefix(1).uppercased() + label.dropFirst(), action: onAction)
+                    .modifier(NoticeActionStyle(prominent: notice.action == .networkSettings))
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 16)
+    }
+
+    private var symbol: String {
+        switch notice.action {
+        case .networkSettings: "wifi.slash"
+        case .account: "person.crop.circle.badge.exclamationmark"
+        case .retry: "exclamationmark.triangle"
+        case nil: "magnifyingglass"
+        }
     }
 }
 
-/// No search results yet: a flat gap (v4: no dot field).
-private struct EmptyResults: View {
-    var body: some View {
-        Color.clear
-            .frame(height: 48)
-            .accessibilityHidden(true)
+private struct NoticeActionStyle: ViewModifier {
+    let prominent: Bool
+
+    func body(content: Content) -> some View {
+        if prominent { content.glassProminentButton() } else { content.glassButton() }
     }
 }
 
-/// 3pt progress bar: red on a hairline track.
-struct ProgressLine: View {
-    let fraction: Double
-    var height: CGFloat = 3
-    var running = false
-
-    var body: some View { InkProgressBar(fraction: fraction, height: height, running: running) }
-}
-
-/// Transient message at the bottom of the screen (Material Snackbar).
+/// Transient message at the bottom of the screen.
 struct Snackbar: View {
     @Binding var message: String?
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if let text = message {
             Text(text)
-                .textStyle(.bodyMedium)
-                .foregroundStyle(c.inverseOnSurface)
+                .font(.subheadline)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.medium).fill(c.inverseSurface))
-                .padding(12)
+                .padding(.vertical, 12)
+                .frame(maxWidth: 560, alignment: .leading)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .task(id: text) {
                     try? await Task.sleep(for: .seconds(3))
@@ -537,7 +577,6 @@ private struct InstalledRow: View {
     let model: InstalledModel
     let onUse: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var confirm = false
 
     var body: some View {
@@ -546,38 +585,69 @@ private struct InstalledRow: View {
             model.totalBytes > 0 ? formatBytes(model.totalBytes) : nil,
             model.engine.runsOnIOS ? nil : "not runnable here",
         ].compactMap { $0 }.joined(separator: " · ")
-        // Tapping a ready model opens the task it runs (the × tag still removes it).
+        // Tapping a ready model opens the task it runs (swipe or long-press removes it).
         let opens = ModelsModel.launch(model).task != ModelTask.none
-        RunRow(title: model.title, subtitle: subtitle, action: opens ? onUse : nil) {
-            ZStack {
-                switch model.status {
-                case .ready: Tag("✓ ready")
-                case .downloading: Tag("\(Int(model.fraction * 100))%", accent: c.primary) { app.downloader.pause(model.id) }
-                case .queued: Tag("queued") { app.downloader.pause(model.id) }
-                case .paused: Tag("resume", accent: c.primary) { app.downloader.resume(model.id) }
-                case .failed: Tag("retry", accent: c.error) { app.downloader.resume(model.id) }
+        HStack(spacing: 12) {
+            Button(action: onUse) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.title).foregroundStyle(Color.primary).lineLimit(1)
+                    Text(subtitle).font(.caption).foregroundStyle(Color(uiColor: .secondaryLabel)).lineLimit(1)
+                    if model.status == .paused || model.status == .failed {
+                        ProgressView(value: model.fraction).tint(model.status == .failed ? .red : .secondary)
+                    }
+                    if let paused = model.pausedLabel { Text(paused).font(.caption).foregroundStyle(Color(uiColor: .secondaryLabel)) }
+                    if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).lineLimit(4) }
                 }
+                // A borderless button centres several lines and tints a hierarchical style:
+                // leading text and concrete colours keep the row a row.
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .stamp(model.status == .ready) { $0 }
-            Tag(confirm ? "delete" : "×", accent: confirm ? c.error : c.onSurfaceVariant, filled: confirm) {
-                if confirm {
-                    app.downloader.remove(model.id)
-                    app.compute.deleteFor(modelId: model.id)
-                } else {
-                    confirm = true
-                }
+            .buttonStyle(.borderless)
+            .disabled(!opens)
+            status.buttonStyle(.borderless)
+        }
+        .swipeActions(edge: .trailing) {
+            Button("Delete", role: .destructive) { confirm = true }
+        }
+        .contextMenu {
+            Button("Delete", systemImage: "trash", role: .destructive) { confirm = true }
+        }
+        .confirmationDialog("Delete \(model.title)?", isPresented: $confirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                app.downloader.remove(model.id)
+                app.compute.deleteFor(modelId: model.id)
             }
+        } message: {
+            Text("frees \(formatBytes(model.totalBytes))")
         }
-        if confirm {
-            MicroLabel("frees \(formatBytes(model.totalBytes))", color: c.error)
-                .padding(.bottom, 8)
+    }
+
+    @ViewBuilder private var status: some View {
+        switch model.status {
+        case .ready: CapsuleTag("✓ ready", color: .secondary)
+        case .downloading: Button("\(Int(model.fraction * 100))%") { app.downloader.pause(model.id) }.monospacedDigit()
+            .accessibilityHint("Pauses the download")
+        case .queued: Button("Queued") { app.downloader.pause(model.id) }.foregroundStyle(.secondary)
+        case .paused: Button("Resume") { app.downloader.resume(model.id) }
+        case .failed: Button("Retry") { app.downloader.resume(model.id) }.tint(.red)
         }
-        if model.status == .paused { InkProgressBar(.paused(model.fraction), height: 2).padding(.bottom, 6) }
-        if model.status == .failed { InkProgressBar(.error(model.fraction), height: 2).padding(.bottom, 6) }
-        if let paused = model.pausedLabel { MicroLabel(paused).padding(.bottom, 8) }
-        if let error = model.error {
-            MicroLabel(error, color: c.error, lines: 4).padding(.bottom, 8)
-        }
+    }
+}
+
+/// "Get": the App Store's small bordered capsule.
+private struct GetButton: View {
+    var label = "Get"
+    var tint: Color? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(label, action: action)
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.small)
+            .tint(tint)
     }
 }
 
@@ -586,34 +656,39 @@ private struct CatalogRow: View {
     let fit: Fit?
     let installed: Bool
     let onGet: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        RunRow(title: plan.title, subtitle: sizedSubtitle(bytes: plan.totalBytes, plan.subtitle)) {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(plan.title).lineLimit(1)
+                Text(sizedSubtitle(bytes: plan.totalBytes, plan.subtitle)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let fit, fit != .good {
-                Tag(fit.label, accent: fitColor(fit, c))
+                CapsuleTag(fit.label, color: fitColor(fit))
             }
             if installed {
-                Tag("added", accent: c.onSurfaceVariant)
+                Text("Added").font(.subheadline).foregroundStyle(.secondary)
             } else {
-                Tag("get", accent: c.onSurface, action: onGet)
+                GetButton(action: onGet)
             }
         }
     }
 }
 
-func fitColor(_ fit: Fit, _ c: AutobotScheme) -> Color {
+/// How well a model fits this phone, as a system colour.
+func fitColor(_ fit: Fit) -> Color {
     switch fit {
-    case .good: c.onSurfaceVariant
-    case .tight: c.inks.amber
-    case .tooBig, .unsupported: c.error
+    case .good: .secondary
+    case .tight: .orange
+    case .tooBig, .unsupported: .red
     }
 }
 
 private struct RepoSheet: View {
     let repo: HfRepo
     let model: ModelsModel
-    @Environment(\.scheme) private var c
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let owner = String(repo.id.split(separator: "/").first ?? "")
@@ -622,63 +697,85 @@ private struct RepoSheet: View {
             return (n.hasSuffix(".gguf") || n.hasSuffix(".safetensors") || n.hasSuffix(".ckpt")) && !n.contains("mmproj")
         }
         let bundles = repo.coreMLBundles
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 8) {
-                SectionLabel(repo.id)
-                Text([repo.license, repo.gated ? "gated — accept on huggingface.co" : nil, repo.commit.map { String($0.prefix(10)) }].compactMap { $0 }.joined(separator: " · "))
-                    .textStyle(.micro)
-                    .foregroundStyle(c.onSurfaceVariant)
+        NavigationStack {
+            List {
+                Section {
+                    Text([repo.license, repo.gated ? "gated — accept on huggingface.co" : nil, repo.commit.map { String($0.prefix(10)) }].compactMap { $0 }.joined(separator: " · "))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 if !bundles.isEmpty {
-                    MicroLabel("core ml · whole folder, one model")
-                    ForEach(bundles, id: \.self) { folder in
-                        let size = repo.coreMLSize(folder)
-                        let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
-                        RunRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.lowercased().contains("original") ? "gpu" : "neural engine")") {
-                            if let fit, fit != .good { Tag(fit.label, accent: fitColor(fit, c)) }
-                            Tag("get", accent: c.onSurface) { model.installCoreML(repo, folder: folder) }
+                    Section("Core ML · whole folder, one model") {
+                        ForEach(bundles, id: \.self) { folder in
+                            let size = repo.coreMLSize(folder)
+                            let fit = model.device?.fit(.image, bytes: size, engine: .coreML)
+                            fileRow(title: folder.isEmpty ? "compiled" : folder, subtitle: "\(formatBytes(size)) · \(folder.lowercased().contains("original") ? "gpu" : "neural engine")") {
+                                if let fit, fit != .good { CapsuleTag(fit.label, color: fitColor(fit)) }
+                                GetButton { model.installCoreML(repo, folder: folder) }
+                            }
                         }
                     }
                 }
-                if files.isEmpty && bundles.isEmpty { MicroLabel("no model files in this repo") }
-                ForEach(files, id: \.path) { f in
-                    let kind = model.hfScope.kind
-                    let fit = model.device?.fit(kind, bytes: f.sizeBytes, engine: engineFor(kind, formatOf(f.path, owner: owner)))
-                    RunRow(title: String(f.path.split(separator: "/").last ?? ""), subtitle: "\(formatBytes(f.sizeBytes))\(f.sha256 != nil ? " · sha-256 known" : "")") {
-                        if let fit, fit != .good { Tag(fit.label, accent: c.inks.amber) }
-                        let format = formatOf(f.path, owner: owner)
-                        if format == .safetensors || format == .ckpt {
-                            PcOnlyGetTag { model.installFile(repo, f.path) }
-                        } else {
-                            Tag("get", accent: c.onSurface) { model.installFile(repo, f.path) }
+                if files.isEmpty && bundles.isEmpty {
+                    MarkUnavailable("no model files in this repo")
+                }
+                if !files.isEmpty {
+                    Section {
+                        ForEach(files, id: \.path) { f in
+                            let kind = model.hfScope.kind
+                            let format = formatOf(f.path, owner: owner)
+                            let fit = model.device?.fit(kind, bytes: f.sizeBytes, engine: engineFor(kind, format))
+                            fileRow(title: String(f.path.split(separator: "/").last ?? ""), subtitle: "\(formatBytes(f.sizeBytes))\(f.sha256 != nil ? " · sha-256 known" : "")") {
+                                if let fit, fit != .good { CapsuleTag(fit.label, color: .orange) }
+                                if format == .safetensors || format == .ckpt {
+                                    PcOnlyGetTag { model.installFile(repo, f.path) }
+                                } else {
+                                    GetButton { model.installFile(repo, f.path) }
+                                }
+                            }
+                        }
+                    } footer: {
+                        if files.contains(where: { formatOf($0.path, owner: owner) == .safetensors }) {
+                            Text("safetensors run on a pc backend").foregroundStyle(.orange)
                         }
                     }
-                }
-                if files.contains(where: { formatOf($0.path, owner: owner) == .safetensors }) {
-                    MicroLabel("safetensors run on a pc backend", color: c.inks.amber)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 20)
+            .listStyle(.insetGrouped)
+            .navigationTitle(repo.id)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
+    }
+
+    private func fileRow<Trailing: View>(title: String, subtitle: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).lineLimit(2)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing()
+        }
     }
 }
 
-/// "get" for a file this phone can't run (checkpoints for a PC backend): a second tap confirms.
+/// "Get" for a file this phone can't run (checkpoints for a PC backend): a second tap confirms.
 private struct PcOnlyGetTag: View {
     let action: () -> Void
     @State private var confirm = false
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if confirm {
-            Tag("pc only · get anyway", accent: c.inks.amber, filled: true) {
+            GetButton(label: "pc only · get anyway", tint: .orange) {
                 confirm = false
                 action()
             }
         } else {
-            Tag("pc", accent: c.onSurfaceVariant)
-            Tag("get", accent: c.onSurface) { confirm = true }
+            CapsuleTag("pc", color: .secondary)
+            GetButton { confirm = true }
         }
     }
 }
@@ -688,35 +785,36 @@ private struct CivitaiRow: View {
     let installed: Set<String>
     let previews: PreviewImages?
     let onGet: () -> Void
-    @Environment(\.scheme) private var c
     @State private var preview: UIImage?
+    @ScaledMetric(relativeTo: .body) private var thumb: CGFloat = 52
 
     var body: some View {
         let version = model.versions.first
         let file = version?.files.first(where: \.primary) ?? version?.files.first
-        RunRow(
-            title: model.name,
-            subtitle: [version?.baseModel, file.map { formatBytes($0.sizeBytes) }, model.creator, "\(model.downloads) dl"].compactMap { $0 }.joined(separator: " · "),
-            leading: {
-                ZStack {
-                    RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh)
-                    if let preview {
-                        Image(uiImage: preview).resizable().scaledToFill().blur(radius: version?.previewMature == true ? 12 : 0)
-                    }
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                if let preview {
+                    Image(uiImage: preview).resizable().scaledToFill().blur(radius: version?.previewMature == true ? 12 : 0)
                 }
-                .frame(width: 52, height: 52)
-                .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
-            },
-            trailing: {
-                if version?.earlyAccess == true {
-                    Tag("early access", accent: c.inks.amber)
-                } else if let version, installed.contains("civitai:\(version.id)") {
-                    Tag("added")
-                } else {
-                    PcOnlyGetTag(action: onGet)
-                }
-            },
-        )
+            }
+            .frame(width: thumb, height: thumb)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.name).lineLimit(1)
+                Text([version?.baseModel, file.map { formatBytes($0.sizeBytes) }, model.creator, "\(model.downloads) dl"].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if version?.earlyAccess == true {
+                CapsuleTag("early access", color: .orange)
+            } else if let version, installed.contains("civitai:\(version.id)") {
+                Text("Added").font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                PcOnlyGetTag(action: onGet)
+            }
+        }
         .task(id: version?.previewUrl) {
             guard let url = version?.previewUrl, let data = await previews?.load(url) else { return }
             preview = await decodeImage(data, maxSide: 160)

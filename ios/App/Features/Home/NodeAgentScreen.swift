@@ -395,115 +395,163 @@ enum NodeAgentSheet: Hashable { case activity, board }
 
 struct NodeAgentScreen: View {
     @Environment(AppContainer.self) private var app
-    @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var model: NodeAgentModel
     @State private var draft = ""
     @State private var showSchedules = false
     @State private var showActivity = false
 
     private let open: NodeAgentSheet?
+    /// This conversation's unsent text ([ComposerDrafts]).
+    private let draftKey: String
 
     @State private var otherFor: String?
     @State private var otherText = ""
     @State private var picks: [PhotosPickerItem] = []
     @State private var showCamera = false
+    @FocusState private var focused: Bool
+    @Environment(\.keyboardUp) private var keyboardUp
 
     init(providerId: String, open: NodeAgentSheet? = nil, session: String? = nil, bot: String? = nil) {
         _model = State(initialValue: NodeAgentModel(providerId: providerId, session: session, bot: bot))
         _showActivity = State(initialValue: open != nil)
         self.open = open
+        draftKey = "node:\(providerId)/\(session ?? "")/\(bot ?? "")"
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            AutobotTopBar(title: "Agent · \(model.node)", onBack: { nav.back() }) {
-                IconAction(symbol: "list.bullet.rectangle", label: "Activity: what the node and the agent did", enabled: model.connected) {
-                    showActivity = true
-                    Task { await model.loadActivity() }
-                }
-                IconAction(symbol: "calendar", label: "Scheduled tasks", enabled: model.info != nil) {
-                    showSchedules = true
-                    Task { await model.loadSchedules() }
-                }
-                IconAction(symbol: "arrow.clockwise", label: "New conversation", enabled: model.info != nil && !model.running) {
-                    Task { await model.newConversation() }
-                }
-            }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    let retry = NodeAgentModel.retryTarget(model.rows, running: model.running)
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        header
-                        ForEach(model.rows) { row in rowView(row, retry: retry == row.id).id(row.id) }
-                        if model.running { InkLoader(.inline) }
+        transcript
+            .background(Color(.systemBackground))
+            .navigationTitle("Agent · \(model.node)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { TitleWithDot("Agent · \(model.node)") }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showActivity = true
+                        Task { await model.loadActivity() }
+                    } label: {
+                        Label("Activity: what the node and the agent did", systemImage: "list.bullet.rectangle")
                     }
-                    .padding(.horizontal, Tokens.Spacing.gutter)
-                    .padding(.vertical, 8)
-                }
-                .onChange(of: model.rows.count) {
-                    if let last = model.rows.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    .disabled(!model.connected)
+                    Button {
+                        showSchedules = true
+                        Task { await model.loadSchedules() }
+                    } label: {
+                        Label("Scheduled tasks", systemImage: "calendar")
+                    }
+                    .disabled(model.info == nil)
+                    Button {
+                        Task { await model.newConversation() }
+                    } label: {
+                        Label("New conversation", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(model.info == nil || model.running)
                 }
             }
+            .task {
+                await model.connect(app: app)
+                if open != nil { await model.loadActivity() }
+            }
+            .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(900)); focused = true } }
+            .onDisappear { model.stopListening() }
+            .onAppear { if draft.isEmpty { draft = app.drafts.text(draftKey) } }
+            .onChange(of: draft) { _, now in app.drafts.set(draftKey, now) }
+            // The model could not see the photo: the text comes back to the box.
+            .onChange(of: model.returned) { _, text in
+                if let text {
+                    draft = text
+                    model.returned = nil
+                }
+            }
+            .onChange(of: picks) { _, items in
+                guard !items.isEmpty else { return }
+                picks = []
+                model.encoding += items.count
+                Task {
+                    for item in items {
+                        let data = try? await item.loadTransferable(type: Data.self)
+                        model.encoding -= 1
+                        if let data { model.attach(data) } else { model.photoProblem = "Could not read that photo." }
+                    }
+                }
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                CameraPicker { data in
+                    showCamera = false
+                    if let data { model.attach(data) }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
+            .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
+    }
+
+    /// The conversation, with the composer floating over its end.
+    private var transcript: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                let retry = NodeAgentModel.retryTarget(model.rows, running: model.running)
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    header
+                    ForEach(model.rows) { row in rowView(row, retry: retry == row.id).id(row.id) }
+                    if model.running { ProgressView().frame(maxWidth: .infinity, alignment: .leading) }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .readableWidth()
+            }
+            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .scrollDismissesKeyboard(.interactively)
+            // The composer rides on the keyboard; the newest row stays right above it.
+            .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .onChange(of: model.rows.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: keyboardUp) { proxy.scrollTo("bottom", anchor: .bottom) }
+        }
+    }
+
+    /// The node's composer: the photo menu, the field and Send. The node's agent neither queues nor
+    /// stops a turn, so Send waits for it (and for a photo still being downscaled).
+    private var composer: some View {
+        VStack(spacing: 0) {
             if !model.photos.isEmpty || model.photoProblem != nil || model.encoding > 0 { pendingPhotos }
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 4) {
                 photoMenu
-                ConsoleTextField(text: $draft, placeholder: "A task for your machine", minLines: 1, maxLines: 5, enabled: model.info != nil)
-                IconAction(symbol: "paperplane.fill", label: "Send", tint: c.primary, enabled: !draft.trimmingCharacters(in: .whitespaces).isEmpty && !model.running && model.encoding == 0 && model.info != nil) {
+                ComposerField(text: $draft, placeholder: Composer.shared.placeholder(running: model.running, node: true), focused: $focused)
+                    .disabled(model.info == nil)
+                ComposerSendButton(enabled: Composer.shared.enabled(action: .send, text: draft, attachments: 0, ready: !model.running && model.encoding == 0 && model.info != nil)) {
                     model.send(draft)
                     draft = ""
                 }
             }
-            .padding(Tokens.Spacing.gutter)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
-        .background(c.background)
-        .task {
-            await model.connect(app: app)
-            if open != nil { await model.loadActivity() }
-        }
-        .onDisappear { model.stopListening() }
-        // The model could not see the photo: the text comes back to the box.
-        .onChange(of: model.returned) { _, text in
-            if let text {
-                draft = text
-                model.returned = nil
-            }
-        }
-        .onChange(of: picks) { _, items in
-            guard !items.isEmpty else { return }
-            picks = []
-            model.encoding += items.count
-            Task {
-                for item in items {
-                    let data = try? await item.loadTransferable(type: Data.self)
-                    model.encoding -= 1
-                    if let data { model.attach(data) } else { model.photoProblem = "Could not read that photo." }
-                }
-            }
-        }
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { data in
-                showCamera = false
-                if let data { model.attach(data) }
-            }
-            .ignoresSafeArea()
-        }
-        .sheet(isPresented: $showSchedules) { NodeSchedulesSheet(model: model) }
-        .sheet(isPresented: $showActivity) { NodeActivitySheet(model: model, initialTab: open == .board ? NodeActivitySheet.boardTab : 0) }
+        .composerPanel()
     }
 
     @ViewBuilder private var header: some View {
         if let problem = model.problem {
             VStack(alignment: .leading, spacing: 8) {
-                Text(problem).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
-                GhostButton("Retry") { Task { await model.connect(app: app) } }
+                Text(problem).font(.callout).fixedSize(horizontal: false, vertical: true)
+                Button("Retry") { Task { await model.connect(app: app) } }
+                    .glassButton()
             }
-        } else if let info = model.info {
+        } else if let info = model.info, Composer.shared.shows(part: .decor, keyboardUp: keyboardUp) {
             let folder = info.workdir.split(separator: "/").suffix(2).joined(separator: "/")
-            // Several bots: which one this conversation is with.
-            SectionLabel([model.severalBots ? "bot \(NodeBots.shared.of(bot: model.bot))" : nil, "runs on \(model.node)", "approvals: \(info.approvals)", info.private_ ? "local models only" : nil, "…/\(folder)"].compactMap { $0 }.joined(separator: " · "))
-        } else {
-            InkLoader(.inline)
+            // Several bots: which one this conversation is with. Invincible's pixel i: about the node.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                NodeMark()
+                Text([model.severalBots ? "bot \(NodeBots.shared.of(bot: model.bot))" : nil, "runs on \(model.node)", "approvals: \(info.approvals)", info.private_ ? "local models only" : nil, "…/\(folder)"].compactMap { $0 }.joined(separator: " · "))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+        } else if model.info == nil {
+            ProgressView().frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -518,7 +566,7 @@ struct NodeAgentScreen: View {
                 Label("Choose from library", systemImage: "photo.on.rectangle")
             }
         } label: {
-            Image(systemName: "photo").font(.system(size: 20)).foregroundStyle(enabled ? c.onSurface : c.outline).frame(width: 44, height: 44)
+            ComposerToolLabel(systemImage: "photo.on.rectangle")
         }
         .disabled(!enabled)
         .accessibilityLabel("Attach a photo")
@@ -531,31 +579,38 @@ struct NodeAgentScreen: View {
                     ZStack(alignment: .topTrailing) {
                         PhotoThumb(data: data, side: 64).accessibilityLabel("Photo \(i + 1)")
                         Button { model.removePhoto(at: i) } label: {
-                            Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(c.onSurface)
-                                .frame(width: 24, height: 24).background(c.surfaceContainerHigh, in: RoundedRectangle(cornerRadius: AutobotShapes.extraSmall))
+                            Image(systemName: "xmark.circle.fill")
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.6))
+                                .font(.title3)
                         }
                         .frame(width: 44, height: 44, alignment: .topTrailing)
                         .accessibilityLabel("Remove photo \(i + 1)")
                     }
                 }
             }
-            if let problem = model.photoProblem { MicroLabel(problem, color: c.error, lines: 2) }
-            else if model.encoding > 0 { MicroLabel("preparing \(NodeImages.shared.label(count: Int32(model.encoding)))…") }
-            else { MicroLabel("sent to the node at up to \(NodeImages.shared.MAX_SIDE) px, without location", lines: 2) }
+            Group {
+                if let problem = model.photoProblem { Text(problem).foregroundStyle(.red).lineLimit(2) }
+                else if model.encoding > 0 { Text("preparing \(NodeImages.shared.label(count: Int32(model.encoding)))…").foregroundStyle(.secondary) }
+                else { Text("sent to the node at up to \(NodeImages.shared.MAX_SIDE) px, without location").foregroundStyle(.secondary).lineLimit(2) }
+            }
+            .font(.caption)
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
+        .padding(.horizontal)
         .padding(.top, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func retryButton() -> some View {
-        IconAction(symbol: "arrow.clockwise", label: "Retry on the node", tint: c.onSurfaceVariant, size: 18) { model.retry() }
+        Button { model.retry() } label: { Image(systemName: "arrow.clockwise") }
+            .messageAction()
+        .accessibilityLabel("Retry on the node")
     }
 
     @ViewBuilder private func rowView(_ row: NodeAgentRow, retry: Bool = false) -> some View {
         switch row {
         case .user(_, let text, let photos, let count):
-            VStack(alignment: .trailing, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
                 if !photos.isEmpty {
                     HStack(spacing: 6) {
                         ForEach(Array(photos.enumerated()), id: \.offset) { i, data in
@@ -563,113 +618,156 @@ struct NodeAgentScreen: View {
                         }
                     }
                 }
-                ChatBubble(role: .user, text: text, hasFooter: false) { EmptyView() }
+                PromptLine(text: text)
                 // From the node's history: the photos stay there; how many.
-                if photos.isEmpty && count > 0 { MicroLabel(NodeImages.shared.label(count: Int32(count))) }
+                if photos.isEmpty && count > 0 { Text(NodeImages.shared.label(count: Int32(count))).font(.caption).foregroundStyle(.secondary) }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
         case .reply(_, let text, let route):
-            ChatBubble(role: .assistant, text: text, hasFooter: route != nil || retry) {
+            ChatBubble(text: text, hasFooter: route != nil || retry) {
                 HStack {
-                    if let route { Text(route).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).textLines(1) }
+                    if let route { Text(route).font(.footnote).foregroundStyle(.secondary).lineLimit(1) }
                     Spacer(minLength: 0)
                     if retry { retryButton() }
                 }
             }
         case .kept(_, let text):
             // Quiet: what the agent kept about the owner or the work, on its own.
-            Text(text).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+            Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("kept")
         case .note(_, let text, let tone):
             HStack(alignment: .firstTextBaseline) {
+                // A tool line is code: monospaced.
                 Text((tone == .tool ? "› " : "✗ ") + text)
-                    .textStyle(.code)
-                    .foregroundStyle(tone == .tool ? c.onSurfaceVariant : c.error)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(tone == .tool ? Color.secondary : Color.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if retry { retryButton() }
             }
         case .question(_, let approval, let title, let detail, let answer):
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title).textStyle(.titleSmall).foregroundStyle(c.onSurface)
-                Text(detail).textStyle(.code).foregroundStyle(c.onSurface)
-                switch answer {
-                case nil:
-                    HStack(spacing: 8) {
-                        PrimaryButton("Allow") { model.answer(approval, .once) }
-                        GhostButton("Always") { model.answer(approval, .always) }
-                        GhostButton("Deny") { model.answer(approval, .deny) }
-                    }
-                    // The quiet third answer: no, and do this instead.
-                    if otherFor == approval {
-                        HStack(alignment: .bottom, spacing: 8) {
-                            ConsoleTextField(text: $otherText, placeholder: "What to do instead", minLines: 1, maxLines: 1)
-                            GhostButton("Send", enabled: !otherText.trimmingCharacters(in: .whitespaces).isEmpty) {
-                                model.answerInstead(approval, otherText)
-                                otherFor = nil
+            GroupBox {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(detail).font(.callout.monospaced()).frame(maxWidth: .infinity, alignment: .leading)
+                    switch answer {
+                    case nil:
+                        HStack(spacing: 8) {
+                            Button { model.answer(approval, .once) } label: { Text("Allow").frame(maxWidth: .infinity) }
+                                .glassProminentButton()
+                            Button { model.answer(approval, .always) } label: { Text("Always").frame(maxWidth: .infinity) }
+                                .glassButton()
+                            Button(role: .destructive) { model.answer(approval, .deny) } label: { Text("Deny").frame(maxWidth: .infinity) }
+                                .glassButton()
+                        }
+                        .controlSize(.large)
+                        // The quiet third answer: no, and do this instead.
+                        if otherFor == approval {
+                            HStack(spacing: 8) {
+                                TextField("What to do instead", text: $otherText)
+                                    .textFieldStyle(.roundedBorder)
+                                Button("Send") {
+                                    model.answerInstead(approval, otherText)
+                                    otherFor = nil
+                                    otherText = ""
+                                }
+                                .glassButton()
+                                .disabled(otherText.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+                        } else {
+                            Button("Something else…") {
+                                otherFor = approval
                                 otherText = ""
                             }
-                            .fixedSize()
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHint("Say no, and what to do instead")
                         }
-                    } else {
-                        TextAction("Something else…", color: c.onSurfaceVariant) {
-                            otherFor = approval
-                            otherText = ""
-                        }
-                        .accessibilityHint("Say no, and what to do instead")
+                    case .always?: answered("allowed for this conversation")
+                    case .deny?: answered("denied")
+                    case .instead(let text)?: answered("asked instead: \(text)")
+                    default: answered("allowed")
                     }
-                case .always?: MicroLabel("allowed for this conversation")
-                case .deny?: MicroLabel("denied")
-                case .instead(let text)?: MicroLabel("asked instead: \(text)", lines: 3)
-                default: MicroLabel("allowed")
                 }
+            } label: {
+                Text(title).font(.headline)
             }
-            .padding(12)
-            .overlay(RoundedRectangle(cornerRadius: AutobotShapes.medium).stroke(c.outlineVariant))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Approval: \(title) \(detail)")
         }
+    }
+
+    private func answered(_ text: String) -> some View {
+        Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
     }
 }
 
 /// The agent's scheduled tasks on the machine: list, remove, add.
 struct NodeSchedulesSheet: View {
     let model: NodeAgentModel
-    @Environment(\.scheme) private var c
+    @Environment(\.dismiss) private var dismiss
     @State private var schedule = ""
     @State private var task = ""
     @State private var telegram = false
     @State private var adding = false
 
     var body: some View {
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel("scheduled on \(model.node)")
-                Text("Runs on the machine with nobody to ask: only allowlisted commands and writes in its working directory.")
-                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-                if let problem = model.scheduleProblem {
-                    Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
-                }
-                if let list = model.schedules {
-                    if list.isEmpty { Text("Nothing scheduled yet.").textStyle(.bodyMedium).foregroundStyle(c.onSurface) }
-                    ForEach(list, id: \.id) { item in scheduleRow(item) }
-                } else {
-                    InkLoader(.inline)
-                }
-                SectionLabel("add")
-                ConsoleTextField(text: $schedule, placeholder: "0 8 * * 1-5 · @daily · every 30m", kind: .mono)
-                ConsoleTextField(text: $task, placeholder: "What to do, e.g. check disk space and warn me", minLines: 2, maxLines: 5)
-                SwitchRow(title: "Send answers to Telegram", isOn: $telegram)
-                PrimaryButton("Schedule", enabled: !schedule.isEmpty && !task.isEmpty, busy: adding) {
-                    adding = true
-                    Task {
-                        if await model.addSchedule(schedule, task: task, telegram: telegram) { schedule = ""; task = "" }
-                        adding = false
+        NavigationStack {
+            Form {
+                Section {
+                    if let problem = model.scheduleProblem {
+                        Text(problem).foregroundStyle(.red)
                     }
+                    if let list = model.schedules {
+                        if list.isEmpty { Text("Nothing scheduled yet.").foregroundStyle(.secondary) }
+                        ForEach(list, id: \.id) { item in
+                            scheduleRow(item)
+                                .swipeActions {
+                                    Button(role: .destructive) { Task { await model.removeSchedule(item.id) } } label: {
+                                        Label("Remove \(item.task)", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    } else {
+                        ProgressView()
+                    }
+                } header: {
+                    Text("Scheduled on \(model.node)")
+                } footer: {
+                    Text("Runs on the machine with nobody to ask: only allowlisted commands and writes in its working directory.")
                 }
+                Section("Add") {
+                    TextField("Schedule", text: $schedule, prompt: Text("0 8 * * 1-5 · @daily · every 30m"))
+                        .font(.body.monospaced())
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    TextField("Task", text: $task, prompt: Text("What to do, e.g. check disk space and warn me"), axis: .vertical)
+                        .lineLimit(2 ... 5)
+                    Toggle("Send answers to Telegram", isOn: $telegram)
+                }
+                Section {
+                    Button {
+                        adding = true
+                        Task {
+                            if await model.addSchedule(schedule, task: task, telegram: telegram) { schedule = ""; task = "" }
+                            adding = false
+                        }
+                    } label: {
+                        Group { if adding { ProgressView() } else { Text("Schedule") } }.frame(maxWidth: .infinity)
+                    }
+                    .glassProminentButton()
+                    .controlSize(.large)
+                    .disabled(schedule.isEmpty || task.isEmpty || adding)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
-            .padding(Tokens.Spacing.gutter)
+            .formStyle(.grouped)
+            .navigationTitle("Scheduled tasks")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
         }
-        .background(c.background)
         .presentationDetents([.large])
     }
 
@@ -677,17 +775,22 @@ struct NodeSchedulesSheet: View {
         let format = { (seconds: Int64) in Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(date: .abbreviated, time: .shortened) }
         return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.task).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                MicroLabel([item.schedule, item.next.map { "next \(format($0.int64Value))" }, item.telegram ? "→ Telegram" : nil].compactMap { $0 }.joined(separator: " · "))
+                Text(item.task)
+                Text([item.schedule, item.next.map { "next \(format($0.int64Value))" }, item.telegram ? "→ Telegram" : nil].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
                 if let at = item.lastAt {
                     Text("\(item.lastOk?.boolValue == true ? "✓" : "✗") \(format(at.int64Value)) · \(item.lastResult?.split(separator: "\n").first.map(String.init) ?? "")")
-                        .textStyle(.bodySmall)
-                        .foregroundStyle(item.lastOk?.boolValue == true ? c.onSurfaceVariant : c.error)
+                        .font(.footnote)
+                        .foregroundStyle(item.lastOk?.boolValue == true ? Color.secondary : Color.red)
                         .lineLimit(2)
                 }
             }
             Spacer(minLength: 8)
-            IconAction(symbol: "trash", label: "Remove \(item.task)") { Task { await model.removeSchedule(item.id) } }
+            Button { Task { await model.removeSchedule(item.id) } } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Remove \(item.task)")
         }
     }
 }
@@ -695,7 +798,7 @@ struct NodeSchedulesSheet: View {
 /// What the node answered, what its agent did, and what it remembers: from the node's own logs.
 struct NodeActivitySheet: View {
     let model: NodeAgentModel
-    @Environment(\.scheme) private var c
+    @Environment(\.dismiss) private var dismiss
     @State private var tab: Int
     private static let tabs = ["requests", "actions", "board", "memory"]
     /// The board's tab, to open the sheet on it.
@@ -709,22 +812,21 @@ struct NodeActivitySheet: View {
     private let words = NodeActivityWords.shared
 
     var body: some View {
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    SectionLabel("activity on \(model.node)")
-                    Spacer()
-                    IconAction(symbol: "arrow.clockwise", label: "Refresh") { Task { await model.loadActivity() } }
-                }
-                HStack(spacing: 8) {
-                    ForEach(Self.tabs.indices, id: \.self) { i in
-                        let waiting = model.activity?.waiting.count ?? 0
-                        Tag(Self.tabs[i] == "board" && waiting > 0 ? "board · \(waiting)" : Self.tabs[i], accent: c.primary, filled: tab == i) { tab = i }
-                            .accessibilityAddTraits(tab == i ? .isSelected : [])
+        NavigationStack {
+            List {
+                Section {
+                    let waiting = model.activity?.waiting.count ?? 0
+                    Picker("Activity", selection: $tab) {
+                        ForEach(Self.tabs.indices, id: \.self) { i in
+                            Text(Self.tabs[i] == "board" && waiting > 0 ? "board · \(waiting)" : Self.tabs[i]).tag(i)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 }
                 if let problem = model.activityProblem {
-                    Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+                    Section { Text(problem).foregroundStyle(.red) }
                 }
                 if let activity = model.activity {
                     switch tab {
@@ -734,12 +836,20 @@ struct NodeActivitySheet: View {
                     default: memory(activity)
                     }
                 } else if model.activityProblem == nil {
-                    InkLoader(.inline)
+                    Section { ProgressView().frame(maxWidth: .infinity) }
                 }
             }
-            .padding(Tokens.Spacing.gutter)
+            .listStyle(.insetGrouped)
+            .navigationTitle("Activity on \(model.node)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { Task { await model.loadActivity() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .refreshable { await model.loadActivity() }
         }
-        .background(c.background)
         .presentationDetents([.large])
     }
 
@@ -747,94 +857,123 @@ struct NodeActivitySheet: View {
         Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(date: .abbreviated, time: .shortened)
     }
 
+    private func problemSection(_ problem: String) -> some View {
+        Section { Text(problem).foregroundStyle(.red) }
+    }
+
     @ViewBuilder private func requests(_ activity: NodeActivity) -> some View {
-        Text(words.summary(a: activity)).textStyle(.bodyMedium).foregroundStyle(c.onSurface)
-        if activity.requests.isEmpty {
-            Text("The node has not answered anything yet.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-        }
-        ForEach(Array(activity.requests.enumerated()), id: \.offset) { _, r in
-            let clean = r.receipt.verified && r.receipt.egress.isEmpty
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(words.who(r: r)) · \(words.where(r: r))").textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                Text([time(r.at), r.receipt.verified ? "signed ✓" : "not verified", words.left(r: r)].joined(separator: " · "))
-                    .textStyle(.code)
-                    .foregroundStyle(clean ? c.onSurfaceVariant : c.error)
-                    .fixedSize(horizontal: false, vertical: true)
+        Section {
+            if activity.requests.isEmpty {
+                Text("The node has not answered anything yet.").foregroundStyle(.secondary)
             }
-            .accessibilityElement(children: .combine)
+            ForEach(Array(activity.requests.enumerated()), id: \.offset) { _, r in
+                let clean = r.receipt.verified && r.receipt.egress.isEmpty
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(words.who(r: r)) · \(words.where(r: r))")
+                    Text([time(r.at), r.receipt.verified ? "signed ✓" : "not verified", words.left(r: r)].joined(separator: " · "))
+                        .font(.footnote)
+                        .foregroundStyle(clean ? Color.secondary : Color.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            Text(words.summary(a: activity)).textCase(nil)
         }
     }
 
     @ViewBuilder private func actions(_ activity: NodeActivity) -> some View {
         if let problem = activity.agentProblem {
-            Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+            problemSection(problem)
         } else {
-            if activity.actions.isEmpty {
-                Text("The agent has not asked to do anything yet.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-            }
-            ForEach(Array(activity.actions.enumerated()), id: \.offset) { _, a in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(a.action).textStyle(.code).foregroundStyle(c.onSurface).lineLimit(3)
-                    Text("\(time(a.at)) · \(words.decided(a: a)) · \(a.session)")
-                        .textStyle(.bodySmall)
-                        .foregroundStyle(a.ran ? c.onSurfaceVariant : c.error)
+            Section {
+                if activity.actions.isEmpty {
+                    Text("The agent has not asked to do anything yet.").foregroundStyle(.secondary)
                 }
-                .accessibilityElement(children: .combine)
+                ForEach(Array(activity.actions.enumerated()), id: \.offset) { _, a in
+                    VStack(alignment: .leading, spacing: 2) {
+                        // The action is a command or a path: code.
+                        Text(a.action).font(.callout.monospaced()).lineLimit(3)
+                        Text("\(time(a.at)) · \(words.decided(a: a)) · \(a.session)")
+                            .font(.footnote)
+                            .foregroundStyle(a.ran ? Color.secondary : Color.red)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
             }
         }
     }
 
     @ViewBuilder private func board(_ activity: NodeActivity) -> some View {
         if let problem = activity.agentProblem {
-            Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
-        } else {
-            if activity.board.isEmpty {
+            problemSection(problem)
+        } else if activity.board.isEmpty {
+            Section {
                 Text("Nothing on the board. When the agent plans work for its team (board_plan), its tasks show here.")
-                    .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(.secondary)
             }
-            ForEach(Array(activity.board.enumerated()), id: \.element.id) { i, task in
-                if i == 0 || activity.board[i - 1].plan != task.plan { SectionLabel("plan \(task.plan)") }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(words.task(t: task)).textStyle(.bodyMedium).foregroundStyle(c.onSurface)
-                    if (task.status == "done" || task.status == "failed"), let result = task.result {
-                        Text(result.split(separator: "\n").first.map(String.init) ?? "").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).lineLimit(3)
-                    }
-                    if task.waiting {
-                        Text("\(task.agent) asks: \(task.question ?? "")").textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
-                        ConsoleTextField(text: Binding(get: { answers[task.id] ?? "" }, set: { answers[task.id] = $0 }), placeholder: "Your answer", minLines: 1, maxLines: 4)
-                        PrimaryButton("Answer", enabled: !(answers[task.id] ?? "").trimmingCharacters(in: .whitespaces).isEmpty) {
-                            let text = answers[task.id] ?? ""
-                            Task { if await model.answerBoard(task.id, text) { answers[task.id] = nil } }
-                        }
-                    }
+        } else {
+            let plans = activity.board.reduce(into: [String]()) { if $0.last != $1.plan { $0.append($1.plan) } }
+            ForEach(Array(plans.enumerated()), id: \.offset) { _, plan in
+                Section("Plan \(plan)") {
+                    ForEach(activity.board.filter { $0.plan == plan }, id: \.id) { task in boardTask(task) }
                 }
+            }
+        }
+    }
+
+    private func boardTask(_ task: BoardTask) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(words.task(t: task))
+            if (task.status == "done" || task.status == "failed"), let result = task.result {
+                Text(result.split(separator: "\n").first.map(String.init) ?? "").font(.footnote).foregroundStyle(.secondary).lineLimit(3)
+            }
+            if task.waiting {
+                Text("\(task.agent) asks: \(task.question ?? "")").fixedSize(horizontal: false, vertical: true)
+                TextField("Your answer", text: Binding(get: { answers[task.id] ?? "" }, set: { answers[task.id] = $0 }), axis: .vertical)
+                    .lineLimit(1 ... 4)
+                    .textFieldStyle(.roundedBorder)
+                Button("Answer") {
+                    let text = answers[task.id] ?? ""
+                    Task { if await model.answerBoard(task.id, text) { answers[task.id] = nil } }
+                }
+                .glassProminentButton()
+                .disabled((answers[task.id] ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
     }
 
     @ViewBuilder private func memory(_ activity: NodeActivity) -> some View {
         if let problem = activity.agentProblem {
-            Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+            problemSection(problem)
         } else {
-            SectionLabel("remembered")
-            if activity.facts.isEmpty {
-                Text("Nothing yet. The agent keeps short facts when they will help later.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-            }
-            ForEach(activity.facts, id: \.id) { fact in
-                HStack(alignment: .center) {
-                    Text(fact.text).textStyle(.bodyMedium).foregroundStyle(c.onSurface).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 8)
-                    IconAction(symbol: "trash", label: "Forget: \(fact.text)") { Task { await model.forget(fact.id) } }
+            Section("Remembered") {
+                if activity.facts.isEmpty {
+                    Text("Nothing yet. The agent keeps short facts when they will help later.").foregroundStyle(.secondary)
+                }
+                ForEach(activity.facts, id: \.id) { fact in
+                    HStack {
+                        Text(fact.text).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Button { Task { await model.forget(fact.id) } } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Forget: \(fact.text)")
+                    }
+                    .swipeActions {
+                        Button(role: .destructive) { Task { await model.forget(fact.id) } } label: { Label("Forget", systemImage: "trash") }
+                    }
                 }
             }
-            SectionLabel("skills")
-            if activity.skills.isEmpty {
-                Text("None yet: put Markdown how-to notes in ~/.autobot/skills on the machine.").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-            }
-            ForEach(activity.skills, id: \.name) { skill in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(skill.name).textStyle(.code).foregroundStyle(c.onSurface)
-                    Text(skill.description_).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
+            Section("Skills") {
+                if activity.skills.isEmpty {
+                    Text("None yet: put Markdown how-to notes in ~/.autobot/skills on the machine.").foregroundStyle(.secondary)
+                }
+                ForEach(activity.skills, id: \.name) { skill in
+                    VStack(alignment: .leading, spacing: 2) {
+                        // A skill's name is its file name: code.
+                        Text(skill.name).font(.callout.monospaced())
+                        Text(skill.description_).font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
             }
         }

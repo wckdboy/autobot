@@ -9,8 +9,7 @@ struct AutobotApp: App {
 
     init() {
         LaunchTrace.mark("app.init")
-        // Fonts and hardware facts resolve on other cores while the scene and first screen set up.
-        Task.detached(priority: .userInitiated) { AutobotFonts.prewarm() }
+        // Hardware facts resolve on another core while the scene and first screen set up.
         Task.detached(priority: .utility) { _ = DeviceProfile.current() }
     }
 
@@ -21,6 +20,8 @@ struct AutobotApp: App {
                 .id(holder.generation)
                 .environment(holder.container)
                 .environment(holder.navigator)
+                // `\.keyboardUp` for every screen with a field (Keyboard.swift).
+                .tracksKeyboard()
                 // Widgets, the Control Center control and the share extension (see EntryRouter).
                 .onOpenURL { EntryRouter.shared.receive(url: $0) }
         }
@@ -49,11 +50,8 @@ struct RootView: View {
                 PrivacyCover()
             }
         }
-        // Image follows the app's theme (App UI v4); the Studio's paper and darkroom rooms keep theirs.
-        .autobotTheme(DebugFlags.theme ?? settings.themeMode, amoled: settings.amoled,
-                      paperOnTop: nav.studio?.surface == .paper, darkOnTop: nav.studio?.surface == .darkroom)
-        // Living paper holds still while heavy work runs.
-        .environment(\.inkHeavyWork, busy)
+        // Every screen, the Studio included, follows the app's theme (light, dark or the system's).
+        .autobotTheme(DebugFlags.theme ?? settings.themeMode)
         .onChange(of: phase) { old, new in
             switch new {
             case .background:
@@ -79,16 +77,20 @@ struct RootView: View {
             if let inbox = SharedInbox.defaultRoot { Task.detached(priority: .utility) { SharedInbox.sweep(root: inbox) } }
             if app.lock.state == .unlocked { await app.unlockData() }
             #if DEBUG
-            // `-AutobotOpen chat|agent|phone-first` (UI work): open the newest plain / tool session,
-            // or the demo's "phone first" chat.
+            // `-AutobotOpen chat|agent|phone-first|a2ui-chat` (UI work): open the newest plain / tool
+            // session, or the demo's "phone first" or generated-UI chat.
             let args = ProcessInfo.processInfo.arguments
-            if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count, ["chat", "agent", "phone-first"].contains(args[i + 1]) {
+            if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count, ["chat", "agent", "phone-first", "a2ui-chat"].contains(args[i + 1]) {
                 app.conversations.conversations.forEach { _ = app.agent.session($0.id) }
                 try? await Task.sleep(for: .milliseconds(1500))
                 let wantTools = args[i + 1] == "agent"
-                let phoneFirst = args[i + 1] == "phone-first"
-                if let c = app.conversations.conversations.first(where: {
-                    phoneFirst ? $0.title == "Who wrote Stiller?" : app.agent.session($0.id).state.toolsEnabled == wantTools
+                let titled: String? = switch args[i + 1] {
+                case "phone-first": "Who wrote Stiller?"
+                case "a2ui-chat": DemoSeed.generativeUiTitle
+                default: nil
+                }
+                if let c = app.conversations.conversations.first(where: { c0 in
+                    titled.map { t in c0.title == t } ?? (app.agent.session(c0.id).state.toolsEnabled == wantTools)
                 }) {
                     nav.push(.chat(conversationId: c.id))
                 }
@@ -101,14 +103,13 @@ struct RootView: View {
         @Binding var lockMessage: String?
         @Environment(AppContainer.self) private var app
         @Environment(Navigator.self) private var nav
-        @Environment(\.scheme) private var c
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             Group {
                 if !app.lock.ready {
                     // Settings not loaded yet: render nothing rather than risk showing content.
-                    c.background
+                    Color(.systemBackground)
                 } else if app.lock.state == .locked {
                     Group {
                         if app.lock.usesPin || app.lock.quietStart {
@@ -120,8 +121,8 @@ struct RootView: View {
                             }
                         }
                     }
-                    // On unlock the paper prints away.
-                    .transition(.inkPrintAway)
+                    // On unlock the lock fades away.
+                    .transition(.opacity)
                 } else if !app.settings.settings.onboarded && !DebugFlags.skipWelcome {
                     WelcomeScreen(
                         onSetUp: {
@@ -131,7 +132,8 @@ struct RootView: View {
                         // Straight to what they came for: the pairing sheet, or the provider picker.
                         onPairPc: {
                             nav.reset(.remote, [.providers])
-                            nav.pendingPairing = ""
+                            // A code a pairing link brought stays (an empty sheet must not replace it).
+                            if nav.pendingPairing == nil { nav.pendingPairing = "" }
                             app.settings.setOnboarded()
                         },
                         onAddApiKey: {
@@ -146,8 +148,8 @@ struct RootView: View {
                         .modifier(EntryPoints())
                 }
             }
-            .background(c.background.ignoresSafeArea())
-            .animation(reduceMotion ? .inkReduced : .linear(duration: Double(Tokens.Motion.printMillis) / 1000), value: app.lock.state)
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .easeOut(duration: 0.35), value: app.lock.state)
         }
     }
 }
@@ -225,11 +227,9 @@ private struct EntryPoints: ViewModifier {
 
 /// Shown over everything while the app is inactive (app switcher, notification centre).
 struct PrivacyCover: View {
-    @Environment(\.scheme) private var c
-
     var body: some View {
         ZStack {
-            c.background
+            Color(.systemBackground)
             AppIconImage(size: 56)
         }
         .ignoresSafeArea()

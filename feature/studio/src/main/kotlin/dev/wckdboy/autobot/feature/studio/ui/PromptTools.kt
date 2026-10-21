@@ -1,7 +1,25 @@
 package dev.wckdboy.autobot.feature.studio.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.DropdownField
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.StepperField
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,21 +59,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.SelectField
-import dev.wckdboy.autobot.core.designsystem.component.Stepper
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.studio.GridAxis
 import dev.wckdboy.autobot.shared.studio.GridPlanner
 import dev.wckdboy.autobot.shared.studio.PromptLibrary
@@ -66,16 +74,17 @@ import dev.wckdboy.autobot.shared.studio.StudioAsset
 import dev.wckdboy.autobot.shared.studio.Wildcards
 
 /**
- * A prompt set large in the display face, with the weighted-token helper: select words (or put
+ * The prompt in Material's outlined field, with the weighted-token helper: select words (or put
  * the cursor in one) and press − / + to change its emphasis, `(word:1.1)`.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PromptEditor(
     value: String,
     onChange: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
-    style: TextStyle = MaterialTheme.typography.headlineSmall,
+    style: TextStyle = MaterialTheme.typography.titleMedium,
     onOpenLibrary: (() -> Unit)? = null,
     cursor: (Int) -> Unit = {},
 ) {
@@ -83,30 +92,28 @@ fun PromptEditor(
     if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
     Column(modifier) {
         NoPersonalizedLearning {
-            BasicTextField(
+            OutlinedTextField(
                 value = field,
                 onValueChange = {
                     field = it
                     cursor(it.selection.end)
                     if (it.text != value) onChange(it.text)
                 },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).semantics { contentDescription = placeholder },
-                textStyle = style.copy(color = MaterialTheme.colorScheme.onBackground),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = placeholder },
+                textStyle = style,
+                placeholder = { Text(placeholder, style = style) },
+                minLines = 3,
                 keyboardOptions = PromptKeyboardOptions,
-                decorationBox = { inner ->
-                    Box {
-                        if (field.text.isEmpty()) Text(placeholder, style = style, color = MaterialTheme.colorScheme.outline)
-                        inner()
-                    }
-                },
             )
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Tag("− weight", onClick = { weight(field, -0.1) { field = it; onChange(it.text) } })
-            Tag("+ weight", onClick = { weight(field, 0.1) { field = it; onChange(it.text) } })
-            Box(Modifier.weight(1f))
-            onOpenLibrary?.let { Tag("library", accent = MaterialTheme.colorScheme.primary, onClick = it) }
+        FlowRow(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            AssistChip(onClick = { weight(field, -0.1) { field = it; onChange(it.text) } }, label = { Text("− Weight") })
+            AssistChip(onClick = { weight(field, 0.1) { field = it; onChange(it.text) } }, label = { Text("+ Weight") })
+            onOpenLibrary?.let { AssistChip(onClick = it, label = { Text("Library") }) }
         }
     }
 }
@@ -124,12 +131,12 @@ fun WildcardPreview(prompt: String, batch: Int, modifier: Modifier = Modifier) {
     val expansion = remember(prompt) { Wildcards.expand(prompt) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         val jobs = (expansion.prompts.size * batch).coerceAtMost(Wildcards.DEFAULT_CAP)
-        MicroLabel(
+        Caption(
             "wildcards · ${expansion.total} prompt${if (expansion.total == 1L) "" else "s"} × $batch = $jobs job${if (jobs == 1) "" else "s"}" +
                 if (expansion.total > expansion.prompts.size) " (first ${expansion.prompts.size})" else "",
             color = MaterialTheme.colorScheme.primary,
         )
-        expansion.prompts.take(3).forEach { Text("· $it", style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        expansion.prompts.take(3).forEach { Text("· $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
     }
 }
 
@@ -137,7 +144,7 @@ fun WildcardPreview(prompt: String, batch: Int, modifier: Modifier = Modifier) {
 @Composable
 fun SeedControl(seed: Long?, mode: SeedMode, onSeed: (Long?) -> Unit, onMode: (SeedMode) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Segmented(SeedMode.entries, mode, onMode, { it.name.lowercase() }, Modifier.fillMaxWidth())
+        Choices(SeedMode.entries, mode, onMode, Modifier.fillMaxWidth()) { labelCase(it.name.lowercase()) }
         if (mode != SeedMode.RANDOM) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
@@ -167,35 +174,31 @@ fun PromptLibrarySheet(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SectionLabel("prompt library", Modifier.inkStagger(0))
-            MicroLabel("styles wrap the prompt · snippets go in at the cursor")
-            FlowRow(Modifier.inkStagger(1), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SheetLabel("prompt library", Modifier.inkStagger(0))
+            Caption("styles wrap the prompt · snippets go in at the cursor")
+            FlowRow(Modifier.inkStagger(1), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 (PromptLibrary.builtInStyles + saved.filter { it.kind == PromptSnippet.STYLE }).forEach { s ->
-                    Tag(s.name, accent = MaterialTheme.colorScheme.primary, onClick = { onApplyStyle(s); onDismiss() })
+                    SuggestionChip(onClick = { onApplyStyle(s); onDismiss() }, label = { Text(s.name) })
                 }
             }
             val snippets = saved.filter { it.kind == PromptSnippet.SNIPPET }
-            MicroLabel("snippets · ${snippets.size}")
-            if (snippets.isEmpty()) MicroLabel("none yet — save part of a prompt below")
+            SheetLabel("snippets · ${snippets.size}")
+            if (snippets.isEmpty()) Caption("none yet — save part of a prompt below")
             snippets.forEach { s ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        s.text,
-                        Modifier.weight(1f).clickable { onInsert(s); onDismiss() }.padding(vertical = 8.dp),
-                        style = AutobotTheme.styles.code,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Tag("delete", onClick = { onDelete(s) })
-                }
+                ListItem(
+                    headlineContent = { Text(s.text, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    trailingContent = { TextButton(onClick = { onDelete(s) }) { Text("Delete") } },
+                    colors = clearListItem(),
+                    modifier = Modifier.clickable { onInsert(s); onDismiss() },
+                )
             }
             if (prompt.isNotBlank()) {
-                ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Save the current prompt as", singleLine = true)
+                Field(name, { name = it }, Modifier.fillMaxWidth(), label = "Save the current prompt as", singleLine = true)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GhostButton("Snippet", { onSave(name, PromptSnippet.SNIPPET); name = "" }, Modifier.weight(1f), enabled = name.isNotBlank())
-                    GhostButton("Style", { onSave(name, PromptSnippet.STYLE); name = "" }, Modifier.weight(1f), enabled = name.isNotBlank())
+                    OutlinedButton(onClick = { onSave(name, PromptSnippet.SNIPPET); name = "" }, Modifier.weight(1f), enabled = name.isNotBlank()) { Text("Snippet") }
+                    OutlinedButton(onClick = { onSave(name, PromptSnippet.STYLE); name = "" }, Modifier.weight(1f), enabled = name.isNotBlank()) { Text("Style") }
                 }
-                MicroLabel("a style keeps the prompt as its template: {prompt} marks where the next prompt goes")
+                Caption("a style keeps the prompt as its template: {prompt} marks where the next prompt goes")
             }
         }
     }
@@ -205,10 +208,10 @@ fun PromptLibrarySheet(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NegativePresets(negative: String, onNegative: (String) -> Unit, modifier: Modifier = Modifier) {
-    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        MicroLabel("presets", Modifier.padding(top = 4.dp))
+    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+        Text("Presets", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         PromptLibrary.negativePresets.forEach { p ->
-            Tag("+ ${p.name.lowercase()}", onClick = { onNegative(PromptLibrary.joinNegative(negative, p.text)) })
+            SuggestionChip(onClick = { onNegative(PromptLibrary.joinNegative(negative, p.text)) }, label = { Text("+ ${labelCase(p.name.lowercase())}") })
         }
     }
 }
@@ -236,26 +239,29 @@ fun GridBuilderSheet(params: List<GridParam>, onQueue: (GridAxis, GridAxis?) -> 
     val valid = xs.isNotEmpty() && (!useY || (ys.isNotEmpty() && x != y))
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SectionLabel("x / y grid", Modifier.inkStagger(0))
-            SelectField("X axis", px.label, params, { x = it.name }, Modifier.fillMaxWidth(), optionLabel = { it.label })
-            ConsoleTextField(xValues, { xValues = it }, Modifier.fillMaxWidth(), label = "X values", placeholder = px.hint, singleLine = true, mono = true)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                MicroLabel("second axis", Modifier.weight(1f))
-                Tag(if (useY) "on" else "off", accent = if (useY) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = useY, onClick = { useY = !useY })
+            SheetLabel("x / y grid", Modifier.inkStagger(0))
+            DropdownField("X axis", px.label, params, { x = it.name }, Modifier.fillMaxWidth(), optionLabel = { it.label })
+            Field(xValues, { xValues = it }, Modifier.fillMaxWidth(), label = "X values", placeholder = px.hint, singleLine = true, mono = true)
+            Row(
+                Modifier.fillMaxWidth().toggleable(useY, role = Role.Switch, onValueChange = { useY = it }),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Second axis", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                Switch(checked = useY, onCheckedChange = null)
             }
             if (useY) {
-                SelectField("Y axis", py.label, params, { y = it.name }, Modifier.fillMaxWidth(), optionLabel = { it.label })
-                ConsoleTextField(yValues, { yValues = it }, Modifier.fillMaxWidth(), label = "Y values", placeholder = py.hint, singleLine = true, mono = true)
-                if (x == y) MicroLabel("x and y must differ", color = MaterialTheme.colorScheme.error)
+                DropdownField("Y axis", py.label, params, { y = it.name }, Modifier.fillMaxWidth(), optionLabel = { it.label })
+                Field(yValues, { yValues = it }, Modifier.fillMaxWidth(), label = "Y values", placeholder = py.hint, singleLine = true, mono = true)
+                if (x == y) Caption("x and y must differ", color = MaterialTheme.colorScheme.error)
             }
-            MicroLabel(
+            Caption(
                 if (cells > GridPlanner.DEFAULT_CAP) "$cells cells · only the first ${GridPlanner.DEFAULT_CAP} are queued" else "${counted(cells, "cell")} · one job each",
                 color = if (cells > GridPlanner.DEFAULT_CAP) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            PrimaryButton("Queue grid", {
+            Button(onClick = {
                 onQueue(GridAxis(x, xs, px.label), if (useY) GridAxis(y, ys, py.label) else null)
                 onDismiss()
-            }, Modifier.fillMaxWidth(), enabled = valid)
+            }, Modifier.fillMaxWidth(), enabled = valid) { Text("Queue grid") }
         }
     }
 }
@@ -273,21 +279,21 @@ fun GridResults(
 ) {
     val rowLabels = rows.ifEmpty { listOf("") }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        MicroLabel(listOfNotNull("x · $xLabel", yLabel?.let { "y · $it" }).joinToString("   "))
+        Caption(listOfNotNull("x · $xLabel", yLabel?.let { "y · $it" }).joinToString("   "))
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (rows.isNotEmpty()) Box(Modifier.width(44.dp))
-            columns.forEach { c -> Text(c, Modifier.weight(1f), style = AutobotTheme.styles.micro, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            columns.forEach { c -> Text(c, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
         rowLabels.forEachIndexed { r, label ->
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (rows.isNotEmpty()) Text(label, Modifier.width(44.dp), style = AutobotTheme.styles.micro, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (rows.isNotEmpty()) Text(label, Modifier.width(44.dp), style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 columns.indices.forEach { c ->
                     val asset = cell(r, c)
                     Box(
                         Modifier
                             .weight(1f)
                             .aspectRatio(1f)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            .clip(MaterialTheme.shapes.small)
                             .background(MaterialTheme.colorScheme.surfaceContainerLow)
                             .semantics { contentDescription = "$xLabel ${columns[c]}" + (yLabel?.let { ", $it $label" } ?: "") },
                     ) {
@@ -302,5 +308,5 @@ fun GridResults(
 /** Batch size for queued work (one job per image so each is its own plate). */
 @Composable
 fun BatchStepper(value: Int, onValue: (Int) -> Unit, max: Int = 16, modifier: Modifier = Modifier) {
-    Stepper("Batch", value, onValue, 1..max, modifier)
+    StepperField("Batch", value, onValue, 1..max, modifier)
 }

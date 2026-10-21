@@ -2,9 +2,13 @@ package dev.wckdboy.autobot.feature.settings
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -16,6 +20,8 @@ import dev.wckdboy.autobot.feature.settings.about.AboutInfo
 import dev.wckdboy.autobot.feature.settings.about.AboutLinks
 import dev.wckdboy.autobot.feature.settings.about.AboutScreen
 import dev.wckdboy.autobot.feature.settings.about.NoteBlock
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.settings.SettingsWords
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -53,7 +59,7 @@ class SettingsStructureTest {
         // (not "SYSTEM": that is now only the theme option)
         compose.onNodeWithText("Settings").assertIsDisplayed()
         for (section in SettingsSections) compose.onNodeWithText(section).performScrollTo().assertIsDisplayed()
-        for (row in listOf("Privacy Center", "App lock", "Redact before cloud", "Phone first", "Panic wipe", "Memory", "Memory notes", "Vault", "Web search", "Fallback on limit", "Usage", "MCP servers", "Export & import", "Delete all chats")) {
+        for (row in listOf("Privacy Center", "App lock", "Redact before cloud", "Phone first", "Panic wipe", "Memory", "Memory notes", "Vault", "Web search", "Fallback on limit", "Generative UI", "Usage", "MCP servers", "Export & import", "Delete all chats")) {
             compose.onNodeWithText(row).performScrollTo().assertIsDisplayed()
         }
         compose.onNodeWithText("Direct").performScrollTo().assertIsDisplayed()
@@ -61,6 +67,44 @@ class SettingsStructureTest {
         for (gone in listOf("CONNECTIONS", "Model providers", "Image backends")) compose.onAllNodesWithText(gone).assertCountEquals(0)
         compose.onNodeWithText("Autobot 1.6.4 (16)").performScrollTo().performClick()
         assertEquals(true, aboutOpened)
+    }
+
+    @Test
+    fun phoneFirstExplainsItselfBehindItsInfoNotUnderIt() {
+        compose.setContent {
+            Themed {
+                SettingsScreen(
+                    state = SettingsUiState(),
+                    onBack = null, onOpenPrivacyCenter = {}, onThemeMode = {}, onAmoled = {},
+                    onDynamicColor = {}, onAppLock = {}, onLockTimeout = {}, onIncognitoByDefault = {},
+                )
+            }
+        }
+        // No paragraph under the choice: the chosen option's line is not on the screen.
+        compose.onAllNodesWithText(CascadePolicy.OFF.detail, substring = true).assertCountEquals(0)
+        compose.onNodeWithContentDescription("About Phone first").performScrollTo().performClick()
+        compose.onNodeWithText(SettingsWords.cascade).assertIsDisplayed()
+    }
+
+    @Test
+    fun generativeUiSwitchIsOnByDefaultAndExplainsItself() {
+        var turned: Boolean? = null
+        compose.setContent {
+            Themed {
+                SettingsScreen(
+                    state = SettingsUiState(),
+                    onBack = null, onOpenPrivacyCenter = {}, onThemeMode = {}, onAmoled = {},
+                    onDynamicColor = {}, onAppLock = {}, onLockTimeout = {}, onIncognitoByDefault = {},
+                    onGenerativeUi = { turned = it },
+                )
+            }
+        }
+        assertEquals(true, SettingsUiState().generativeUi)
+        compose.onNode(hasText("Generative UI") and isToggleable())
+            .performScrollTo().assertIsOn().performClick()
+        assertEquals(false, turned)
+        compose.onNodeWithContentDescription("About Generative UI").performScrollTo().performClick()
+        compose.onNodeWithText(SettingsWords.GENERATIVE_UI).assertIsDisplayed()
     }
 
     @Test

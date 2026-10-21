@@ -324,6 +324,17 @@ class AgentLoopTest {
     }
 
     @Test
+    fun aFailureItsProviderCallsFinalIsNotRetried() = runTest {
+        // A paired node that is down: a transport failure, but trying again cannot help.
+        val adapter = ScriptedAdapter(mutableListOf({ throw LlmException(LlmFailure(LlmErrorCode.TRANSPORT, "Can't reach node-a", retryable = false)) }))
+        val agent = agent(adapter)
+        agent.followup("hi")
+        advanceUntilIdle()
+        assertEquals("TRANSPORT: Can't reach node-a", agent.all<SessionEvent.TurnEnd>().single().detail)
+        assertTrue(agent.all<SessionEvent.LlmRetry>().isEmpty())
+    }
+
+    @Test
     fun killSwitchEndsTurnAsBlocked() = runTest {
         val adapter = ScriptedAdapter(mutableListOf({ throw LlmException(LlmFailure(LlmErrorCode.BLOCKED, "offline")) }))
         val agent = agent(adapter)

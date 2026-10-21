@@ -8,8 +8,8 @@ import UIKit
 /**
  Scrolling and idle cost of the list screens (Models, Sessions, Studio Library, Imagine) and of
  screens hidden under the Studio, measured in the simulator: process and main-thread CPU per
- second, 60 Hz frame pacing (hitches = frames later than 1.5 intervals) and InkProbe counts per
- second (screen/row body evaluations, ink ticks and draws, thumbnail decodes).
+ second, 60 Hz frame pacing (hitches = frames later than 1.5 intervals) and RenderProbe counts per
+ second (screen/row body evaluations, thumbnail decodes).
  Skipped unless `AUTOBOT_PERF_DIR` is set (`TEST_RUNNER_AUTOBOT_PERF_DIR=…`); writes screens.json.
  */
 @MainActor
@@ -65,8 +65,8 @@ struct ScreenPerfTests {
         results.append(try await measure("models-scroll", ModelsScreen(), app, nav, seconds: 6, scroll: true))
         results.append(try await measure("sessions-scroll", ChatListScreen(), app, nav, seconds: 6, scroll: true))
         let session = StudioSession(app: app)
-        results.append(try await measure("library-scroll", LibraryRoom(session: session).paperTheme(), app, nav, seconds: 6, scroll: true))
-        results.append(try await measure("imagine-idle", ImagineScreen().paperTheme(), app, nav, seconds: 3))
+        results.append(try await measure("library-scroll", LibraryRoom(session: session), app, nav, seconds: 6, scroll: true))
+        results.append(try await measure("imagine-idle", ImagineScreen(), app, nav, seconds: 3))
         // The app's Run tab under an open Studio (its living cards must not keep ticking).
         nav.reset(.run, [])
         nav.studio = .workflows
@@ -80,10 +80,114 @@ struct ScreenPerfTests {
         }
     }
 
+    /// The process footprint after every screen was shown once in the navigation host (demo-sized
+    /// data), and after leaving them all: what stays resident once the screens are gone.
+    @Test(.timeLimit(.minutes(5))) func memoryAcrossScreens() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["AUTOBOT_PERF_DIR"] else { return }
+        let app = AppContainer()
+        await app.unlockData()
+        let nav = Navigator()
+        var chat = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
+        chat.title = "Memory transcript"
+        app.conversations.update(chat)
+        app.agent.preview(chat.id, state: MotionPerfTests.richState(chat.id))
+        let scene = try await TestScene.first()
+        let others = scene.windows.filter { !$0.isHidden }
+        others.forEach { $0.isHidden = true }
+        defer { others.forEach { $0.isHidden = false } }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: AutobotNavHost().environment(\.scenePhase, .active).environment(app).environment(nav).autobotTheme(.dark))
+        window.makeKeyAndVisible()
+        try await Task.sleep(for: .milliseconds(1000))
+        let start = Self.footprintMB()
+        let stops: [(Autobot.Tab, [Destination])] = [
+            (.run, [.chatList]), (.run, [.chat(conversationId: chat.id)]), (.run, [.imagine()]), (.run, [.gallery()]),
+            (.models, []), (.models, [.compute]), (.models, [.accounts]), (.remote, []), (.remote, [.providers]),
+            (.settings, []), (.settings, [.privacyCenter]), (.settings, [.about]), (.settings, [.licenses]), (.settings, [.memory]),
+            (.settings, [.vault]), (.settings, [.usage]), (.settings, [.recipes]), (.settings, [.mcpServers]),
+        ]
+        var peak = start
+        var steps: [String] = []
+        var afterPasses: [Double] = []
+        // Twice: what the first pass leaves is caches; what a second pass adds again is a leak.
+        for _ in 0 ..< 2 {
+            for (tab, path) in stops {
+                let before = Self.footprintMB()
+                nav.reset(tab, path)
+                try await Task.sleep(for: .milliseconds(600))
+                let now = Self.footprintMB()
+                peak = max(peak, now)
+                steps.append(String(format: "%@%@ %+.1f", tab.rawValue, path.first.map { "/\(String(describing: $0).prefix(24))" } ?? "", now - before))
+            }
+            nav.studio = .image
+            try await Task.sleep(for: .milliseconds(800))
+            peak = max(peak, Self.footprintMB())
+            nav.studio = nil
+            for tab in Autobot.Tab.allCases { nav.reset(tab, []) }
+            nav.tab = .run
+            try await Task.sleep(for: .milliseconds(1500))
+            afterPasses.append(Self.footprintMB())
+        }
+        let end = afterPasses.last ?? 0
+        print("PERF memory steps", steps.joined(separator: " | "))
+        window.isHidden = true
+        window.rootViewController = nil
+        let line = String(format: "PERF memory start=%.1fMB peak=%.1fMB afterPass1=%.1fMB afterPass2=%.1fMB", start, peak, afterPasses.first ?? 0, end)
+        print(line)
+        try line.write(to: URL(fileURLWithPath: "\(dir)/memory.txt"), atomically: true, encoding: .utf8)
+    }
+
+    /// Opening a chat of heavy markdown (a table and a code block in every answer): time to its
+    /// first full layout and the footprint it adds, at 40 rows (laid out whole) and 42 (lazy).
+    @Test(.timeLimit(.minutes(5))) func openHeavyChat() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["AUTOBOT_PERF_DIR"] else { return }
+        let app = AppContainer()
+        await app.unlockData()
+        let nav = Navigator()
+        let scene = try await TestScene.first()
+        var lines: [String] = []
+        for round in 0 ..< 3 {
+            for exchanges in [20, 21] {
+                var chat = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
+                chat.title = "Heavy \(round) \(exchanges)"
+                app.conversations.update(chat)
+                app.agent.preview(chat.id, state: MotionPerfTests.richState(chat.id, exchanges: exchanges))
+                MarkdownCache.shared.removeAll()
+                try await Task.sleep(for: .milliseconds(300))
+                let before = Self.footprintMB()
+                let window = UIWindow(windowScene: scene)
+                let clock = ContinuousClock()
+                let open = clock.measure {
+                    window.rootViewController = UIHostingController(rootView: NavigationStack { ChatScreen(conversationId: chat.id) }
+                        .environment(\.scenePhase, .active).environment(app).environment(nav).autobotTheme(.dark))
+                    window.makeKeyAndVisible()
+                    window.layoutIfNeeded()
+                }
+                try await Task.sleep(for: .milliseconds(1000))
+                let after = Self.footprintMB()
+                window.isHidden = true
+                window.rootViewController = nil
+                lines.append(String(format: "PERF heavyChat rows=%d round=%d open=%.1fms footprint=+%.1fMB", exchanges * 2, round, Double(open.components.attoseconds) / 1e15 + Double(open.components.seconds) * 1000, after - before))
+                try await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        lines.forEach { print($0) }
+        try lines.joined(separator: "\n").write(to: URL(fileURLWithPath: "\(dir)/heavy-chat.txt"), atomically: true, encoding: .utf8)
+    }
+
+    static func footprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return kr == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+    }
+
     // MARK: Harness
 
     private func measure(_ name: String, _ view: some View, _ app: AppContainer, _ nav: Navigator, seconds: Double, scroll: Bool = false) async throws -> Result {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try await TestScene.first()
         let others = scene.windows.filter { !$0.isHidden }
         others.forEach { $0.isHidden = true }
         defer { others.forEach { $0.isHidden = false } }
@@ -96,7 +200,7 @@ struct ScreenPerfTests {
 
         let scrollView = scroll ? Self.scrollView(in: window) : nil
         let pacer = Pacer()
-        InkProbe.reset()
+        RenderProbe.reset()
         let cpu0 = Self.processCpu(), main0 = Self.mainThreadCpu()
         let start = CACurrentMediaTime()
         pacer.onFrame = { now in
@@ -110,7 +214,7 @@ struct ScreenPerfTests {
         pacer.stop()
         let wall = CACurrentMediaTime() - start
         let cpu = Self.processCpu() - cpu0, main = Self.mainThreadCpu() - main0
-        let counts = InkProbe.snapshot().mapValues { Double($0) / wall }
+        let counts = RenderProbe.snapshot().mapValues { Double($0) / wall }
         window.isHidden = true
         window.rootViewController = nil
         return Result(scenario: name, seconds: wall, cpuMsPerSec: cpu * 1000 / wall, mainCpuMsPerSec: main * 1000 / wall,

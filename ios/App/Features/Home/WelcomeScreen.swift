@@ -1,16 +1,16 @@
+import AutobotShared
 import SwiftUI
 
-/// First-run welcome (App UI v4): the large purple pixel a, the wordmark, one sentence, one
-/// primary button. Pairing a PC or adding a key stay one quiet link away.
+/// First-run welcome: the large purple pixel a, the wordmark, one sentence, one primary button.
+/// Pairing a PC or adding a key stay one quiet link away.
 struct WelcomeScreen: View {
     let onSetUp: () -> Void
     let onPairPc: () -> Void
     let onAddApiKey: () -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         ZStack {
-            c.background.ignoresSafeArea()
+            Color(.systemBackground).ignoresSafeArea()
             // At large text sizes the column scrolls rather than pushing the button off the screen.
             ViewThatFits(in: .vertical) {
                 column(fill: true)
@@ -18,6 +18,7 @@ struct WelcomeScreen: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
+            .frame(maxWidth: 520)
         }
     }
 
@@ -29,26 +30,32 @@ struct WelcomeScreen: View {
             Wordmark()
             Spacer().frame(height: 12)
             Text("Private AI on your phone.")
-                .textStyle(.displaySmall)
-                .foregroundStyle(c.onBackground)
+                .font(.largeTitle.weight(.bold))
                 .fixedSize(horizontal: false, vertical: true)
             if fill { Spacer() }
             Spacer().frame(height: 32)
-            PrimaryButton("Set up this phone", action: onSetUp)
+            Button(action: onSetUp) {
+                Text("Set up this phone").frame(maxWidth: .infinity)
+            }
+            .glassProminentButton()
+            .controlSize(.large)
             Spacer().frame(height: 8)
             ViewThatFits(in: .horizontal) {
-                HStack {
+                HStack(spacing: 24) {
                     Spacer()
                     actions
                     Spacer()
                 }
                 VStack(spacing: 4) { actions }.frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .controlSize(.large)
         }
     }
 
     @ViewBuilder private var actions: some View {
-        TextAction("Pair a PC", color: c.onSurfaceVariant, action: onPairPc)
-        TextAction("Add an API key", color: c.onSurfaceVariant, action: onAddApiKey)
+        Button(NodePairingWords.shared.REMOTE_ROW, action: onPairPc)
+        Button("Add an API key", action: onAddApiKey)
     }
 }

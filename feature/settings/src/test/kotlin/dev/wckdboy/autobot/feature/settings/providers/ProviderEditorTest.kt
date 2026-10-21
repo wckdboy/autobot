@@ -48,7 +48,8 @@ class ProviderEditorTest {
         // Cleartext to a LAN host: under the URL, and again as the reason Save is off.
         compose.onAllNodes(hasText("Use https — plain http only works for servers on this phone", substring = true))[0].performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("The API key contains a space — paste only the key").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Could not save: disk I/O error").performScrollTo().assertIsDisplayed()
-        compose.onNode(hasText("Save", ignoreCase = true) and hasClickAction()).performScrollTo().assertIsNotEnabled()
+        // The error and Save are pinned under the form (above the keyboard): on screen without scrolling.
+        compose.onNodeWithText("Could not save: disk I/O error").assertIsDisplayed()
+        compose.onNode(hasText("Save", ignoreCase = true) and hasClickAction()).assertIsDisplayed().assertIsNotEnabled()
     }
 }

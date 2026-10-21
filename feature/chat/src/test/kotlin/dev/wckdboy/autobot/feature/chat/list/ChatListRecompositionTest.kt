@@ -57,7 +57,7 @@ class ChatListRecompositionTest {
                     state = state.copy(query = q)
                 })
             }
-            AutobotTheme { ChatListScreen(state, actions, onOpenChat = {}, onOpenProviders = {}, onOpenPrivacyCenter = {}) }
+            AutobotTheme { ChatListScreen(state, actions, onOpenChat = {}, onOpenProviders = {}) }
         }
         // Let the first composition settle (a slow machine may still be laying out or animating
         // rows) before counting: idle until rows stop recomposing on their own.

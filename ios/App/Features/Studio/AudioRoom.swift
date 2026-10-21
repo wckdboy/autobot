@@ -138,15 +138,13 @@ struct AudioRoom: View {
     let session: StudioSession
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(spacing: 0) {
-            stage.frame(minHeight: 170, maxHeight: .infinity)
-            StudioPanel(title: model.tab == .sound ? "sound" : "voiceover", collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) { controls }
-                .frame(maxHeight: session.collapsed ? nil : 340)
-                    // The controls get their height first; the canvas takes the rest.
-                    .layoutPriority(1)
+        StudioRoomLayout(collapsed: Binding(get: { session.collapsed }, set: { session.collapsed = $0 })) {
+            stage
+        } controls: {
+            controls
+        } runBar: {
             runBar
         }
     }
@@ -155,55 +153,67 @@ struct AudioRoom: View {
 
     private var stage: some View {
         let player = session.player
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                if let job = model.runningJob {
-                    HStack(spacing: 10) {
-                        InkLoader(.block)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(job.status ?? (job.state == .queued ? "Queued" : "Generating")).textStyle(.titleSmall).foregroundStyle(c.onSurface)
-                            InkProgressBar(job.state == .queued ? .progress(0, running: false) : job.steps == 0 ? .indeterminate : .progress(Double(job.progress), running: true))
+        return List {
+            if let job = model.runningJob {
+                HStack(spacing: 12) {
+                    ProgressView()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(job.status ?? (job.state == .queued ? "Queued" : "Generating")).font(.headline)
+                        if job.state == .running && job.steps > 0 {
+                            ProgressView(value: Double(job.progress)).progressViewStyle(.linear)
                         }
                     }
-                    .padding(.top, 8)
                 }
-                if let clip = model.selected {
+                .padding(.vertical, 4)
+            }
+            if let clip = model.selected {
+                Section {
                     ClipStage(clip: clip, player: player, trim: $model.trim) { Task { await model.saveTrim() } }
-                } else if model.runningJob == nil {
-                    Color.clear.frame(height: 16)
                 }
-                if !model.clips.isEmpty {
-                    SectionLabel("clips · \(model.clips.count)")
+            }
+            if !model.clips.isEmpty {
+                Section("Clips · \(model.clips.count)") {
                     ForEach(model.clips.prefix(20), id: \.id) { clip in
                         let active = clip.id == model.selected?.id
+                        let playing = player.playingId == clip.id
                         HStack(spacing: 10) {
-                            IconAction(symbol: player.playingId == clip.id ? "stop.fill" : "play.fill", label: player.playingId == clip.id ? "Stop" : "Play", size: 16) {
-                                if player.playingId == clip.id { player.stop() } else { Task { if let d = await app.studio.bytes(clip.id) { player.play(clip.id, data: d) } } }
+                            Button {
+                                if playing { player.stop() } else { Task { if let d = await app.studio.bytes(clip.id) { player.play(clip.id, data: d) } } }
+                            } label: {
+                                Image(systemName: playing ? "stop.fill" : "play.fill").frame(width: 28, height: 28)
                             }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(playing ? "Stop" : "Play")
                             AssetThumb(asset: clip).frame(width: 90, height: 32)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(clip.recipe.text("prompt") ?? clip.recipe.text("text") ?? "clip").textStyle(.labelMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                                MicroLabel(clip.label ?? StudioText.meta(clip))
+                                Text(clip.recipe.text("prompt") ?? clip.recipe.text("text") ?? "clip").font(.subheadline).lineLimit(1)
+                                Text(clip.label ?? StudioText.meta(clip)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            if active { Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityHidden(true) }
                         }
-                        .padding(.vertical, 2)
-                        .background(active ? c.primary.opacity(0.12) : .clear)
                         .contentShape(Rectangle())
                         .onTapGesture { model.selectedId = clip.id; model.trim = 0 ... 1 }
                         .accessibilityAddTraits(active ? .isSelected : [])
-                        Hairline()
                     }
                 }
             }
-            .padding(.horizontal, Tokens.Spacing.gutter)
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
     }
 
     // MARK: Controls
 
     @ViewBuilder private var controls: some View {
-        Segmented(options: AudioRoomModel.Tab.allCases, selected: model.tab, label: { $0.rawValue }) { model.tab = $0 }
+        Section {
+            Picker("Kind", selection: $model.tab) {
+                Text("Sound").tag(AudioRoomModel.Tab.sound)
+                Text("Voiceover").tag(AudioRoomModel.Tab.voiceover)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
         switch model.tab {
         case .sound: soundControls
         case .voiceover: voiceControls
@@ -212,80 +222,92 @@ struct AudioRoom: View {
 
     @ViewBuilder private var soundControls: some View {
         if !model.workflows.isEmpty {
-            SelectField(label: "Engine", value: model.workflow?.name ?? "this iphone · stable audio", options: [""] + model.workflows.map(\.id),
-                        optionLabel: { id in id.isEmpty ? "this iphone · stable audio" : model.workflows.first { $0.id == id }?.name ?? id }) { id in model.workflowId = id.isEmpty ? nil : id }
+            Section {
+                OptionPicker("Engine", selection: model.workflowId ?? "", options: [""] + model.workflows.map(\.id),
+                             optionLabel: { id in id.isEmpty ? "This iPhone · Stable Audio" : model.workflows.first { $0.id == id }?.name ?? id }) { id in model.workflowId = id.isEmpty ? nil : id }
+            }
         }
         if let w = model.workflow {
             let server = app.studio.comfyServer(w.backendId) ?? app.studio.comfyServers.first
-            RunsOnTag(label: server?.name ?? "your pc", route: server?.route ?? .pcLan)
-            PromptBox(prompt: $model.prompt, negative: .constant(""), placeholder: "rain on a tin roof, distant thunder", showNegative: false)
-            WorkflowForm(workflow: w, values: $model.workflowValues) { $0.name == "prompt" || $0.type == .seed }
+            Section {
+                RunsOnTag(label: server?.name ?? "your pc", route: server?.route ?? .pcLan)
+                PromptBox(prompt: $model.prompt, negative: .constant(""), placeholder: "rain on a tin roof, distant thunder", showNegative: false)
+            }
+            Section(w.name) {
+                WorkflowForm(workflow: w, values: $model.workflowValues) { $0.name == "prompt" || $0.type == .seed }
+            }
         } else if !model.hasLocalAudio {
-            StabilityCredit()
-            StudioEmpty(title: "no audio model yet",
-                        text: "Stable Audio Open Small makes up to 11.9 s of 44.1 kHz stereo sound on this iPhone. Get it in Models › audio (about 600 MB).",
-                        action: "Get the audio model in Models") {
-                nav.leaveStudio()
-                nav.switchTo(.models)
+            Section { StabilityCredit() }
+            Section {
+                StudioEmpty(StudioRoomWords.shared.audioNoModel) {
+                    nav.leaveStudio()
+                    nav.switchTo(.models)
+                }
             }
         } else {
-            StabilityCredit()
-            RunsOnTag(label: "this iphone", route: .localNpu)
-            PromptBox(prompt: $model.prompt, negative: .constant(""), placeholder: "rain on a tin roof, distant thunder", showNegative: false)
-            ValueSlider(label: "Seconds", value: $model.seconds, range: 0.1 ... AudioStudioEngine.maxSeconds, step: 0.1, format: { String(format: "%.1f s", $0) })
-            ValueSlider(label: "Steps", value: Binding(get: { Double(model.steps) }, set: { model.steps = Int($0) }), range: 1 ... Double(AudioStudioEngine.maxSteps), step: 1, format: { "\(Int($0))" })
-            ValueSlider(label: "CFG", value: $model.cfg, range: 0 ... 7, step: 0.5, format: { String(format: "%.1f", $0) })
-            if model.cfg > 1.5 { MicroLabel("cfg 1 is what the small model was distilled for; higher doubles the work", lines: 2) }
+            Section { StabilityCredit() }
+            Section {
+                RunsOnTag(label: "this iphone", route: .localNpu)
+                PromptBox(prompt: $model.prompt, negative: .constant(""), placeholder: "rain on a tin roof, distant thunder", showNegative: false)
+            }
+            Section {
+                LabeledSlider("Seconds", value: $model.seconds, in: 0.1 ... AudioStudioEngine.maxSeconds, step: 0.1, format: { String(format: "%.1f s", $0) })
+                LabeledSlider("Steps", value: Binding(get: { Double(model.steps) }, set: { model.steps = Int($0) }), in: 1 ... Double(AudioStudioEngine.maxSteps), step: 1, format: { "\(Int($0))" })
+                LabeledSlider("CFG", value: $model.cfg, in: 0 ... 7, step: 0.5, format: { String(format: "%.1f", $0) })
+            } footer: {
+                if model.cfg > 1.5 { Text("CFG 1 is what the small model was distilled for; higher doubles the work.") }
+            }
         }
         if model.workflow != nil || model.hasLocalAudio {
             SeedControl(mode: $model.seedMode, seed: $model.seed)
-            StepperField(label: "Clips", value: model.count, range: 1 ... AudioStudioEngine.maxCount) { model.count = $0 }
+            Section {
+                Stepper("Clips · \(model.count)", value: $model.count, in: 1 ... AudioStudioEngine.maxCount)
+            }
         }
     }
 
     @ViewBuilder private var voiceControls: some View {
         if !model.hasVoice {
-            StudioEmpty(title: "no voice yet", text: "Kokoro reads text aloud on this iPhone. Get it in Models › voice.", action: "Get the voice in Models") {
-                nav.leaveStudio()
-                nav.switchTo(.models)
+            Section {
+                StudioEmpty(StudioRoomWords.shared.voiceNoModel) {
+                    nav.leaveStudio()
+                    nav.switchTo(.models)
+                }
             }
         } else {
-            RunsOnTag(label: "this iphone · kokoro", route: .localNpu)
-            ConsoleTextField(text: $model.text, placeholder: "The text to read", label: "Text", kind: .prose, minLines: 3, maxLines: 10)
-            SelectField(label: "Voice", value: model.voice, options: model.voices) { model.voice = $0 }
-            ValueSlider(label: "Speed", value: $model.speed, range: 0.5 ... 2, step: 0.05, format: { String(format: "%.2f×", $0) })
+            Section {
+                RunsOnTag(label: "this iphone · kokoro", route: .localNpu)
+                StackedField(label: "Text", text: $model.text, prompt: "The text to read", kind: .prose, lines: 3 ... 10)
+            }
+            Section {
+                OptionPicker("Voice", selection: model.voice, options: model.voices) { model.voice = $0 }
+                LabeledSlider("Speed", value: $model.speed, in: 0.5 ... 2, step: 0.05, format: { String(format: "%.2f×", $0) })
+            }
         }
     }
 
     private var runBar: some View {
         let blocker = model.blocker
-        return VStack(spacing: 6) {
-            Text(blocker ?? (model.tab == .sound ? String(format: "%.1f s · ", model.seconds) + "\(counted(model.steps, "step")) · \(counted(model.count, "clip"))" : "voice \(model.voice) · \(String(format: "%.2f", model.speed))×"))
-                .textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-            PrimaryButton(model.tab == .sound ? "Generate" : "Read aloud", enabled: blocker == nil) { model.generate() }
+        let status = blocker ?? (model.tab == .sound
+            ? String(format: "%.1f s · ", model.seconds) + "\(counted(model.steps, "step")) · \(counted(model.count, "clip"))"
+            : "voice \(model.voice) · \(String(format: "%.2f", model.speed))×")
+        return StudioRunBar(status: status) {
+            Button { model.generate() } label: {
+                Text(model.tab == .sound ? "Generate" : "Read aloud").frame(maxWidth: .infinity)
+            }
+            .glassProminentButton()
+            .disabled(blocker != nil)
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .padding(.vertical, 8)
-        .background(c.background)
-        .hairlineEdge(top: true, bottom: false)
     }
 }
 
 /// The Stability AI Community License credit, shown wherever Stable Audio runs.
 struct StabilityCredit: View {
-    @Environment(\.scheme) private var c
-
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Powered by Stability AI").textStyle(.labelLarge).foregroundStyle(c.onSurface).lineLimit(1).minimumScaleFactor(0.8)
-                MicroLabel("stable audio open small · stability ai community license", lines: 2)
-            }
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Powered by Stability AI").font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            Text("Stable Audio Open Small · Stability AI Community License").font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.outline, lineWidth: Tokens.Stroke.border))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Powered by Stability AI. Stable Audio Open Small, Stability AI Community License.")
     }
@@ -298,35 +320,38 @@ private struct ClipStage: View {
     @Binding var trim: ClosedRange<Double>
     let onSaveTrim: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var peaks: [Float] = []
     @State private var trimming = false
 
     var body: some View {
         let playing = player.playingId == clip.id
         VStack(alignment: .leading, spacing: 8) {
-            Text(clip.recipe.text("prompt") ?? clip.recipe.text("text") ?? "clip").textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(2)
-            MicroLabel(StudioText.meta(clip))
+            Text(clip.recipe.text("prompt") ?? clip.recipe.text("text") ?? "clip").font(.headline).lineLimit(2)
+            Text(StudioText.meta(clip)).font(.caption).foregroundStyle(.secondary)
             PlayheadWaveform(id: clip.id, peaks: peaks, player: player, trim: trimming ? $trim : nil)
                 .frame(height: 96)
                 .padding(.vertical, 4)
             HStack(spacing: 8) {
-                IconAction(symbol: playing ? "stop.fill" : "play.fill", label: playing ? "Stop" : "Play") {
+                Button {
                     if playing { player.stop() } else { Task { if let d = await app.studio.bytes(clip.id) { player.play(clip.id, data: d) } } }
+                } label: {
+                    Image(systemName: playing ? "stop.fill" : "play.fill").frame(width: 28, height: 28)
                 }
-                Tag(player.loop ? "loop on" : "loop off", accent: player.loop ? c.primary : c.onSurfaceVariant, filled: player.loop) { player.setLoop(!player.loop) }
-                Tag(trimming ? "trim · drag the handles" : "trim", accent: c.primary) { trimming.toggle() }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(playing ? "Stop" : "Play")
+                StudioChip(player.loop ? "Loop on" : "Loop off", active: player.loop) { player.setLoop(!player.loop) }
+                StudioChip(trimming ? "Trim · drag the handles" : "Trim", active: trimming) { trimming.toggle() }
                 Spacer()
                 if trimming && trim != 0 ... 1 {
-                    TextAction("Save trim") { onSaveTrim(); trimming = false }
+                    Button("Save trim") { onSaveTrim(); trimming = false }.buttonStyle(.borderless)
                 }
             }
             if trimming {
                 let s = Double(clip.durationMs) / 1000
-                MicroLabel(String(format: "keep %.1f – %.1f s of %.1f s", trim.lowerBound * s, trim.upperBound * s, s))
+                Text(String(format: "Keep %.1f – %.1f s of %.1f s", trim.lowerBound * s, trim.upperBound * s, s)).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .padding(.top, 8)
+        .padding(.vertical, 4)
         .task(id: clip.id) { peaks = await app.studio.waveform(clip) }
     }
 }

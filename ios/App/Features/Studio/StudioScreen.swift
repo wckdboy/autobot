@@ -3,10 +3,11 @@ import Observation
 import SwiftUI
 
 /**
- The Creative Studio (spec §1): a mode of its own. Its bar (Image · Audio · Video · Workflows ·
- Library) replaces the tab bar; the chrome is a thin top bar (leave, room, project) and the queue
- strip; the canvas is the hero and the controls fold away. Darkroom (ink) for image and video,
- paper for the library. Leaving returns to the app exactly where it was; queued jobs keep going.
+ The Creative Studio (spec §1): a mode of its own. Its rooms (Image · Audio · Video · Workflows ·
+ Library) are the system's tab view, a tab bar on iPhone and a sidebar on iPad and the Mac; each
+ room has the system navigation bar (leave, the project menu) and the queue strip under it. The
+ canvas is the hero and the controls fold away. It follows the app's light or dark theme. Leaving
+ returns to the app exactly where it was; queued jobs keep going.
  */
 struct StudioScreen: View {
     @Environment(AppContainer.self) private var app
@@ -14,32 +15,16 @@ struct StudioScreen: View {
     @State private var session: StudioSession?
 
     var body: some View {
-        let room = nav.studio ?? .image
         Group {
             if let session {
-                StudioFrame(room: room, session: session)
+                StudioFrame(session: session)
             } else {
-                Color.clear
+                Color(.systemGroupedBackground).ignoresSafeArea()
             }
         }
-        .modifier(StudioSurfaceTheme(surface: room.surface, amoled: app.settings.settings.amoled))
         .task {
             if session == nil { session = StudioSession(app: app) }
             app.studio.syncEngines(app: app)
-        }
-    }
-}
-
-/// The room's riso scheme: darkroom (ink), paper, or the app's own.
-struct StudioSurfaceTheme: ViewModifier {
-    let surface: StudioSurface
-    let amoled: Bool
-
-    func body(content: Content) -> some View {
-        switch surface {
-        case .darkroom: content.darkroomTheme(amoled: amoled)
-        case .paper: content.paperTheme()
-        case .app: content
         }
     }
 }
@@ -62,104 +47,136 @@ final class StudioSession {
     }
 }
 
-private struct StudioFrame: View {
-    let room: StudioRoom
-    let session: StudioSession
-    @Environment(AppContainer.self) private var app
-    @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        VStack(spacing: 0) {
-            StudioTopBar(room: room, session: session)
-            QueueStrip()
-            Group {
-                switch room {
-                case .image: ImageRoom(model: session.image, session: session)
-                case .audio: AudioRoom(model: session.audio, session: session)
-                case .video: VideoRoom(model: session.video, session: session)
-                case .workflows: WorkflowsRoom(session: session)
-                case .library: LibraryRoom(session: session)
-                }
-            }
-            .id(room)
-            .inkArrive()
-            .frame(maxHeight: .infinity)
-            if let message = app.studio.noticeText {
-                HStack {
-                    Text(message).textStyle(.bodySmall).foregroundStyle(c.onPrimary).frame(maxWidth: .infinity, alignment: .leading)
-                    IconAction(symbol: "xmark", label: "Dismiss", tint: c.onPrimary, size: 14) { app.studio.noticeText = nil }
-                }
-                .padding(.leading, 12)
-                .background(c.primary)
-                .task(id: message) {
-                    try? await Task.sleep(for: .seconds(4))
-                    if app.studio.noticeText == message { app.studio.noticeText = nil }
-                }
-            }
-            AutobotNavBar(items: StudioRoom.allCases.map { NavItem(key: $0, label: $0.label) }, selected: room) { selected in
-                if selected != room { nav.studio = selected }
-            }
+extension StudioRoom {
+    /// The room's SF Symbol in the tab bar / sidebar.
+    var symbol: String {
+        switch self {
+        case .image: "photo"
+        case .audio: "waveform"
+        case .video: "film"
+        case .workflows: "point.3.connected.trianglepath.dotted"
+        case .library: "square.grid.2x2"
         }
-        .background(c.background.ignoresSafeArea())
     }
 }
 
-/// `× STUDIO · IMAGE` and the project menu.
-private struct StudioTopBar: View {
-    let room: StudioRoom
+private struct StudioFrame: View {
     let session: StudioSession
-    @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
-    @State private var naming: String?
 
     var body: some View {
-        let studio = app.studio
-        HStack(spacing: 6) {
-            IconAction(symbol: "xmark", label: "Leave the Studio") { nav.leaveStudio() }
-            Text("Studio").textStyle(.titleLarge).foregroundStyle(c.onBackground).lineLimit(1).fixedSize().accessibilityAddTraits(.isHeader)
-            Text("· \(room.label.sentenceCased)").textStyle(.titleLarge).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
-            Spacer(minLength: 4)
-            Menu {
-                ForEach(studio.library.projects, id: \.id) { p in
-                    Button { studio.selectProject(p.id) } label: {
-                        if p.id == studio.projectId { Label(p.name, systemImage: "checkmark") } else { Text(p.name) }
+        let room = Binding(get: { nav.studio ?? .image }, set: { nav.studio = $0 })
+        TabView(selection: room) {
+            ForEach(StudioRoom.allCases, id: \.self) { r in
+                SwiftUI.Tab(r.label.sentenceCased, systemImage: r.symbol, value: r) {
+                    NavigationStack {
+                        RoomContent(room: r, session: session)
+                            .studioChrome(room: r)
                     }
                 }
-                Divider()
-                Button("New project…") { naming = "" }
-                if let p = studio.project { Button("Rename “\(p.name)”…") { naming = p.name } }
-            } label: {
-                HStack(spacing: 4) {
-                    // A long name truncates at 130 pt; a short one keeps the chip snug against the
-                    // trailing edge (a max-width frame outside the border left a gap after it).
-                    Text(studio.project?.name ?? "Project").textStyle(.micro).lineLimit(1).foregroundStyle(c.onSurface)
-                        .frame(maxWidth: 130)
-                    Image(systemName: "chevron.down").symbolSize(9, weight: .semibold).foregroundStyle(c.onSurfaceVariant)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .overlay(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).strokeBorder(c.outline, lineWidth: Tokens.Stroke.border))
-                .fixedSize()
             }
-            .accessibilityLabel("Project: \(studio.project?.name ?? "none")")
         }
-        .padding(.leading, 4)
-        .padding(.trailing, Tokens.Spacing.topBarPaddingEnd)
-        .frame(minHeight: Tokens.Spacing.topBarMinHeight)
-        // Chrome, like the tab bar: it stops growing at AX1 so the title, the room and the
-        // project chip share one line.
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .background(c.background)
-        .alert(naming == "" ? "New project" : "Rename project", isPresented: Binding(get: { naming != nil }, set: { if !$0 { naming = nil } })) {
-            TextField("Name", text: Binding(get: { naming ?? "" }, set: { naming = $0 }))
-            Button("Save") {
-                let name = (naming ?? "").trimmingCharacters(in: .whitespaces)
-                if let p = studio.project, naming != "" && !name.isEmpty && p.name != name { studio.renameProject(p.id, name) } else if !name.isEmpty { studio.createProject(name) }
-                naming = nil
+        .tabViewStyle(.sidebarAdaptable)
+        .tint(Color.brandPurple)
+    }
+}
+
+private struct RoomContent: View {
+    let room: StudioRoom
+    let session: StudioSession
+
+    var body: some View {
+        switch room {
+        case .image: ImageRoom(model: session.image, session: session)
+        case .audio: AudioRoom(model: session.audio, session: session)
+        case .video: VideoRoom(model: session.video, session: session)
+        case .workflows: WorkflowsRoom(session: session)
+        case .library: LibraryRoom(session: session)
+        }
+    }
+}
+
+private extension View {
+    func studioChrome(room: StudioRoom) -> some View { modifier(StudioChrome(room: room)) }
+}
+
+/// The Studio's bar: leave, "Studio" with the purple dot, the project menu; the queue and the notice under it.
+private struct StudioChrome: ViewModifier {
+    let room: StudioRoom
+    @Environment(AppContainer.self) private var app
+    @Environment(Navigator.self) private var nav
+    @State private var naming: String?
+
+    func body(content: Content) -> some View {
+        let studio = app.studio
+        content
+            .navigationTitle("Studio · \(room.label.sentenceCased)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { nav.leaveStudio() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Leave the Studio")
+                }
+                ToolbarItem(placement: .principal) { TitleWithDot("Studio") }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        ForEach(studio.library.projects, id: \.id) { p in
+                            Button { studio.selectProject(p.id) } label: {
+                                if p.id == studio.projectId { Label(p.name, systemImage: "checkmark") } else { Text(p.name) }
+                            }
+                        }
+                        Divider()
+                        Button("New project…", systemImage: "plus") { naming = "" }
+                        if let p = studio.project { Button("Rename “\(p.name)”…", systemImage: "pencil") { naming = p.name } }
+                    } label: {
+                        Label(studio.project?.name ?? "Project", systemImage: "folder")
+                            .labelStyle(.titleAndIcon)
+                            .lineLimit(1)
+                            .frame(maxWidth: 160)
+                    }
+                    .accessibilityLabel("Project: \(studio.project?.name ?? "none")")
+                }
             }
-            Button("Cancel", role: .cancel) { naming = nil }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    QueueStrip()
+                    if let message = studio.noticeText { NoticeLine(message: message) }
+                }
+            }
+            .alert(naming == "" ? "New project" : "Rename project", isPresented: Binding(get: { naming != nil }, set: { if !$0 { naming = nil } })) {
+                TextField("Name", text: Binding(get: { naming ?? "" }, set: { naming = $0 }))
+                Button("Save") {
+                    let name = (naming ?? "").trimmingCharacters(in: .whitespaces)
+                    if let p = studio.project, naming != "" && !name.isEmpty && p.name != name { studio.renameProject(p.id, name) } else if !name.isEmpty { studio.createProject(name) }
+                    naming = nil
+                }
+                Button("Cancel", role: .cancel) { naming = nil }
+            }
+    }
+}
+
+/// A short notice from the Studio ("Frame saved to the project"), gone after 4 s or on dismiss.
+private struct NoticeLine: View {
+    let message: String
+    @Environment(AppContainer.self) private var app
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(message).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+            Button { app.studio.noticeText = nil } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .glassSurface(in: Capsule())
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+        .accessibilityAddTraits(.updatesFrequently)
+        .task(id: message) {
+            try? await Task.sleep(for: .seconds(4))
+            if app.studio.noticeText == message { app.studio.noticeText = nil }
         }
     }
 }
@@ -167,13 +184,12 @@ private struct StudioTopBar: View {
 // MARK: - Queue strip
 
 /**
- The queue (spec §1): one chip per job, oldest first. A running job's chip is a small ink plate
- that flows with its progress and develops into the backend's preview; finished jobs print their
- result. Cancel, retry and clear sit right there. On-device work pauses in the background (iOS).
+ The queue (spec §1): one chip per job, oldest first. A running job's chip shows the backend's
+ preview as it arrives and its progress; finished jobs show their result. Cancel, retry and clear
+ sit right there. On-device work pauses in the background (iOS).
  */
 struct QueueStrip: View {
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let studio = app.studio
@@ -182,8 +198,15 @@ struct QueueStrip: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     let active = studio.activeJobs.count
-                    MicroLabel(active > 0 ? "queue · \(active) waiting or running" : "queue · done").frame(maxWidth: .infinity, alignment: .leading)
-                    if studio.jobs.contains(where: { $0.state.isFinished }) { TextAction("Clear", color: c.primary) { studio.clearFinished() } }
+                    Text(active > 0 ? "Queue · \(active) waiting or running" : "Queue · done")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if studio.jobs.contains(where: { $0.state.isFinished }) {
+                        Button("Clear") { studio.clearFinished() }
+                            .buttonStyle(.borderless)
+                            .font(.caption.weight(.medium))
+                    }
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -193,13 +216,15 @@ struct QueueStrip: View {
                     }
                 }
                 if studio.hasRunningOnDevice {
-                    MicroLabel("on-device work pauses if you leave the app (ios)", lines: 1)
+                    Text("On-device work pauses if you leave the app (iOS)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .padding(.horizontal, Tokens.Spacing.gutter)
+            .padding(.horizontal, 16)
             .padding(.vertical, 6)
-            .background(c.surfaceContainerLow)
-            .hairlineEdge()
+            .background(.bar)
         }
     }
 }
@@ -207,10 +232,8 @@ struct QueueStrip: View {
 private struct JobChip: View {
     let job: StudioJob
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
-    @State private var preview: PlateImage?
+    @State private var preview: UIImage?
     @State private var result: UIImage?
-    @State private var serial = 0
 
     var body: some View {
         let studio = app.studio
@@ -218,39 +241,66 @@ private struct JobChip: View {
         let previewData = studio.previews[job.id]
         HStack(spacing: 8) {
             ZStack {
-                c.surfaceContainer
-                InkPlate(ink: ink(state), dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, cell: 4)
-                if job.recipe.output == .audio && state == .done { Image(systemName: "waveform").foregroundStyle(c.primary) }
+                Color(.tertiarySystemFill)
+                if let image = result ?? (state == .running ? preview : nil) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else if state == .running {
+                    ProgressView().controlSize(.small)
+                }
+                if job.recipe.output == .audio && state == .done { Image(systemName: "waveform").foregroundStyle(.tint) }
             }
             .frame(width: 40, height: 40)
-            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).textStyle(.labelSmall).foregroundStyle(c.onSurface).lineLimit(1)
-                Text(subtitle).textStyle(.micro).foregroundStyle(state == .failed ? c.error : c.onSurfaceVariant).lineLimit(1)
-                InkProgressBar(bar(state), height: 2)
+                Text(title).font(.caption.weight(.medium)).lineLimit(1)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(state == .failed ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    .lineLimit(1)
+                progress(state)
             }
-            .frame(width: 118)
+            .frame(width: 118, alignment: .leading)
             switch state {
-            case .queued, .running: IconAction(symbol: "xmark", label: "Cancel", size: 13) { studio.cancel(job.id) }
-            case .failed, .cancelled: IconAction(symbol: "arrow.clockwise", label: "Retry", size: 13) { studio.retry(job.id) }
+            case .queued, .running:
+                Button { studio.cancel(job.id) } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Cancel")
+            case .failed, .cancelled:
+                Button { studio.retry(job.id) } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Retry")
             default: EmptyView()
             }
         }
         .padding(.leading, 4)
         .padding(.vertical, 4)
-        .padding(.trailing, state == .done ? 8 : 0)
-        .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(c.surfaceContainerHigh))
-        .stamp(state, when: { $0 == .done })
+        .padding(.trailing, state == .done ? 8 : 6)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), \(state.label)\(job.error.map { ": \($0)" } ?? "")")
         .task(id: previewData) {
-            guard let previewData, let image = await decodeImage(previewData, maxSide: 256), let cg = image.cgImage, let grid = LumaGrid(image: cg) else { return }
-            serial += 1
-            preview = PlateImage(id: "\(job.id)-\(serial)", grid: grid)
+            guard let previewData, let image = await decodeImage(previewData, maxSide: 256) else { return }
+            preview = image
         }
         .task(id: job.outputs.first) {
             guard let id = job.outputs.first, let asset = studio.library.asset(id), asset.type != .audio else { return }
             result = await studio.thumbnail(asset)
+        }
+    }
+
+    @ViewBuilder private func progress(_ state: JobState) -> some View {
+        switch state {
+        case .running where job.steps > 0:
+            ProgressView(value: Double(job.progress)).progressViewStyle(.linear)
+        case .done:
+            ProgressView(value: 1).progressViewStyle(.linear)
+        case .failed:
+            ProgressView(value: Double(job.progress)).progressViewStyle(.linear).tint(.red)
+        case .cancelled:
+            ProgressView(value: Double(job.progress)).progressViewStyle(.linear).tint(.secondary)
+        default:
+            ProgressView(value: 0).progressViewStyle(.linear)
         }
     }
 
@@ -270,63 +320,83 @@ private struct JobChip: View {
         let where_ = job.recipe.backendId.flatMap { id in app.studio.comfyServer(id)?.name ?? app.backends.backends.first { $0.id == id }?.name } ?? "this iphone"
         return "\(job.state.label) · \(where_)"
     }
-
-    private func bar(_ state: JobState) -> InkBarState {
-        switch state {
-        case .running: job.steps == 0 ? .indeterminate : .progress(Double(job.progress), running: true)
-        case .done: .progress(1, running: false)
-        case .failed: .error(Double(job.progress))
-        case .cancelled: .paused(Double(job.progress))
-        default: .progress(0, running: false)
-        }
-    }
-
-    private func ink(_ state: JobState) -> PlateInk {
-        if let result, let grid = LumaCache.grid(result) { return .final(PlateImage(id: job.id, grid: grid, image: result)) }
-        switch state {
-        case .running:
-            if let preview { return .preview(preview) }
-            return .flow(progress: Double(job.progress), loading: job.steps == 0)
-        case .done: return .hold
-        default: return .idle
-        }
-    }
 }
 
 // MARK: - Shared pieces
 
-/// A room's controls: a header that folds them away (the canvas takes the room) and the content.
-struct StudioPanel<Content: View>: View {
-    let title: String
+/**
+ A generating room (image, audio, video): the canvas and the controls (a Form), the run bar
+ floating over the bottom. On a phone the canvas sits over the controls; in a wide window they
+ stand side by side. The toolbar folds the controls away (the canvas takes the room).
+ */
+struct StudioRoomLayout<Canvas: View, Controls: View, RunBar: View>: View {
     @Binding var collapsed: Bool
-    @ViewBuilder var content: () -> Content
-    @Environment(\.scheme) private var c
+    @ViewBuilder var canvas: () -> Canvas
+    @ViewBuilder var controls: () -> Controls
+    @ViewBuilder var runBar: () -> RunBar
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        VStack(spacing: 0) {
-            Button { withAnimation(.inkSlide) { collapsed.toggle() } } label: {
-                HStack {
-                    SectionLabel(title)
-                    Image(systemName: collapsed ? "chevron.up" : "chevron.down").symbolSize(11, weight: .semibold).foregroundStyle(c.onSurfaceVariant)
+        Group {
+            if sizeClass == .regular {
+                HStack(spacing: 0) {
+                    canvas().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if !collapsed {
+                        form.frame(minWidth: 320, idealWidth: 400, maxWidth: 440)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
-                .padding(.horizontal, Tokens.Spacing.gutter)
-                .frame(minHeight: 36)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel(collapsed ? "Show controls" : "Hide controls, canvas only")
-            .hairlineEdge(top: true, bottom: false)
-            if !collapsed {
-                ScrollView {
-                    InkStack(alignment: .leading, spacing: 12) { content() }
-                        .padding(.horizontal, Tokens.Spacing.gutter)
-                        .padding(.bottom, 12)
+            } else {
+                VStack(spacing: 0) {
+                    canvas().frame(minHeight: 170, maxHeight: .infinity)
+                    if !collapsed {
+                        form.frame(maxHeight: 340)
+                            // The controls get their height first; the canvas takes the rest.
+                            .layoutPriority(1)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .background(c.surfaceContainerLow)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) { runBar() }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { withAnimation(.smooth) { collapsed.toggle() } } label: {
+                    Image(systemName: collapsed ? "slider.horizontal.3" : "rectangle.expand.vertical")
+                }
+                .accessibilityLabel(collapsed ? "Show controls" : "Hide controls, canvas only")
+            }
+        }
+    }
+
+    private var form: some View {
+        Form { controls() }
+            .scrollDismissesKeyboard(.interactively)
+            .contentMargins(.top, 8, for: .scrollContent)
+    }
+}
+
+/// The bar under a generating room: what will run (or what is missing) and the run button.
+struct StudioRunBar<Actions: View>: View {
+    let status: String
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(status)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) { actions() }
+                .controlSize(.large)
+        }
+        .padding(12)
+        .glassSurface()
+        .readableWidth(640)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 }
 
@@ -334,38 +404,40 @@ struct StudioPanel<Content: View>: View {
 struct RunsOnTag: View {
     let label: String
     let route: Route
-    @Environment(\.scheme) private var c
 
     var body: some View {
         HStack(spacing: 6) {
-            RouteTag(route: route)
-            MicroLabel(label)
+            RouteBadge(route: route)
+            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
     }
 }
 
-/// An empty room: what is missing and the way to get it.
+/// An empty room: the pixel a, what is missing and the way to get it.
 struct StudioEmpty: View {
     let title: String
     let text: String
     var action: String? = nil
     var onAction: (() -> Void)? = nil
-    @Environment(\.scheme) private var c
+
+    init(title: String, text: String, action: String? = nil, onAction: (() -> Void)? = nil) {
+        self.title = title
+        self.text = text
+        self.action = action
+        self.onAction = onAction
+    }
+
+    /// The shared words of an empty room (`StudioRoomWords`, the same on Android).
+    init(_ words: StudioRoomWords.Empty, onAction: (() -> Void)? = nil) {
+        self.init(title: words.title, text: words.text, action: onAction == nil ? nil : words.action, onAction: onAction)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(title)
-            Text(text).textStyle(.bodyMedium).foregroundStyle(c.onSurfaceVariant).fixedSize(horizontal: false, vertical: true)
-            // Full width as on Android: a 260 pt cap cut longer labels ("Get the audio model in M…").
-            if let action, let onAction { PrimaryButton(action, action: onAction) }
-            // The living field gets its own band below the text (never behind it).
-            Color.clear.frame(height: 40)
-                .padding(.top, 6)
+        MarkUnavailable(title.sentenceCased, description: text) {
+            if let action, let onAction {
+                Button(action, action: onAction).glassProminentButton()
+            }
         }
-        .padding(Tokens.Spacing.gutter)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
     }
 }
 
@@ -374,34 +446,33 @@ struct AssetThumb: View {
     let asset: StudioAsset
     var size: CGFloat? = nil
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var image: UIImage?
     @State private var peaks: [Float] = []
 
     var body: some View {
-        let _ = InkProbe.hit("body.assetThumb")
+        let _ = RenderProbe.hit("body.assetThumb")
         // A recycled cell shows its cached thumbnail in the first frame (no blank flash, no reload).
         let shown = image ?? (asset.type == .audio ? nil : StudioThumbs.get(asset.id))
         ZStack {
-            c.surfaceContainer
+            Color(.tertiarySystemFill)
             if asset.type == .audio {
                 WaveformView(peaks: peaks).padding(8)
             } else if let shown {
                 Image(uiImage: shown).resizable().scaledToFill()
             }
             if asset.type == .video {
-                Image(systemName: "play.fill").symbolSize(14).foregroundStyle(.white).padding(6)
+                Image(systemName: "play.fill").font(.caption).foregroundStyle(.white).padding(6)
                     .background(Circle().fill(.black.opacity(0.5)))
             }
         }
         .frame(width: size, height: size)
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .accessibilityLabel(StudioText.describe(asset))
         .task(id: asset.id) {
             if asset.type == .audio {
                 peaks = await app.studio.waveform(asset)
             } else if StudioThumbs.get(asset.id) == nil {
-                InkProbe.hit("studio.thumbLoad")
+                RenderProbe.hit("studio.thumbLoad")
                 image = await app.studio.thumbnail(asset)
             }
         }
@@ -422,5 +493,24 @@ enum StudioText {
         if let s = a.recipe.seedValue { parts.append("seed \(s)") }
         parts.append(a.recipe.engine)
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A selectable capsule chip (backends, sizes, filters): tinted while [active], a button.
+struct StudioChip: View {
+    let text: String
+    var active = false
+    let action: () -> Void
+
+    init(_ text: String, active: Bool = false, action: @escaping () -> Void) {
+        self.text = text
+        self.active = active
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) { Text(text).chipLook(active: active) }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(active ? .isSelected : [])
     }
 }

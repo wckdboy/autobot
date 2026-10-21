@@ -1,8 +1,7 @@
 package dev.wckdboy.autobot.feature.settings.mcp
 
-import dev.wckdboy.autobot.core.designsystem.component.EmptyState
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,14 +23,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -43,7 +40,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,13 +57,25 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.core.data.model.ProviderRouting
-import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 import dev.wckdboy.autobot.core.designsystem.component.SecretKeyboardOptions
 import dev.wckdboy.autobot.core.designsystem.component.rememberBufferedText
 import dev.wckdboy.autobot.core.designsystem.motion.inkDissolve
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkDissolve
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.settings.providers.ProviderDraft
 import dev.wckdboy.autobot.feature.settings.providers.TestState
@@ -114,65 +122,23 @@ fun McpServersScreen(
     var deleting by remember { mutableStateOf<McpServerRow?>(null) }
     val dissolve = rememberInkDissolve()
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("MCP servers") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
-            )
-        },
+        topBar = { AppBar("MCP servers", onBack) },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = "Add MCP server") }
+            if (state.servers.isNotEmpty()) FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = MCP_ADD) }
         },
     ) { padding ->
         if (state.servers.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState("No MCP servers yet. Tap + to add one. Its tools join agent sessions and ask before each call.")
+                EmptyContent(MCP_EMPTY, action = MCP_ADD, onAction = onAdd)
             }
-        } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+        } else Centered(Modifier.padding(padding)) { width ->
+            LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 // A failed enable/disable from the list (an editor shows its own).
                 if (state.editor == null) {
-                    state.error?.let { item { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+                    state.error?.let { item { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
                 }
                 items(state.servers, key = { it.id }, contentType = { "mcp" }) { row ->
-                    ListItem(
-                        modifier = Modifier.inkDissolve(dissolve, row.id).clickable { onEdit(row.id) },
-                        headlineContent = { Text(row.name) },
-                        supportingContent = {
-                            Column {
-                                Text(
-                                    listOfNotNull(
-                                        row.host,
-                                        row.routing.label,
-                                        if (row.trusted) "trusted · follows preset" else "asks each call",
-                                        "token ✓".takeIf { row.hasToken },
-                                    ).joinToString(" · "),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                row.status?.let {
-                                    Text(
-                                        it,
-                                        color = if (row.unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        },
-                        overlineContent = { Text(row.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        trailingContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Switch(checked = row.enabled, onCheckedChange = { onEnabled(row.id, it) })
-                                IconButton(onClick = { deleting = row }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}")
-                                }
-                            }
-                        },
-                    )
+                    ServerRow(row, Modifier.inkDissolve(dissolve, row.id), onEdit = { onEdit(row.id) }, onEnabled = { onEnabled(row.id, it) }, onDelete = { deleting = row })
                 }
             }
         }
@@ -196,12 +162,15 @@ fun McpServersScreen(
             title = { Text("Delete ${row.name}?") },
             text = { Text("Its tools leave agent sessions" + if (row.hasToken) " and its token is deleted from this phone." else ".") },
             confirmButton = {
-                TextButton(onClick = {
-                    dissolve.dissolve(row.id) { onDelete(row.id) }
-                    deleting = null
-                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        dissolve.dissolve(row.id) { onDelete(row.id) }
+                        deleting = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
 }
@@ -274,7 +243,7 @@ private fun McpServerEditorSheet(
                     }
                 }
 
-                SectionLabel("Routing")
+                SheetLabel("Routing")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProviderRouting.entries.forEach { routing ->
                         FilterChip(
@@ -304,12 +273,16 @@ private fun McpServerEditorSheet(
                 TestResult(test)
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // As on iOS: Cancel, Test, Save (the one primary).
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
                     OutlinedButton(onClick = { if (test != TestState.Running) onTest() }, enabled = draft.urlValid) {
-                        InkBusyLabel(test == TestState.Running) { Text("Test connection") }
+                        BusyLabel("Test connection", busy = test == TestState.Running)
                     }
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { ActionText("Cancel") }
                     Button(onClick = onSave, enabled = draft.canSave && !saving) { Text("Save") }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -318,13 +291,44 @@ private fun McpServerEditorSheet(
     }
 }
 
+/** A server: its URL, name, how it is reached, and what the agent saw of it (as on iOS). */
+@Composable
+private fun ServerRow(row: McpServerRow, modifier: Modifier, onEdit: () -> Unit, onEnabled: (Boolean) -> Unit, onDelete: () -> Unit) {
+    ListItem(
+        modifier = modifier.clickable(onClick = onEdit),
+        overlineContent = { Text(row.url, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(row.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    listOfNotNull(row.host, row.routing.label, if (row.trusted) "trusted · follows preset" else "asks each call", "token ✓".takeIf { row.hasToken }).joinToString(" · "),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                row.status?.let { Text(it, color = if (row.unavailable) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            }
+        },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = row.enabled, onCheckedChange = onEnabled, modifier = Modifier.semantics { contentDescription = "Enable ${row.name}" })
+                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, contentDescription = "Delete ${row.name}") }
+            }
+        },
+    )
+}
+
+/** The MCP screen's empty line and its add action (the same words on iOS). */
+internal const val MCP_EMPTY = "No MCP servers yet."
+internal const val MCP_ADD = "Add MCP server"
+
 @Composable
 private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     ListItem(
-        modifier = Modifier.clickable { onChange(!checked) },
+        modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
+        colors = clearListItem(),
         headlineContent = { Text(title) },
         supportingContent = { Text(subtitle) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
     )
 }
 

@@ -7,16 +7,17 @@ import SwiftUI
  */
 struct OfflineNotice: View {
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if app.settings.settings.mode == .offline {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Offline mode is on, so this can't reach the network.")
-                    .textStyle(.bodySmall).foregroundStyle(c.inks.amber)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Offline mode is on, so this can't reach the network.", systemImage: "wifi.slash")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                TextAction("Allow network", color: c.onSurface) { app.settings.setNetworkMode(.direct) }
+                Button("Allow network") { app.settings.setNetworkMode(.direct) }
+                    .buttonStyle(.borderless)
+                    .font(.subheadline.weight(.semibold))
             }
         }
     }

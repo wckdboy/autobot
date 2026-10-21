@@ -26,10 +26,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.ui.text.style.TextAlign
 import dev.wckdboy.autobot.core.designsystem.component.isLargeText
-import dev.wckdboy.autobot.core.designsystem.component.PaperButton
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.invincible.NodeDigestLine
 import dev.wckdboy.autobot.shared.invincible.NodeDigestWords
@@ -48,50 +49,49 @@ fun NodeDigestCard(
 ) {
     val digest = state.digest
     val needsYou = NodeDigestWords.needsYou(digest)
-    Column(
-        modifier
-            .testTag("node-digest")
-            .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall)
-            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 8.dp)
-            // Title and lines read as one; the buttons stay their own.
-            .semantics(mergeDescendants = true) {},
-    ) {
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // On the title's first line, however it wraps.
-            NodeMark(Modifier.padding(top = 12.dp))
-            Column(Modifier.weight(1f).padding(top = 8.dp)) {
-                Text(NodeDigestWords.TITLE, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                // The node's name as it is (not sentence-cased: it is a name).
-                Text(state.node, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-            }
-            IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Dismiss: mark as seen", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-        }
+    OutlinedCard(modifier.testTag("node-digest").fillMaxWidth()) {
         Column(
-            Modifier.padding(end = 8.dp, top = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            Modifier
+                .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 8.dp)
+                // Title and lines read as one; the buttons stay their own.
+                .semantics(mergeDescendants = true) {},
         ) {
-            NodeDigestWords.lines(digest).forEach { DigestLine(it) }
-        }
-        val details = @Composable {
-            TextButton(onClick = onDetails, modifier = Modifier.semantics { contentDescription = "Details: the node's activity" }) {
-                ActionText("Details", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // On the title's first line, however it wraps.
+                NodeMark(Modifier.padding(top = 12.dp))
+                Column(Modifier.weight(1f).padding(top = 8.dp)) {
+                    Text(NodeDigestWords.TITLE, Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    // The node's name as it is (not sentence-cased: it is a name).
+                    Text(state.node, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                }
+                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Dismiss: mark as seen", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-        }
-        if (isLargeText() || (needsYou?.length ?: 0) > STACK_AT) {
-            // Large text, or a long action ("2 approvals, 1 question waiting"): it gets the whole width, Details goes under it.
-            Column(Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (needsYou != null) PaperButton(needsYou, onNeedsYou, Modifier.fillMaxWidth())
-                details()
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Column(
+                Modifier.padding(end = 8.dp, top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (needsYou != null) PaperButton(needsYou, onNeedsYou, Modifier.weight(1f))
-                details()
+                NodeDigestWords.lines(digest).forEach { DigestLine(it) }
+            }
+            val details = @Composable {
+                TextButton(onClick = onDetails, modifier = Modifier.semantics { contentDescription = "Details: the node's activity" }) {
+                    Text("Details")
+                }
+            }
+            if (isLargeText() || (needsYou?.length ?: 0) > STACK_AT) {
+                // Large text, or a long action ("2 approvals, 1 question waiting"): it gets the whole width, Details goes under it.
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (needsYou != null) Button(onClick = onNeedsYou, modifier = Modifier.fillMaxWidth()) { Text(needsYou, textAlign = TextAlign.Center) }
+                    details()
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (needsYou != null) Button(onClick = onNeedsYou, modifier = Modifier.weight(1f)) { Text(needsYou, textAlign = TextAlign.Center) }
+                    details()
+                }
             }
         }
     }
@@ -124,5 +124,5 @@ private fun DigestLine(line: NodeDigestLine) {
     }
 }
 
-/** An action label longer than this takes the card's whole width (the mono label would be cut beside Details). */
+/** An action label longer than this takes the card's whole width (it would be cut beside Details). */
 private const val STACK_AT = 20

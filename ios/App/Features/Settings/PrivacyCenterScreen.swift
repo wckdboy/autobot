@@ -65,55 +65,51 @@ private enum ModeKind: CaseIterable {
 struct PrivacyCenterScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var audit: [AuditRow] = []
 
     var body: some View {
         let settings = app.settings.settings
         VStack(spacing: 0) {
             AutobotTopBar(title: "Privacy Center", onBack: { nav.back() })
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    header("Network mode")
+            List {
+                Section("Network mode") {
                     NetworkModeSelector(mode: settings.mode) { app.settings.setNetworkMode($0) }
-                    SwitchRow(
+                    InfoToggle(
                         title: "Loopback when offline",
-                        isOn: Binding(get: { settings.allowLoopbackWhenOffline }, set: { app.settings.setAllowLoopbackWhenOffline($0) }),
                         info: "Lets on-device servers (e.g. Ollama at 127.0.0.1) work in Offline mode.",
+                        isOn: Binding(get: { settings.allowLoopbackWhenOffline }, set: { app.settings.setAllowLoopbackWhenOffline($0) }),
                     )
-                    HStack(spacing: 0) {
-                        header("Audit log · \(audit.count)")
-                        InfoButton(title: "Audit log", text: "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.")
-                            .padding(.top, 8)
-                        Spacer()
-                        if !audit.isEmpty { TextAction("Clear", color: c.primary) { app.auditLog.clear() }.padding(.top, 8).padding(.trailing, 8) }
-                    }
+                }
+                Section {
                     if audit.isEmpty {
-                        Text("No requests yet.").textStyle(.bodyMedium)
-.foregroundStyle(c.onSurfaceVariant).padding(Tokens.Spacing.gutter)
+                        Text("No requests yet.").foregroundStyle(.secondary)
                     }
                     ForEach(audit) { AuditRowView(row: $0) }
+                } header: {
+                    HStack {
+                        InfoTitle("Audit log · \(audit.count)", info: "Every outbound request attempt, kept in memory only. Headers, queries and bodies are never recorded.")
+                        Spacer()
+                        if !audit.isEmpty {
+                            Button { app.auditLog.clear() } label: { Text("Clear").headerActionTarget() }
+                                .font(.subheadline)
+                                .textCase(nil)
+                        }
+                    }
                 }
-                .padding(.bottom, 32)
             }
+            .listStyle(.insetGrouped)
         }
-        .background(c.background)
         .task {
             for await entries in app.auditLog.updates() {
                 audit = entries.reversed().map(AuditRow.init)
             }
         }
     }
-
-    private func header(_ text: String) -> some View {
-        SectionLabel(text).padding(.horizontal, Tokens.Spacing.gutter).padding(.top, 16).padding(.bottom, 4)
-    }
 }
 
 private struct NetworkModeSelector: View {
     let mode: NetworkMode
     let onChange: (NetworkMode) -> Void
-    @Environment(\.scheme) private var c
     @State private var torHost = NetworkMode.defaultTorHost
     @State private var torPort = "\(NetworkMode.defaultTorPort)"
     @State private var socksHost = NetworkPolicy.defaultSocksHost
@@ -123,45 +119,33 @@ private struct NetworkModeSelector: View {
 
     var body: some View {
         let current = ModeKind(mode)
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(ModeKind.allCases, id: \.self) { kind in
-                Button { if let m = build(kind) { onChange(m) } } label: {
-                    HStack(spacing: 12) {
-                        RadioMark(selected: kind == current)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(kind.label).textStyle(.bodyLarge).foregroundStyle(c.onSurface)
-                            // One line each, as on Android: what a mode does decides the choice.
-                            Text(kind.description).textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant).multilineTextAlignment(.leading)
-                        }
-                        Spacer(minLength: 0)
+        ForEach(ModeKind.allCases, id: \.self) { kind in
+            Button { if let m = build(kind) { onChange(m) } } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(kind.label).foregroundStyle(.primary)
+                        // One line each, as on Android: what a mode does decides the choice.
+                        Text(kind.description).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                     }
-                    .padding(.horizontal, Tokens.Spacing.gutter)
-                    .padding(.vertical, 8)
-                    .frame(minHeight: 52)
-                    .contentShape(Rectangle())
+                    Spacer(minLength: 0)
+                    if kind == current {
+                        Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                            .accessibilityHidden(true)
+                    }
                 }
-                .buttonStyle(PressStyle())
-                .accessibilityAddTraits(kind == current ? .isSelected : [])
-                if kind == current && (kind == .tor || kind == .socks5) {
-                    let isTor = kind == .tor
-                    HStack(alignment: .bottom, spacing: 8) {
-                        ConsoleTextField(text: isTor ? $torHost : $socksHost, label: "Host", kind: .url)
-                        ConsoleTextField(text: isTor ? $torPort : $socksPort, label: "Port", kind: .number).frame(width: 96)
-                        let candidate = build(kind)
-                        GhostButton("Apply", accent: c.primary, enabled: candidate != nil && candidate != mode) {
-                            if let candidate { onChange(candidate) }
-                        }
-                        .frame(width: 88)
-                    }
-                    .padding(.leading, 52)
-                    .padding(.trailing, Tokens.Spacing.gutter)
-                    .padding(.bottom, 8)
-                    if let proxyWarning {
-                        MicroLabel(proxyWarning, color: c.error, lines: 2)
-                            .padding(.leading, 52)
-                            .padding(.trailing, Tokens.Spacing.gutter)
-                            .padding(.bottom, 8)
-                    }
+                .contentShape(Rectangle())
+            }
+            .foregroundStyle(.primary)
+            .accessibilityAddTraits(kind == current ? .isSelected : [])
+            if kind == current && (kind == .tor || kind == .socks5) {
+                let isTor = kind == .tor
+                FormField("Host", text: isTor ? $torHost : $socksHost, prompt: "Host", kind: .url)
+                FormField("Port", text: isTor ? $torPort : $socksPort, prompt: "Port", kind: .number)
+                let candidate = build(kind)
+                Button("Apply") { if let candidate { onChange(candidate) } }
+                    .disabled(candidate == nil || candidate == mode)
+                if let proxyWarning {
+                    Text(proxyWarning).font(.footnote).foregroundStyle(.red).lineLimit(2)
                 }
             }
         }
@@ -169,7 +153,6 @@ private struct NetworkModeSelector: View {
         .onChange(of: mode) { _, _ in syncFields() }
         .task(id: mode) { await probe(mode) }
     }
-
     /// Tor / SOCKS5: checks something listens at the proxy so a stopped Orbot is named, not a generic connect error.
     private func probe(_ mode: NetworkMode) async {
         proxyWarning = nil
@@ -203,23 +186,8 @@ private struct NetworkModeSelector: View {
     }
 }
 
-/// Material-style radio indicator in riso colours.
-struct RadioMark: View {
-    let selected: Bool
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        ZStack {
-            Circle().strokeBorder(selected ? c.primary : c.onSurfaceVariant, lineWidth: 2).frame(width: 20, height: 20)
-            if selected { Circle().fill(c.primary).frame(width: 10, height: 10) }
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 private struct AuditRowView: View {
     let row: AuditRow
-    @Environment(\.scheme) private var c
     private static let time: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
@@ -228,24 +196,18 @@ private struct AuditRowView: View {
     }()
 
     var body: some View {
-        let accent = row.blocked ? c.error : c.primary
-        HStack(alignment: .top, spacing: 10) {
-            Text(row.blocked ? "BLOCKED" : row.method)
-                .textStyle(.labelSmall, weight: 700)
-                .foregroundStyle(accent)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(accent.opacity(0.15)))
-                .padding(.top, 2)
+        // The method as a quiet tag; a blocked request says so with the glyph, in red (words
+        // first, then a glyph), as on Android.
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            CapsuleTag(row.blocked ? "✗ blocked" : row.method, color: row.blocked ? .red : .secondary)
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.host + row.path).textStyle(.codeBlock).foregroundStyle(c.onSurface).lineLimit(2)
+                // Host and path are code: monospaced.
+                Text(row.host + row.path).font(.callout.monospaced()).lineLimit(2)
                 Text(Self.time.string(from: Date(timeIntervalSince1970: TimeInterval(row.timeMillis) / 1000)) + " · " + row.detail)
-                    .textStyle(.labelSmall)
-                    .foregroundStyle(c.onSurfaceVariant)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, Tokens.Spacing.gutter)
-        .padding(.vertical, 6)
     }
 }
