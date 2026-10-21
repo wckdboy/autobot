@@ -1,9 +1,26 @@
 package dev.wckdboy.autobot.feature.studio.ui.library
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
+import dev.wckdboy.autobot.feature.studio.ui.ActionChip
+import dev.wckdboy.autobot.feature.studio.ui.PickChip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -59,15 +76,7 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.imagine.generate.ImageCodec
 import dev.wckdboy.autobot.feature.studio.engine.StudioRecipes
@@ -95,6 +104,7 @@ class LibraryHandoffs(
     val editRecipe: (StudioAsset) -> Unit,
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LibraryRoom(
     state: LibraryState,
@@ -120,28 +130,26 @@ fun LibraryRoom(
         columns = if (state.view == LibraryView.GRID) GridCells.Adaptive(104.dp) else GridCells.Fixed(1),
         modifier = modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 state.message?.let { ErrorLine(it, actions::dismiss) }
-                SectionLabel("projects", Modifier.semantics { heading() })
+                SheetLabel("projects")
                 ChipRow(shell.projects, shell.project, { shellActions.selectProject(it.id) }, { it.name }, trailing = {
-                    Tag("+ new", accent = MaterialTheme.colorScheme.primary, onClick = { newProject = true })
+                    ActionChip("+ new", onClick = { newProject = true })
                 })
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                     AssetType.entries.forEach { t ->
-                        val on = t in state.types
-                        Tag(t.name.lowercase(), accent = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = on, onClick = { actions.toggleType(t) })
+                        PickChip(labelCase(t.name.lowercase()), selected = t in state.types, onClick = { actions.toggleType(t) })
                     }
-                    Tag("★", accent = if (state.favoritesOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, filled = state.favoritesOnly, onClick = { actions.setFavoritesOnly(!state.favoritesOnly) })
-                    Box(Modifier.weight(1f))
-                    Tag(if (state.allProjects) "all" else "project", onClick = { actions.setAllProjects(!state.allProjects) })
+                    PickChip("★", selected = state.favoritesOnly, onClick = { actions.setFavoritesOnly(!state.favoritesOnly) }, Modifier.semantics { contentDescription = "Favourites only" })
+                    ActionChip(if (state.allProjects) "all" else "project", onClick = { actions.setAllProjects(!state.allProjects) })
                 }
-                Segmented(LibraryView.entries, state.view, actions::setView, { it.name.lowercase() }, Modifier.fillMaxWidth())
-                MicroLabel("${state.assets.size} asset${if (state.assets.size == 1) "" else "s"}" + (state.comparePick?.let { " · comparing: pick the second" } ?: ""))
-                if (state.assets.isEmpty()) MicroLabel("nothing here yet")
+                Choices(LibraryView.entries, state.view, actions::setView, Modifier.fillMaxWidth()) { labelCase(it.name.lowercase()) }
+                Caption("${state.assets.size} asset${if (state.assets.size == 1) "" else "s"}" + (state.comparePick?.let { " · comparing: pick the second" } ?: ""))
+                if (state.assets.isEmpty()) EmptyContent("Nothing here yet.")
             }
         }
         items(state.assets, key = { it.id }) { asset ->
@@ -151,27 +159,26 @@ fun LibraryRoom(
                     asset,
                     Modifier
                         .aspectRatio(1f)
-                        .then(if (picked) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
+                        .then(if (picked) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small) else Modifier)
                         .clickable { if (state.comparePick != null) actions.compareWith(asset) else onOpenAsset(asset.id) }
                         .semantics { contentDescription = describe(asset) },
                 )
             } else {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .then(if (picked) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
-                        .clickable { if (state.comparePick != null) actions.compareWith(asset) else onOpenAsset(asset.id) }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    AssetThumb(asset, Modifier.size(56.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(StudioRecipes.title(asset.recipe).ifBlank { asset.label ?: asset.type.name.lowercase() }, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        MicroLabel(StudioRecipes.summary(asset.recipe))
-                    }
-                    MicroLabel(if (asset.type == AssetType.IMAGE) "${asset.width}×${asset.height}" else duration(asset.durationMs))
-                }
+                // At a large font the size joins the summary and the title wraps in full.
+                val large = isLargeText()
+                val size = if (asset.type == AssetType.IMAGE) "${asset.width}×${asset.height}" else duration(asset.durationMs)
+                ListItem(
+                    headlineContent = {
+                        Text(StudioRecipes.title(asset.recipe).ifBlank { asset.label ?: asset.type.name.lowercase() }, maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+                    },
+                    supportingContent = { Text(StudioRecipes.summary(asset.recipe) + if (large) " · $size" else "", maxLines = if (large) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis) },
+                    leadingContent = { AssetThumb(asset, Modifier.size(if (large) 40.dp else 56.dp)) },
+                    trailingContent = if (large) null else { { Text(size, style = MaterialTheme.typography.labelMedium) } },
+                    colors = ListItemDefaults.colors(containerColor = if (picked) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent),
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.medium)
+                        .clickable { if (state.comparePick != null) actions.compareWith(asset) else onOpenAsset(asset.id) },
+                )
             }
         }
     }
@@ -184,7 +191,7 @@ fun LibraryRoom(
 private fun describe(a: StudioAsset): String =
     "${a.type.name.lowercase()}: ${StudioRecipes.title(a.recipe).ifBlank { a.label ?: "" }}" + if (a.favorite) ", favourite" else ""
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: LibraryHandoffs, onDismiss: () -> Unit) {
     var confirmExport by rememberSaveable { mutableStateOf(false) }
@@ -193,7 +200,7 @@ private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: Li
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Preview(asset)
             Text(StudioRecipes.title(asset.recipe).ifBlank { asset.label ?: asset.type.name.lowercase() }, style = MaterialTheme.typography.titleMedium, modifier = Modifier.inkStagger(0))
-            MicroLabel(
+            Caption(
                 listOfNotNull(
                     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(asset.createdAt)),
                     asset.label,
@@ -203,17 +210,17 @@ private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: Li
                 ).joinToString(" · "),
             )
             Recipe(asset)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Tag(if (asset.favorite) "★ favourite" else "☆ favourite", accent = MaterialTheme.colorScheme.primary, filled = asset.favorite, onClick = { actions.toggleFavorite(asset) })
-                Tag("compare", onClick = { actions.compareWith(asset); onDismiss() })
-                Tag("export", accent = AutobotTheme.inks.amber, onClick = { confirmExport = true })
-                Tag("delete", onClick = { confirmDelete = true })
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PickChip(if (asset.favorite) "★ Favourite" else "☆ Favourite", selected = asset.favorite, onClick = { actions.toggleFavorite(asset) })
+                ActionChip("compare", onClick = { actions.compareWith(asset); onDismiss() })
+                ActionChip("export", onClick = { confirmExport = true })
+                ActionChip("delete", onClick = { confirmDelete = true })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (asset.type == AssetType.IMAGE) GhostButton("Use as input", { handoffs.useAsInput(asset); onDismiss() }, Modifier.weight(1f))
-                if (LibraryViewModel.editable(asset)) GhostButton("Reuse recipe", { handoffs.editRecipe(asset); onDismiss() }, Modifier.weight(1f))
+                if (asset.type == AssetType.IMAGE) OutlinedButton(onClick = { handoffs.useAsInput(asset); onDismiss() }, Modifier.weight(1f)) { Text("Use as input") }
+                if (LibraryViewModel.editable(asset)) OutlinedButton(onClick = { handoffs.editRecipe(asset); onDismiss() }, Modifier.weight(1f)) { Text("Reuse recipe") }
             }
-            if (asset.recipe.engine != StudioRecipes.IMPORT_ENGINE) PrimaryButton("Run the recipe again", { actions.runAgain(asset); onDismiss() }, Modifier.fillMaxWidth())
+            if (asset.recipe.engine != StudioRecipes.IMPORT_ENGINE) Button(onClick = { actions.runAgain(asset); onDismiss() }, Modifier.fillMaxWidth()) { Text("Run the recipe again") }
         }
     }
     if (confirmExport) {
@@ -221,8 +228,8 @@ private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: Li
             onDismissRequest = { confirmExport = false },
             title = { Text("Export unencrypted copy?") },
             text = { Text("A decrypted copy goes to ${dev.wckdboy.autobot.feature.studio.media.StudioExport.destination(asset)} in shared storage, where other apps can read it. The Studio keeps its encrypted original.") },
-            confirmButton = { TextButton(onClick = { confirmExport = false; actions.export(asset) }) { ActionText("Export") } },
-            dismissButton = { TextButton(onClick = { confirmExport = false }) { ActionText("Cancel") } },
+            confirmButton = { TextButton(onClick = { confirmExport = false; actions.export(asset) }) { Text("Export") } },
+            dismissButton = { TextButton(onClick = { confirmExport = false }) { Text("Cancel") } },
         )
     }
     if (confirmDelete) {
@@ -230,8 +237,8 @@ private fun AssetSheet(asset: StudioAsset, actions: LibraryActions, handoffs: Li
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete this asset?") },
             text = { Text("It is removed from the library and its encrypted file is deleted.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; actions.delete(asset); onDismiss() }) { ActionText("Delete") } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { ActionText("Cancel") } },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; actions.delete(asset); onDismiss() }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
 }
@@ -277,8 +284,8 @@ private fun Preview(asset: StudioAsset) {
 @Composable
 private fun Recipe(asset: StudioAsset) {
     val r = asset.recipe
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        MicroLabel("recipe · ${r.engine}" + (r.backendId?.let { " · on $it" } ?: " · this phone") + (r.workflowVersion?.let { " · workflow v$it" } ?: ""))
+    Column(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer).padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        SheetLabel("recipe · ${r.engine}" + (r.backendId?.let { " · on $it" } ?: " · this phone") + (r.workflowVersion?.let { " · workflow v$it" } ?: ""))
         r.model?.let { Text("model  $it", style = AutobotTheme.styles.codeBlock, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         r.seed?.let { Text("seed   $it", style = AutobotTheme.styles.codeBlock) }
         r.params.entries.sortedBy { it.key }.forEach { (k, v) ->
@@ -293,8 +300,8 @@ private fun Recipe(asset: StudioAsset) {
 private fun Compare(a: StudioAsset, b: StudioAsset, onClose: () -> Unit, modifier: Modifier) {
     Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("compare a / b", Modifier.weight(1f).semantics { heading() })
-            Tag("close", onClick = onClose)
+            Text("Compare A / B", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = onClose) { Text("Close") }
         }
         if (a.type == AssetType.IMAGE && b.type == AssetType.IMAGE) {
             ImageCompare(a, b)
@@ -307,8 +314,8 @@ private fun Compare(a: StudioAsset, b: StudioAsset, onClose: () -> Unit, modifie
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MicroLabel("A · " + StudioRecipes.summary(a.recipe), Modifier.weight(1f))
-            MicroLabel("B · " + StudioRecipes.summary(b.recipe), Modifier.weight(1f))
+            Caption("A · " + StudioRecipes.summary(a.recipe), Modifier.weight(1f))
+            Caption("B · " + StudioRecipes.summary(b.recipe), Modifier.weight(1f))
         }
     }
 }
@@ -341,8 +348,8 @@ private fun ImageCompare(a: StudioAsset, b: StudioAsset) {
             left?.let { Image(it, null, contentScale = ContentScale.Fit, alignment = Alignment.CenterStart, modifier = Modifier.width(with(density) { size.width.toDp() }).fillMaxHeight()) }
         }
         Box(Modifier.offset(x = px - 1.dp).width(2.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
-        Tag("A", Modifier.align(Alignment.TopStart).padding(6.dp), accent = MaterialTheme.colorScheme.primary, filled = true)
-        Tag("B", Modifier.align(Alignment.TopEnd).padding(6.dp), accent = MaterialTheme.colorScheme.primary, filled = true)
+        TonalLabel("A", Modifier.align(Alignment.TopStart).padding(6.dp))
+        TonalLabel("B", Modifier.align(Alignment.TopEnd).padding(6.dp))
     }
 }
 
@@ -362,7 +369,7 @@ private fun AudioCompare(a: StudioAsset, b: StudioAsset) {
     val peaksB by produceState<FloatArray?>(null, b.id) { value = loader.peaks(b.id) }
     Waveform(peaksA, Modifier.fillMaxWidth().height(64.dp).clickable { useB = false }, progress = if (!useB && pa.durationMs > 0) pa.positionMs.toFloat() / pa.durationMs else -1f)
     Waveform(peaksB, Modifier.fillMaxWidth().height(64.dp).clickable { useB = true }, progress = if (useB && pb.durationMs > 0) pb.positionMs.toFloat() / pb.durationMs else -1f)
-    Segmented(listOf(false, true), useB, { b2 ->
+    Choices(listOf(false, true), useB, { b2 ->
         if (b2 != useB) {
             val from = if (useB) pb else pa
             val to = if (b2) pb else pa
@@ -372,7 +379,7 @@ private fun AudioCompare(a: StudioAsset, b: StudioAsset) {
             if (wasPlaying) to.play()
             useB = b2
         }
-    }, { if (it) "B" else "A" }, Modifier.fillMaxWidth())
+    }, Modifier.fillMaxWidth()) { if (it) "B" else "A" }
     Transport(active)
 }
 
@@ -382,8 +389,8 @@ private fun NewProjectDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New project") },
-        text = { ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true) },
-        confirmButton = { TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { ActionText("Create") } },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        text = { Field(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true) },
+        confirmButton = { TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
