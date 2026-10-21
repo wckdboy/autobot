@@ -103,7 +103,9 @@ session exported on Android opens on iOS.
   functions, input write-back, `action` messages, `openUrl` http(s) only, size limits. Android
   (in review): the `show_ui` tool with a compact prompt (Settings `generative_ui`, on by default,
   in the phone's chats), invalid UI returned to the model to fix (3 tries a turn), surfaces stored
-  with the chat and replayed (`A2uiTranscript`), actions as the next user turn, and `:core:a2ui`,
+  with the chat and replayed (`A2uiTranscript`), actions as the next user turn (the sent form
+  locks, read-only with its input, until the agent updates it; only interactive chats get the
+  tool, not subagents or recipes), and `:core:a2ui`,
   a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
   video and audio open in the browser). Still to do: the SwiftUI renderer, an in-app media
   player, a Settings switch, `callRendererFunction` and custom catalogs' functions)*
