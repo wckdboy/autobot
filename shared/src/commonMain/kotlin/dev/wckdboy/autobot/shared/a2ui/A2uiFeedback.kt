@@ -16,8 +16,26 @@ object A2uiFeedback {
 
     fun lines(report: A2uiReport, messages: JsonArray?): List<String> {
         val groups = LinkedHashMap<Triple<A2uiErrorCode, String, String>, MutableList<A2uiError>>()
-        for (e in report.errors) groups.getOrPut(Triple(e.code, e.path, e.message)) { ArrayList() } += e
         val out = ArrayList<String>()
+        // Several missing children of one parent: one line naming them all.
+        val missing = report.errors.mapNotNull { e -> UNDEFINED.find(e.message)?.let { e to it.groupValues } }
+            .groupBy { (e, g) -> Triple(e.messageIndex, e.surfaceId, g[1]) }.filterValues { it.size > 1 }
+        val merged = missing.values.flatten().map { it.first }.toSet()
+        val said = HashSet<Triple<Int?, String?, String>>()
+        for (e in report.errors) {
+            if (e in merged) {
+                val parent = UNDEFINED.find(e.message)!!.groupValues[1]
+                val key = Triple(e.messageIndex, e.surfaceId, parent)
+                if (!said.add(key)) continue
+                val ids = missing[key]!!.map { it.second[2] }.distinct().joinToString(", ") { "'$it'" }
+                out += e.copy(
+                    path = e.path.substringBeforeLast('/'),
+                    message = "component '$parent' refers to $ids, which are not defined",
+                ).forModel() + ". Fix: add a component for each of these ids to the same \"components\" list (naming a child does not create it)"
+                continue
+            }
+            groups.getOrPut(Triple(e.code, e.path, e.message)) { ArrayList() } += e
+        }
         for ((_, errs) in groups) {
             val first = errs.first()
             val line = if (errs.size > 1) {
@@ -45,7 +63,7 @@ object A2uiFeedback {
             return if (parentType == "Button") {
                 ". Fix: add {\"id\":\"$child\",\"component\":\"Text\",\"text\":\"$text\"} to components (a Button's child is the id of a Text)"
             } else {
-                ". Fix: add a component with id '$child' (e.g. {\"id\":\"$child\",\"component\":\"Text\",\"text\":\"$text\"}) or use an id that exists"
+                ". Fix: add a component with id '$child' to the same \"components\" list (naming a child does not create it), or use an id that exists"
             }
         }
         if (e.message.startsWith("a message needs one of")) {

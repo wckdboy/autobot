@@ -362,7 +362,13 @@ object A2uiIntake {
             }
             m = version(m)
             val kind = A2uiMessage.kindOf(m) ?: return m
-            val body = m[kind] as? JsonObject ?: return m
+            var body = m[kind] as? JsonObject ?: return m
+            val stray = m["dataModel"]
+            if (kind == A2uiMessage.CREATE_SURFACE && stray is JsonObject && "dataModel" !in body) {
+                notes.add("dataModelPlace", "dataModel belongs inside createSurface; moved it there")
+                body = JsonObject(body + ("dataModel" to stray))
+                m = JsonObject(m - "dataModel" + (kind to body))
+            }
             val fixed = when (kind) {
                 A2uiMessage.CREATE_SURFACE -> createSurface(body)
                 A2uiMessage.UPDATE_COMPONENTS -> updateComponents(body)
@@ -400,8 +406,15 @@ object A2uiIntake {
             val surfaceId = map["surfaceId"]!!.stringOrNull()!!
             val components = map["components"] as? JsonArray
             if (catalog != null && components != null) {
-                val result = Components(catalog, limits, emptySet(), notes).repair(components, makeRoot = wrapped)
+                val comps = Components(catalog, limits, emptySet(), notes, takeModels = true)
+                val result = comps.repair(components, makeRoot = true)
                 map["components"] = result
+                if (comps.models.isNotEmpty()) {
+                    val merged = LinkedHashMap<String, JsonElement>((map["dataModel"] as? JsonObject).orEmpty())
+                    comps.models.forEach { dm -> dm.forEach { (k, v) -> if (k !in merged) merged[k] = v } }
+                    map["dataModel"] = JsonObject(merged)
+                    notes.add("dataModelPlace", "dataModel belongs in createSurface, not in a component; moved it there")
+                }
                 known.getOrPut(surfaceId) { HashSet() } += result.mapNotNull { (it as? JsonObject)?.get("id")?.stringOrNull() }
                 (map["dataModel"] as? JsonObject)?.let { dm -> choiceModel(result, dm)?.let { map["dataModel"] = it } }
             }
@@ -467,8 +480,13 @@ object A2uiIntake {
         private val limits: A2uiLimits,
         known: Set<String>,
         private val notes: Notes,
+        /** Take a `dataModel` out of components (into [models]), for a createSurface to hold. */
+        private val takeModels: Boolean = false,
     ) {
         private val ids = HashSet<String>(known)
+
+        /** The `dataModel` objects found on components. */
+        val models = ArrayList<JsonObject>()
         private val out = ArrayList<JsonElement>()
 
         fun repair(list: JsonArray, makeRoot: Boolean): JsonArray {
@@ -486,9 +504,17 @@ object A2uiIntake {
             val referenced = HashSet<String>()
             out.forEach { c -> (c as? JsonObject)?.let { collectRefs(it, referenced) } }
             val tops = out.withIndex().filter { (_, c) -> (c as? JsonObject)?.get("id")?.stringOrNull()?.let { it !in referenced } ?: (c is JsonObject) }
-            val (i, top) = tops.singleOrNull() ?: return
-            out[i] = JsonObject(linkedMapOf<String, JsonElement>("id" to JsonPrimitive("root")).apply { putAll((top as JsonObject) - "id") })
-            notes.add("root", "no component had id \"root\"; the top one became \"root\"")
+            if (tops.size == 1) {
+                val (i, top) = tops.single()
+                out[i] = JsonObject(linkedMapOf<String, JsonElement>("id" to JsonPrimitive("root")).apply { putAll((top as JsonObject) - "id") })
+                notes.add("root", "no component had id \"root\"; the top one became \"root\"")
+                return
+            }
+            val topIds = tops.mapNotNull { (_, c) -> (c as? JsonObject)?.get("id")?.stringOrNull() }
+            if (topIds.size < 2 || topIds.size != tops.size || catalog.component("Column") == null || out.size >= limits.maxComponentsPerSurface) return
+            ids += "root"
+            out.add(0, JsonObject(linkedMapOf("id" to JsonPrimitive("root"), "component" to JsonPrimitive("Column"), "children" to JsonArray(topIds.map { JsonPrimitive(it) }))))
+            notes.add("root", "no component had id \"root\"; added a Column \"root\" holding the top components ${topIds.joinToString(", ") { "'$it'" }}")
         }
 
         private fun collectRefs(c: JsonObject, into: MutableSet<String>) {
@@ -507,6 +533,24 @@ object A2uiIntake {
             val spec = type?.let { catalog.component(it) }
             val selfId = o["id"]?.stringOrNull() ?: "c"
             val hoisted = ArrayList<JsonObject>()
+            if (takeModels && o["dataModel"] is JsonObject) {
+                models += o["dataModel"] as JsonObject
+                o = JsonObject(o - "dataModel")
+            }
+            if (spec != null && "child" !in o && o["children"] is JsonArray &&
+                spec.slots.any { it.path == listOf("child") && !it.isList } && spec.slots.none { it.path == listOf("children") }
+            ) {
+                val kids = o["children"] as JsonArray
+                val child: JsonElement = if (kids.size == 1 || catalog.component("Column") == null) kids.first() else {
+                    val col = newId("${selfId}_column")
+                    hoisted += JsonObject(linkedMapOf("id" to JsonPrimitive(col), "component" to JsonPrimitive("Column"), "children" to kids))
+                    JsonPrimitive(col)
+                }
+                if (kids.isNotEmpty()) {
+                    o = JsonObject(LinkedHashMap(o).apply { remove("children"); put("child", child) })
+                    notes.add("oneChild", "a $type holds one child: \"child\":\"<id>\" (several children go in a Column); turned its children into a child")
+                }
+            }
             if (spec != null && depth < limits.maxJsonDepth) {
                 for (slot in spec.slots) o = rewrite(o, slot.path, 0) { v, name -> hoistIn(v, slot.isList, selfId, name, hoisted) }
             }

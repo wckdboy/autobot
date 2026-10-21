@@ -237,6 +237,42 @@ class A2uiIntakeTest {
     }
 
     @Test
+    fun aDataModelInTheWrongPlaceMovesIntoCreateSurface() {
+        val beside = json(good).jsonArray[0].jsonObject.let { JsonObject(it + ("dataModel" to json("{\"a\":1}"))) }
+        val (m1, r1) = run(JsonArray(listOf(beside)))
+        assertTrue(r1!!.forModel(), r1.isValid)
+        assertEquals(json("{\"a\":1}"), m1.messages!![0].jsonObject["createSurface"]!!.jsonObject["dataModel"])
+        assertEquals(listOf("dataModel belongs inside createSurface; moved it there"), m1.repairs)
+        val inComponent = good.replace("\"text\":\"Hi\"}", "\"text\":\"Hi\",\"dataModel\":{\"b\":true}}")
+        val (m2, r2) = run(json(inComponent))
+        assertTrue(r2!!.forModel(), r2.isValid)
+        assertEquals(json("{\"b\":true}"), m2.messages!![0].jsonObject["createSurface"]!!.jsonObject["dataModel"])
+        assertNull(byId(m2, "t")["dataModel"])
+    }
+
+    @Test
+    fun aCardWithChildrenGetsOneChild() {
+        val card = """[{"id":"root","component":"Card","children":["a","b"]},{"id":"a","component":"Text","text":"A"},{"id":"b","component":"Text","text":"B"}]"""
+        val (intake, report) = run(json(card))
+        assertTrue(report!!.forModel(), report.isValid)
+        assertEquals("root_column", byId(intake, "root")["child"]!!.jsonPrimitive.content)
+        assertEquals(json("[\"a\",\"b\"]"), byId(intake, "root_column")["children"])
+        val one = """[{"id":"root","component":"Card","children":[{"component":"Text","text":"A"}]}]"""
+        val (i2, r2) = run(json(one))
+        assertTrue(r2!!.forModel(), r2.isValid)
+        assertEquals("root_child", byId(i2, "root")["child"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun severalTopComponentsGetAColumnRoot() {
+        val tops = good.replace("{\"id\":\"root\",\"component\":\"Column\",\"children\":[\"t\",\"go\"]},", "")
+        val (intake, report) = run(json(tops))
+        assertTrue(report!!.forModel(), report.isValid)
+        assertEquals(json("[\"t\",\"go\"]"), byId(intake, "root")["children"])
+        assertEquals(listOf("no component had id \"root\"; added a Column \"root\" holding the top components 't', 'go'"), intake.repairs)
+    }
+
+    @Test
     fun updateComponentsKnowsTheIdsOfEarlierSurfaces() {
         val update = """[{"version":"v1.0","updateComponents":{"surfaceId":"s","components":[{"id":"go","component":"Button","child":"go_t","action":{"event":{"name":"ok"}}}]}}]"""
         val intake = A2uiIntake.accept(json(update), prior = mapOf("s" to setOf("root", "go", "go_t")))
@@ -279,6 +315,20 @@ class A2uiIntakeTest {
         val (intake, r) = run(json(mixed))
         val fb = A2uiFeedback.lines(r!!, intake.messages)
         assertTrue(fb.joinToString("\n"), fb.any { it.contains("This looks like a component, not a message: put components in {\"version\":\"v1.0\",\"createSurface\"") })
+    }
+
+    @Test
+    fun missingChildrenOfOneParentAreOneLine() {
+        val stream = """[{"version":"v1.0","createSurface":{"surfaceId":"r","catalogId":"$BASIC","components":[{"id":"root","component":"Column","children":["yes","no","maybe"]}]}}]"""
+        val report = A2uiValidator().validate(stream)
+        assertEquals(3, report.errors.size)
+        assertEquals(
+            listOf(
+                "INTEGRITY_ERROR [message 0] surface 'r' /components/0/children: component 'root' refers to 'yes', 'no', 'maybe', which are not defined. " +
+                    "Fix: add a component for each of these ids to the same \"components\" list (naming a child does not create it)",
+            ),
+            A2uiFeedback.lines(report, json(stream).jsonArray),
+        )
     }
 
     @Test

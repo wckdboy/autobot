@@ -170,7 +170,7 @@ class A2uiEvalTest {
 
     @Test
     fun threeInvalidCallsEndTheTask() {
-        val broken = form.replace("\"root\"", "\"top\"")
+        val broken = form.replace("\"Column\"", "\"Colum\"")
         val r = A2uiEvalRunner(Script(call(broken), call(broken), call(broken), call(form)), "m").run(task)
         assertEquals("invalid", r.outcome)
         assertEquals(3, r.tries)
