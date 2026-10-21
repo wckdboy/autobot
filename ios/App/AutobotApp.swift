@@ -81,7 +81,9 @@ struct RootView: View {
             // session, or the demo's "phone first" or generated-UI chat.
             let args = ProcessInfo.processInfo.arguments
             // `-AutobotNetworkMode direct` (UI work): a route out, so the screens that need one (the
-            // Harness tab's guest, a cloud chat) show their running state in the simulator.
+            // Harness tab's guest, a cloud chat) show their running state in the simulator. It is
+            // saved like a tap in the Privacy Center; a test host that expects Offline wants a fresh
+            // install after it.
             if let i = args.firstIndex(of: "-AutobotNetworkMode"), i + 1 < args.count, args[i + 1] == "direct" {
                 app.settings.setNetworkMode(.direct)
             }

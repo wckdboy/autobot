@@ -75,11 +75,30 @@ DSH_EXCLUDES = %w[
 # `mig -sheader mach_excServer.h -server mach_excServer.c -isysroot $(macosx sdk)`.
 # Kept as sources instead of a MIG build rule so the ordering is deterministic.
 
+# The app module is built against the bridging header, so a target that
+# `@testable import`s it rescans that header and needs the same search paths.
+HARNESS_HEADER_SEARCH_PATHS = [
+  '$(inherited)',
+  'Harness/dsh-ios/ish-arm64',
+  'Harness/dsh-ios/ish-arm64/app',
+  'Harness/dsh-ios/ish-arm64/deps/libarchive/libarchive',
+  'Harness/dsh-ios/app',
+  'Harness',
+].freeze
+
 spec = {
   'projectReferences' => {
     'iSHLibarchive' => { 'path' => 'Harness/dsh-ios/ish-arm64/deps/libarchive.xcodeproj' },
   },
   'targets' => {
+    'AutobotTests' => {
+      'settings' => {
+        'base' => {
+          'HEADER_SEARCH_PATHS' => HARNESS_HEADER_SEARCH_PATHS,
+          'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'DSH_APP=1', 'GUEST_ARM64=1'],
+        },
+      },
+    },
     'Autobot' => {
       'sources' => [
         { 'path' => 'Harness/dsh-ios/app', 'excludes' => DSH_EXCLUDES },
@@ -150,14 +169,7 @@ spec = {
           # executable; the debug-dylib stub has none.
           'ENABLE_DEBUG_DYLIB' => 'NO',
           'GCC_PREPROCESSOR_DEFINITIONS' => ['$(inherited)', 'DSH_APP=1', 'GUEST_ARM64=1'],
-          'HEADER_SEARCH_PATHS' => [
-            '$(inherited)',
-            'Harness/dsh-ios/ish-arm64',
-            'Harness/dsh-ios/ish-arm64/app',
-            'Harness/dsh-ios/ish-arm64/deps/libarchive/libarchive',
-            'Harness/dsh-ios/app',
-            'Harness',
-          ],
+          'HEADER_SEARCH_PATHS' => HARNESS_HEADER_SEARCH_PATHS,
           'OTHER_LDFLAGS' => [
             '$(inherited)',
             '$(MESON_BUILD_DIR)/libish.a',
