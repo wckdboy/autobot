@@ -147,6 +147,9 @@ class ShowUiToolTest {
             assertTrue(feedback, feedback.startsWith("Error: the UI was not shown. Fix these and call show_ui again:"))
             assertTrue(feedback, feedback.contains("VALIDATION_FAILED [message 0]"))
             assertEquals(A2uiFeedback.lines(A2uiValidator().validate(broken), null).joinToString("\n"), feedback.substringAfter("again:\n"))
+            // A repeat of the same call is pointed out.
+            val second = llm.calls[2].messages.last { it.role == ModelRole.TOOL }.text
+            assertTrue(second, second.startsWith("Error: the UI was not shown. This call is the same as your last one: change it as the lines below say."))
             // Then it is told to stop, and nothing reached the transcript as UI.
             assertEquals("A2UI_GIVE_UP", results.last().code)
             assertTrue(agent.items().filterIsInstance<SessionItem.Tool>().all { it.a2ui == null })

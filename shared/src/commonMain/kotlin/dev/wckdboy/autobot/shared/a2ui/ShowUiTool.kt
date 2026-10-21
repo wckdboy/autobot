@@ -87,6 +87,9 @@ class ShowUiTool(private val catalogs: List<A2uiCatalog> = listOf(A2uiCatalog.ba
     /** Invalid calls of the running turn, per session: session id → (turn, count). */
     private val invalid = HashMap<String, Pair<Int, Int>>()
 
+    /** The last invalid call's messages, per session and turn: a repeat is pointed out. */
+    private val lastInvalid = HashMap<String, Pair<Int, String>>()
+
     override fun describeCall(args: JsonObject): String {
         val raw = args["messages"]
         val text = (raw as? JsonPrimitive)?.takeIf { it.isString }?.content ?: raw?.toString().orEmpty()
@@ -103,9 +106,19 @@ class ShowUiTool(private val catalogs: List<A2uiCatalog> = listOf(A2uiCatalog.ba
             return ToolOutput.error("show_ui failed $tries times this turn; answer in plain text instead", "A2UI_GIVE_UP")
         }
         val prior = agent?.let { A2uiChat.streams(it.log.entries.value) }.orEmpty()
-        val out = check(args["messages"] ?: JsonNull, prior)
-        if (out.isError) lock.withLock { invalid[run.sessionId] = turn to tries + 1 }
-        return out
+        val messages = args["messages"] ?: JsonNull
+        val key = messages.toString()
+        val out = check(messages, prior)
+        if (!out.isError) return out
+        val repeat = lock.withLock {
+            invalid[run.sessionId] = turn to tries + 1
+            val same = lastInvalid[run.sessionId] == (turn to key)
+            lastInvalid[run.sessionId] = turn to key
+            same
+        }
+        return if (!repeat || out.code != "A2UI_INVALID") out else out.copy(
+            content = out.content.replaceFirst("Error: the UI was not shown.", "Error: the UI was not shown. This call is the same as your last one: change it as the lines below say."),
+        )
     }
 
     /** The tool's answer for [messages] after the chat's earlier streams [prior] (no turn bookkeeping). */
