@@ -63,8 +63,9 @@ Models are not bundled. Models downloaded through the app are licensed by their 
 licence of every catalog entry is shown before download); you are responsible for complying
 with them.
 
-Built into the experimental Harness tab of the iOS app (ios-harness branch only; not in the
-published app until its licence is settled):
+Built into the Harness tab of the iOS app (since 1.14.0). Because of them the iOS app as
+distributed is a combined work under the GNU General Public License v3.0; Autobot's own files
+remain Apache-2.0, and the Android app, which links neither, is distributed under Apache-2.0:
 
   dsh-ios (https://github.com/everettjf/dsh-ios)
   Licensed under the GNU General Public License v3.0.

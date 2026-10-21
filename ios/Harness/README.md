@@ -39,6 +39,8 @@ into the app bundle (warning only when it is missing).
 
 ## Licensing
 
-`dsh-ios/` and the emulator are **GPL-3.0** (iSH / iSH-ARM64). Autobot itself is
-Apache-2.0; distributing this build requires the whole app to be provided under
-GPL-3.0-compatible terms. See `dsh-ios/LICENSE` and `dsh-ios/LICENSE.md`.
+`dsh-ios/` and the emulator are **GPL-3.0** (iSH / iSH-ARM64, plus iSH's `LICENSE.IOS` terms).
+Autobot's own code is Apache-2.0, which is GPL-3.0-compatible, so the iOS app as distributed
+(since 1.14.0) is a combined work under GPL-3.0. The Android app links none of this and stays
+Apache-2.0. See `dsh-ios/LICENSE`, `dsh-ios/LICENSE.md`, the repo's `NOTICE` and the README's
+License section.

@@ -1,23 +1,12 @@
-A native look on both phones, layouts that fit tablets, and forms the on-device agent can show you.
+The DeepSeek Harness itself, running on your iPhone.
 
-## Native on each phone
-- **Android uses Material 3 Expressive** in Autobot's purple: standard top bars, lists, switches, chips and buttons, the new loading indicators and motion. Every screen moved, from Chat and Run to Image, Studio and the lock screen.
-- **iPhone and iPad use the system look with Liquid Glass**: system navigation bars and toolbars, grouped lists and forms, glass buttons, the purple tint.
-- The brand stays as the pixel a and the purple dot after a title. The old print-style controls are gone.
+## Harness tab (iOS)
+- **A Linux agent workspace on the phone.** The Harness tab boots Alpine Linux with Node inside the iSH-ARM64 emulator and runs the DeepSeek Harness's own web UI, served on the device. No server, no Mac, no jailbreak.
+- **Your key, once.** A DeepSeek provider with an API key in Autobot signs the harness's model calls; otherwise the harness asks for one and keeps it in its guest.
+- **The same privacy rules.** The guest runs only while a network mode allows a route out: Offline stops it. The audit log records that it is running and where its calls go.
+- **Guest shell and log.** A shell into the running guest (`apk add`, `npm i -g`, a look at `~/.dsh`) and a shareable harness log, from the tab's menu.
+- **It recovers.** A page that fails, a web process that dies or a server that stopped in the background is reloaded; after three failed loads it says so and waits for Reload.
+- Experimental: the first boot imports the 85 MB guest image, a warm boot takes about a minute, and the emulator is slow. iPhone and iPad only.
 
-## Layouts for every size
-- **Tablets and wide windows** get a navigation rail (Android) or a sidebar (iPad), and lists open their item beside them: chats, nodes, settings pages.
-- Back on a tablet goes one screen back instead of closing the app.
-- Text stays readable at the largest sizes: chips wrap, banners stack, nothing runs off the screen.
-
-## Generative UI (phone chats)
-- **The on-device agent can show a form, choices or a card** when that's quicker than text: pick a time, fill in a booking, tick options. Your answer goes back to the agent as your next message.
-- A sent form locks and shows "Sent"; what you entered is kept when you reopen the chat.
-- Images in a form load only when you tap them, through your network settings.
-- Turn it off in Settings › Agent › Generative UI.
-
-## Faster and steadier
-- Streaming answers draw about twice as fast on iPhone; Android starts with a fresh startup profile for the new screens.
-- A message you started typing is kept when you go back or switch chats.
-- Hidden fields (pairing codes, passwords) no longer feed keyboard suggestions.
-- Bigger tap targets for the small buttons (ⓘ, Copy code, Run now).
+## Licence
+- The iOS app now includes GPL-3.0 components (dsh-ios, iSH-ARM64), so the iOS build is distributed under GPL-3.0 as a combined work. Autobot's own code stays Apache-2.0, and so does the Android app. Settings › Licenses lists the notices.

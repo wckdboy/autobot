@@ -13,7 +13,7 @@ works on a machine you own too.
 
 ## Status
 
-Version 1.13. What runs, and what is not yet verified:
+Version 1.14. What runs, and what is not yet verified:
 
 | Part | State |
 | --- | --- |
@@ -26,7 +26,7 @@ Version 1.13. What runs, and what is not yet verified:
 | Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
 | Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
 | Generative UI | In review: in the phone chats the agent can call `show_ui` (A2UI v1.0, shared core in `:shared`) to show forms, choices and cards, drawn with Material 3 Expressive on Android (`:core:a2ui`) and SwiftUI system controls with Liquid Glass on iOS, in the app's purple; kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. Settings › Agent › Generative UI turns it off (on by default) |
-| Harness (iOS) | Experimental, on the `ios-harness` branch (TestFlight builds only): a Harness tab boots an Alpine + Node guest in the iSH-ARM64 emulator and runs the DeepSeek Harness web UI on the phone, supervised by the app; Autobot's DeepSeek key reaches it, Offline mode stops it, and the audit log records that its model calls leave from the guest. The emulator and dsh-ios are GPL-3.0, so a public build that includes the tab must be offered under GPL-compatible terms (not yet decided; see `ios/Harness/README.md`) |
+| Harness (iOS) | Since 1.14: the Harness tab boots an Alpine + Node guest in the iSH-ARM64 emulator and runs the DeepSeek Harness web UI on the phone, supervised by the app. Autobot's DeepSeek key reaches it, Offline mode stops it, and the audit log records that its model calls leave from the guest. Experimental: the guest boots in about a minute, and the emulator is slow. The emulator and dsh-ios are GPL-3.0, so the iOS build is distributed under GPL-3.0 (see [License](#license)) |
 | **Not yet verified** | No independent security review yet |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).
@@ -75,6 +75,10 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
   `KillSwitch`, enforced by OkHttp's `KillSwitchInterceptor` and the iOS URLSession client) rejects
   every request before DNS or socket I/O. Loopback servers
   such as a local Ollama at `127.0.0.1` can still be reached; you can turn that off too.
+- **The Harness tab is the exception, and it says so.** Its Linux guest makes the harness's model
+  calls from the emulator, outside the route resolver and the kill switch's per-request view. So the
+  guest runs only while the network mode allows a route out (Offline stops it), the audit log records
+  that it is running and where its calls go, and the tab is iOS-only.
 - **You choose the route.** The modes are Offline, Direct, Tor (Orbot SOCKS `127.0.0.1:9050`, remote DNS)
   and SOCKS5. Each provider can override the route, but a `Direct` override can never downgrade a
   global Tor or SOCKS5 mode.
@@ -740,4 +744,12 @@ See [ROADMAP.md](ROADMAP.md): goals, release rules and the phased plan for both 
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Autobot's own code is Apache License 2.0. See [LICENSE](LICENSE).
+
+The iOS app includes the Harness tab, which links [dsh-ios](https://github.com/everettjf/dsh-ios)
+and the iSH-ARM64 emulator, both GPL-3.0. The iOS app as distributed (TestFlight and any store
+build) is therefore a combined work under the GNU General Public License v3.0, with iSH's
+additional terms (`ios/Harness/dsh-ios/ish-arm64/LICENSE.IOS`). Apache-2.0 is GPL-3.0-compatible,
+so the Apache-licensed files stay Apache-licensed and can be reused under that licence on their
+own. The Android app links no GPL code and is distributed under Apache-2.0. See [NOTICE](NOTICE)
+and Settings › Licenses in the app.
