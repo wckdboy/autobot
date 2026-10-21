@@ -89,20 +89,17 @@ struct SelectableText: Identifiable {
 struct SelectTextSheet: View {
     let text: String
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                SectionLabel("select text")
-                Spacer()
-                TextAction("Done", color: c.onSurface) { dismiss() }
-            }
-            .padding(Tokens.Spacing.gutter)
-            SelectableTextView(text: text, color: UIColor(c.onSurface))
-                .padding(.horizontal, Tokens.Spacing.gutter - 4)
+        NavigationStack {
+            SelectableTextView(text: text, color: .label)
+                .padding(.horizontal, 12)
+                .navigationTitle("Select text")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                }
         }
-        .background(c.background)
         .presentationDetents([.medium, .large])
     }
 }
@@ -132,15 +129,12 @@ private struct SelectableTextView: UIViewRepresentable {
 /// The share icon under an answer: the system share sheet with the message as written (markdown).
 struct ShareMessageButton: View {
     let markdown: String
-    @Environment(\.scheme) private var c
 
     var body: some View {
         ShareLink(item: markdown) {
             Image(systemName: "square.and.arrow.up")
-                .symbolSize(17)
-                .foregroundStyle(c.onSurfaceVariant)
         }
+        .messageAction()
         .accessibilityLabel("Share message")
-        .compactActionFrame()
     }
 }

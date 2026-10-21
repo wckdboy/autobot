@@ -3,7 +3,7 @@ import SwiftUI
 
 // Prompt tools (spec §1): the prompt with wildcard preview, weighted-token helper and the prompt
 // library; negative presets; seed lock / walk; the X/Y grid builder and its result grid; controls
-// rendered from a workflow's parameter schema.
+// rendered from a workflow's parameter schema. Rows for the rooms' Forms.
 
 /// The prompt as typed, with `{a|b}` expansion count, emphasis ± on the selection and the library.
 struct PromptBox: View {
@@ -12,55 +12,62 @@ struct PromptBox: View {
     var placeholder = "Describe it…"
     var showNegative = true
     var negativePresets: [PromptSnippet] = PromptLibrary.shared.negativePresets
-    @Environment(\.scheme) private var c
     @State private var selection: TextSelection?
     @State private var showLibrary = false
 
     var body: some View {
         let expansion = Wildcards.shared.hasWildcards(template: prompt) ? Wildcards.shared.expand(template: prompt, cap: 64) : nil
-        VStack(alignment: .leading, spacing: 8) {
-            TextField(text: $prompt, selection: $selection, prompt: Text(placeholder).foregroundColor(c.outline), axis: .vertical) { Text("Prompt") }
-                .textStyle(.headlineSmall)
-                .foregroundStyle(c.onSurface)
-                .tint(c.primary)
+        VStack(alignment: .leading, spacing: 10) {
+            TextField(text: $prompt, selection: $selection, prompt: Text(placeholder), axis: .vertical) { Text("Prompt") }
+                .font(.title3)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .lineLimit(2 ... 8)
                 .accessibilityLabel("Prompt")
             HStack(spacing: 6) {
-                if let expansion {
-                    let n = expansion.total
-                    MicroLabel(n > 64 ? "wildcards · \(n) prompts · first 64" : "wildcards · \(n) prompt\(n == 1 ? "" : "s")")
-                        .accessibilityLabel("Wildcards expand to \(n) prompts")
-                } else {
-                    MicroLabel("~\(PromptSyntax.estimateTokens(prompt)) tokens")
+                Group {
+                    if let expansion {
+                        let n = expansion.total
+                        Text(n > 64 ? "Wildcards · \(n) prompts · first 64" : "Wildcards · \(n) prompt\(n == 1 ? "" : "s")")
+                            .accessibilityLabel("Wildcards expand to \(n) prompts")
+                    } else {
+                        Text("~\(PromptSyntax.estimateTokens(prompt)) tokens")
+                    }
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
                 Spacer(minLength: 4)
-                Tag("( − )") { weight(-0.1) }.accessibilityLabel("Less emphasis on the selected words")
-                Tag("( + )") { weight(0.1) }.accessibilityLabel("More emphasis on the selected words")
-                Tag("library", accent: c.primary) { showLibrary = true }
+                StudioChip("( − )") { weight(-0.1) }.accessibilityLabel("Less emphasis on the selected words")
+                StudioChip("( + )") { weight(0.1) }.accessibilityLabel("More emphasis on the selected words")
+                StudioChip("Library", active: true) { showLibrary = true }
             }
             if let expansion, expansion.prompts.count > 1 {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(expansion.prompts.prefix(3).enumerated()), id: \.offset) { _, p in
-                        Text("· \(p)").textStyle(.codeBlock).foregroundStyle(c.onSurfaceVariant).lineLimit(1)
+                        Text("· \(p)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    if expansion.prompts.count > 3 { MicroLabel("+ \(Int(expansion.total) - 3) more") }
+                    if expansion.prompts.count > 3 { Text("+ \(Int(expansion.total) - 3) more").font(.caption).foregroundStyle(.secondary) }
                 }
             }
             if showNegative {
-                ConsoleTextField(text: $negative, placeholder: "what to avoid", label: "Negative", kind: .mono, minLines: 1, maxLines: 4)
+                Divider()
+                TextField("Negative", text: $negative, prompt: Text("What to avoid"), axis: .vertical)
+                    .lineLimit(1 ... 4)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        MicroLabel("presets")
+                        Text("Presets").font(.caption).foregroundStyle(.secondary)
                         ForEach(negativePresets, id: \.id) { p in
-                            Tag(p.name) { negative = PromptLibrary.shared.joinNegative(current: negative, add: p.text) }
+                            StudioChip(p.name) { negative = PromptLibrary.shared.joinNegative(current: negative, add: p.text) }
                                 .accessibilityLabel("Add the \(p.name) negative preset")
                         }
                     }
                 }
             }
         }
+        .padding(.vertical, 4)
         .sheet(isPresented: $showLibrary) {
             PromptLibrarySheet(prompt: $prompt, negative: $negative, cursor: cursor) { showLibrary = false }
                 .presentationDetents([.medium, .large])
@@ -101,7 +108,6 @@ struct PromptLibrarySheet: View {
     let cursor: Int
     let onDone: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var tab = PromptSnippet.companion.STYLE
     @State private var newName = ""
     @State private var newText = ""
@@ -110,49 +116,63 @@ struct PromptLibrarySheet: View {
         let studio = app.studio
         let mine = studio.library.snippets.filter { $0.kind == tab }
         let builtIn = tab == PromptSnippet.companion.STYLE ? PromptLibrary.shared.builtInStyles : []
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel("prompt library")
-                Segmented(options: [PromptSnippet.companion.STYLE, PromptSnippet.companion.SNIPPET], selected: tab, label: { $0 == PromptSnippet.companion.STYLE ? "styles" : "snippets" }) { tab = $0 }
-                MicroLabel(tab == PromptSnippet.companion.STYLE ? "a style wraps your prompt ({prompt}) and adds its negatives" : "a snippet is inserted at the cursor", lines: 2)
-                VStack(spacing: 0) {
+        let isStyle = tab == PromptSnippet.companion.STYLE
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Kind", selection: $tab) {
+                        Text("Styles").tag(PromptSnippet.companion.STYLE)
+                        Text("Snippets").tag(PromptSnippet.companion.SNIPPET)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } footer: {
+                    Text(isStyle ? "A style wraps your prompt ({prompt}) and adds its negatives." : "A snippet is inserted at the cursor.")
+                }
+                Section {
                     ForEach(builtIn + mine, id: \.id) { s in
-                        HStack(spacing: 10) {
-                            Button { use(s) } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(s.name).textStyle(.titleSmall).foregroundStyle(c.onSurface)
-                                    Text(s.text).textStyle(.codeBlock).foregroundStyle(c.onSurfaceVariant).lineLimit(2)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 8)
-                                .contentShape(Rectangle())
+                        Button { use(s) } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(s.name).font(.headline)
+                                Text(s.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                             }
-                            .buttonStyle(PressStyle())
-                            .accessibilityLabel("Use \(s.name)")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .tint(.primary)
+                        .accessibilityLabel("Use \(s.name)")
+                        .swipeActions {
                             if !s.id.hasPrefix("style-") {
-                                IconAction(symbol: "trash", label: "Delete \(s.name)", size: 14) { studio.deleteSnippet(s.id) }
+                                Button("Delete \(s.name)", systemImage: "trash", role: .destructive) { studio.deleteSnippet(s.id) }
                             }
                         }
-                        Hairline()
+                        .contextMenu {
+                            if !s.id.hasPrefix("style-") {
+                                Button("Delete \(s.name)", systemImage: "trash", role: .destructive) { studio.deleteSnippet(s.id) }
+                            }
+                        }
                     }
-                    if builtIn.isEmpty && mine.isEmpty { MicroLabel("nothing saved yet").padding(.vertical, 8) }
+                    if builtIn.isEmpty && mine.isEmpty { Text("Nothing saved yet").foregroundStyle(.secondary) }
                 }
-                SectionLabel("save")
-                ConsoleTextField(text: $newName, placeholder: "name", kind: .prose)
-                ConsoleTextField(text: $newText, placeholder: tab == PromptSnippet.companion.STYLE ? "{prompt}, film grain, 35mm" : "soft rim light", kind: .mono, minLines: 1, maxLines: 4)
-                HStack(spacing: 8) {
-                    GhostButton("From prompt") { newText = tab == PromptSnippet.companion.STYLE ? "{prompt}, " : prompt }
-                    PrimaryButton("Save", enabled: !newName.trimmingCharacters(in: .whitespaces).isEmpty && !newText.trimmingCharacters(in: .whitespaces).isEmpty) {
+                Section("Save") {
+                    TextField("Name", text: $newName)
+                    TextField("Text", text: $newText, prompt: Text(isStyle ? "{prompt}, film grain, 35mm" : "soft rim light"), axis: .vertical)
+                        .lineLimit(1 ... 4)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    Button("From prompt") { newText = isStyle ? "{prompt}, " : prompt }
+                    Button("Save") {
                         studio.saveSnippet(PromptSnippet(id: StudioIds.shared.doNew(prefix: "s", random: KotlinRandom.companion), name: newName.trimmingCharacters(in: .whitespaces),
-                                                         text: newText, kind: tab, negative: tab == PromptSnippet.companion.STYLE ? negative : ""))
+                                                         text: newText, kind: tab, negative: isStyle ? negative : ""))
                         newName = ""
                         newText = ""
                     }
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || newText.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            .padding(16)
+            .navigationTitle("Prompt library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done", action: onDone) } }
         }
-        .background(c.surfaceContainerLow)
     }
 
     private func use(_ s: PromptSnippet) {
@@ -169,23 +189,91 @@ struct PromptLibrarySheet: View {
     }
 }
 
-/// Seed: random each time, locked, or walking from a base (`seed`, `seed+1`, …).
+/// Seed: random each time, locked, or walking from a base (`seed`, `seed+1`, …). A Form section.
 struct SeedControl: View {
     @Binding var mode: SeedMode
     @Binding var seed: Int64
-    @Environment(\.scheme) private var c
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            MicroLabel("seed")
-            Segmented(options: [SeedMode.random, .locked, .walk], selected: mode, label: { $0 == .random ? "random" : $0 == .locked ? "lock" : "walk" }) { mode = $0 }
+        Section("Seed") {
+            Picker("Seed", selection: $mode) {
+                Text("Random").tag(SeedMode.random)
+                Text("Lock").tag(SeedMode.locked)
+                Text("Walk").tag(SeedMode.walk)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
             if mode != .random {
-                HStack {
-                    Text("\(seed)").textStyle(.readout).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-                    IconAction(.dice, label: "New seed") { seed = Int64.random(in: 0 ... 4_294_967_295) }
+                LabeledContent("Seed") {
+                    HStack(spacing: 12) {
+                        Text("\(seed)").monospacedDigit()
+                        Button { seed = Int64.random(in: 0 ... 4_294_967_295) } label: { Image(systemName: "dice") }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("New seed")
+                    }
                 }
             }
         }
+    }
+}
+
+/// A menu picker over [options] (a value not among them still shows as chosen).
+struct OptionPicker<T: Hashable>: View {
+    let label: String
+    let selection: T?
+    let options: [T]
+    var optionLabel: (T) -> String = { "\($0)" }
+    let onSelect: (T) -> Void
+
+    init(_ label: String, selection: T?, options: [T], optionLabel: @escaping (T) -> String = { "\($0)" }, onSelect: @escaping (T) -> Void) {
+        self.label = label
+        self.selection = selection
+        self.options = options
+        self.optionLabel = optionLabel
+        self.onSelect = onSelect
+    }
+
+    var body: some View {
+        if let first = options.first {
+            Picker(label, selection: Binding(get: { selection ?? first }, set: onSelect)) {
+                if let selection, !options.contains(selection) { Text(optionLabel(selection)).tag(selection) }
+                ForEach(options, id: \.self) { Text(optionLabel($0)).tag($0) }
+            }
+            .pickerStyle(.menu)
+        } else {
+            LabeledContent(label, value: selection.map(optionLabel) ?? "—")
+        }
+    }
+}
+
+/// A text field under its label (a Form row), with the keyboard of its [kind].
+struct StackedField: View {
+    let label: String
+    @Binding var text: String
+    var prompt = ""
+    var kind: FieldKind = .prose
+    var lines: ClosedRange<Int>? = nil
+    var code = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Group {
+                if kind == .secret {
+                    SecureField(label, text: $text, prompt: Text(prompt)).textContentType(.oneTimeCode)
+                } else if let lines {
+                    TextField(label, text: $text, prompt: Text(prompt), axis: .vertical).lineLimit(lines)
+                } else {
+                    TextField(label, text: $text, prompt: Text(prompt))
+                }
+            }
+            .font(code ? .callout.monospaced() : .body)
+            .autocorrectionDisabled(kind != .prose)
+            .textInputAutocapitalization(kind == .prose ? .sentences : .never)
+            .keyboardType(kind == .url ? .URL : kind == .number ? .numberPad : kind == .decimal ? .numbersAndPunctuation : .default)
+            .privacySensitive(kind == .secret)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -203,7 +291,7 @@ struct GridParam: Hashable {
 struct GridBuilderSheet: View {
     let params: [GridParam]
     let onRun: (GridAxis, GridAxis?) -> Void
-    @Environment(\.scheme) private var c
+    @Environment(\.dismiss) private var dismiss
     @State private var x: GridParam?
     @State private var y: GridParam?
     @State private var xText = ""
@@ -213,27 +301,46 @@ struct GridBuilderSheet: View {
         let xs = x.map { GridPlanner.shared.parseValues(text: xText, integer: $0.integer) } ?? []
         let ys = y.map { GridPlanner.shared.parseValues(text: yText, integer: $0.integer) } ?? []
         let cells = xs.count * max(ys.count, 1)
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel("x/y grid")
-                MicroLabel("one job per cell · values like 10, 20, 30 · 5-9 · 1-2 (+0.25) · euler, dpm++ 2m", lines: 2)
-                SelectField(label: "X axis", value: x?.label ?? "choose", options: params, optionLabel: { $0.label }) { x = $0; if xText.isEmpty { xText = $0.hint } }
-                if let x { ConsoleTextField(text: $xText, placeholder: x.hint, label: "\(x.label) values", kind: .mono) }
-                SelectField(label: "Y axis (optional)", value: y?.label ?? "none", options: [GridParam(name: "", label: "none", integer: false)] + params.filter { $0 != x },
-                            optionLabel: { $0.label }) { p in
-                    y = p.name.isEmpty ? nil : p
-                    if let p = y, yText.isEmpty { yText = p.hint }
+        let ready = x != nil && !xs.isEmpty && (y == nil || !ys.isEmpty)
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("X axis", selection: Binding(get: { x }, set: { p in
+                        x = p
+                        if let p, xText.isEmpty { xText = p.hint }
+                    })) {
+                        Text("Choose").tag(GridParam?.none)
+                        ForEach(params, id: \.self) { Text($0.label.sentenceCased).tag(GridParam?.some($0)) }
+                    }
+                    if let x { StackedField(label: "\(x.label.sentenceCased) values", text: $xText, prompt: x.hint, kind: .mono) }
+                } footer: {
+                    Text("One job per cell. Values like 10, 20, 30 · 5-9 · 1-2 (+0.25) · euler, dpm++ 2m")
                 }
-                if let y { ConsoleTextField(text: $yText, placeholder: y.hint, label: "\(y.label) values", kind: .mono) }
-                MicroLabel(cells > 64 ? "\(cells) cells · the first 64 run" : "\(cells) cell\(cells == 1 ? "" : "s")", color: cells > 64 ? c.error : c.onSurfaceVariant)
-                PrimaryButton("Queue grid", enabled: x != nil && !xs.isEmpty && (y == nil || !ys.isEmpty)) {
-                    guard let x else { return }
-                    onRun(GridAxis(param: x.name, values: xs, label: x.label), y.map { GridAxis(param: $0.name, values: ys, label: $0.label) })
+                Section {
+                    Picker("Y axis", selection: Binding(get: { y }, set: { p in
+                        y = p
+                        if let p, yText.isEmpty { yText = p.hint }
+                    })) {
+                        Text("None").tag(GridParam?.none)
+                        ForEach(params.filter { $0 != x }, id: \.self) { Text($0.label.sentenceCased).tag(GridParam?.some($0)) }
+                    }
+                    if let y { StackedField(label: "\(y.label.sentenceCased) values", text: $yText, prompt: y.hint, kind: .mono) }
+                } footer: {
+                    Text(cells > 64 ? "\(cells) cells · the first 64 run" : "\(cells) cell\(cells == 1 ? "" : "s")")
+                        .foregroundStyle(cells > 64 ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                }
+                Section {
+                    Button("Queue grid") {
+                        guard let x else { return }
+                        onRun(GridAxis(param: x.name, values: xs, label: x.label), y.map { GridAxis(param: $0.name, values: ys, label: $0.label) })
+                    }
+                    .disabled(!ready)
                 }
             }
-            .padding(16)
+            .navigationTitle("X/Y grid")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
-        .background(c.surfaceContainerLow)
     }
 }
 
@@ -242,24 +349,25 @@ struct GridResultView: View {
     let run: GridRun
     var onOpen: (StudioAsset) -> Void = { _ in }
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let cols = max(run.columns.count, 1)
         VStack(alignment: .leading, spacing: 4) {
-            MicroLabel("\(run.yLabel.map { "\($0) ↓ · " } ?? "")\(run.xLabel) →\(run.truncated ? " · truncated at 64" : "")")
+            Text("\(run.yLabel.map { "\($0) ↓ · " } ?? "")\(run.xLabel) →\(run.truncated ? " · truncated at 64" : "")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 Grid(horizontalSpacing: 3, verticalSpacing: 3) {
                     GridRow {
                         if run.yLabel != nil { Color.clear.frame(width: 44, height: 1) }
                         ForEach(run.columns.indices, id: \.self) { i in
-                            Text(run.columns[i]).textStyle(.micro).foregroundStyle(c.onSurfaceVariant).lineLimit(1).frame(width: cellSide(cols))
+                            Text(run.columns[i]).font(.caption2).foregroundStyle(.secondary).lineLimit(1).frame(width: cellSide(cols))
                         }
                     }
                     ForEach(run.jobIds.indices, id: \.self) { r in
                         GridRow {
                             if run.yLabel != nil {
-                                Text(run.rows.indices.contains(r) ? run.rows[r] : "").textStyle(.micro).foregroundStyle(c.onSurfaceVariant).lineLimit(2).frame(width: 44)
+                                Text(run.rows.indices.contains(r) ? run.rows[r] : "").font(.caption2).foregroundStyle(.secondary).lineLimit(2).frame(width: 44)
                             }
                             ForEach(run.jobIds[r], id: \.self) { id in
                                 GridCell(jobId: id, onOpen: onOpen).frame(width: cellSide(cols), height: cellSide(cols))
@@ -280,7 +388,6 @@ private struct GridCell: View {
     let jobId: String
     let onOpen: (StudioAsset) -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let job = app.studio.job(jobId)
@@ -289,13 +396,18 @@ private struct GridCell: View {
             if let asset {
                 AssetThumb(asset: asset).onTapGesture { onOpen(asset) }.accessibilityAddTraits(.isButton)
             } else {
-                c.surfaceContainer
-                InkPlate(ink: job?.state == .running ? .flow(progress: Double(job?.progress ?? 0), loading: job?.steps == 0) : .idle,
-                         dot: c.primary, idleDot: c.outlineVariant, plate: c.primary, cell: 4)
-                if job?.state == .failed { Image(systemName: "exclamationmark").foregroundStyle(c.error) }
+                Color(.tertiarySystemFill)
+                if job?.state == .running {
+                    if let job, job.steps > 0 {
+                        ProgressView(value: Double(job.progress)).progressViewStyle(.circular)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                if job?.state == .failed { Image(systemName: "exclamationmark.triangle").foregroundStyle(.red) }
             }
         }
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .accessibilityLabel(job?.label ?? "cell")
     }
 }
@@ -331,22 +443,28 @@ private struct NumberParamField: View {
 
     var body: some View {
         let shown = (value ?? fallback)?.display() ?? ""
-        ConsoleTextField(text: Binding(get: { draft ?? shown }, set: { t in
-            draft = t
-            if let parsed = NumberDraft.parse(t, integer: integer) { value = parsed } else if t.isEmpty { value = nil }
-        }), label: label, kind: .decimal)
-            .onChange(of: shown) { _, now in
-                if let d = draft, !NumberDraft.keeps(d, shown: now, integer: integer) { draft = nil }
-            }
+        LabeledContent(label) {
+            TextField(label, text: Binding(get: { draft ?? shown }, set: { t in
+                draft = t
+                if let parsed = NumberDraft.parse(t, integer: integer) { value = parsed } else if t.isEmpty { value = nil }
+            }))
+            .keyboardType(.numbersAndPunctuation)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
+            .multilineTextAlignment(.trailing)
+            .monospacedDigit()
+        }
+        .onChange(of: shown) { _, now in
+            if let d = draft, !NumberDraft.keeps(d, shown: now, integer: integer) { draft = nil }
+        }
     }
 }
 
-/// One control for a workflow parameter, by its type (schema-rendered UI, spec §5).
+/// One control for a workflow parameter, by its type (schema-rendered UI, spec §5): a Form row.
 struct WorkflowParamControl: View {
     let param: WorkflowParam
     @Binding var value: ParamValue?
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let current = value ?? param.default_
@@ -354,33 +472,31 @@ struct WorkflowParamControl: View {
         case .int_, .float_:
             if let lo = param.min?.doubleValue, let hi = param.max?.doubleValue, hi > lo, hi - lo <= 100_000 {
                 let isInt = param.type == .int_
-                ValueSlider(label: param.label, value: Binding(get: { current?.asDouble()?.doubleValue ?? lo }, set: { value = isInt ? .int64(Int64($0.rounded())) : .double($0) }),
-                            range: lo ... hi, step: param.step?.doubleValue ?? (isInt ? 1 : nil), format: { isInt ? "\(Int($0))" : String(format: "%.2f", $0) })
+                LabeledSlider(param.label, value: Binding(get: { current?.asDouble()?.doubleValue ?? lo }, set: { value = isInt ? .int64(Int64($0.rounded())) : .double($0) }),
+                              in: lo ... hi, step: param.step?.doubleValue ?? (isInt ? 1 : nil), format: { isInt ? "\(Int($0))" : String(format: "%.2f", $0) })
             } else {
                 NumberParamField(label: param.label, integer: param.type == .int_, value: $value, fallback: param.default_)
             }
         case .seed:
-            VStack(alignment: .leading, spacing: 4) {
-                MicroLabel(param.label)
-                HStack {
+            LabeledContent(param.label) {
+                HStack(spacing: 12) {
                     let v = current?.asLong()?.int64Value ?? -1
-                    Text(v < 0 ? "random" : "\(v)").textStyle(.readout).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-                    IconAction(.dice, label: "New seed") { value = .int64(Int64.random(in: 0 ... 4_294_967_295)) }
-                    TextAction("Random") { value = .int64(-1) }
+                    Text(v < 0 ? "Random" : "\(v)").monospacedDigit()
+                    Button { value = .int64(Int64.random(in: 0 ... 4_294_967_295)) } label: { Image(systemName: "dice") }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("New seed")
+                    Button("Random") { value = .int64(-1) }.buttonStyle(.borderless)
                 }
             }
         case .bool_:
-            HStack {
-                Text(param.label).textStyle(.titleSmall).foregroundStyle(c.onSurface).frame(maxWidth: .infinity, alignment: .leading)
-                RisoToggle(isOn: Binding(get: { (current as? ParamValue.BoolValue)?.value ?? false }, set: { value = .flag($0) }))
-            }
+            Toggle(param.label, isOn: Binding(get: { (current as? ParamValue.BoolValue)?.value ?? false }, set: { value = .flag($0) }))
         case .enum_:
-            SelectField(label: param.label, value: current?.display() ?? "", options: param.options) { value = .text($0) }
+            OptionPicker(param.label, selection: current?.display(), options: param.options) { value = .text($0) }
         case .image, .audio:
             AssetParamPicker(label: param.label, type: param.type == .image ? .image : .audio, role: param.role ?? param.name, value: $value)
         default:
-            ConsoleTextField(text: Binding(get: { current?.display() ?? "" }, set: { value = .text($0) }), label: param.label, kind: .mono,
-                             minLines: param.multiline ? 2 : 1, maxLines: param.multiline ? 8 : 1)
+            StackedField(label: param.label, text: Binding(get: { current?.display() ?? "" }, set: { value = .text($0) }), kind: .mono,
+                         lines: param.multiline ? 2 ... 8 : nil)
         }
     }
 }
@@ -392,32 +508,31 @@ struct AssetParamPicker: View {
     let role: String
     @Binding var value: ParamValue?
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let studio = app.studio
         let chosen = (value as? ParamValue.AssetValue).flatMap { studio.library.asset($0.ref.assetId) }
         let options = Array(studio.library.assets.filter { $0.type == type }.prefix(40))
-        VStack(alignment: .leading, spacing: 4) {
-            MicroLabel(label)
+        LabeledContent {
             HStack(spacing: 10) {
-                if let chosen { AssetThumb(asset: chosen, size: 56) }
+                if let chosen { AssetThumb(asset: chosen, size: 44) }
                 Menu {
                     ForEach(options, id: \.id) { a in
                         Button(StudioText.describe(a)) { value = ParamValue.AssetValue(ref: AssetRef(assetId: a.id, role: role)) }
                     }
                     if chosen != nil { Button("None", role: .destructive) { value = nil } }
                 } label: {
-                    Text(options.isEmpty ? "no \(type == .image ? "images" : "clips") in the library" : chosen == nil ? "choose from the library" : "change")
-                        .textStyle(.labelMedium).foregroundStyle(c.primary)
+                    Text(options.isEmpty ? "No \(type == .image ? "images" : "clips") in the library" : chosen == nil ? "Choose" : "Change")
                 }
                 .disabled(options.isEmpty)
             }
+        } label: {
+            Text(label)
         }
     }
 }
 
-/// The values a workflow's form shows, with "More" for the advanced ones.
+/// The values a workflow's form shows (Form rows), with "More" for the advanced ones.
 struct WorkflowForm: View {
     let workflow: StudioWorkflow
     @Binding var values: [String: ParamValue]
@@ -429,11 +544,10 @@ struct WorkflowForm: View {
         let shown = workflow.params.filter { !exclude($0) }
         let basic = shown.filter { !$0.advanced }
         let advanced = shown.filter { $0.advanced }
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(basic, id: \.name) { p in control(p) }
-            if !advanced.isEmpty {
-                TextAction(more ? "Less" : "More · \(advanced.count)") { withAnimation(.inkSlide) { more.toggle() } }
-                if more { ForEach(advanced, id: \.name) { p in control(p) } }
+        ForEach(basic, id: \.name) { p in control(p) }
+        if !advanced.isEmpty {
+            DisclosureGroup("More · \(advanced.count)", isExpanded: $more) {
+                ForEach(advanced, id: \.name) { p in control(p) }
             }
         }
     }

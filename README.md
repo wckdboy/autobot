@@ -53,7 +53,7 @@ Versions move together: Android and iOS ship the same version and build number.
 ```
 
 A behaviour fix in the core lands on both platforms at once; the platforms only move bytes, store
-data and draw the UI from the same design tokens (brand purple, type, spacing) (`shared/design/tokens.json`, checked by
+data and draw their UI from the same design tokens (brand purple, type, spacing) (`shared/design/tokens.json`, checked by
 `TokensParityTest` on Android and `TokensTests` on iOS). The parity table is in
 [ios/README.md](ios/README.md).
 
@@ -152,7 +152,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:providers:remote` | `ChatProvider` over OkHttp in the dialect of the provider's preset (OpenAI-compatible or Anthropic native), model lists, the on-device `LocalChatProvider`; `ProviderFactory` |
 | `:feature:chat` | Session list (live indicators, incognito) and agent session screen (streaming, reasoning, tool cards with inline approvals, plan/todos, questions, context gauge, slash commands, model switcher) |
 | `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection), MCP servers editor (masked token, routing, trusted, test connection) |
-| `ios/App` | The SwiftUI app: riso design system from the shared tokens, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
+| `ios/App` | The SwiftUI app: system components with Liquid Glass and the brand purple tint, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
 | `ios/Packages/AutobotEngines` | Swift package over the shared llama.cpp / whisper.cpp C cores (Metal, Core ML encoder) and Apple's ml-stable-diffusion; built into `AutobotLlama` / `AutobotWhisper` xcframeworks with dSYMs |
 | `scripts/` | `bump-version.sh` (one version for both apps), `release.sh` (test, build, sign, TestFlight, GitHub release) |
 | `build-logic/` | Convention plugins: `autobot.android.application`, `autobot.android.library`, `autobot.android.compose`, `autobot.hilt` |
