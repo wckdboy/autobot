@@ -1,40 +1,5 @@
 import SwiftUI
 
-/// Where a run executes. Shown as a tag on every card and row.
-enum Route: String, CaseIterable, Sendable {
-    case localNpu, localGpu, localCpu, pcLan, cloudApi
-
-    var glyph: String {
-        switch self {
-        case .localNpu, .localGpu, .localCpu: "●"
-        case .pcLan: "◐"
-        case .cloudApi: "○"
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .localNpu: "local · npu"
-        case .localGpu: "local · gpu"
-        case .localCpu: "local · cpu"
-        case .pcLan: "pc · lan"
-        case .cloudApi: "cloud · api"
-        }
-    }
-
-    var local: Bool { self == .localNpu || self == .localGpu || self == .localCpu }
-
-    /// "npu" / "gpu" / "cpu" for a local route (chip labels), nil otherwise.
-    var accelerator: String? {
-        switch self {
-        case .localNpu: "npu"
-        case .localGpu: "gpu"
-        case .localCpu: "cpu"
-        case .pcLan, .cloudApi: nil
-        }
-    }
-}
-
 /**
  `● local · cpu` / `◐ pc · lan` / `○ cloud · api`: a quiet hairline tag; the glyph says where
  (filled: on this phone). Not in the signal colour: where a run goes is information, not an alarm.
@@ -209,88 +174,6 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-/// The lab's mark: a small solid square in the product's signal (Autobot: the scheme's primary).
-/// The products' symbols, as pixels: Autobot's a and Invincible's i (BRAND.md).
-enum Glyph {
-    static let a = [".####.", "....##", ".#####", "##..##", "##..##", ".#####"]
-    static let i = ["##", "..", "##", "##", "##", "##"]
-}
-
-/// A pixel symbol [size] points tall: square cells, no smoothing.
-struct PixelSymbol: View {
-    let rows: [String]
-    let color: Color
-    var size: CGFloat = 12
-
-    var body: some View {
-        let cell = size / CGFloat(rows.count)
-        Canvas { ctx, _ in
-            for (y, row) in rows.enumerated() {
-                for (x, ch) in row.enumerated() where ch == "#" {
-                    ctx.fill(Path(CGRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell + 0.5, height: cell + 0.5)), with: .color(color))
-                }
-            }
-        }
-        .frame(width: cell * CGFloat(rows[0].count), height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Autobot's symbol, the pixel a, in its purple.
-struct AutobotMark: View {
-    var size: CGFloat = 12
-    var color: Color? = nil
-    @Environment(\.scheme) private var c
-
-    var body: some View { PixelSymbol(rows: Glyph.a, color: color ?? AutobotColors.purple, size: size) }
-}
-
-/// Invincible's symbol, the pixel i, in its orange: on anything about the node.
-struct NodeMark: View {
-    var size: CGFloat = 12
-    @Environment(\.scheme) private var c
-
-    var body: some View { PixelSymbol(rows: Glyph.i, color: c.node, size: size) }
-}
-
-/// The pixel a and the lowercase mono name: Autobot's wordmark.
-struct Wordmark: View {
-    var name = "autobot"
-    var color: Color? = nil
-    @Environment(\.scheme) private var c
-    @Environment(\.dynamicTypeSize) private var dynamicType
-
-    /// JetBrains Mono semibold, 17 pt at the default text size.
-    static let style = Tokens.TypeStyle(font: .mono, size: 17, lineHeight: 22, weight: 600, letterSpacing: 0, trim: true, tabular: false)
-
-    var body: some View {
-        HStack(spacing: 8) {
-            AutobotMark(size: 14, color: color)
-            Text(name)
-                .font(Font(AutobotFonts.uiFont(Self.style, dynamicType: dynamicType)))
-                .foregroundStyle(c.onBackground)
-                .lineLimit(1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(name.prefix(1).uppercased() + name.dropFirst())
-        .accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// The app icon (the pixel a in purple on white), for the places that show the icon itself.
-struct AppIconImage: View {
-    var size: CGFloat = Tokens.Spacing.markSize
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous).fill(Color.white)
-            PixelSymbol(rows: Glyph.a, color: AutobotColors.purple, size: size * 0.5)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
 /// Icon-only button (Material IconButton): 48pt target.
 struct IconAction: View {
     enum Glyph {
@@ -341,63 +224,6 @@ struct IconAction: View {
         .buttonStyle(PressStyle())
         .disabled(!enabled)
         .accessibilityLabel(label)
-    }
-}
-
-/**
- The small solid purple square that ends a top-level title ("Models▪"), as on the sites' h1:
- 0.3 em, on the baseline, 0.15 em after the last letter. [fontSize] is the title's point size.
- */
-struct TitleMark: View {
-    var fontSize: CGFloat = 18
-
-    var body: some View {
-        Rectangle()
-            .fill(AutobotColors.purple)
-            .frame(width: (fontSize * 0.3).rounded(), height: (fontSize * 0.3).rounded())
-            .accessibilityHidden(true)
-    }
-}
-
-/// The default top bar title: the bar shows the wordmark instead.
-let wordmarkTitle = "autobot"
-
-/**
- The screen's title and actions, in the system navigation bar (Liquid Glass where the system
- draws it): the `■ autobot` wordmark on Home, a sentence-case title with the purple [TitleMark]
- elsewhere, actions at the trailing edge. The system's back button pops the stack, as [onBack]
- did; it is kept for the screens that pass it.
- */
-struct AutobotTopBar<Actions: View>: View {
-    var title: String = wordmarkTitle
-    var showMark = true
-    var titleMark: Bool? = nil
-    var onBack: (() -> Void)? = nil
-    @ViewBuilder var actions: () -> Actions
-
-    var body: some View {
-        Color.clear
-            .frame(height: 0)
-            .navigationTitle(title == wordmarkTitle ? "Autobot" : title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    if title == wordmarkTitle {
-                        Wordmark()
-                    } else {
-                        TitleWithDot(title, mark: titleMark ?? true)
-                    }
-                }
-                if Actions.self != EmptyView.self {
-                    ToolbarItemGroup(placement: .topBarTrailing) { actions() }
-                }
-            }
-    }
-}
-
-extension AutobotTopBar where Actions == EmptyView {
-    init(title: String = wordmarkTitle, showMark: Bool = true, titleMark: Bool? = nil, onBack: (() -> Void)? = nil) {
-        self.init(title: title, showMark: showMark, titleMark: titleMark, onBack: onBack, actions: { EmptyView() })
     }
 }
 

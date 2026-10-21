@@ -84,22 +84,6 @@ struct StepperField: View {
     }
 }
 
-/// Keyboard behaviour of a [ConsoleTextField], mirroring Android's keyboard options.
-enum FieldKind {
-    /// Chat input and names: sentence caps, autocorrect on.
-    case prose
-    /// Prompts, ids and URLs: no auto-caps, no autocorrect.
-    case mono
-    /// URLs: like mono, URL keyboard.
-    case url
-    /// Numbers.
-    case number
-    /// Signed or decimal numbers (a keyboard with "-" and ".").
-    case decimal
-    /// Secrets: masked, no suggestions, no autocorrect, never offered to password managers.
-    case secret
-}
-
 /**
  Hairline-bordered text input for prompts and fields. [kind] picks the face (mono for prompts,
  URLs, ids) and the keyboard: mono and secret fields turn off auto-capitalization and

@@ -51,7 +51,7 @@ enum DemoSeed {
             .userMessage(text: "How do I reverse a list in Swift?"),
             .requestContext(provider: "demo-ollama", model: "qwen3", contextWindow: 32_768),
             .assistantMessage(.init(turn: 0, step: 0,
-                                    text: "Use `reversed()` for a lazy reversed view, or `reverse()` to reverse an array in place.\n\n```swift\nvar xs = [1, 2, 3]\nlet ys = Array(xs.reversed())\nxs.reverse()\n```\n\nBoth run in O(n).",
+                                    text: "Use `reversed()` for a lazy reversed view, or `reverse()` to reverse an array in place.\n\n```swift\nvar xs = [1, 2, 3]\nlet ys = Array(xs.reversed())\nxs.reverse()\n```\n\n| Call | Returns | Cost |\n|:-----|:--------|-----:|\n| `reversed()` | a lazy view | O(1) |\n| `reverse()` | nothing, in place | O(n) |\n\nCopying the view into an array is O(n).",
                                     reasoning: "The user wants the idiomatic way. Mention reversed() vs reverse(), show both.",
                                     usage: TokenUsage(inputTokens: 412, outputTokens: 96, totalTokens: 508), model: "qwen3")),
             .turnEnd(turn: 0, reason: .completed, detail: nil),

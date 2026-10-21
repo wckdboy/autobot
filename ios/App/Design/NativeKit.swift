@@ -264,3 +264,56 @@ struct FormField: View {
         .privacySensitive(kind == .secret)
     }
 }
+
+/// Keyboard behaviour of a [FormField], mirroring Android's keyboard options.
+enum FieldKind {
+    /// Chat input and names: sentence caps, autocorrect on.
+    case prose
+    /// Prompts, ids and URLs: no auto-caps, no autocorrect.
+    case mono
+    /// URLs: like mono, URL keyboard.
+    case url
+    /// Numbers.
+    case number
+    /// Signed or decimal numbers (a keyboard with "-" and ".").
+    case decimal
+    /// Secrets: masked, no suggestions, no autocorrect, never offered to password managers.
+    case secret
+}
+
+/**
+ A slider under its label, the value trailing in monospaced digits (`CFG ········· 7.0`). The
+ system `Slider` in the tint; VoiceOver reads the label and the formatted value.
+ */
+struct LabeledSlider: View {
+    let label: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var step: Double? = nil
+    var format: (Double) -> String = { String(format: "%.2f", $0) }
+
+    init(_ label: String, value: Binding<Double>, in range: ClosedRange<Double>, step: Double? = nil, format: @escaping (Double) -> String = { String(format: "%.2f", $0) }) {
+        self.label = label
+        self._value = value
+        self.range = range
+        self.step = step
+        self.format = format
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            LabeledContent(label) {
+                Text(format(value)).monospacedDigit()
+            }
+            Group {
+                if let step {
+                    Slider(value: $value, in: range, step: step)
+                } else {
+                    Slider(value: $value, in: range)
+                }
+            }
+            .accessibilityLabel(label)
+            .accessibilityValue(format(value))
+        }
+    }
+}
