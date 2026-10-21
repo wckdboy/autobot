@@ -12,6 +12,7 @@ import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
 import dev.wckdboy.autobot.shared.a2ui.A2uiChat
+import dev.wckdboy.autobot.shared.a2ui.A2uiSubmission
 import dev.wckdboy.autobot.providers.remote.QuotaErrors
 import dev.wckdboy.autobot.providers.remote.SystemModels
 import kotlinx.serialization.SerialName
@@ -36,7 +37,13 @@ sealed interface SessionItem {
 
     @Serializable
     @SerialName("user")
-    data class User(override val key: String, val text: String, val images: List<String> = emptyList()) : SessionItem
+    data class User(
+        override val key: String,
+        val text: String,
+        val images: List<String> = emptyList(),
+        /** The generated-UI action this turn sent, if it came from one ([dev.wckdboy.autobot.shared.a2ui.A2uiTranscript] locks that surface). */
+        val a2ui: A2uiSubmission? = null,
+    ) : SessionItem
 
     @Serializable
     @SerialName("assistant")
@@ -211,7 +218,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
         val key = "e${entry.seq}"
         when (val e = entry.event) {
             is SessionEvent.UserMessage -> when (e.kind) {
-                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.display ?: e.text, e.images)
+                UserMessageKind.PROMPT -> items += SessionItem.User(key, e.display ?: e.text, e.images, A2uiChat.submission(e.meta, e.display ?: e.text))
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
                 UserMessageKind.CONTEXT -> if (e.contextId == CASCADE_ESCALATION) {
                     items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty(), localCascade?.target), NoticeKind.INFO)
