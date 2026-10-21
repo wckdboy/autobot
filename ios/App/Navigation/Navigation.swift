@@ -177,9 +177,8 @@ final class Navigator {
 
 /**
  Navigation host, adaptive: the system's tab view, a tab bar on iPhone and a sidebar on iPad and
- the Mac (`sidebarAdaptable`), each tab with its own stack that it keeps when another is chosen.
- Screens still draw their own top bars, so the system navigation bar is hidden (the edge-swipe
- back gesture stays enabled).
+ the Mac (`sidebarAdaptable`), each tab with its own stack that it keeps when another is chosen,
+ and the system navigation bar (screens fill it through [AutobotTopBar]).
  */
 struct AutobotNavHost: View {
     @Environment(Navigator.self) private var nav
@@ -210,11 +209,9 @@ struct AutobotNavHost: View {
                     NavigationStack(path: nav.pathBinding(tab)) {
                         root(tab)
                             .inkArrive()
-                            .toolbar(.hidden, for: .navigationBar)
                             .navigationDestination(for: Destination.self) { destination in
                                 screen(destination)
                                     .inkArrive()
-                                    .toolbar(.hidden, for: .navigationBar)
                                     .background(c.background.ignoresSafeArea())
                             }
                     }
@@ -257,17 +254,5 @@ struct AutobotNavHost: View {
             NodeAgentScreen(providerId: providerId, open: open, session: session, bot: bot).id("\(providerId)/\(session ?? "")/\(bot ?? "")")
         case .nodeBot(let providerId, let name): NodeBotScreen(providerId: providerId, name: name).id("\(providerId)/bot/\(name)")
         }
-    }
-}
-
-/// Keeps the interactive pop gesture working while the navigation bar is hidden.
-extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
-    override open func viewDidLoad() {
-        super.viewDidLoad()
-        interactivePopGestureRecognizer?.delegate = self
-    }
-
-    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        viewControllers.count > 1
     }
 }
