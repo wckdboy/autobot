@@ -6,7 +6,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** The outcome of validating agent output: every error found, in stream order. */
-class A2uiReport internal constructor(val errors: List<A2uiError>, val messageCount: Int) {
+class A2uiReport internal constructor(
+    val errors: List<A2uiError>,
+    val messageCount: Int,
+    /** The surfaces the messages created or changed, in stream order. */
+    val surfaceIds: List<String> = emptyList(),
+) {
     val isValid: Boolean get() = errors.isEmpty()
 
     /** The errors as lines for the model to fix its output, or "valid". */
@@ -25,19 +30,32 @@ class A2uiReport internal constructor(val errors: List<A2uiError>, val messageCo
 class A2uiValidator(private val catalogs: List<A2uiCatalog>, private val limits: A2uiLimits) {
     constructor() : this(listOf(A2uiCatalog.basic), A2uiLimits.standard)
 
-    fun validate(text: String): A2uiReport {
+    fun validate(text: String): A2uiReport = validate(text, emptyList())
+
+    /**
+     * Validates [text] as it would apply after [prior] (earlier streams of the same chat, already
+     * shown): an `updateComponents` for a surface created before is fine, a `createSurface` that
+     * reuses a live id is not. Only the surfaces [text] touches are checked; errors in [prior]
+     * are not reported.
+     */
+    fun validate(text: String, prior: List<String>): A2uiReport {
         val host = A2uiHost(catalogs, limits)
+        prior.forEach { host.receive(it) }
         val parsed = A2uiParser.parse(text, limits)
         val errors = ArrayList(parsed.errors)
-        for ((i, m) in parsed.messages) errors += host.applyMessage(m, i)
-        for (id in host.surfaceIds) {
-            val surface = host.surface(id)!!
+        val touched = LinkedHashSet<String>()
+        for ((i, m) in parsed.messages) {
+            errors += host.applyMessage(m, i)
+            A2uiMessage.kindOf(m)?.let { (m[it] as? JsonObject)?.get("surfaceId")?.stringOrNull() }?.let { touched += it }
+        }
+        for (id in touched) {
+            val surface = host.surface(id) ?: continue
             errors += surface.integrityErrors()
             // Expressions that fail when the tree is evaluated with the data it has (cycles and
             // @index misuse are already reported above, statically).
             errors += surface.renderErrors.filter { it.code != A2uiErrorCode.INTEGRITY_ERROR && "@index" !in it.message }
         }
-        return A2uiReport(errors.sortedBy { it.messageIndex ?: Int.MAX_VALUE }, parsed.messageCount)
+        return A2uiReport(errors.sortedBy { it.messageIndex ?: Int.MAX_VALUE }, parsed.messageCount, touched.toList())
     }
 
     /** Validates one message object against the schemas only (no surface state), as the spec tests do. */

@@ -76,6 +76,11 @@ sealed interface SessionEvent {
         val contextId: String? = null,
         /** Attached images (attachment ids, see the app's attachment store). */
         val images: List<String> = emptyList(),
+        /**
+         * What the transcript shows instead of [text], when the two differ: a generated-UI action
+         * reaches the model as its A2UI `action` message and shows as the words the user acted on.
+         */
+        val display: String? = null,
     ) : SessionEvent
 
     @Serializable

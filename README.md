@@ -25,7 +25,7 @@ Version 1.12. What runs, and what is not yet verified:
 | Your node | Pairs with Invincible over Noise: the node's agent, approvals, schedules, receipts and audit log in the app |
 | Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
 | Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
-| Generative UI | In progress, not visible in the app yet: the shared A2UI v1.0 core (agent-generated forms, lists and cards rendered natively) is in `:shared`; the Compose and SwiftUI renderers and the agent tool come next, first in the phone chats |
+| Generative UI | In progress: the shared A2UI v1.0 core is in `:shared`; on Android (in review) the phone chats' agent can call `show_ui` to show forms, choices and cards drawn with Material 3 (`:core:a2ui`), kept with the chat; images load only on tap. The SwiftUI renderer comes next |
 | **Not yet verified** | No independent security review yet |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).
@@ -136,6 +136,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:core:designsystem` | Riso theme: one signal red on ink (dark) or paper (light), Antonio display + JetBrains Mono labels, halftone rendering (`HalftoneImage`, `HalftoneField`), `ModeCard`, `RouteTag`, `RunRow`, `BigReadout`, `Panel`, `Tag`, sliders, segmented controls, `AutobotNavBar`, stroke icons |
 | `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
 | `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
+| `:core:a2ui` | The Compose renderer of A2UI v1.0: `A2uiSurfaceView(host, surfaceId, onAction)` draws the basic catalog with Material 3 in the app theme, writes inputs back through the host, asks before opening links; `A2uiChatState` / `A2uiToolSurfaces` for a chat's `show_ui` surfaces |
 | `:core:models` | Android side of model management: `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face / Civitai clients and NPU package plans over the shared hubs, `FileFetcher` (OkHttp bytes for the shared download state machine), `ModelDownloader` + user-initiated transfer job, `ModelLibrary`, accounts |
 | `:engine:llama` | llama.cpp (MIT) via JNI in the `:llm` process: chat templates, tool-call parsing, KV prefix reuse, runtime CPU variant selection |
 | `:engine:diffusion` | stable-diffusion.cpp (MIT) via JNI in the `:sd` process: txt2img, img2img, inpainting, LoRA |
