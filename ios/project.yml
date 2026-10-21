@@ -216,7 +216,33 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: ai.wckd.autobot.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  # XCUITest: the accessibility audit on every screen, launch metric, state checks (own scheme).
+  AutobotUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Autobot
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wckd.autobot.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        # XCUITest's audit handler and waits are not Sendable-annotated yet.
+        SWIFT_VERSION: "5.0"
+        SWIFT_STRICT_CONCURRENCY: minimal
+        TEST_TARGET_NAME: Autobot
+
 schemes:
+  AutobotUITests:
+    build:
+      targets:
+        Autobot: all
+        AutobotUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - AutobotUITests
   Autobot:
     build:
       preActions:

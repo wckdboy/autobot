@@ -15,7 +15,9 @@ code in a light tinted capsule and tables with system separators. The Studio is 
 chat list beside its stack, and a chat chosen there opens next to it. The shared pieces are in
 `App/Design/NativeKit.swift` (titles, tags, empty states, glass buttons, form rows, sliders, menu
 rows), `App/Design/ChatComposer.swift` (the glass composer every chat shares) and
-`App/Design/Brand.swift` (the pixel marks, the wordmark, the title dot, the route).
+`App/Design/Brand.swift` (the pixel marks, the wordmark, the title dot, the route). What was typed
+in a chat's composer and not sent stays with that chat while the app runs (`ComposerDrafts`,
+memory only), through going back, picking another chat on iPad or voice mode.
 
 ## Build and run
 
@@ -29,12 +31,23 @@ scripts/build-shared.sh Debug     # once: Kotlin agent runtime → Frameworks/Au
 xcodegen generate                 # the .xcodeproj is not committed
 xcodebuild -project Autobot.xcodeproj -scheme Autobot \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0' build
-xcodebuild -project Autobot.xcodeproj -scheme Autobot \
+xcodebuild -project Autobot.xcodeproj -scheme Autobot -collect-test-diagnostics never \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0' test
+# XCUITest: the system accessibility audit on every screen, the launch metric, the composer draft
+xcodebuild -project Autobot.xcodeproj -scheme AutobotUITests -collect-test-diagnostics never \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=27.0' test
 # TestFlight / App Store
 xcodebuild -project Autobot.xcodeproj -scheme Autobot -configuration Release \
   -destination 'generic/platform=iOS' -archivePath build/Autobot.xcarchive archive -allowProvisioningUpdates
 ```
+
+`-collect-test-diagnostics never`: after any failed test (or a test host that crashed, such as
+the simulator's Metal host dropping its connection) xcodebuild runs `simctl diagnose` with a
+10-minute timeout before it exits, which looks like a hang after the last test. Leave the flag off
+when you want that sysdiagnose. Performance runs: `TEST_RUNNER_AUTOBOT_PERF=1
+TEST_RUNNER_AUTOBOT_PERF_DIR=<dir>` (`MotionPerfTests`, `ScreenPerfTests`, `PerfBenchmarkTests`:
+CPU, frame pacing, body counts, memory across every screen); `scripts/launch-bench.sh` for launch
+milestones.
 
 The `AutobotEngines` package and `AutobotShared.xcframework` are always linked. A scheme
 pre-action rebuilds the Kotlin framework with Gradle for the active configuration on every build
