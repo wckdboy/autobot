@@ -25,6 +25,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.VisualTransformation
@@ -76,12 +79,24 @@ fun Field(
             singleLine = singleLine,
             minLines = if (singleLine) 1 else minLines,
             maxLines = if (singleLine) 1 else maxLines,
-            keyboardOptions = keyboardOptions ?: if (mono) PromptKeyboardOptions else PrivateKeyboardOptions,
+            keyboardOptions = fieldKeyboardOptions(keyboardOptions, mono, visualTransformation),
             keyboardActions = keyboardActions,
             trailingIcon = trailingIcon,
             visualTransformation = visualTransformation,
         )
     }
+}
+
+/**
+ * A [Field]'s keyboard: [given], else the code or the prose keyboard. A masked field (a key, a
+ * token, a pairing code) always gets a password keyboard: a text or URL keyboard still shows what
+ * was typed in its suggestion strip, the secret the mask hides.
+ */
+internal fun fieldKeyboardOptions(given: KeyboardOptions?, mono: Boolean, visual: VisualTransformation): KeyboardOptions {
+    val options = given ?: if (mono) PromptKeyboardOptions else PrivateKeyboardOptions
+    if (visual !is PasswordVisualTransformation) return options
+    if (options.keyboardType == KeyboardType.Password || options.keyboardType == KeyboardType.NumberPassword) return options.copy(autoCorrectEnabled = false)
+    return options.copy(keyboardType = KeyboardType.Password, autoCorrectEnabled = false, capitalization = KeyboardCapitalization.None)
 }
 
 /** A search field: Material's rounded outlined field with the search icon. */
