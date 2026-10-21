@@ -167,14 +167,15 @@ fun NodeAgentScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { TitleWithDot("Agent · ${state.node}", mark = false) },
-                navigationIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BackIcon(onBack)
-                        // A screen about the node: Invincible's pixel i says which product is speaking.
+                title = {
+                    // A screen about the node: Invincible's pixel i after the title, where the dot sits
+                    // on the app's own screens, says which product is speaking.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TitleWithDot("Agent · ${state.node}", Modifier.weight(1f, fill = false), mark = false)
                         NodeMark(size = 14.dp)
                     }
                 },
+                navigationIcon = { BackIcon(onBack) },
                 actions = {
                     IconButton(onClick = onOpenActivity) {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Activity: what the node and the agent did")

@@ -4,6 +4,8 @@ import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import dev.wckdboy.autobot.core.designsystem.largetext.LargeTextAudit
@@ -23,6 +25,15 @@ import org.robolectric.annotation.Config
 class RunScreenTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @Test
+    @Config(qualifiers = "w900dp-h1000dp")
+    fun everyModeCardHasItsIcon() {
+        compose.setContent { Themed { RunScreen(RunUiState(status = "ready"), LargeTextAudit.uncalled(), {}, {}, {}, {}, {}, {}) } }
+        listOf("Image", "Chat", "Agent", "Code", "Studio").forEach { mode ->
+            compose.onNodeWithTag("mode-icon-$mode", useUnmergedTree = true).assertIsDisplayed()
+        }
+    }
 
     @Test
     fun allChatsIsThereWithNothingRecent() {
