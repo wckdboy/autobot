@@ -4,13 +4,22 @@ import dev.wckdboy.autobot.BuildConfig
 
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,9 +36,10 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import androidx.navigation3.scene.Scene
 import dev.wckdboy.autobot.MainActivity
-import dev.wckdboy.autobot.core.designsystem.component.AutobotNavBar
-import dev.wckdboy.autobot.core.designsystem.component.NavItem
+import dev.wckdboy.autobot.core.designsystem.component.EmptyState
+import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.inkScreenTransition
 import dev.wckdboy.autobot.core.designsystem.motion.misregisterEnter
@@ -66,18 +76,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private enum class Tab(val label: String, val root: TopLevel) {
-    RUN("Run", Run),
-    MODELS("Models", Models),
-    REMOTE("Remote", Remote),
-    SETTINGS("Settings", Settings),
+private enum class Tab(val label: String, val root: TopLevel, val icon: () -> ImageVector) {
+    RUN("Run", Run, { Icons.Filled.Home }),
+    MODELS("Models", Models, { AutobotIcons.Chip }),
+    REMOTE("Remote", Remote, { AutobotIcons.Terminal }),
+    SETTINGS("Settings", Settings, { Icons.Filled.Settings }),
 }
 
 private fun NavKey.tab(): Tab? = Tab.entries.firstOrNull { it.root == this }
-
-private val TABS = Tab.entries.map { NavItem(it, it.label) }
-
-/** Entry metadata: the screen is printed on paper (light), whatever the app theme. */
 
 /**
  * Wraps each entry so one that enters while a push is in flight ([pushing], judged once when it
@@ -96,9 +102,13 @@ private fun inkEnterDecorator(pushing: () -> Boolean): NavEntryDecorator<NavKey>
 }
 
 /**
- * Navigation 3 host: one back stack whose first entry is a tab root. Detail screens push on
- * top and hide the bottom bar. The image studio is printed on paper (light) as in the mockups.
+ * Navigation 3 host, adaptive: one back stack whose first entry is a tab root. The tabs are a
+ * bottom bar on a phone and a rail (or a drawer) on a tablet, a foldable or a desktop window,
+ * where they stay beside the screens pushed on top; on a phone a pushed screen takes the whole
+ * window. On a wide window a list and what it opens sit side by side (Run or the chat list and
+ * a chat, Settings and its pages, Remote and a node); on a phone they take turns.
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     // A forward push is in flight (cleared after its transition): the screen composed now is the
@@ -134,27 +144,55 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
 
     val reduced = LocalInkMotion.current.reduced
     val context = LocalContext.current
-    val current = backStack.lastOrNull()
-    val tab = current?.tab()
-    val showBar = tab != null && backStack.size == 1
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize()) {
+    // The tab is the stack's root; a screen pushed on top keeps it.
+    val tab = backStack.firstOrNull()?.tab()
+    val adaptive = currentWindowAdaptiveInfo()
+    val suite = NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptive)
+    // A phone's bottom bar gives the whole window to a pushed screen (and to the Studio, which has
+    // its own bar); a rail or a drawer stays.
+    val layout = when {
+        tab == null -> NavigationSuiteType.None
+        suite == NavigationSuiteType.NavigationBar && backStack.size > 1 -> NavigationSuiteType.None
+        else -> suite
+    }
+    val listDetail = rememberListDetailSceneStrategy<NavKey>()
+    // The pane beside a list before anything is opened in it.
+    val nothingOpen = ListDetailSceneStrategy.listPane(
+        detailPlaceholder = {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState("Nothing open") }
+        },
+    )
+    val detail = ListDetailSceneStrategy.detailPane()
+    NavigationSuiteScaffold(
+        navigationSuiteItems = {
+            Tab.entries.forEach { item ->
+                item(
+                    selected = item == tab,
+                    onClick = { if (item != tab || backStack.size > 1) switchTo(item.root) },
+                    icon = { Icon(item.icon(), contentDescription = null) },
+                    label = { Text(item.label) },
+                )
+            }
+        },
+        layoutType = layout,
+        containerColor = MaterialTheme.colorScheme.background,
+    ) {
             NavDisplay(
                 backStack = backStack,
-                // The bar owns the navigation-bar inset while it is shown.
-                modifier = Modifier.weight(1f).then(if (showBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
+                modifier = Modifier.fillMaxSize(),
                 onBack = { back() },
+                sceneStrategies = listOf(listDetail),
                 entryDecorators = listOf(
                     rememberSaveableStateHolderNavEntryDecorator(),
                     rememberViewModelStoreNavEntryDecorator(),
                     inkEnterDecorator { pushing },
                 ),
-                transitionSpec = inkScreenTransition(reduced),
-                popTransitionSpec = inkScreenTransition(reduced),
+                transitionSpec = inkScreenTransition<Scene<NavKey>>(reduced),
+                popTransitionSpec = inkScreenTransition<Scene<NavKey>>(reduced),
                 // predictivePopTransitionSpec stays the platform default so the back gesture keeps
                 // its interactive, seekable preview.
                 entryProvider = entryProvider {
-                    entry<Run> {
+                    entry<Run>(metadata = nothingOpen) {
                         RunRoute(
                             onOpenSession = { navigate(Chat(it)) },
                             onOpenImagine = { navigate(Imagine()) },
@@ -165,7 +203,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenNodeAgent = { id, open, session -> navigate(NodeAgent(id, open, session)) },
                         )
                     }
-                    entry<Models> {
+                    entry<Models>(metadata = nothingOpen) {
                         ModelsRoute(
                             onOpenAccounts = { navigate(Accounts) },
                             onOpenCompute = { navigate(Compute()) },
@@ -177,7 +215,7 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenVoice = { context.startActivity(Intent(context, MainActivity::class.java).setAction(EntryActions.VOICE)) },
                         )
                     }
-                    entry<Remote> {
+                    entry<Remote>(metadata = nothingOpen) {
                         RemoteRoute(
                             onOpenProviders = { navigate(Providers()) },
                             onOpenBackends = { navigate(ImageBackends) },
@@ -188,11 +226,11 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onOpenBot = { id, bot -> navigate(NodeBot(id, bot)) },
                         )
                     }
-                    entry<NodeAgent> { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open, session = key.session, bot = key.bot) }
-                    entry<NodeBot> { key ->
+                    entry<NodeAgent>(metadata = detail) { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open, session = key.session, bot = key.bot) }
+                    entry<NodeBot>(metadata = detail) { key ->
                         NodeBotRoute(key.providerId, key.name, onBack = ::back, onOpenSession = { session, bot -> navigate(NodeAgent(key.providerId, session = session, bot = bot)) })
                     }
-                    entry<Settings> {
+                    entry<Settings>(metadata = nothingOpen) {
                         SettingsRoute(
                             onBack = null,
                             onOpenPrivacyCenter = { navigate(PrivacyCenter) },
@@ -205,14 +243,14 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             about = aboutRowTitle(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()),
                         )
                     }
-                    entry<ChatList> {
+                    entry<ChatList>(metadata = nothingOpen) {
                         ChatListRoute(
                             onBack = ::back,
                             onOpenChat = { navigate(Chat(it)) },
                             onOpenProviders = { navigate(Providers()) },
                         )
                     }
-                    entry<Chat> { key ->
+                    entry<Chat>(metadata = detail) { key ->
                         ChatRoute(
                             conversationId = key.conversationId,
                             onBack = ::back,
@@ -257,28 +295,24 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                             onReuse = { id, action -> navigate(Imagine(id, asInit = action == ViewerAction.IMG2IMG, action = action.name)) },
                         )
                     }
-                    entry<Providers> { key -> ProvidersRoute(onBack = ::back, start = when (key.start) { Providers.PAIR -> ProvidersStart.PAIR; Providers.ADD -> ProvidersStart.ADD; else -> null }) }
-                    entry<McpServers> { McpServersRoute(onBack = ::back) }
-                    entry<PrivacyCenter> { PrivacyCenterRoute(onBack = ::back) }
-                    entry<ImageBackends> { BackendsRoute(onBack = ::back) }
-                    entry<Accounts> { AccountsRoute(onBack = ::back) }
-                    entry<Compute> { key -> ComputeRoute(onBack = ::back, openReport = key.report) }
-                    entry<About> {
+                    entry<Providers>(metadata = detail) { key -> ProvidersRoute(onBack = ::back, start = when (key.start) { Providers.PAIR -> ProvidersStart.PAIR; Providers.ADD -> ProvidersStart.ADD; else -> null }) }
+                    entry<McpServers>(metadata = detail) { McpServersRoute(onBack = ::back) }
+                    entry<PrivacyCenter>(metadata = detail) { PrivacyCenterRoute(onBack = ::back) }
+                    entry<ImageBackends>(metadata = detail) { BackendsRoute(onBack = ::back) }
+                    entry<Accounts>(metadata = detail) { AccountsRoute(onBack = ::back) }
+                    entry<Compute>(metadata = detail) { key -> ComputeRoute(onBack = ::back, openReport = key.report) }
+                    entry<About>(metadata = detail) {
                         AboutRoute(
                             info = AboutInfo(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.BUILD_DATE, BuildConfig.DEBUG),
                             onBack = ::back,
                             onOpenDiagnostics = { navigate(Compute(report = true)) },
                         )
                     }
-                    entry<Memory> { MemoryRoute(onBack = ::back) }
-                    entry<Usage> { UsageRoute(onBack = ::back) }
-                    entry<Recipes> { RecipesRoute(onBack = ::back, onOpenChat = { navigate(Chat(it)) }) }
-                    entry<Vault> { VaultRoute(onBack = ::back, onOpenModels = { switchTo(Models) }) }
+                    entry<Memory>(metadata = detail) { MemoryRoute(onBack = ::back) }
+                    entry<Usage>(metadata = detail) { UsageRoute(onBack = ::back) }
+                    entry<Recipes>(metadata = detail) { RecipesRoute(onBack = ::back, onOpenChat = { navigate(Chat(it)) }) }
+                    entry<Vault>(metadata = detail) { VaultRoute(onBack = ::back, onOpenModels = { switchTo(Models) }) }
                 },
             )
-            if (showBar && tab != null) {
-                AutobotNavBar(TABS, tab, { selected -> if (selected != tab) switchTo(selected.root) })
-            }
-        }
     }
 }

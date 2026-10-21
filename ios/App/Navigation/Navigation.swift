@@ -2,14 +2,32 @@ import Observation
 import SwiftUI
 import UIKit
 
-/// Bottom-bar destinations (RUN · MODELS · REMOTE · SETTINGS). Selecting one resets the stack.
+/// The app's sections: a tab bar on iPhone, a sidebar on iPad and the Mac. Each keeps its own stack.
 enum Tab: String, CaseIterable, Hashable {
     case run, models, remote, settings
 
     var label: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .run: "Run"
+        case .models: "Models"
+        case .remote: "Remote"
+        case .settings: "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .run: "house"
+        case .models: "cpu"
+        case .remote: "server.rack"
+        case .settings: "gearshape"
+        }
+    }
 }
 
-/// Detail screens pushed on top of a tab root (they hide the bottom bar).
+/// Detail screens pushed on top of a tab root.
 enum Destination: Hashable {
     /// All sessions.
     case chatList
@@ -59,12 +77,17 @@ enum StudioRoom: String, CaseIterable, Hashable {
 
 enum StudioSurface { case darkroom, paper, app }
 
-/// One back stack whose root is a tab (Android's Navigation 3 `NavDisplay`).
+/// A stack of screens per tab; [path] is the selected tab's.
 @MainActor
 @Observable
 final class Navigator {
     var tab: Tab = .run
-    var path: [Destination] = []
+    var paths: [Tab: [Destination]] = [:]
+    /// The selected tab's stack.
+    var path: [Destination] {
+        get { paths[tab] ?? [] }
+        set { paths[tab] = newValue }
+    }
     /// The Studio is open on this room (it replaces the app until [leaveStudio]); the app's stack waits underneath.
     var studio: StudioRoom?
     /// A workflow handed over to import (share sheet), shown by the Workflows room.
@@ -134,23 +157,29 @@ final class Navigator {
         if !path.isEmpty { path.removeLast() }
     }
 
+    /// Goes to [tab]'s first screen (a shortcut to it from elsewhere).
     func switchTo(_ tab: Tab) {
-        path = []
+        paths[tab] = []
         self.tab = tab
     }
 
-    /// Replaces the whole stack (welcome screen shortcuts).
+    /// Replaces [tab]'s stack and shows it (welcome screen shortcuts, links).
     func reset(_ tab: Tab, _ destinations: [Destination] = []) {
+        paths[tab] = destinations
         self.tab = tab
-        path = destinations
+    }
+
+    /// The stack of [tab], for its NavigationStack.
+    func pathBinding(_ tab: Tab) -> Binding<[Destination]> {
+        Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
     }
 }
 
 /**
- Navigation host: the tab root with pushed details on top. The image studio is printed on paper
- (light) as in the mockups. Screens draw their own riso top bars, so the system navigation bar is
- hidden (the edge-swipe back gesture stays enabled). Pushed screens and tab roots ink in
- (motion spec v2 §3).
+ Navigation host, adaptive: the system's tab view, a tab bar on iPhone and a sidebar on iPad and
+ the Mac (`sidebarAdaptable`), each tab with its own stack that it keeps when another is chosen.
+ Screens still draw their own top bars, so the system navigation bar is hidden (the edge-swipe
+ back gesture stays enabled).
  */
 struct AutobotNavHost: View {
     @Environment(Navigator.self) private var nav
@@ -175,30 +204,30 @@ struct AutobotNavHost: View {
 
     private var app: some View {
         @Bindable var nav = nav
-        return VStack(spacing: 0) {
-            NavigationStack(path: $nav.path) {
-                root
-                    .inkArrive()
-                    .id(nav.tab)
-                    .toolbar(.hidden, for: .navigationBar)
-                    .navigationDestination(for: Destination.self) { destination in
-                        screen(destination)
+        return TabView(selection: $nav.tab) {
+            ForEach(Tab.allCases, id: \.self) { tab in
+                SwiftUI.Tab(tab.title, systemImage: tab.symbol, value: tab) {
+                    NavigationStack(path: nav.pathBinding(tab)) {
+                        root(tab)
                             .inkArrive()
                             .toolbar(.hidden, for: .navigationBar)
-                            .background(c.background.ignoresSafeArea())
+                            .navigationDestination(for: Destination.self) { destination in
+                                screen(destination)
+                                    .inkArrive()
+                                    .toolbar(.hidden, for: .navigationBar)
+                                    .background(c.background.ignoresSafeArea())
+                            }
                     }
-            }
-            if nav.path.isEmpty {
-                AutobotNavBar(items: Tab.allCases.map { NavItem(key: $0, label: $0.label) }, selected: nav.tab) { selected in
-                    if selected != nav.tab { nav.switchTo(selected) }
                 }
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        .tint(c.primary)
         .background(c.background.ignoresSafeArea())
     }
 
-    @ViewBuilder private var root: some View {
-        switch nav.tab {
+    @ViewBuilder private func root(_ tab: Tab) -> some View {
+        switch tab {
         case .run: RunScreen()
         case .models: ModelsScreen()
         case .remote: RemoteScreen()
