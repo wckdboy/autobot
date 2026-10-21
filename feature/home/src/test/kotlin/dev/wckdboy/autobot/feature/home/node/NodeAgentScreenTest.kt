@@ -119,4 +119,20 @@ class NodeAgentScreenTest {
     @Test fun onPaper() = assertEquals(emptyList<LargeTextAudit.Finding>(), audit(411, 1f, dark = false))
 
     @Test fun atTheLargestText() = assertEquals(emptyList<LargeTextAudit.Finding>(), audit(360, 2f, dark = true))
+
+    @Test
+    fun aPhotoIsDecodedOffTheMainThreadAndKeepsItsPlace() {
+        val threads = java.util.Collections.synchronizedList(mutableListOf<Thread>())
+        thumbDecodeProbe = { threads += it }
+        try {
+            compose.setContent { Themed { PhotoThumb(photo, 96, "Photo 1 sent") } }
+            // The square and its description are there before the decode finishes.
+            compose.onNodeWithContentDescription("Photo 1 sent").assertIsDisplayed()
+            compose.waitUntil(5_000) { threads.isNotEmpty() }
+            val main = android.os.Looper.getMainLooper().thread
+            assertEquals(false, threads.any { it == main })
+        } finally {
+            thumbDecodeProbe = null
+        }
+    }
 }

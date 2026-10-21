@@ -74,9 +74,6 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -130,6 +127,7 @@ import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
 import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.TodoStatus
+import dev.wckdboy.autobot.core.designsystem.component.Choices
 import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
 import dev.wckdboy.autobot.core.designsystem.component.MessageComposer
 import dev.wckdboy.autobot.core.designsystem.component.SendIconButton
@@ -1407,21 +1405,6 @@ private fun SwitchItem(title: String, checked: Boolean, onChange: (Boolean) -> U
     )
 }
 
-/** One choice of [options] as Material's segmented buttons. */
-@Composable
-private fun <T> Choice(options: List<T>, selected: T, onSelect: (T) -> Unit, label: (T) -> String, modifier: Modifier = Modifier) {
-    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
-        options.forEachIndexed { i, option ->
-            SegmentedButton(
-                selected = option == selected,
-                onClick = { onSelect(option) },
-                shape = SegmentedButtonDefaults.itemShape(i, options.size),
-                label = { Text(labelCase(label(option)), textAlign = TextAlign.Center) },
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SessionSheet(
@@ -1457,7 +1440,7 @@ private fun SessionSheet(
             SheetHeader("Session")
             SwitchItem("Agent tools", state.toolsEnabled, onTools, "Files in /workspace, web fetch, image generation, skills, plans. Off = plain chat.")
             Text("Permission preset", Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), style = MaterialTheme.typography.labelLarge)
-            Choice(PermissionPreset.entries, state.permission, onPermission, { it.label }, Modifier.padding(horizontal = 16.dp))
+            Choices(PermissionPreset.entries, state.permission, onPermission, Modifier.padding(horizontal = 16.dp).fillMaxWidth()) { labelCase(it.label) }
             ListItem(
                 headlineContent = { Text("Compact context") },
                 supportingContent = { Text("Summarize older turns now (also automatic near the limit).") },
@@ -1572,22 +1555,20 @@ private fun ThinkSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SheetHeader("Think")
-            Choice(
+            Choices(
                 ThinkingMode.entries,
                 setting.mode,
                 { mode -> onThinking(ThinkingSetting(mode, if (mode == ThinkingMode.ON) setting.budget else null)) },
-                { it.name.lowercase() },
-                Modifier.padding(horizontal = 16.dp),
-            )
+                Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+            ) { labelCase(it.name.lowercase()) }
             if (setting.mode == ThinkingMode.ON) {
                 Text("Budget · tokens", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge)
-                Choice(
+                Choices(
                     ThinkingSetting.BUDGETS,
                     setting.budget,
                     { budget -> onThinking(ThinkingSetting(ThinkingMode.ON, budget)) },
-                    { it?.let(ThinkingLabels::tokens) ?: "model" },
-                    Modifier.padding(horizontal = 16.dp),
-                )
+                    Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                ) { labelCase(it?.let(ThinkingLabels::tokens) ?: "model") }
             }
             ListItem(
                 headlineContent = { Text("Default for this model") },

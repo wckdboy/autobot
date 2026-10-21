@@ -1,5 +1,10 @@
 package dev.wckdboy.autobot.feature.home.node
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.produceState
 import dev.wckdboy.autobot.core.designsystem.component.NodeMark
 import dev.wckdboy.autobot.core.designsystem.component.MessageComposer
 import dev.wckdboy.autobot.core.designsystem.component.SendIconButton
@@ -298,17 +303,43 @@ private fun RetryButton(onClick: () -> Unit) {
     }
 }
 
-/** Thumbnails of JPEGs, decoded small. */
+/**
+ * Thumbnails of JPEGs, decoded small off the main thread (a node's chat can hold several photos:
+ * decoding them while composing dropped frames on opening and scrolling it). The square keeps
+ * its place while decoding; a photo that cannot be read takes none.
+ */
 @Composable
-private fun PhotoThumb(jpeg: ByteArray, side: Int, description: String) {
-    val bitmap = remember(jpeg) { decodeThumb(jpeg, side * 3) }
-    if (bitmap == null) return
-    Image(
-        bitmap,
-        contentDescription = description,
-        modifier = Modifier.size(side.dp).clip(MaterialTheme.shapes.small).border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small),
-        contentScale = ContentScale.Crop,
-    )
+internal fun PhotoThumb(jpeg: ByteArray, side: Int, description: String) {
+    val decoded by produceState<Thumb>(Thumb.Pending, jpeg, side) {
+        value = withContext(Dispatchers.Default) { decodeThumb(jpeg, side * 3)?.let(Thumb::Ready) ?: Thumb.Unreadable }
+    }
+    val thumb = decoded
+    if (thumb == Thumb.Unreadable) return
+    val shape = MaterialTheme.shapes.small
+    Box(
+        Modifier
+            .size(side.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .semantics {
+                contentDescription = description
+                role = Role.Image
+            },
+    ) {
+        if (thumb is Thumb.Ready) {
+            Image(thumb.bitmap, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        }
+    }
+}
+
+/** Test hook: told the thread each thumbnail is decoded on. Null in the app. */
+internal var thumbDecodeProbe: ((Thread) -> Unit)? = null
+
+private sealed interface Thumb {
+    data object Pending : Thumb
+    data object Unreadable : Thumb
+    class Ready(val bitmap: ImageBitmap) : Thumb
 }
 
 @Composable
@@ -373,6 +404,7 @@ private fun PhotoButton(enabled: Boolean, onAttach: (Uri, Boolean) -> Unit, onPr
 }
 
 private fun decodeThumb(jpeg: ByteArray, maxPx: Int): ImageBitmap? {
+    thumbDecodeProbe?.invoke(Thread.currentThread())
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
     var sample = 1

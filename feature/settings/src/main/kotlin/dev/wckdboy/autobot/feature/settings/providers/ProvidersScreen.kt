@@ -484,7 +484,7 @@ private fun PairingSheet(draft: PairingDraft, offline: Boolean, actions: Provide
                 Field(
                     draft.code, { v -> actions.changePairing { it.copy(code = v.trim()) } }, Modifier.fillMaxWidth(),
                     label = NodePairingWords.CODE, mono = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                    keyboardOptions = SecretKeyboardOptions,
                     visualTransformation = PasswordVisualTransformation(),
                 )
                 draft.parsed?.let { code ->

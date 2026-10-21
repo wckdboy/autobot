@@ -57,6 +57,7 @@ import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
 import dev.wckdboy.autobot.core.models.StableAudioCatalog
 import dev.wckdboy.autobot.feature.studio.ui.ControlSheet
+import dev.wckdboy.autobot.feature.studio.ui.rememberControlsOpen
 import dev.wckdboy.autobot.feature.studio.ui.EmptyRoom
 import dev.wckdboy.autobot.feature.studio.ui.ErrorLine
 import dev.wckdboy.autobot.feature.studio.ui.LocalAssetLoader
@@ -81,7 +82,7 @@ import java.util.Locale
  */
 @Composable
 fun AudioRoom(state: AudioRoomState, shell: StudioShellState, actions: AudioActions, onOpenModels: () -> Unit, onOpenWorkflows: () -> Unit, modifier: Modifier = Modifier) {
-    var controls by rememberSaveable { mutableStateOf(true) }
+    var controls by rememberControlsOpen()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     val assets = shell.assets.associateBy { it.id }
     val jobs = state.jobIds.mapNotNull { id -> shell.jobs.firstOrNull { it.id == id } }

@@ -43,6 +43,45 @@ fun MacrobenchmarkScope.visitTabs() {
     }
 }
 
+/**
+ * The screens behind the tabs that most sessions open: all chats, a new chat with the composer
+ * (typing in it), and a Settings page. On a wide window they open beside their list.
+ */
+fun MacrobenchmarkScope.visitScreens() {
+    tap("run")
+    if (tap("All")) {
+        scrollOnce()
+        if (tap("New")) {
+            // A new chat focuses its composer itself, which recomposes the field: each try finds it again.
+            val field = By.clazz("android.widget.EditText")
+            if (device.wait(Until.hasObject(field), WAIT_MS)) {
+                repeat(3) { if (runCatching { device.findObject(field)?.text = "Hello" }.isSuccess) return@repeat }
+                device.waitForIdle()
+                device.pressBack() // the keyboard
+            }
+            device.pressBack()
+            device.waitForIdle()
+        }
+        device.pressBack()
+        device.waitForIdle()
+    }
+    tap("settings")
+    if (tap("Privacy Center")) {
+        scrollOnce()
+        device.pressBack()
+        device.waitForIdle()
+    }
+    tap("run")
+}
+
+/** Taps the element labelled [text]; false when it does not show. */
+private fun MacrobenchmarkScope.tap(text: String): Boolean {
+    val target = device.wait(Until.findObject(By.text(label(text))), WAIT_MS) ?: return false
+    target.click()
+    device.waitForIdle()
+    return true
+}
+
 private fun MacrobenchmarkScope.scrollOnce() {
     val w = device.displayWidth
     val h = device.displayHeight

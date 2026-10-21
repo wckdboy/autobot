@@ -1,9 +1,13 @@
 package dev.wckdboy.autobot.core.designsystem.component
 
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -59,5 +63,24 @@ class StandardTest {
             .assert(SemanticsMatcher("long-click labelled") { it.config.getOrNull(SemanticsActions.OnLongClick)?.label == "Folder actions" })
             .performSemanticsAction(SemanticsActions.OnLongClick)
         assertEquals(listOf("tap", "long", "long"), events)
+    }
+
+    @Test
+    fun aSegmentLabelStaysOnOneLineOnAPhone() {
+        // The chat's permission presets at a phone's sheet width: "Workspace-write" broke as
+        // "Workspace-writ / e" and made its segment taller than the others.
+        val options = listOf("Read-only", "Workspace-write", "Full-access")
+        compose.setContent {
+            AutobotTheme {
+                Choices(options, "Workspace-write", {}, Modifier.width(328.dp).fillMaxWidth()) { it }
+            }
+        }
+        for (label in options) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(label).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            assertEquals("$label: lines", 1, layout.lineCount)
+            assertEquals("$label: ellipsized", false, layout.hasVisualOverflow)
+        }
     }
 }

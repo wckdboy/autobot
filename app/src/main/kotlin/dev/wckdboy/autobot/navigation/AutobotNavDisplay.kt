@@ -13,6 +13,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.navigation.BackNavigationBehavior
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -119,7 +121,13 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     val scope = rememberCoroutineScope()
     val settle = remember { arrayOfNulls<Job>(1) }
 
-    fun navigate(key: NavKey) {
+    // A list and what it opens side by side: opening another item from the list replaces the
+    // detail beside it, so back returns to the list instead of walking every item opened.
+    val adaptive = currentWindowAdaptiveInfo()
+    val twoPane = calculatePaneScaffoldDirective(adaptive).maxHorizontalPartitions > 1
+
+    /** Pushes [key]; opened from the list [from], it replaces the detail beside that list on a wide window. */
+    fun navigate(key: NavKey, from: NavKey? = null) {
         if (backStack.lastOrNull() != key) {
             pushing = true
             settle[0]?.cancel()
@@ -127,9 +135,11 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                 delay(Motion.transitionMillis.toLong())
                 pushing = false
             }
-            backStack.add(key)
+            if (from != null) backStack.openDetail(from, key, twoPane) else backStack.add(key)
         }
     }
+
+    fun open(list: NavKey, key: NavKey) = navigate(key, from = list)
 
     fun back() {
         pushing = false
@@ -146,7 +156,6 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
     val context = LocalContext.current
     // The tab is the stack's root; a screen pushed on top keeps it.
     val tab = backStack.firstOrNull()?.tab()
-    val adaptive = currentWindowAdaptiveInfo()
     val suite = NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(adaptive)
     // A phone's bottom bar gives the whole window to a pushed screen (and to the Studio, which has
     // its own bar); a rail or a drawer stays.
@@ -155,14 +164,16 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
         suite == NavigationSuiteType.NavigationBar && backStack.size > 1 -> NavigationSuiteType.None
         else -> suite
     }
-    val listDetail = rememberListDetailSceneStrategy<NavKey>()
+    val listDetail = rememberAutobotListDetail()
     // The pane beside a list before anything is opened in it.
-    val nothingOpen = ListDetailSceneStrategy.listPane(
-        detailPlaceholder = {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyContent("Nothing open") }
-        },
-    )
-    val detail = ListDetailSceneStrategy.detailPane()
+    val nothingOpen = remember {
+        ListDetailSceneStrategy.listPane(
+            detailPlaceholder = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyContent("Nothing open") }
+            },
+        )
+    }
+    val detail = remember { ListDetailSceneStrategy.detailPane() }
     NavigationSuiteScaffold(
         navigationSuiteItems = {
             Tab.entries.forEach { item ->
@@ -194,36 +205,36 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                 entryProvider = entryProvider {
                     entry<Run>(metadata = nothingOpen) {
                         RunRoute(
-                            onOpenSession = { navigate(Chat(it)) },
+                            onOpenSession = { open(Run, Chat(it)) },
                             onOpenImagine = { navigate(Imagine()) },
                             onOpenStudio = { navigate(Studio()) },
-                            onOpenAllRuns = { navigate(ChatList) },
+                            onOpenAllRuns = { open(Run, ChatList) },
                             onOpenGalleryItem = { navigate(Gallery(it)) },
                             onOpenModels = { switchTo(Models) },
-                            onOpenNodeAgent = { id, open, session -> navigate(NodeAgent(id, open, session)) },
+                            onOpenNodeAgent = { id, sheet, session -> open(Run, NodeAgent(id, sheet, session)) },
                         )
                     }
                     entry<Models>(metadata = nothingOpen) {
                         ModelsRoute(
-                            onOpenAccounts = { navigate(Accounts) },
-                            onOpenCompute = { navigate(Compute()) },
-                            onOpenSession = { navigate(Chat(it)) },
+                            onOpenAccounts = { open(Models, Accounts) },
+                            onOpenCompute = { open(Models, Compute()) },
+                            onOpenSession = { open(Models, Chat(it)) },
                             onOpenImagine = { navigate(Imagine(modelId = it)) },
                             onOpenGallery = { navigate(Gallery()) },
-                            onOpenNetwork = { navigate(PrivacyCenter) },
+                            onOpenNetwork = { open(Models, PrivacyCenter) },
                             // The same new voice chat the voice tile and widget open.
                             onOpenVoice = { context.startActivity(Intent(context, MainActivity::class.java).setAction(EntryActions.VOICE)) },
                         )
                     }
                     entry<Remote>(metadata = nothingOpen) {
                         RemoteRoute(
-                            onOpenProviders = { navigate(Providers()) },
-                            onOpenBackends = { navigate(ImageBackends) },
-                            onOpenAccounts = { navigate(Accounts) },
-                            onOpenPrivacy = { navigate(PrivacyCenter) },
-                            onOpenNodeAgent = { navigate(NodeAgent(it)) },
-                            onPairNode = { navigate(Providers(Providers.PAIR)) },
-                            onOpenBot = { id, bot -> navigate(NodeBot(id, bot)) },
+                            onOpenProviders = { open(Remote, Providers()) },
+                            onOpenBackends = { open(Remote, ImageBackends) },
+                            onOpenAccounts = { open(Remote, Accounts) },
+                            onOpenPrivacy = { open(Remote, PrivacyCenter) },
+                            onOpenNodeAgent = { open(Remote, NodeAgent(it)) },
+                            onPairNode = { open(Remote, Providers(Providers.PAIR)) },
+                            onOpenBot = { id, bot -> open(Remote, NodeBot(id, bot)) },
                         )
                     }
                     entry<NodeAgent>(metadata = detail) { key -> NodeAgentRoute(providerId = key.providerId, onBack = ::back, open = key.open, session = key.session, bot = key.bot) }
@@ -233,21 +244,21 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                     entry<Settings>(metadata = nothingOpen) {
                         SettingsRoute(
                             onBack = null,
-                            onOpenPrivacyCenter = { navigate(PrivacyCenter) },
-                            onOpenMemory = { navigate(Memory) },
-                            onOpenUsage = { navigate(Usage) },
-                            onOpenRecipes = { navigate(Recipes) },
-                            onOpenVault = { navigate(Vault) },
-                            onOpenMcpServers = { navigate(McpServers) },
-                            onOpenAbout = { navigate(About) },
+                            onOpenPrivacyCenter = { open(Settings, PrivacyCenter) },
+                            onOpenMemory = { open(Settings, Memory) },
+                            onOpenUsage = { open(Settings, Usage) },
+                            onOpenRecipes = { open(Settings, Recipes) },
+                            onOpenVault = { open(Settings, Vault) },
+                            onOpenMcpServers = { open(Settings, McpServers) },
+                            onOpenAbout = { open(Settings, About) },
                             about = aboutRowTitle(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()),
                         )
                     }
                     entry<ChatList>(metadata = nothingOpen) {
                         ChatListRoute(
                             onBack = ::back,
-                            onOpenChat = { navigate(Chat(it)) },
-                            onOpenProviders = { navigate(Providers()) },
+                            onOpenChat = { open(ChatList, Chat(it)) },
+                            onOpenProviders = { open(ChatList, Providers()) },
                         )
                     }
                     entry<Chat>(metadata = detail) { key ->
@@ -315,4 +326,28 @@ fun AutobotNavDisplay(backStack: NavBackStack<NavKey>) {
                 },
             )
     }
+}
+
+/**
+ * The list-detail scenes. Back pops one entry ([BackNavigationBehavior.PopLatest]): the default
+ * (pop until the panes change) found nothing to pop on a wide window, where closing a detail
+ * leaves the "Nothing open" placeholder in the same two panes, so back left the app instead.
+ */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+internal fun rememberAutobotListDetail(): ListDetailSceneStrategy<NavKey> =
+    rememberListDetailSceneStrategy(backNavigationBehavior = BackNavigationBehavior.PopLatest)
+
+/**
+ * Opens [key] from the list [list]. With two panes the list stays and [key] takes the detail
+ * pane: what was open beside the list is closed first, so back returns to the list. With one
+ * pane [key] is pushed as usual.
+ */
+internal fun MutableList<NavKey>.openDetail(list: NavKey, key: NavKey, twoPane: Boolean) {
+    if (lastOrNull() == key) return
+    if (twoPane) {
+        val at = lastIndexOf(list)
+        if (at >= 0) while (size > at + 1) removeAt(lastIndex)
+    }
+    add(key)
 }

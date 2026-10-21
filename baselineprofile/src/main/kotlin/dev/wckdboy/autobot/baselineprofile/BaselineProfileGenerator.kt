@@ -21,5 +21,6 @@ class BaselineProfileGenerator {
         startAndWait()
         skipWelcome()
         visitTabs()
+        visitScreens()
     }
 }

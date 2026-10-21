@@ -11,10 +11,8 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.ui.graphics.Color
+import dev.wckdboy.autobot.core.designsystem.component.Choices
 import dev.wckdboy.autobot.core.designsystem.component.labelCase
 import dev.wckdboy.autobot.core.designsystem.component.AppBar
 import dev.wckdboy.autobot.core.designsystem.component.Centered
@@ -380,15 +378,7 @@ private fun Hint(text: String, modifier: Modifier = Modifier, color: Color = Mat
 @Composable
 private fun SpeculativeRow(mode: SpeculativeMode, onMode: (SpeculativeMode) -> Unit) {
     SectionCard(title = "Speculative decoding") {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            SpeculativeMode.entries.forEachIndexed { i, m ->
-                SegmentedButton(
-                    selected = m == mode,
-                    onClick = { onMode(m) },
-                    shape = SegmentedButtonDefaults.itemShape(i, SpeculativeMode.entries.size),
-                ) { Text(labelCase(m.label)) }
-            }
-        }
+        Choices(SpeculativeMode.entries, mode, onMode, Modifier.fillMaxWidth()) { labelCase(it.label) }
         Hint(
             when (mode) {
                 SpeculativeMode.AUTO -> "A small model of the same family drafts, the chat model checks: same replies, faster, when the pair fits."

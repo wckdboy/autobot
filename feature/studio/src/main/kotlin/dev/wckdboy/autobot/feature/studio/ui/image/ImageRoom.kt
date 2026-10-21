@@ -87,6 +87,7 @@ import dev.wckdboy.autobot.feature.imagine.mask.MaskOverlay
 import dev.wckdboy.autobot.feature.studio.ui.AssetThumb
 import dev.wckdboy.autobot.feature.studio.ui.ChipRow
 import dev.wckdboy.autobot.feature.studio.ui.ControlSheet
+import dev.wckdboy.autobot.feature.studio.ui.rememberControlsOpen
 import dev.wckdboy.autobot.feature.studio.ui.EmptyRoom
 import dev.wckdboy.autobot.feature.studio.ui.ErrorLine
 import dev.wckdboy.autobot.feature.studio.ui.GridBuilderSheet
@@ -124,7 +125,7 @@ fun ImageRoom(
     onOpenAsset: (StudioAsset) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var controls by rememberSaveable { mutableStateOf(true) }
+    var controls by rememberControlsOpen()
     var showGrid by rememberSaveable { mutableStateOf(false) }
     var showLibrary by rememberSaveable { mutableStateOf(false) }
     var showMask by rememberSaveable { mutableStateOf(false) }
