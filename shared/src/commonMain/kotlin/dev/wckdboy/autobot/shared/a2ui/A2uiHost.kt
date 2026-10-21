@@ -27,7 +27,10 @@ sealed class A2uiActionResult {
      * Send [messageJson] (a renderer-to-agent `action` message) to the agent that owns the
      * surface. [dataModelJson] is the `a2uiRendererDataModel` metadata to attach when the surface
      * asked for `sendDataModel`, null otherwise. [userMessage] is the resolved text to show in
-     * the chat for the user's action, when the agent gave one.
+     * the chat for the user's action, when the agent gave one. [snapshotJson] is the surface's
+     * whole data model at the moment of the action (whatever `sendDataModel` says), without the
+     * values of obscured (password) fields: what the app keeps with the chat so the user's input
+     * comes back after a restart ([A2uiChat.actionMessage]).
      */
     class SendEvent internal constructor(
         val surfaceId: String,
@@ -35,6 +38,7 @@ sealed class A2uiActionResult {
         val messageJson: String,
         val dataModelJson: String?,
         val userMessage: String?,
+        val snapshotJson: String = "{}",
     ) : A2uiActionResult()
 
     /** Open [url] (always http or https) after the app's own link policy. */
@@ -81,6 +85,7 @@ class A2uiHost(
     private val surfaces = LinkedHashMap<String, A2uiSurface>()
     private val listeners = ArrayList<A2uiListener>()
     private val reportedRenderErrors = HashMap<String, List<A2uiError>>()
+    private val readOnly = HashSet<String>()
 
     val surfaceIds: List<String> get() = surfaces.keys.toList()
 
@@ -94,6 +99,42 @@ class A2uiHost(
 
     fun removeListener(listener: A2uiListener) {
         listeners -= listener
+    }
+
+    /**
+     * True when [surfaceId] is read-only: its inputs refuse write-back and its agent events are
+     * refused ([dispatch]); local functions (`openUrl`) still run. A chat sets it once the
+     * surface's action was sent ([A2uiTranscript]); agent messages still apply.
+     */
+    fun isReadOnly(surfaceId: String): Boolean = surfaceId in readOnly
+
+    /** Makes [surfaceId] read-only or editable again; listeners hear about a change. False if nothing changed. */
+    fun setReadOnly(surfaceId: String, readOnly: Boolean): Boolean {
+        if (surfaceId !in surfaces) return false
+        val changed = if (readOnly) this.readOnly.add(surfaceId) else this.readOnly.remove(surfaceId)
+        if (changed) publish(surfaceId)
+        return changed
+    }
+
+    /** Re-renders [surfaceId] and tells listeners (its lock state changed around it). */
+    internal fun refresh(surfaceId: String) {
+        if (surfaceId in surfaces) publish(surfaceId)
+    }
+
+    /**
+     * Replaces [surfaceId]'s whole data model with [model] (a restored snapshot), read-only or
+     * not, and re-renders. False if the surface is gone or the model is too large.
+     */
+    internal fun restoreDataModel(surfaceId: String, model: JsonElement): Boolean {
+        val surface = surfaces[surfaceId] ?: return false
+        val before = surface.dataModel
+        surface.dataModel = model
+        if (checkModelSize(surface) != null) {
+            surface.dataModel = before
+            return false
+        }
+        publish(surfaceId)
+        return true
     }
 
     /**
@@ -194,6 +235,7 @@ class A2uiHost(
             is A2uiMessage.DeleteSurface -> {
                 if (surfaces.remove(m.surfaceId) == null) return missingSurface(surfaceId, index)
                 reportedRenderErrors.remove(m.surfaceId)
+                readOnly.remove(m.surfaceId)
                 changed(m.surfaceId, true)
             }
             is A2uiMessage.Unsupported -> return listOf(
@@ -275,6 +317,7 @@ class A2uiHost(
 
     private fun write(surfaceId: String, pointer: String, value: JsonElement?): Boolean {
         val surface = surfaces[surfaceId] ?: return false
+        if (surfaceId in readOnly) return false
         val before = surface.dataModel
         try {
             surface.dataModel = JsonPointer.set(before, pointer, value)
@@ -311,6 +354,7 @@ class A2uiHost(
 
         val event = action["event"] as? JsonObject
         if (event != null) {
+            if (surface.surfaceId in readOnly) return refused("this was already sent")
             val name = event["name"]?.stringOrNull() ?: return refused("action has no name")
             val context = LinkedHashMap<String, JsonElement>()
             (event["context"] as? JsonObject)?.forEach { (k, v) ->
@@ -333,7 +377,7 @@ class A2uiHost(
                 put("surfaces", buildJsonObject { put(surface.surfaceId, surface.dataModel) })
             }.toJsonText() else null
             if (errors.isNotEmpty()) listeners.forEach { it.onErrors(errors) }
-            return A2uiActionResult.SendEvent(surface.surfaceId, name, message.toJsonText(), dataModel, userMessage)
+            return A2uiActionResult.SendEvent(surface.surfaceId, name, message.toJsonText(), dataModel, userMessage, snapshot(surface).toJsonText())
         }
         val call = action["functionCall"] as? JsonObject ?: return refused("action has neither event nor functionCall")
         eval.call(call, node.scope, activation = true, depth = 0)
@@ -345,4 +389,36 @@ class A2uiHost(
     }
 
     private fun refused(reason: String) = A2uiActionResult.Refused(reason, emptyList())
+
+    /** [surface]'s data model without what its obscured TextFields are bound to. */
+    private fun snapshot(surface: A2uiSurface): JsonElement {
+        val secret = LinkedHashSet<String>()
+        val seen = HashSet<String>()
+        fun walk(node: RenderNode) {
+            if (!seen.add(node.key)) return
+            if (node.type == "TextField" && node.string("variant") == "obscured") node.binding("value")?.let { secret += it }
+            node.children.forEach(::walk)
+            node.props.values.forEach { walkValue(it, ::walk) }
+        }
+        surface.render()?.let(::walk)
+        var model = surface.dataModel
+        for (pointer in secret) {
+            model = try {
+                JsonPointer.set(model, pointer, null)
+            } catch (_: A2uiPointerException) {
+                model
+            }
+        }
+        return model
+    }
+
+    private fun walkValue(v: RenderValue, visit: (RenderNode) -> Unit) {
+        when (v) {
+            is RenderValue.NodeValue -> visit(v.node)
+            is RenderValue.NodesValue -> v.nodes.forEach(visit)
+            is RenderValue.ListValue -> v.items.forEach { walkValue(it, visit) }
+            is RenderValue.ObjectValue -> v.fields.values.forEach { walkValue(it, visit) }
+            else -> Unit
+        }
+    }
 }

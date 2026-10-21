@@ -96,6 +96,13 @@ interface ToolDefinition {
 
     suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput
 
+    /**
+     * Whether [agent] is offered this tool at all (its schema in the request). False hides it
+     * from that agent, e.g. a tool that needs a person watching the chat is not offered to a
+     * subagent or an unattended run; the tool should still refuse a call that arrives anyway.
+     */
+    fun offeredTo(agent: dev.wckdboy.autobot.agent.core.loop.Agent): Boolean = true
+
     fun schema(): ToolSchema = ToolSchema(name, description, parameters)
 }
 

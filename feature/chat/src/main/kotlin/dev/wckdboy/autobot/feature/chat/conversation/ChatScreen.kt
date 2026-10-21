@@ -265,6 +265,9 @@ fun ChatScreen(
     // content block: a derived state read there re-runs it, and every row, on each frame.
     val hasLive = remember { derivedStateOf { currentLive() != null } }.value
     val newest = state.items.lastOrNull()?.key to hasLive
+    // Generative UI follows every new transcript: a sent form locks, an updated one unlocks,
+    // even when its own row is not recomposed.
+    LaunchedEffect(state.items) { actions.a2ui?.sync() }
     LaunchedEffect(newest) {
         if (listState.firstVisibleItemIndex <= 1) listState.animateScrollToItem(0)
     }

@@ -10,6 +10,7 @@ import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.tools.ToolKind
 import dev.wckdboy.autobot.agent.core.tools.ToolRegistry
 import dev.wckdboy.autobot.agent.core.tools.ToolRestriction
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -61,7 +62,8 @@ object RecipeTurns {
         agent.updateConfig {
             it.copy(
                 llm = LlmCallConfig(provider, model),
-                restriction = ToolRestriction(allow = allowed),
+                // Never generative UI: nobody is in the chat to use it (show_ui also checks the policy).
+                restriction = ToolRestriction(allow = allowed, deny = setOf(A2uiChat.TOOL)),
                 toolsEnabled = allowed.isNotEmpty(),
                 maxStepsPerTurn = MAX_STEPS,
             )
