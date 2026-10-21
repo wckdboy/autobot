@@ -63,9 +63,9 @@ below).
 **Debug launch arguments** (Debug builds only, like Android's debug `allow_screenshots` extra):
 `-AutobotScreenshots` skips the app lock and the app-switcher cover; `-AutobotDemo` seeds an
 empty install with sample sessions, providers, gallery images and audit entries;
-`-AutobotOpen <screen>` (run, sessions, chat, agent, phone-first, imagine, gallery, viewer, models,
+`-AutobotOpen <screen>` (run, sessions, chat, agent, phone-first, a2ui-chat, imagine, gallery, viewer, models,
 compute, accounts, remote, node, settings, privacy, providers, backends, about, licenses, memory, vault,
-usage, recipes, mcp, studio) starts on that screen;
+usage, recipes, mcp, studio, a2ui) starts on that screen;
 `-AutobotTheme light|dark|system` overrides the saved appearance for that launch;
 `-AutobotSkipWelcome` starts past the welcome; `-AutobotKeyboard` opens a chat with its composer
 focused (keyboard-up screenshots); `-AutobotDemoDigest failed` adds a failed receipt to
@@ -103,6 +103,8 @@ App/
   Core/Diffusion        image backends (A1111, SSE, Core ML), generator
   Providers/            OpenAI-compatible SSE + on-device chat (fallback path, see below)
   Agent/                AgentRuntime: SharedAgentRuntime (KMP) / InterimAgentRuntime
+  A2UI/                 A2UI v1.0 renderer (basic catalog, system SwiftUI + Liquid Glass) over the shared A2uiHost;
+                        the chat's `show_ui` surfaces (A2uiChatSurfaces: replay, sent forms locked); debug preview
   Engines/              the only files that import AutobotEngines
 Tests/                  Swift Testing ports of the Android JVM tests
 ```
@@ -149,6 +151,7 @@ generation, deletes every Keychain item, the database, files, caches and default
 | Run screen (CPU state) | Run screen (chip, idle/busy, thermal state, free storage) | |
 | Chat list, agent session screen | Same | tools, approvals, plans, questions via the shared runtime |
 | `AgentHost` (`:agent:runtime`), `generate_image` tool | `SharedAgentRuntime` over `AutobotShared.xcframework`; `generate_image` is a host tool (`AgentBridge.registerTool`) on the Core ML / PC backends | interim plain chat without the framework |
+| Generative UI (`show_ui`, `:core:a2ui` Compose renderer) | `a2uiPlugin()` toggled by `AgentBridge.setGenerativeUi`; SwiftUI renderer in `App/A2UI`, `A2uiToolSurfaces` in the chat | same shared tool, replay and lock rules (`A2uiTranscript`); images on tap |
 | llama.cpp CPU / Adreno OpenCL / Hexagon (planned) | llama.cpp on Metal or CPU | no ANE backend in llama.cpp; "npu" falls back |
 | System model: Gemini Nano (opt-in `playServices` flavor only) | Apple Intelligence (`system:apple`, Foundation Models, iOS 26+, on-device only; `Engines/AppleIntelligence.swift`) | fallback when no downloaded model can run, chosen by the shared `LocalModelResolver`; FoundationModels is weak-linked so iOS 18–25 still launch |
 | Images: sd.cpp (CPU), QNN on Hexagon NPU, MNN on GPU | Core ML Stable Diffusion on the Neural Engine (`split_einsum`) or GPU | Apple's `coreml-stable-diffusion-*` repos |

@@ -1,6 +1,8 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -13,6 +15,7 @@ import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.a2ui.A2uiActionResult
 import dev.wckdboy.autobot.shared.a2ui.A2uiCatalog
 import dev.wckdboy.autobot.shared.a2ui.A2uiChat
+import dev.wckdboy.autobot.shared.a2ui.A2uiSubmission
 import dev.wckdboy.autobot.shared.session.SessionItem
 import dev.wckdboy.autobot.shared.session.ToolState
 import java.lang.reflect.Proxy
@@ -66,5 +69,59 @@ class ChatA2uiTest {
         val event = sent.single() as A2uiActionResult.SendEvent
         assertEquals("rsvp", event.name)
         assertEquals("Rsvp", A2uiChat.actionLabel(event))
+    }
+
+    private fun actionsFor(a2ui: A2uiChatState, sent: MutableList<A2uiActionResult>) =
+        Proxy.newProxyInstance(ChatActions::class.java.classLoader, arrayOf(ChatActions::class.java)) { _, m, args ->
+            when (m.name) {
+                "getDraft" -> ""
+                "getA2ui" -> a2ui
+                // What the view model does: lock at the tap, then send.
+                "a2uiAction" -> (args!![0] as A2uiActionResult).let { a2ui.onAction(it); sent.add(it) }.let { null }
+                else -> if (m.returnType == Boolean::class.javaPrimitiveType) false else null
+            }
+        } as ChatActions
+
+    @Test
+    fun aSentFormLocksWhenItsTurnArrives() {
+        val tool = SessionItem.Tool("t1", "c1", A2uiChat.TOOL, "surface rsvp", ToolState.OK, "Shown", null, emptyList(), turn = 1, a2ui = stream)
+        val items = mutableStateOf<List<SessionItem>>(listOf(SessionItem.User("u1", "Friday?"), tool))
+        val sent = ArrayList<A2uiActionResult>()
+        val a2ui = A2uiChatState { items.value }
+        val actions = actionsFor(a2ui, sent)
+        compose.setContent {
+            AutobotTheme {
+                CompositionLocalProvider(LocalInkMotion provides InkMotion(reduced = true)) {
+                    ChatScreen(ChatUiState(loaded = true, items = items.value), actions, onBack = {}, onOpenPrivacyCenter = {}, onOpenProviders = {}, onOpenGallery = {})
+                }
+            }
+        }
+        compose.onNodeWithTag("name").performTextReplacement("Ada")
+        compose.onNodeWithText("I'm in").performClick()
+        compose.onNodeWithText(A2uiChatState.SENDING).assertExists()
+
+        val event = sent.single() as A2uiActionResult.SendEvent
+        val user = SessionItem.User("u3", A2uiChat.actionLabel(event), a2ui = A2uiChat.submission(event))
+        compose.runOnIdle { items.value = items.value + user }
+        compose.onNodeWithText(A2uiChatState.SENT).assertExists()
+        compose.onNodeWithTag("name").assertIsNotEnabled()
+    }
+
+    @Test
+    fun aReopenedChatShowsTheSentInputLocked() {
+        val tool = SessionItem.Tool("t1", "c1", A2uiChat.TOOL, "surface rsvp", ToolState.OK, "Shown", null, emptyList(), turn = 1, a2ui = stream)
+        val user = SessionItem.User("u3", "Rsvp", a2ui = A2uiSubmission("rsvp", "rsvp", "Rsvp", """{"name":"Ada Lovelace"}"""))
+        val items = listOf(SessionItem.User("u1", "Friday?"), tool, user)
+        val a2ui = A2uiChatState { items }
+        compose.setContent {
+            AutobotTheme {
+                CompositionLocalProvider(LocalInkMotion provides InkMotion(reduced = true)) {
+                    ChatScreen(ChatUiState(loaded = true, items = items), actionsFor(a2ui, ArrayList()), onBack = {}, onOpenPrivacyCenter = {}, onOpenProviders = {}, onOpenGallery = {})
+                }
+            }
+        }
+        compose.onNodeWithText("Ada Lovelace").assertExists()
+        compose.onNodeWithTag("name").assertIsNotEnabled()
+        compose.onNodeWithText(A2uiChatState.SENT).assertExists()
     }
 }

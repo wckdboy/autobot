@@ -81,6 +81,12 @@ sealed interface SessionEvent {
          * reaches the model as its A2UI `action` message and shows as the words the user acted on.
          */
         val display: String? = null,
+        /**
+         * App data kept with the turn and never sent to the model: a generated-UI action stores
+         * which surface it came from and the user's input there (`a2ui`), so the chat can lock
+         * that form and show what was entered after a restart.
+         */
+        val meta: JsonObject? = null,
     ) : SessionEvent
 
     @Serializable

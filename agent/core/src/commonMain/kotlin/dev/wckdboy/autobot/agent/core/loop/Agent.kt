@@ -451,7 +451,7 @@ class Agent(
         val requestContext = SessionEvent.RequestContext(callConfig.provider, callConfig.model, info.contextWindow)
         if (log.latest<SessionEvent.RequestContext>() != requestContext) log.append(requestContext)
         val restriction = config.value.restriction
-        val schemas = if (config.value.toolsEnabled && info.supportsTools) tools.list(restriction).map { it.schema() } else emptyList()
+        val schemas = if (config.value.toolsEnabled && info.supportsTools) tools.list(restriction).filter { it.offeredTo(this) }.map { it.schema() } else emptyList()
         return Triple(adapter, info, schemas)
     }
 

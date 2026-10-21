@@ -86,6 +86,7 @@ enum DemoSeed {
         ])
 
         seedCascade(app, sessions: sessions, now: now)
+        seedGenerativeUi(app, sessions: sessions, now: now)
         // Recipes: the three templates, and the morning brief switched on with a finished run.
         let briefAt = now - 95 * 60_000
         let briefTitle = RecipeRules.chatTitle("Morning brief from my feeds", at: briefAt)
@@ -181,6 +182,55 @@ enum DemoSeed {
     }
 
     /// A soft abstract image (gradients and a disc) so halftone previews have something to sample.
+    /// The demo's generated-UI chat (`-AutobotOpen a2ui-chat`).
+    static let generativeUiTitle = "Dinner on Friday"
+
+    /**
+     Generative UI in a chat (`-AutobotOpen a2ui-chat` opens it): the agent showed a booking form
+     with `show_ui` (the A2UI messages kept in the result's `meta.a2ui`, as the shared tool stores
+     them), the user picked and pressed "Book" (a user turn whose `display` is the action's label),
+     and the agent answered (the sent form stays locked, "Sent"); then it showed a second form with
+     an image that loads only on a tap.
+     */
+    private static func seedGenerativeUi(_ app: AppContainer, sessions: SessionStore, now: Int64) {
+        var c = app.conversations.create(incognito: false, providerId: "demo-deepseek", model: "deepseek-chat", title: generativeUiTitle)
+        c.updatedAt = now - 2 * 60_000
+        app.conversations.update(c)
+        let base = now - 2 * 60_000
+        var lines: [Data] = []
+        func add(_ e: SessionEvent) {
+            if let data = try? SessionJSON.encode(LogEntry(seq: Int64(lines.count), time: base + Int64(lines.count) * 700, event: e)) { lines.append(data) }
+        }
+        func raw(_ event: String) {
+            lines.append(Data(#"{"seq":\#(lines.count),"time":\#(base + Int64(lines.count) * 700),"event":\#(event)}"#.utf8))
+        }
+        func showUi(turn: Int, step: Int, id: String, _ messages: String) {
+            let args = String(decoding: (try? JSONEncoder().encode(["messages": messages])) ?? Data("{}".utf8), as: UTF8.self)
+            add(.assistantMessage(.init(turn: turn, step: step, text: "", toolCalls: [ToolCallRecord(id: id, name: "show_ui", arguments: args)], model: "deepseek-chat")))
+            add(.toolCall(callId: id, name: "show_ui", arguments: args))
+            add(.toolResult(.init(callId: id, name: "show_ui", content: "Shown to the user.", meta: .object(["a2ui": .string(messages)]))))
+        }
+        let catalog = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+        let booking = #"[{"version":"v1.0","createSurface":{"surfaceId":"booking","catalogId":"\#(catalog)","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["title","name","when","size","note","book"]},{"id":"title","component":"Text","text":"**Table at Lupo** · Friday"},{"id":"name","component":"TextField","label":"Name","value":{"@path":"/b/name"}},{"id":"when","component":"ChoicePicker","label":"Time","options":[{"label":"19:00","value":"19:00"},{"label":"19:30","value":"19:30"},{"label":"20:00","value":"20:00"}],"value":{"@path":"/b/time"},"variant":"mutuallyExclusive","displayStyle":"chips"},{"id":"size","component":"Slider","label":"Guests","value":{"@path":"/b/guests"},"min":1,"max":8},{"id":"note","component":"CheckBox","label":"Window table if possible","value":{"@path":"/b/window"}},{"id":"book","component":"Button","variant":"primary","child":"book_t","action":{"event":{"name":"bookTable","context":{"name":{"@path":"/b/name"},"time":{"@path":"/b/time"},"guests":{"@path":"/b/guests"}}}}},{"id":"book_t","component":"Text","text":"Book"}],"dataModel":{"b":{"name":"Mara","time":["19:30"],"guests":4,"window":true}}}}]"#
+        let dessert = #"[{"version":"v1.0","createSurface":{"surfaceId":"dessert","catalogId":"\#(catalog)","components":[{"id":"root","component":"Card","child":"col"},{"id":"col","component":"Column","children":["photo","q","pick","go"]},{"id":"photo","component":"Image","url":"https://images.example.org/lupo/tiramisu.jpg","description":"Lupo's tiramisu","variant":"mediumFeature"},{"id":"q","component":"Text","text":"**Pre-order dessert?** Lupo's tiramisu sells out by nine."},{"id":"pick","component":"ChoicePicker","label":"Desserts","options":[{"label":"Tiramisu","value":"tiramisu"},{"label":"Panna cotta","value":"panna"},{"label":"Affogato","value":"affogato"}],"value":{"@path":"/d"},"variant":"multipleSelection","displayStyle":"checkbox"},{"id":"go","component":"Button","variant":"primary","child":"go_t","action":{"event":{"name":"preorderDessert","context":{"picked":{"@path":"/d"}}}}},{"id":"go_t","component":"Text","text":"Add to booking"}],"dataModel":{"d":["tiramisu"]}}}]"#
+
+        add(.turnStart(turn: 1))
+        add(.userMessage(text: "Book a table for dinner on Friday, somewhere near the office."))
+        add(.requestContext(provider: "demo-deepseek", model: "deepseek-chat", contextWindow: 128_000))
+        showUi(turn: 1, step: 1, id: "ui1", booking)
+        add(.turnEnd(turn: 1, reason: .completed, detail: nil))
+
+        add(.turnStart(turn: 2))
+        let action = ##"[UI action] The user used the UI you showed (surface 'booking').\n<a2ui_action>\n{\"version\":\"v1.0\",\"action\":{\"name\":\"bookTable\",\"surfaceId\":\"booking\",\"sourceComponentId\":\"book\",\"context\":{\"name\":\"Mara\",\"time\":[\"19:30\"],\"guests\":4}}}\n</a2ui_action>"##
+        // The action's turn records the surface and its input (`meta.a2ui`): the booking form shows locked, "Sent".
+        let sentModel = #"{"b":{"name":"Mara","time":["19:30"],"guests":4,"window":true}}"#
+        raw(#"{"type":"user/message","text":"\#(action)","display":"Book table","meta":{"a2ui":{"surfaceId":"booking","action":"bookTable","dataModel":\#(sentModel)}}}"#)
+        add(.assistantMessage(.init(turn: 2, step: 1, text: "Booked: **Lupo**, Friday 19:30, four guests, under Mara. A window table is noted as a wish.", model: "deepseek-chat")))
+        showUi(turn: 2, step: 2, id: "ui2", dessert)
+        add(.turnEnd(turn: 2, reason: .completed, detail: nil))
+        try? sessions.appendJSON(c.id, lines.enumerated().map { (seq: Int64($0.offset), json: $0.element) })
+    }
+
     private static func render(seed: Int, side: CGFloat = 512) -> Data? {
         let palettes: [[UIColor]] = [
             [.init(red: 0.93, green: 0.45, blue: 0.30, alpha: 1), .init(red: 0.15, green: 0.18, blue: 0.22, alpha: 1)],

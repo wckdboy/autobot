@@ -82,6 +82,8 @@ final class ChatModel {
     var voice: VoiceState?
     /// Microphone levels while voice mode listens.
     let levels = VoiceLevels()
+    /// The chat's generative UI (`show_ui` surfaces), replayed from the transcript on screen.
+    @ObservationIgnored let a2ui = A2uiChatSurfaces()
 
     @ObservationIgnored private var thumbs: [String: UIImage] = [:]
     @ObservationIgnored private var readTask: Task<Void, Never>?

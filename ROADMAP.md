@@ -103,10 +103,14 @@ session exported on Android opens on iOS.
   functions, input write-back, `action` messages, `openUrl` http(s) only, size limits. Android
   (in review): the `show_ui` tool with a compact prompt (Settings `generative_ui`, on by default,
   in the phone's chats), invalid UI returned to the model to fix (3 tries a turn), surfaces stored
-  with the chat and replayed (`A2uiTranscript`), actions as the next user turn, and `:core:a2ui`,
+  with the chat and replayed (`A2uiTranscript`), actions as the next user turn (the sent form
+  locks, read-only with its input, until the agent updates it; only interactive chats get the
+  tool, not subagents or recipes), and `:core:a2ui`,
   a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
-  video and audio open in the browser). Still to do: the SwiftUI renderer, an in-app media
-  player, a Settings switch, `callRendererFunction` and custom catalogs' functions)*
+  video and audio open in the browser). iOS (in review): the SwiftUI renderer (system controls,
+  Liquid Glass) in the phone chats over the same shared tool, replay and lock rules, images on
+  tap through the policy-bound client. Still to do: an in-app media player, a Settings switch,
+  `callRendererFunction` and custom catalogs' functions)*
   An eval (`:shared:a2uiEval`, 33 phone-chat tasks) measures the on-device risk. With the first
   `show_ui` (a string argument holding the JSON) Qwen3 4B/1.7B and Llama 3.2 3B got valid UI
   within 3 tries in 0-6% of tasks. `show_ui` now takes `messages` as a JSON array, repairs what

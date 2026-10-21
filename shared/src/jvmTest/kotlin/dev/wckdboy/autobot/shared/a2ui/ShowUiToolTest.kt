@@ -1,6 +1,10 @@
 package dev.wckdboy.autobot.shared.a2ui
 
 import dev.wckdboy.autobot.agent.core.Harness
+import dev.wckdboy.autobot.agent.core.approval.ApprovalPolicy
+import dev.wckdboy.autobot.shared.recipes.Recipe
+import dev.wckdboy.autobot.shared.recipes.RecipeSchedule
+import dev.wckdboy.autobot.shared.recipes.RecipeTurns
 import dev.wckdboy.autobot.agent.core.llm.LlmAdapter
 import dev.wckdboy.autobot.agent.core.llm.LlmCall
 import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
@@ -181,6 +185,106 @@ class ShowUiToolTest {
         assertEquals("Place order", user.display)
         assertEquals(listOf("order", "Place order"), agent.items().filterIsInstance<SessionItem.User>().map { it.text })
         assertEquals("Ordered for Ada Lovelace.", agent.items().filterIsInstance<SessionItem.Assistant>().last().text)
+    }
+
+    @Test
+    fun aSentFormIsLockedWithItsInputAfterARestart() = withAgent(listOf(ShowUi(form), "Fill it in.", "Ordered.")) { agent, llm ->
+        agent.followup("order")
+        agent.awaitTurns(1)
+        val live = A2uiTranscript()
+        live.sync(agent.items())
+        val host = live.host
+        host.setString(host.render("order")!!.find("name")!!, "value", "Ada Lovelace")
+        val action = host.dispatch(host.render("order")!!.find("go")!!) as A2uiActionResult.SendEvent
+        live.markSubmitted(action)
+        agent.queueTurn(A2uiChat.actionMessage(action))
+        agent.awaitTurns(2)
+        live.sync(agent.items())
+        assertTrue(live.isSubmitted("order"))
+        assertFalse(live.isPending("order"))
+
+        // The meta stays out of what the model reads.
+        assertTrue(llm.calls.last().messages.none { "\"dataModel\"" in it.text && "surfaceId\":\"order\",\"action\"" in it.text })
+
+        // The log alone (a restart) gives back the locked form with the user's input.
+        val restarted = A2uiTranscript()
+        restarted.sync(projectSession(agent.log.entries.value, emptySet(), emptySet()) { _, _ -> "" }.items)
+        assertTrue(restarted.isSubmitted("order"))
+        assertTrue(restarted.host.isReadOnly("order"))
+        assertEquals("Ada Lovelace", restarted.host.render("order")!!.find("name")!!.string("value"))
+    }
+
+    @Test
+    fun anUnattendedRunIsNotOfferedTheToolAndACallIsRefused() = withAgent(listOf(ShowUi(form), "Text instead.")) { agent, llm ->
+        agent.setApprovalPolicy(ApprovalPolicy.NEVER)
+        agent.followup("order")
+        agent.awaitTurns(1)
+        val first = llm.calls.first()
+        assertTrue(first.tools.none { it.name == A2uiChat.TOOL })
+        assertFalse(first.messages.first { it.role == ModelRole.SYSTEM }.text.contains("Generative UI"))
+        // A model that calls it anyway gets the refusal, and nothing is drawn.
+        val result = agent.log.entries.value.firstNotNullOf { it.event as? SessionEvent.ToolResult }
+        assertTrue(result.isError)
+        assertEquals("NOT_AVAILABLE", result.code)
+        assertTrue(agent.items().filterIsInstance<SessionItem.Tool>().all { it.a2ui == null })
+    }
+
+    @Test
+    fun aRecipeRunIsNotOfferedTheTool() = withAgent(listOf("Digest.", "Here.")) { agent, llm ->
+        val recipe = Recipe(id = "r", name = "Digest", prompt = "Summarise", schedule = RecipeSchedule.Daily(420), tools = listOf("web_fetch"))
+        RecipeTurns.run(agent, recipe, "local", "small")
+        val run = llm.calls.first()
+        assertTrue(run.tools.none { it.name == A2uiChat.TOOL })
+        assertFalse(run.messages.first { it.role == ModelRole.SYSTEM }.text.contains("Generative UI"))
+        // Continued by the user, the chat has generative UI again.
+        agent.followup("thanks")
+        agent.awaitTurns(2)
+        assertTrue(llm.calls.last().tools.any { it.name == A2uiChat.TOOL })
+    }
+
+    @Test
+    fun subagentsAreNotOfferedTheTool() = runBlocking {
+        val calls = CopyOnWriteArrayList<LlmCall>()
+        val adapter = object : LlmAdapter {
+            override val provider = "local"
+            override fun stream(call: LlmCall): Flow<StreamChunk> = flow {
+                calls += call
+                val sub = call.messages.any { it.role == ModelRole.SYSTEM && "You are a subagent" in it.text }
+                when {
+                    sub -> {
+                        emit(StreamChunk.TextDelta("report"))
+                        emit(StreamChunk.Finish("stop"))
+                    }
+                    call.messages.none { it.role == ModelRole.TOOL } -> {
+                        emit(StreamChunk.ToolCallDelta(0, "t1", "task", """{"description":"job","prompt":"look"}"""))
+                        emit(StreamChunk.Finish("tool_calls"))
+                    }
+                    else -> {
+                        emit(StreamChunk.TextDelta("done"))
+                        emit(StreamChunk.Finish("stop"))
+                    }
+                }
+            }
+
+            override suspend fun resolveModel(model: String) = ModelInfo(contextWindow = 32_000)
+        }
+        val harness = Harness()
+        harness.llm.register(adapter)
+        harness.root.plugin(a2uiPlugin())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val agent = harness.openAgent("chat", InMemorySessionStore(), AgentConfig(LlmCallConfig("local", "small")), scope)
+            agent.followup("delegate")
+            agent.awaitTurns(1)
+            val (sub, main) = calls.partition { c -> c.messages.any { it.role == ModelRole.SYSTEM && "You are a subagent" in it.text } }
+            assertTrue(main.first().tools.any { it.name == A2uiChat.TOOL })
+            assertEquals(1, sub.size)
+            assertTrue(sub.single().tools.none { it.name == A2uiChat.TOOL })
+            assertFalse(sub.single().messages.first { it.role == ModelRole.SYSTEM }.text.contains("Generative UI"))
+            agent.dispose()
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test

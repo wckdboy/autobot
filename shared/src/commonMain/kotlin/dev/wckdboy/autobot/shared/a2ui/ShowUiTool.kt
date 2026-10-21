@@ -2,6 +2,7 @@ package dev.wckdboy.autobot.shared.a2ui
 
 import dev.wckdboy.autobot.agent.core.Lock
 import dev.wckdboy.autobot.agent.core.Plugin
+import dev.wckdboy.autobot.agent.core.approval.ApprovalPolicy
 import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.plugin
 import dev.wckdboy.autobot.agent.core.prompt.PromptSection
@@ -13,6 +14,7 @@ import dev.wckdboy.autobot.agent.core.tools.ToolKind
 import dev.wckdboy.autobot.agent.core.tools.ToolOutput
 import dev.wckdboy.autobot.agent.core.tools.ToolRegistry
 import dev.wckdboy.autobot.agent.core.tools.ToolRunContext
+import dev.wckdboy.autobot.agent.core.tools.TaskTool
 import dev.wckdboy.autobot.agent.core.llm.ToolSchema
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -38,7 +40,10 @@ import kotlinx.serialization.json.put
  * ([A2uiChat.actionMessage]).
  *
  * Interact kind: allowed under every permission preset (it only draws; images load later, on
- * the user's tap, through the app's network policy). Subagents cannot use it.
+ * the user's tap, through the app's network policy). Only an interactive chat is offered it
+ * ([offeredTo]): not a subagent (it reports to another agent, nobody sees its UI) and not an
+ * unattended run such as a recipe (approval policy [ApprovalPolicy.NEVER]: nobody is there to
+ * fill anything in). A call that arrives anyway is refused.
  */
 class ShowUiTool(private val catalogs: List<A2uiCatalog> = listOf(A2uiCatalog.basic)) : ToolDefinition {
     override val name = A2uiChat.TOOL
@@ -97,9 +102,12 @@ class ShowUiTool(private val catalogs: List<A2uiCatalog> = listOf(A2uiCatalog.ba
         return if (ids.isEmpty()) "" else "surface " + ids.joinToString(", ")
     }
 
+    override fun offeredTo(agent: Agent): Boolean = isInteractive(agent)
+
     override suspend fun execute(args: JsonObject, run: ToolRunContext): ToolOutput {
         val agent = run.agent
         if (agent != null && isSubagent(agent)) return ToolOutput.error("show_ui is only available in the main chat", "NOT_AVAILABLE")
+        if (agent != null && !isInteractive(agent)) return ToolOutput.error("show_ui needs someone in the chat; this run is unattended, answer in text", "NOT_AVAILABLE")
         val turn = agent?.log?.latest<SessionEvent.TurnStart>()?.turn ?: 0
         val tries = lock.withLock { invalid[run.sessionId]?.takeIf { it.first == turn }?.second ?: 0 }
         if (tries >= MAX_INVALID_PER_TURN) {
@@ -161,7 +169,10 @@ class ShowUiTool(private val catalogs: List<A2uiCatalog> = listOf(A2uiCatalog.ba
 
         private val SURFACE_ID = Regex("\"surfaceId\"\\s*:\\s*\"([^\"]{1,64})\"")
 
-        internal fun isSubagent(agent: Agent): Boolean = "subagent:" in agent.ctx.name
+        internal fun isSubagent(agent: Agent): Boolean = "subagent:" in agent.ctx.name || TaskTool.isSubagent(agent.id)
+
+        /** A chat a person is in: the main agent of a chat, not a subagent or an unattended (recipe) run. */
+        fun isInteractive(agent: Agent): Boolean = !isSubagent(agent) && agent.approvalPolicy.value != ApprovalPolicy.NEVER
     }
 }
 
@@ -198,7 +209,7 @@ fun a2uiPlugin(catalogs: List<A2uiCatalog> = listOf(A2uiCatalog.basic)): Plugin 
             prompts.section(
                 PromptSection("tools:${A2uiChat.TOOL}", SectionOrder.TOOL_GUIDANCE) { agent ->
                     val config = agent.config.value
-                    if (config.toolsEnabled && config.restriction.permits(A2uiChat.TOOL) && !ShowUiTool.isSubagent(agent)) A2uiPrompt.text else null
+                    if (config.toolsEnabled && config.restriction.permits(A2uiChat.TOOL) && ShowUiTool.isInteractive(agent)) A2uiPrompt.text else null
                 },
             )
         }
