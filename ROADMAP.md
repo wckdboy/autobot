@@ -107,9 +107,13 @@ session exported on Android opens on iOS.
   a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
   video and audio open in the browser). Still to do: the SwiftUI renderer, an in-app media
   player, a Settings switch, `callRendererFunction` and custom catalogs' functions)*
-  An eval (`:shared:a2uiEval`, 33 phone-chat tasks) measures the on-device risk: Qwen3 4B/1.7B
-  and Llama 3.2 3B get valid UI within 3 tries in only 0-6% of tasks with today's string
-  argument and prompt (JSON nested in a JSON string), 29% for Qwen3 1.7B with `messages` as an array.
+  An eval (`:shared:a2uiEval`, 33 phone-chat tasks) measures the on-device risk. With the first
+  `show_ui` (a string argument holding the JSON) Qwen3 4B/1.7B and Llama 3.2 3B got valid UI
+  within 3 tries in 0-6% of tasks. `show_ui` now takes `messages` as a JSON array, repairs what
+  has one reading in front of the strict validator (`A2uiIntake`: unclosed brackets, a missing
+  envelope, version or catalogId, Button labels, inlined children, ChoicePicker strings, a
+  misplaced dataModel, a missing root) and tells the model what it repaired; errors say what to
+  fix (`A2uiFeedback`). Qwen3 4B Instruct: 2/31 → 22/31, Qwen3 1.7B: 1/31 → 10/31.
 
 **Exit:** an agent can use an MCP server, delegate to a subagent and recall a memory, offline
 where possible, on both platforms.
