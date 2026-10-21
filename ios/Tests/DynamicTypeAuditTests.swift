@@ -55,7 +55,6 @@ struct DynamicTypeAuditTests {
     @Test func sharedControlsFitAPhoneAtAX5() {
         let checks: [(String, AnyView)] = [
             ("segmented", AnyView(Segmented(options: ["Immediately", "30 seconds", "1 minute", "5 minutes"], selected: "1 minute", label: { $0 }, onSelect: { _ in }))),
-            ("nav bar", AnyView(AutobotNavBar(items: Tab.allCases.map { NavItem(key: $0, label: $0.label) }, selected: Tab.run) { _ in })),
             ("navigation row", AnyView(NavigationRow(title: "Privacy Center and on-device data", value: "Offline") {})),
             ("text field", AnyView(ConsoleTextField(text: .constant(""), placeholder: "message · / for commands"))),
             ("icon actions", AnyView(HStack(spacing: 0) {
@@ -110,7 +109,6 @@ struct DynamicTypeAuditTests {
             ("gallery", AnyView(GalleryScreen())),
             ("models", AnyView(ModelsScreen())),
             ("studio", AnyView(StudioScreen())),
-            ("nav-bar", AnyView(VStack { Spacer(); AutobotNavBar(items: Tab.allCases.map { NavItem(key: $0, label: $0.label) }, selected: Tab.run) { _ in } })),
         ]
         for (name, view) in screens {
             try await snapshot(view, app, nav, "\(dir)/ax5-\(name).png")

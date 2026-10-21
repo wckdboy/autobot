@@ -65,7 +65,7 @@ struct ScreenPerfTests {
         results.append(try await measure("models-scroll", ModelsScreen(), app, nav, seconds: 6, scroll: true))
         results.append(try await measure("sessions-scroll", ChatListScreen(), app, nav, seconds: 6, scroll: true))
         let session = StudioSession(app: app)
-        results.append(try await measure("library-scroll", LibraryRoom(session: session).paperTheme(), app, nav, seconds: 6, scroll: true))
+        results.append(try await measure("library-scroll", LibraryRoom(session: session), app, nav, seconds: 6, scroll: true))
         results.append(try await measure("imagine-idle", ImagineScreen().paperTheme(), app, nav, seconds: 3))
         // The app's Run tab under an open Studio (its living cards must not keep ticking).
         nav.reset(.run, [])
