@@ -1,6 +1,12 @@
 package dev.wckdboy.autobot.feature.imagine.mask
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.SliderField
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -57,12 +63,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import kotlin.math.min
 
 /**
@@ -72,6 +74,7 @@ import kotlin.math.min
  * pinch-zoom / pan for the rest of that gesture. Strokes are kept in image-normalized
  * coordinates so the overlay matches the exported mask exactly.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MaskEditorDialog(
     image: ImageBitmap,
@@ -90,18 +93,28 @@ fun MaskEditorDialog(
         var offset by remember { mutableStateOf(Offset.Zero) }
         val live = remember { mutableStateListOf<Offset>() }
         val density = LocalDensity.current
+        val liveInk = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
 
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerLowest).statusBarsPadding().navigationBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                MicroLabel("Mask", Modifier.padding(start = 8.dp).weight(1f))
-                MicroLabel(
-                    if (mask.inverted) "inverted · ${counted(mask.strokes.size, "stroke")}" else counted(mask.strokes.size, "stroke"),
-                    Modifier.padding(end = 8.dp),
-                )
-                TextButton(onClick = { scale = 1f; offset = Offset.Zero }) { ActionText("Fit") }
-                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Check, contentDescription = "Done", tint = MaterialTheme.colorScheme.primary) }
-            }
-            Hairline()
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Mask")
+                        Text(
+                            if (mask.inverted) "inverted · ${counted(mask.strokes.size, "stroke")}" else counted(mask.strokes.size, "stroke"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { scale = 1f; offset = Offset.Zero }) { Text("Fit") }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Filled.Check, contentDescription = "Done", tint = MaterialTheme.colorScheme.primary) }
+                },
+                windowInsets = WindowInsets(0),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+            )
+            HorizontalDivider()
 
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 val boxW = constraints.maxWidth.toFloat()
@@ -187,7 +200,7 @@ fun MaskEditorDialog(
                             }
                             drawPath(
                                 path,
-                                color = if (erase) Color.White.copy(alpha = 0.5f) else AutobotColors.Acid.copy(alpha = 0.6f),
+                                color = if (erase) Color.White.copy(alpha = 0.5f) else liveInk,
                                 style = Stroke(width = brushPx, cap = StrokeCap.Round, join = StrokeJoin.Round),
                             )
                         }
@@ -195,9 +208,9 @@ fun MaskEditorDialog(
                 }
             }
 
-            Hairline()
+            HorizontalDivider()
             Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ValueSlider("Brush", brushDp, { brushDp = it }, 6f..90f, format = { "${it.toInt()} dp" })
+                SliderField("Brush", brushDp, { brushDp = it }, 6f..90f, format = { "${it.toInt()} dp" })
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                     IconToggleButton(checked = !erase, onCheckedChange = { erase = false }) {
                         Icon(AutobotIcons.Brush, "Brush", tint = if (!erase) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -215,19 +228,19 @@ fun MaskEditorDialog(
                     }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = onClear, enabled = mask.strokes.isNotEmpty() || mask.inverted) {
-                        ActionText("Clear", color = MaterialTheme.colorScheme.error)
+                        Text("Clear", color = MaterialTheme.colorScheme.error)
                     }
                 }
-                MicroLabel("1 finger paint · 2 fingers zoom/pan · painted = repainted")
+                Caption("1 finger paint · 2 fingers zoom/pan · painted = repainted")
             }
         }
     }
 }
 
-/** Renders [mask] over its image (acid tint), honoring erase strokes and invert. */
+/** Renders [mask] over its image (a primary tint), honoring erase strokes and invert. */
 @Composable
 fun MaskOverlay(mask: MaskState, modifier: Modifier = Modifier) {
-    val tint = AutobotColors.Acid.copy(alpha = 0.5f)
+    val tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
     Canvas(modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
         if (mask.inverted) drawRect(tint)
         for (stroke in mask.strokes) {

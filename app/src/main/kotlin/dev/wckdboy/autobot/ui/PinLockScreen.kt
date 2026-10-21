@@ -1,11 +1,8 @@
 package dev.wckdboy.autobot.ui
 
-import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,18 +10,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,14 +33,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
+import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.panic.LockStatus
 import dev.wckdboy.autobot.shared.panic.PanicCopy
@@ -49,12 +49,13 @@ import dev.wckdboy.autobot.shared.panic.PinRules
 import kotlinx.coroutines.delay
 
 /**
- * The lock screen with an app PIN: dots, a printed keypad and UNLOCK. The PIN is submitted only
- * with UNLOCK (never on a length), so the length of either PIN shows nowhere. [status] carries
- * the warning before a wipe and the back-off; [message] the last result ("Wrong PIN").
+ * The lock screen with an app PIN: the entered digits as dots, a keypad of tonal round keys and
+ * Unlock. The PIN is submitted only with Unlock (never on a length), so the length of either PIN
+ * shows nowhere. [status] carries the warning before a wipe and the back-off; [message] the last
+ * result ("Wrong PIN").
  *
  * The real PIN and the duress PIN take the same path through this screen: [busy] while the PIN
- * is checked, then the paper prints away.
+ * is checked, then the app opens (on the real or the decoy data) the same way.
  */
 @Composable
 fun PinLockScreen(
@@ -82,15 +83,15 @@ fun PinLockScreen(
     LaunchedEffect(biometrics) { if (biometrics) onBiometrics() }
     val enabled = !busy && !waiting
 
-    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
+            modifier = Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             AutobotMark(size = 32.dp)
-            SectionLabel(PanicCopy.LOCKED)
-            Text(PanicCopy.ENTER_PIN, style = MaterialTheme.typography.headlineSmall)
+            Text(PanicCopy.LOCKED, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(PanicCopy.ENTER_PIN, Modifier.semantics { heading() }, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
             Dots(pin.length)
             val line = when {
                 waiting -> PanicCopy.tryAgainIn(waitUntil - now)
@@ -99,14 +100,15 @@ fun PinLockScreen(
             }
             Text(
                 line.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.heightIn(min = 16.dp),
+                modifier = Modifier.widthIn(max = LockMaxWidth).heightIn(min = 20.dp),
             )
             if (status.warn && status.remaining != null) {
                 Text(
                     PanicCopy.attemptsLeft(status.remaining!!),
+                    Modifier.widthIn(max = LockMaxWidth),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center,
@@ -119,80 +121,68 @@ fun PinLockScreen(
                 onDelete = { pin = pin.dropLast(1) },
                 onBiometrics = onBiometrics,
             )
-            PrimaryButton(
-                PanicCopy.UNLOCK,
-                onClick = { if (pin.isNotEmpty()) onSubmit(pin) },
+            Button(
+                onClick = { if (!busy && pin.isNotEmpty()) onSubmit(pin) },
                 enabled = enabled && pin.isNotEmpty(),
-                busy = busy,
-                modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
-            )
+                modifier = Modifier.padding(top = 8.dp).widthIn(max = LockMaxWidth).fillMaxWidth().heightIn(min = 56.dp),
+            ) { BusyLabel(PanicCopy.UNLOCK, busy) }
         }
     }
 }
 
 @Composable
 private fun Dots(count: Int) {
-    // Fixed width: the row never grows with the PIN, so a glance does not count digits beyond what is typed.
+    // Never wider than the digits typed: a glance does not tell how long the PIN is.
     Row(
-        Modifier.height(16.dp).semantics { contentDescription = "$count digits entered" },
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.heightIn(min = 16.dp).semantics { contentDescription = "$count digits entered" },
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(count.coerceAtMost(PinRules.MAX_LENGTH)) {
-            Box(Modifier.size(10.dp).background(AutobotColors.Purple))
+            Box(Modifier.size(12.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
         }
-        if (count == 0) Box(Modifier.size(10.dp).border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)))
+        if (count == 0) Box(Modifier.size(12.dp).border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline), CircleShape))
     }
 }
 
 @Composable
 private fun Keypad(enabled: Boolean, biometrics: Boolean, onDigit: (Char) -> Unit, onDelete: () -> Unit, onBiometrics: () -> Unit) {
+    // A large font gets larger keys, so the digits keep their room.
+    val key = if (isLargeText()) 80.dp else KEY
     val rows = listOf("123", "456", "789")
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { d -> Key(d.toString(), enabled, onClick = { onDigit(d) }) } }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) { row.forEach { d -> Key(d.toString(), key, enabled, onClick = { onDigit(d) }) } }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             if (biometrics) {
-                Key("", true, description = "Use biometrics", onClick = onBiometrics) {
-                    Text("Bio", style = AutobotTheme.styles.action, color = MaterialTheme.colorScheme.onSurface)
+                TextButton(onClick = onBiometrics, modifier = Modifier.size(key).semantics { contentDescription = "Use biometrics" }) {
+                    Text("Bio", style = MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
             } else {
-                Spacer(Modifier.size(KEY))
+                Spacer(Modifier.size(key))
             }
-            Key("0", enabled, onClick = { onDigit('0') })
-            Key("⌫", enabled, description = "Delete", onClick = onDelete)
+            Key("0", key, enabled, onClick = { onDigit('0') })
+            TextButton(onClick = onDelete, enabled = enabled, modifier = Modifier.size(key).semantics { contentDescription = "Delete" }) {
+                Text("⌫", style = MaterialTheme.typography.headlineSmall, maxLines = 1)
+            }
         }
     }
 }
 
-private val KEY = 64.dp
+private val KEY = 72.dp
 
+/** A digit: a round tonal button. */
 @Composable
-private fun Key(
-    label: String,
-    enabled: Boolean,
-    description: String? = null,
-    onClick: () -> Unit,
-    content: (@Composable () -> Unit)? = null,
-) {
-    Box(
-        Modifier
-            .size(KEY)
-            .border(BorderStroke(1.dp, if (enabled) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant), MaterialTheme.shapes.extraSmall)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier),
-        contentAlignment = Alignment.Center,
+private fun Key(label: String, size: androidx.compose.ui.unit.Dp, enabled: Boolean, onClick: () -> Unit) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = CircleShape,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        modifier = Modifier.size(size),
     ) {
-        if (content != null) {
-            content()
-        } else {
-            Text(
-                label,
-                style = MaterialTheme.typography.headlineSmall,
-                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(label, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
     }
 }
 

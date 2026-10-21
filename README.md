@@ -53,7 +53,7 @@ Versions move together: Android and iOS ship the same version and build number.
 ```
 
 A behaviour fix in the core lands on both platforms at once; the platforms only move bytes, store
-data and draw their UI from the same design tokens (`shared/design/tokens.json`, checked by
+data and draw their UI from the same design tokens (brand purple, type, spacing) (`shared/design/tokens.json`, checked by
 `TokensParityTest` on Android and `TokensTests` on iOS). The parity table is in
 [ios/README.md](ios/README.md).
 
@@ -132,7 +132,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | Module | Responsibility |
 | --- | --- |
 | `:app` | `AutobotApplication` (Hilt), `MainActivity` (FragmentActivity, edge-to-edge, FLAG_SECURE), welcome screen, Navigation 3 `NavDisplay` with the RUN · MODELS · REMOTE · SETTINGS bar, lock screen, manifest and network security config |
-| `:core:designsystem` | Riso theme: one signal red on ink (dark) or paper (light), Antonio display + JetBrains Mono labels, halftone rendering (`HalftoneImage`, `HalftoneField`), `ModeCard`, `RouteTag`, `RunRow`, `BigReadout`, `Panel`, `Tag`, sliders, segmented controls, `AutobotNavBar`, stroke icons |
+| `:core:designsystem` | Material 3 Expressive theme in the brand purple (MaterialKolor scheme) with the brand's two marks: the pixel a (`AutobotMark`, `Wordmark`, Invincible's `NodeMark`) and the purple pixel dot after a top-level title. One kit of standard Material components (`Standard*.kt`): `AppBar`/`TitleWithDot`, list items (`NavListItem`, `SwitchItem`, `InfoItem`, `ActionListItem`), `SectionCard`, `TonalLabel`, `RouteChip`, `NoticeCard`, `EmptyContent`, `Loading`, `JobProgress`, `EmptyPicture`, `Field`, `SearchField`, `Choices`, `SliderField`, `StepperField`, `DropdownField`, the chat composer (`MessageComposer`, `SendIconButton`, `StopIconButton`), chat markdown (code blocks on `surfaceContainerHigh`, tonal inline code) and Material Symbols for the Run modes. Every screen uses it: Chat, Run, Remote and the node screens, Settings, Models, Image, Studio, the lock screens and the welcome. The riso kit is gone |
 | `:feature:home` | Run screen (Image / Chat / Agent / Code, recent runs, live CPU state), welcome, Remote screen |
 | `:feature:models` | Model manager UI: phone profile, downloads, catalog with fit badges, Hugging Face and Civitai browsers, accounts |
 | `:core:models` | Android side of model management: `DeviceProfile` (RAM, storage, CPU features, SoC), Hugging Face / Civitai clients and NPU package plans over the shared hubs, `FileFetcher` (OkHttp bytes for the shared download state machine), `ModelDownloader` + user-initiated transfer job, `ModelLibrary`, accounts |

@@ -1,6 +1,17 @@
 package dev.wckdboy.autobot.feature.imagine.viewer
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import dev.wckdboy.autobot.core.designsystem.component.InlineLoading
+import dev.wckdboy.autobot.core.designsystem.component.Loading
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+
 import android.content.ClipData
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
@@ -76,14 +87,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.wckdboy.autobot.core.data.model.GalleryItem
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkLoaderBlock
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Readout
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.diffusion.DiffusionMode
 import dev.wckdboy.autobot.core.diffusion.DiffusionRequest
 import java.util.Locale
@@ -149,7 +153,6 @@ internal fun ImageViewerContent(
     val current = items[pager.currentPage.coerceIn(0, items.lastIndex)]
     val actions = actionsFor(current)
     val clipboard = LocalClipboard.current
-    val ink = MaterialTheme.colorScheme.onBackground
     val paper = MaterialTheme.colorScheme.background
     val fade = (1f - abs(drag) / (dismissPx * 2.5f)).coerceIn(0f, 1f)
 
@@ -184,56 +187,70 @@ internal fun ImageViewerContent(
         }
 
         AnimatedVisibility(chrome && drag == 0f, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
-            Column(Modifier.fillMaxWidth().background(paper.copy(alpha = 0.92f)).statusBarsPadding()) {
-                Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close viewer", tint = ink) }
-                    Column(Modifier.weight(1f)) {
-                        MicroLabel(if (items.size > 1) "${pager.currentPage + 1} / ${items.size}" else "image")
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close viewer") } },
+                title = {
+                    Column {
+                        Text(
+                            if (items.size > 1) "${pager.currentPage + 1} / ${items.size}" else "Image",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         val px = pixels[current.id] ?: (current.width to current.height)
-                        Text("${px.first}×${px.second}", style = AutobotTheme.styles.readout, color = ink)
+                        Text("${px.first}×${px.second}", style = MaterialTheme.typography.titleMedium)
                     }
+                },
+                actions = {
                     if (ViewerAction.FAVORITE in actions) {
-                        IconButton(onClick = { act(ViewerAction.FAVORITE) }) {
+                        IconToggleButton(checked = current.favorite, onCheckedChange = { act(ViewerAction.FAVORITE) }) {
                             Icon(
                                 Icons.Filled.Star,
                                 contentDescription = if (current.favorite) "Remove from favorites" else "Add to favorites",
-                                tint = if (current.favorite) AutobotTheme.inks.amber else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.stamp(current.favorite, enabled = current.favorite),
                             )
                         }
                     }
-                    if (ViewerAction.SHARE in actions) IconButton(onClick = { act(ViewerAction.SHARE) }) { Icon(Icons.Filled.Share, contentDescription = "Share image", tint = ink) }
-                    IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, contentDescription = "Image info", tint = ink) }
-                }
-                Hairline(color = ink)
-            }
+                    if (ViewerAction.SHARE in actions) IconButton(onClick = { act(ViewerAction.SHARE) }) { Icon(Icons.Filled.Share, contentDescription = "Share image") }
+                    IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, contentDescription = "Image info") }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f)),
+            )
         }
 
         AnimatedVisibility(chrome && drag == 0f, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
-            Column(Modifier.fillMaxWidth().background(paper.copy(alpha = 0.92f)).navigationBarsPadding()) {
-                Hairline(color = ink)
-                busy?.let { MicroLabel(it, Modifier.padding(start = 16.dp, top = 8.dp)) }
-                // The whole prompt, scrolling in a short box (large text never cuts it off).
-                Text(
-                    current.prompt.ifBlank { "no prompt" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = ink,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .heightIn(max = 72.dp)
-                        .verticalScroll(rememberScrollState()),
-                )
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ViewerAction.entries.filter { it in actions && it != ViewerAction.FAVORITE && it != ViewerAction.SHARE }.forEach { action ->
-                        Tag(
-                            action.label,
-                            accent = if (action == ViewerAction.DELETE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                            onClick = { act(action) },
-                        )
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f), contentColor = MaterialTheme.colorScheme.onSurface, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+                    busy?.let {
+                        Row(Modifier.padding(start = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            InlineLoading(contentDescription = null)
+                            Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    // The whole prompt, scrolling in a short box (large text never cuts it off).
+                    Text(
+                        current.prompt.ifBlank { "no prompt" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .heightIn(max = 72.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ViewerAction.entries.filter { it in actions && it != ViewerAction.FAVORITE && it != ViewerAction.SHARE }.forEach { action ->
+                            AssistChip(
+                                onClick = { act(action) },
+                                label = { Text(labelCase(action.label)) },
+                                colors = if (action == ViewerAction.DELETE) {
+                                    AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error)
+                                } else {
+                                    AssistChipDefaults.assistChipColors()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -250,15 +267,15 @@ internal fun ImageViewerContent(
             onDismissRequest = { confirm = null },
             title = { Text("Save an unencrypted copy?") },
             text = { Text("A plain image is written to Pictures/Autobot, where other apps and backups can read it.") },
-            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.SAVE, current) }) { ActionText("Save") } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { ActionText("Cancel") } },
+            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.SAVE, current) }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
         ViewerAction.DELETE -> AlertDialog(
             onDismissRequest = { confirm = null },
             title = { Text("Delete image?") },
             text = { Text("The encrypted file and its parameters are removed. This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.DELETE, current) }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { ActionText("Cancel") } },
+            confirmButton = { TextButton(onClick = { confirm = null; onAction(ViewerAction.DELETE, current) }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
         else -> Unit
     }
@@ -273,32 +290,37 @@ internal fun InfoSheet(item: GalleryItem, pixels: Pair<Int, Int>?, params: Diffu
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("image info", Modifier.weight(1f))
-            Tag("Copy params", accent = MaterialTheme.colorScheme.onSurface, onClick = onCopy)
+            SheetLabel("image info", Modifier.weight(1f))
+            AssistChip(onClick = onCopy, label = { Text("Copy params") })
         }
-        MicroLabel("prompt")
-        Text(item.prompt.ifBlank { "—" }, style = AutobotTheme.styles.code)
-        if (item.negativePrompt.isNotBlank()) {
-            MicroLabel("negative")
-            Text(item.negativePrompt, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Hairline()
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Fact("prompt", item.prompt.ifBlank { "—" })
+        if (item.negativePrompt.isNotBlank()) Fact("negative", item.negativePrompt, muted = true)
+        HorizontalDivider()
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val (w, h) = pixels ?: (item.width to item.height)
-            Readout("Pixels", "${w}×$h")
-            Readout("Seed", item.seed.toString())
-            Readout("Steps", item.steps.toString())
-            Readout("CFG", String.format(Locale.ROOT, "%.1f", item.cfgScale))
-            Readout("Sampler", item.sampler.ifBlank { "default" })
-            Readout("Mode", item.mode.lowercase(Locale.ROOT))
-            if (params != null && params.mode != DiffusionMode.TXT2IMG) Readout("Denoise", String.format(Locale.ROOT, "%.2f", params.denoiseStrength))
-            params?.loras?.takeIf { it.isNotEmpty() }?.let { loras -> Readout("Loras", loras.joinToString { "${it.name} ${it.weight}" }) }
-            Readout("Model", item.model ?: "backend default")
-            Readout("Engine", item.engine)
-            Readout("Time", String.format(Locale.ROOT, "%.1f s", item.durationMs / 1000f))
-            Readout("Made", DateUtils.getRelativeTimeSpanString(item.createdAt).toString())
+            Fact("Pixels", "${w}×$h")
+            Fact("Seed", item.seed.toString())
+            Fact("Steps", item.steps.toString())
+            Fact("CFG", String.format(Locale.ROOT, "%.1f", item.cfgScale))
+            Fact("Sampler", item.sampler.ifBlank { "default" })
+            Fact("Mode", item.mode.lowercase(Locale.ROOT))
+            if (params != null && params.mode != DiffusionMode.TXT2IMG) Fact("Denoise", String.format(Locale.ROOT, "%.2f", params.denoiseStrength))
+            params?.loras?.takeIf { it.isNotEmpty() }?.let { loras -> Fact("Loras", loras.joinToString { "${it.name} ${it.weight}" }) }
+            Fact("Model", item.model ?: "backend default")
+            Fact("Engine", item.engine)
+            Fact("Time", String.format(Locale.ROOT, "%.1f s", item.durationMs / 1000f))
+            Fact("Made", DateUtils.getRelativeTimeSpanString(item.createdAt).toString())
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** A label over its value (`Seed` / `4242`) in the info sheet. */
+@Composable
+private fun Fact(label: String, value: String, muted: Boolean = false) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(labelCase(label), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyLarge, color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -331,7 +353,7 @@ private fun ZoomableImage(
     BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val box = with(LocalDensity.current) { androidx.compose.ui.geometry.Size(maxWidth.toPx(), maxHeight.toPx()) }
         if (image == null) {
-            InkLoaderBlock("decrypting")
+            Loading(caption = "decrypting")
             return@BoxWithConstraints
         }
         val fitted = fittedSize(box, image.bitmap.width.toFloat(), image.bitmap.height.toFloat())

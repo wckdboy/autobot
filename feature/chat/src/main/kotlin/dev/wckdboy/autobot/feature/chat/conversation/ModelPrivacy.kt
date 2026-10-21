@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -18,8 +17,8 @@ internal fun TrainsConfirmDialog(model: String, onConfirm: () -> Unit, onDismiss
             TextButton(onClick = {
                 onDismiss()
                 onConfirm()
-            }) { ActionText("Switch anyway") }
+            }) { Text("Switch anyway") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

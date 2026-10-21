@@ -4,6 +4,30 @@ import dev.wckdboy.autobot.shared.studio.StudioRoomWords
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.DropdownField
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
+import dev.wckdboy.autobot.core.designsystem.component.SearchField
+import dev.wckdboy.autobot.core.designsystem.component.SectionCard
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
+import dev.wckdboy.autobot.feature.studio.ui.ActionChip
+import dev.wckdboy.autobot.feature.studio.ui.PickChip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -36,17 +60,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.SelectField
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.RouteOverride
 import dev.wckdboy.autobot.feature.studio.engine.AuthUpdate
@@ -104,30 +119,40 @@ fun WorkflowsRoom(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Backends(state: WorkflowsState, actions: WorkflowsActions, onEdit: (ComfyBackendConfig) -> Unit, onAdd: (String) -> Unit) {
-    SectionLabel("comfyui backends", Modifier.semantics { heading() })
+    SheetLabel("comfyui backends")
     if (state.loaded && state.backends.isEmpty()) {
         EmptyRoom(StudioRoomWords.workflowsNoPc)
     }
     state.backends.forEach { b ->
         val result = state.tests[b.id]
-        Panel(
+        val inUse = b.id == state.backend?.id
+        SectionCard(
             title = b.name,
-            accent = if (b.id == state.backend?.id) MaterialTheme.colorScheme.primary else AutobotTheme.inks.cyan,
-            trailing = { Tag(if (b.isLoopback) "loopback" else "network", accent = if (b.isLoopback) MaterialTheme.colorScheme.primary else AutobotTheme.inks.amber) },
+            trailing = {
+                if (inUse) TonalLabel("in use", containerColor = MaterialTheme.colorScheme.primaryContainer)
+                TonalLabel(if (b.isLoopback) "loopback" else "network", containerColor = if (b.isLoopback) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.tertiaryContainer)
+            },
         ) {
-            Text(b.baseUrl, Modifier.clickable { onEdit(b) }, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                GhostButton("Test", { actions.testBackend(b) }, busy = state.testing == b.id, enabled = state.testing == null)
-                GhostButton("Edit", { onEdit(b) })
-                if (b.id != state.backend?.id) Tag("use", onClick = { actions.selectBackend(b.id) })
+            // Breaks only after "/" and "." when it wraps (a narrow window, a large font).
+            Text(
+                b.baseUrl.replace("/", "/\u200B").replace(".", ".\u200B"),
+                Modifier.clickable { onEdit(b) }.semantics { contentDescription = b.baseUrl },
+                style = AutobotTheme.styles.code,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = { if (state.testing != b.id) actions.testBackend(b) }, enabled = state.testing == null || state.testing == b.id) { BusyLabel("Test", state.testing == b.id) }
+                OutlinedButton(onClick = { onEdit(b) }) { Text("Edit") }
+                if (!inUse) TextButton(onClick = { actions.selectBackend(b.id) }) { Text("Use") }
             }
-            result?.let { MicroLabel(it, color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+            result?.let { Caption(it, color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
         }
     }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        StudioSettings.PRESETS.forEach { url -> Tag("+ $url", accent = MaterialTheme.colorScheme.primary, onClick = { onAdd(url) }) }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StudioSettings.PRESETS.forEach { url -> AssistChip(onClick = { onAdd(url) }, label = { Text("+ $url") }) }
     }
 }
 
@@ -152,37 +177,37 @@ private fun BackendSheet(
     val draft = initial.copy(name = name.trim().ifBlank { "ComfyUI" }, baseUrl = url.trim(), routing = routing.name, authHeader = header.trim().ifBlank { null })
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            MicroLabel(if (isNew) "new comfyui backend" else "edit comfyui backend")
-            ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
-            ConsoleTextField(
+            SheetLabel(if (isNew) "new comfyui backend" else "edit comfyui backend")
+            Field(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
+            Field(
                 url, { url = it }, Modifier.fillMaxWidth(), label = "Base URL", singleLine = true, mono = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
             )
             if (draft.cleartextRemote) {
-                MicroLabel("cleartext http is only allowed to loopback — use https (a reverse proxy or tailnet name)", color = MaterialTheme.colorScheme.error)
+                Caption("cleartext http is only allowed to loopback — use https (a reverse proxy or tailnet name)", color = MaterialTheme.colorScheme.error)
             } else {
-                MicroLabel(if (draft.isLoopback) "loopback: keeps working in Offline mode (a tunnel to your pc)" else "progress uses wss:// on the same host")
+                Caption(if (draft.isLoopback) "loopback: keeps working in Offline mode (a tunnel to your pc)" else "progress uses wss:// on the same host")
             }
-            SelectField("Route", routing.name.lowercase(), RouteOverride.entries, { routing = it }, optionLabel = { it.name.lowercase() })
-            ConsoleTextField(header, { header = it }, Modifier.fillMaxWidth(), label = "Auth header (optional)", placeholder = "Authorization", singleLine = true, mono = true)
+            DropdownField("Route", routing.name.lowercase(), RouteOverride.entries, { routing = it }, Modifier.fillMaxWidth(), optionLabel = { it.name.lowercase() })
+            Field(header, { header = it }, Modifier.fillMaxWidth(), label = "Auth header (optional)", placeholder = "Authorization", singleLine = true, mono = true)
             if (header.isNotBlank()) {
-                ConsoleTextField(
+                Field(
                     secret, { secret = it; clear = false }, Modifier.fillMaxWidth(),
                     label = if (initial.authRef != null) "Value (stored; type to replace)" else "Value",
                     singleLine = true, mono = true,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                 )
-                if (initial.authRef != null) Tag(if (clear) "will remove the stored value" else "remove stored value", onClick = { clear = !clear })
-                MicroLabel("the value is kept in the encrypted secret store and never exported")
+                if (initial.authRef != null) PickChip(if (clear) "Will remove the stored value" else "Remove stored value", selected = clear, onClick = { clear = !clear })
+                Caption("the value is kept in the encrypted secret store and never exported")
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhostButton("Test", { onTest(draft) }, busy = testing, enabled = url.isNotBlank() && !draft.cleartextRemote)
-                testResult?.let { MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+                OutlinedButton(onClick = { if (!testing) onTest(draft) }, enabled = url.isNotBlank() && !draft.cleartextRemote) { BusyLabel("Test", testing) }
+                testResult?.let { Caption(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!isNew) GhostButton("Delete", onDelete, accent = MaterialTheme.colorScheme.error)
+                if (!isNew) TextButton(onClick = onDelete, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Delete") }
                 Spacer(Modifier.weight(1f))
-                PrimaryButton("Save", { onSave(draft, secret, clear) }, enabled = url.isNotBlank() && !draft.cleartextRemote)
+                Button(onClick = { onSave(draft, secret, clear) }, enabled = url.isNotBlank() && !draft.cleartextRemote) { Text("Save") }
             }
         }
     }
@@ -191,61 +216,65 @@ private fun BackendSheet(
 @Composable
 private fun Import(state: WorkflowsState, actions: WorkflowsActions) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(actions::importFile) }
-    SectionLabel("import a workflow", Modifier.semantics { heading() })
-    MicroLabel("api format: in comfyui, workflow → export (api). share a .json to autobot, pick a file, or paste it")
-    ConsoleTextField(state.importName, actions::setImportName, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
-    ConsoleTextField(state.importText, actions::setImportText, Modifier.fillMaxWidth(), label = "Workflow JSON", minLines = 3, maxLines = 8, mono = true)
+    SheetLabel("import a workflow")
+    Caption("api format: in comfyui, workflow → export (api). share a .json to autobot, pick a file, or paste it")
+    Field(state.importName, actions::setImportName, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
+    Field(state.importText, actions::setImportText, Modifier.fillMaxWidth(), label = "Workflow JSON", minLines = 3, maxLines = 8, mono = true)
     state.importError?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall, color = if (it == WorkflowImport.UI_FORMAT_MESSAGE) AutobotTheme.inks.amber else MaterialTheme.colorScheme.error)
+        Text(it, style = MaterialTheme.typography.bodySmall, color = if (it == WorkflowImport.UI_FORMAT_MESSAGE) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        GhostButton("Choose file", { picker.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, Modifier.weight(1f))
-        PrimaryButton("Review", actions::review, Modifier.weight(1f), enabled = state.importText.isNotBlank())
+        OutlinedButton(onClick = { picker.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, Modifier.weight(1f)) { Text("Choose file") }
+        Button(onClick = actions::review, Modifier.weight(1f), enabled = state.importText.isNotBlank()) { Text("Review") }
     }
 }
 
 @Composable
 private fun Saved(state: WorkflowsState, actions: WorkflowsActions) {
-    SectionLabel("saved · ${state.workflows.size}", Modifier.semantics { heading() })
-    if (state.workflows.isEmpty()) MicroLabel("nothing saved yet")
+    SheetLabel("saved · ${state.workflows.size}")
+    if (state.workflows.isEmpty()) Caption("nothing saved yet")
     state.workflows.forEachIndexed { i, w ->
-        Row(Modifier.fillMaxWidth().clickable { actions.open(w) }.padding(vertical = 8.dp).inkStagger(i), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(w.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                MicroLabel("${counted(w.params.size, "param")} · v${w.version}")
-            }
-            Tag(w.output.name.lowercase(), accent = MaterialTheme.colorScheme.primary)
-        }
+        ListItem(
+            headlineContent = { Text(w.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            supportingContent = { Text("${counted(w.params.size, "param")} · v${w.version}") },
+            trailingContent = { TonalLabel(w.output.name.lowercase()) },
+            colors = clearListItem(),
+            modifier = Modifier.inkStagger(i).clickable { actions.open(w) },
+        )
     }
 }
 
 /** A workflow open: where it runs, its validation, its controls, and the schema review. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkflowDetail(state: WorkflowsState, shell: StudioShellState, actions: WorkflowsActions, onOpenAsset: (StudioAsset) -> Unit) {
     val draft = state.draft ?: return
     val w = draft.workflow
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(w.name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f).semantics { heading() }, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Tag("close", onClick = actions::close)
+        Text(w.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).semantics { heading() }, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        TextButton(onClick = actions::close) { Text("Close") }
     }
-    MicroLabel("makes ${w.output.name.lowercase()} · v${w.version}" + if (!draft.saved) " · not saved yet" else "")
+    Caption("makes ${w.output.name.lowercase()} · v${w.version}" + if (!draft.saved) " · not saved yet" else "")
     if (state.backends.isEmpty()) {
-        MicroLabel("add a comfyui backend to run it", color = MaterialTheme.colorScheme.error)
+        Caption("add a comfyui backend to run it", color = MaterialTheme.colorScheme.error)
     } else {
         ChipRow(state.backends, state.backend, { actions.selectBackend(it.id) }, { it.name })
         RunsOn(state.backend?.name)
     }
-    draft.validation?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotTheme.inks.amber) }
+    draft.validation?.let { NoticeCard(it, tone = NoticeTone.WARNING) }
 
-    SectionLabel("run")
+    SheetLabel("run")
     ParamControls(w.params, state.values, actions::setValue, shell.assets)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("New seed each run", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-        Switch(checked = state.randomizeSeed, onCheckedChange = actions::setRandomizeSeed)
+    Row(
+        Modifier.fillMaxWidth().toggleable(state.randomizeSeed, role = Role.Switch, onValueChange = actions::setRandomizeSeed),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("New seed each run", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Switch(checked = state.randomizeSeed, onCheckedChange = null)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!draft.saved) GhostButton("Save", actions::saveDraft, Modifier.weight(1f))
-        PrimaryButton("Run", actions::run, Modifier.weight(1f), enabled = state.backend != null)
+        if (!draft.saved) OutlinedButton(onClick = actions::saveDraft, Modifier.weight(1f)) { Text("Save") }
+        Button(onClick = actions::run, Modifier.weight(1f), enabled = state.backend != null) { Text("Run") }
     }
     val outputs = state.jobIds.mapNotNull { id -> shell.jobs.firstOrNull { it.id == id } }.filter { it.recipe.workflowId == w.id }.flatMap { it.outputs }
         .mapNotNull { id -> shell.assets.firstOrNull { it.id == id } }
@@ -255,44 +284,49 @@ private fun WorkflowDetail(state: WorkflowsState, shell: StudioShellState, actio
         }
     }
 
-    SectionLabel("parameters · review")
-    MicroLabel("rename what you see, move up, hide under more, or remove")
+    SheetLabel("parameters · review")
+    Caption("rename what you see, move up, hide under more, or remove")
     val labels = remember(w.id) { mutableStateMapOf<String, String>() }
     w.params.forEach { p ->
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            ConsoleTextField(labels[p.name] ?: p.label, { labels[p.name] = it }, Modifier.fillMaxWidth(), label = "${p.name} · ${p.type.name.lowercase()}${p.role?.let { " · $it" }.orEmpty()}", singleLine = true)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                labels[p.name]?.takeIf { it != p.label }?.let { l -> Tag("rename", accent = MaterialTheme.colorScheme.primary, onClick = { actions.rename(p.name, l); labels.remove(p.name) }) }
-                Tag("↑", onClick = { actions.moveUp(p.name) })
-                Tag(if (p.advanced) "advanced ✓" else "advanced", onClick = { actions.toggleAdvanced(p.name) })
-                Tag("remove", onClick = { actions.remove(p.name) })
+            Field(labels[p.name] ?: p.label, { labels[p.name] = it }, Modifier.fillMaxWidth(), label = "${p.name} · ${p.type.name.lowercase()}${p.role?.let { " · $it" }.orEmpty()}", singleLine = true)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                labels[p.name]?.takeIf { it != p.label }?.let { l -> ActionChip("rename", onClick = { actions.rename(p.name, l); labels.remove(p.name) }) }
+                ActionChip("↑", onClick = { actions.moveUp(p.name) }, Modifier.semantics { contentDescription = "Move ${p.label} up" })
+                PickChip("Advanced", selected = p.advanced, onClick = { actions.toggleAdvanced(p.name) })
+                ActionChip("remove", onClick = { actions.remove(p.name) })
             }
         }
     }
     if (draft.exposable.isNotEmpty()) {
         var filter by rememberSaveable { mutableStateOf("") }
-        SectionLabel("expose an input · ${draft.exposable.size}")
-        ConsoleTextField(filter, { filter = it }, Modifier.fillMaxWidth(), placeholder = "filter by node or input", singleLine = true, mono = true)
+        SheetLabel("expose an input · ${draft.exposable.size}")
+        SearchField(filter, { filter = it }, "Filter by node or input", Modifier.fillMaxWidth())
         draft.exposable.filter { filter.isBlank() || "${it.nodeTitle} ${it.input}".contains(filter, ignoreCase = true) }.take(40).forEach { e ->
-            Row(Modifier.fillMaxWidth().clickable { actions.expose(e, "${e.nodeTitle} ${e.input.replace('_', ' ')}") }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("${e.nodeTitle} · ${e.input}", style = AutobotTheme.styles.code, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    MicroLabel("${e.type.name.lowercase()} = ${e.value.content.take(40)}")
-                }
-                Tag("+ expose", accent = MaterialTheme.colorScheme.primary)
-            }
+            ListItem(
+                headlineContent = { Text("${e.nodeTitle} · ${e.input}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                supportingContent = { Text("${e.type.name.lowercase()} = ${e.value.content.take(40)}", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                trailingContent = { Text("+ Expose", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) },
+                colors = clearListItem(),
+                modifier = Modifier.clickable { actions.expose(e, "${e.nodeTitle} ${e.input.replace('_', ' ')}") },
+            )
         }
     }
-    if (draft.saved) GhostButton("Delete workflow", { actions.deleteWorkflow(w.id) }, accent = MaterialTheme.colorScheme.error)
+    if (draft.saved) {
+        OutlinedButton(
+            onClick = { actions.deleteWorkflow(w.id) },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+        ) { Text("Delete workflow") }
+    }
 }
 
 @Composable
 private fun Pipelines(state: WorkflowsState, shell: StudioShellState, actions: WorkflowsActions) {
-    SectionLabel("built-in pipelines", Modifier.semantics { heading() })
-    MicroLabel("multi-step recipes on this phone's engines; every step's asset lands in the project")
+    SheetLabel("built-in pipelines")
+    Caption("multi-step recipes on this phone's engines; every step's asset lands in the project")
     state.pipelines.forEach { p -> PipelineCard(p, shell, actions) }
     state.pipelineRuns.reversed().forEach { r ->
-        MicroLabel(
+        Caption(
             "${r.name} · " + when {
                 !r.finished -> "${r.done} step${if (r.done == 1) "" else "s"} done…"
                 r.error != null -> "failed: ${r.error}"
@@ -308,11 +342,11 @@ private fun PipelineCard(pipeline: Pipeline, shell: StudioShellState, actions: W
     var open by rememberSaveable { mutableStateOf(false) }
     val vars = remember(pipeline.id) { mutableStateMapOf<String, String>() }
     var input by rememberSaveable { mutableStateOf<String?>(null) }
-    Panel(title = pipeline.name, trailing = { Tag(if (open) "close" else "open", onClick = { open = !open }) }) {
-        MicroLabel(pipeline.description)
+    SectionCard(title = pipeline.name, trailing = { TextButton(onClick = { open = !open }) { Text(if (open) "Close" else "Open") } }) {
+        Caption(pipeline.description)
         if (open) {
             pipeline.variables.forEach { v ->
-                ConsoleTextField(
+                Field(
                     vars[v.name] ?: v.default, { vars[v.name] = it }, Modifier.fillMaxWidth(), label = v.label + if (v.required) "" else " (optional)",
                     minLines = if (v.multiline) 2 else 1, maxLines = if (v.multiline) 6 else 1, singleLine = !v.multiline,
                 )
@@ -320,19 +354,19 @@ private fun PipelineCard(pipeline: Pipeline, shell: StudioShellState, actions: W
             if (pipeline.input != null) {
                 val type = pipeline.input ?: AssetType.IMAGE
                 val choices = shell.assets.filter { it.type == type }.take(20)
-                MicroLabel(if (choices.isEmpty()) "needs a ${type.name.lowercase()} in this project" else "input")
+                Caption(if (choices.isEmpty()) "needs a ${type.name.lowercase()} in this project" else "input")
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     choices.forEach { a ->
                         AssetThumb(
                             a,
                             Modifier.size(56.dp).clickable { input = a.id }.then(
-                                if (input == a.id) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier,
+                                if (input == a.id) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small) else Modifier,
                             ),
                         )
                     }
                 }
             }
-            PrimaryButton("Run", { actions.runPipeline(pipeline, vars.toMap(), input) }, Modifier.fillMaxWidth())
+            Button(onClick = { actions.runPipeline(pipeline, vars.toMap(), input) }, Modifier.fillMaxWidth()) { Text("Run") }
         }
     }
 }

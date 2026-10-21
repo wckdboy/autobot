@@ -33,10 +33,10 @@ lengths are dp on Android and points on iOS (1 dp ≈ 1 pt); type sizes are sp /
 | `fonts` | Families and the weights Android registers | `DisplayFontFamily`, `CodeFontFamily` |
 | `type` | One entry per text style: `font` (`display` / `mono` / `sans`), `size`, `lineHeight`, `weight` (100–900), `letterSpacing`, `trim` (`LineHeightStyle.Trim.Both`), optional `tabular` (`tnum`) | `AutobotTypography` (Material names) and `AutobotExtraStyles` (`code`, `codeBlock`, `micro`, `readout`, `number`) |
 | `radius` | Corner radii | `AutobotShapes` (`extraSmall` … `extraLarge`) |
-| `stroke` | Line widths: hairlines, borders, icon strokes, the reasoning rule, selection outlines | `Hairline`, `BorderStroke(1.dp)`, `AutobotIcons` (`strokeLineWidth = 1.75f`), `ThinkingDisclosure`, proof selection |
-| `spacing` | Paddings, gaps and fixed sizes used by the components | `Riso.kt`, `Underground.kt`, `NavBar.kt`, `Controls.kt`, `StatusChips.kt`, `ChatBubble.kt`, `ThinkingDisclosure.kt` |
-| `halftone` | Parameters of `HalftoneImage`, `HalftoneField` and the `ModeCard` fade | `Riso.kt` |
-| `motion` | `StatusDot` pulse | `Underground.kt` |
+| `stroke` | Line widths: hairlines, borders, icon strokes, the reasoning rule, selection outlines | `BorderStroke(1.dp)`, `AutobotIcons` (`strokeLineWidth = 1.75f`), proof selection |
+| `spacing` | Paddings, gaps and fixed sizes used by the components | `Rows.kt` (`RowMinHeight`, `RowGutter`), `Standard*.kt`, `ChatBubble.kt`, `ThinkingDisclosure.kt` |
+| `halftone` | Parameters of `HalftoneImage`, `HalftoneField` and the `ModeCard` fade | — (no Android component since the Material 3 pass) |
+| `motion` | Durations and the status-dot pulse | `Motion` (Theme/Motion.kt); Android no longer draws a status dot |
 
 Notes:
 

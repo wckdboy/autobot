@@ -1,33 +1,15 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
-import dev.wckdboy.autobot.core.designsystem.component.selectionBar
-import androidx.compose.ui.text.font.FontWeight
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
-import dev.wckdboy.autobot.core.designsystem.component.labelCase
-import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
-import androidx.compose.ui.draw.drawBehind
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
-import dev.wckdboy.autobot.shared.ChatBannerWords
-import dev.wckdboy.autobot.shared.composer.Composer
-import dev.wckdboy.autobot.shared.composer.Composer.Part
-import dev.wckdboy.autobot.core.designsystem.component.ComposerBar
-import dev.wckdboy.autobot.core.designsystem.component.ComposerButtonSize
-import dev.wckdboy.autobot.core.designsystem.component.SendButton
-import dev.wckdboy.autobot.core.designsystem.component.StopButton
-import dev.wckdboy.autobot.core.designsystem.component.keyboardUp
-import dev.wckdboy.autobot.shared.cascade.CascadeLabels
-import dev.wckdboy.autobot.shared.cascade.CascadePolicy
-import dev.wckdboy.autobot.shared.session.CascadeOffer
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -47,29 +29,58 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -78,85 +89,93 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.agent.core.approval.PermissionPreset
-import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
-import dev.wckdboy.autobot.agent.core.session.TodoStatus
-import dev.wckdboy.autobot.core.designsystem.component.isLargeText
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
-import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.CopyMessageButton
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.InkLoaderSize
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PaperButton
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
-import dev.wckdboy.autobot.core.designsystem.component.RouteTag
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
 import dev.wckdboy.autobot.agent.core.llm.ThinkingMode
 import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
-import dev.wckdboy.autobot.providers.remote.ThinkingLabels
-import dev.wckdboy.autobot.core.designsystem.component.StatusDot
-import dev.wckdboy.autobot.core.designsystem.component.Tag
+import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
+import dev.wckdboy.autobot.agent.core.session.TodoStatus
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.MessageComposer
+import dev.wckdboy.autobot.core.designsystem.component.SendIconButton
+import dev.wckdboy.autobot.core.designsystem.component.StopIconButton
+import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
+import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
+import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
+import dev.wckdboy.autobot.core.designsystem.component.CopyMessageButton
+import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
+import dev.wckdboy.autobot.core.designsystem.component.PrintReveal
+import dev.wckdboy.autobot.core.designsystem.component.PrivateKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.component.PromptKeyboardOptions
+import dev.wckdboy.autobot.core.designsystem.component.RouteChip
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
-import dev.wckdboy.autobot.core.designsystem.component.TokenRateLabel
-import dev.wckdboy.autobot.core.designsystem.component.hairlineEdge
+import dev.wckdboy.autobot.core.designsystem.component.TitleWithDot
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.counted
+import dev.wckdboy.autobot.core.designsystem.component.isLargeText
+import dev.wckdboy.autobot.core.designsystem.component.keyboardUp
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.component.longPressAction
+import dev.wckdboy.autobot.core.designsystem.component.readingWidth
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.InkTweenRow
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
 import dev.wckdboy.autobot.core.designsystem.motion.inkEnter
-import dev.wckdboy.autobot.core.designsystem.motion.inkStagger
 import dev.wckdboy.autobot.core.designsystem.motion.registerGhost
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkClock
 import dev.wckdboy.autobot.core.designsystem.motion.rememberInkEnterTracker
 import dev.wckdboy.autobot.core.designsystem.motion.stamp
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.feature.chat.NameDialog
 import dev.wckdboy.autobot.providers.remote.ModelLists
+import dev.wckdboy.autobot.providers.remote.ThinkingLabels
+import dev.wckdboy.autobot.shared.ChatBannerWords
+import dev.wckdboy.autobot.shared.cascade.CascadeLabels
+import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.composer.Composer
+import dev.wckdboy.autobot.shared.composer.Composer.Part
 import dev.wckdboy.autobot.shared.panic.IncognitoImages
 import dev.wckdboy.autobot.shared.panic.PanicCopy
+import dev.wckdboy.autobot.shared.session.CascadeOffer
 import dev.wckdboy.autobot.shared.session.NoticeKind
 import dev.wckdboy.autobot.shared.session.Receipt
 import dev.wckdboy.autobot.shared.session.SessionItem
-import dev.wckdboy.autobot.shared.voice.DictationText
 import dev.wckdboy.autobot.shared.session.ToolState
+import dev.wckdboy.autobot.shared.voice.DictationText
 import java.util.Locale
 import kotlin.math.sqrt
 
@@ -227,8 +246,10 @@ private fun stepTitle(name: String): String = when (name) {
 }
 
 /**
- * An agent run (mockup 03): red run line, the task as a display title, numbered tool steps with
- * timings, approvals as a full red block, and the active policy in the footer.
+ * A chat or an agent run, in Material 3: a top app bar (back, voice, the route chip, session
+ * settings), the transcript (the run's prompt as its title, numbered tool steps, approvals on an
+ * outlined card), the chat's switches as filter chips, and a filled composer. On a wide window
+ * the column keeps a reading width.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -279,101 +300,116 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = if (state.toolsEnabled) "Agent run" else "Chat",
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-                actions = {
-                    val voiceOn = state.voice != null
-                    Tag("Voice", filled = voiceOn, onClick = { actions.setVoiceMode(!voiceOn) })
-                    // No extra spacer: the bar already spaces its actions, and the title needs the room.
-                    RouteTag(state.route, Modifier.clickable { showModels = true })
-                    IconButton(onClick = { showSession = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Session settings") }
-                },
-            )
+            val large = isLargeText()
+            Column {
+                TopAppBar(
+                    title = { TitleWithDot(if (state.toolsEnabled) "Agent run" else "Chat", mark = false) },
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                    actions = {
+                        val voiceOn = state.voice != null
+                        IconToggleButton(checked = voiceOn, onCheckedChange = { actions.setVoiceMode(it) }) {
+                            Icon(AutobotIcons.Mic, contentDescription = "Voice mode")
+                        }
+                        // Where it runs; a tap picks the provider and model.
+                        if (!large) RouteChip(state.route, Modifier.padding(horizontal = 4.dp)) { showModels = true }
+                        IconButton(onClick = { showSession = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Session settings") }
+                    },
+                )
+                // A large font leaves no room beside the title: the route takes a line under the bar.
+                if (large) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+                        RouteChip(state.route) { showModels = true }
+                    }
+                }
+            }
         },
     ) { padding ->
         // While typing only the field, the transcript and what is being answered stay (Keyboard.kt).
         val keyboard = keyboardUp()
-        Column(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize()) {
-            // One banner at a time: a notice answers what was just done, else the most pressing one.
-            val notice = state.notice
-            when {
-                notice != null -> Banner(notice, "OK", actions::dismissNotice)
-                !Composer.shows(Part.BANNER, keyboard) -> Unit
-                state.loaded && state.providers.isEmpty() -> Banner(ChatBannerWords.NO_MODEL, "Add", onOpenProviders)
-                state.showOfflineBanner -> Banner(ChatBannerWords.OFFLINE, "Privacy", onOpenPrivacyCenter)
-                state.missingKeyProvider != null -> Banner(ChatBannerWords.missingKey(state.missingKeyProvider), "Add key", onOpenProviders)
-            }
+        Box(Modifier.padding(padding).consumeWindowInsets(padding).imePadding().fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            // On a wide window the transcript and its composer keep a reading width, centred.
+            Column(Modifier.readingWidth().fillMaxSize()) {
+                // One banner at a time: a notice answers what was just done, else the most pressing one.
+                val notice = state.notice
+                val bannerModifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                when {
+                    notice != null -> NoticeCard(notice, bannerModifier, action = "OK", onAction = actions::dismissNotice)
+                    !Composer.shows(Part.BANNER, keyboard) -> Unit
+                    state.loaded && state.providers.isEmpty() -> NoticeCard(ChatBannerWords.NO_MODEL, bannerModifier, action = "Add", onAction = onOpenProviders)
+                    state.showOfflineBanner -> NoticeCard(ChatBannerWords.OFFLINE, bannerModifier, action = "Privacy", onAction = onOpenPrivacyCenter)
+                    state.missingKeyProvider != null -> NoticeCard(ChatBannerWords.missingKey(state.missingKeyProvider), bannerModifier, action = "Add key", onAction = onOpenProviders)
+                }
 
-            val empty = state.loaded && state.items.isEmpty() && !hasLive
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                reverseLayout = true,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                // Bottom: a short transcript sits on the composer, not under the top bar.
-                verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
-            ) {
-                // The cascade's offer sits under the phone's answer (the list is reversed: first is lowest).
-                val offer = state.cascadeOffer
-                if (offer != null && !hasLive) {
-                    item(key = "cascade-offer:${offer.turn}", contentType = "cascade-offer") {
-                        CascadeOfferRow(offer, state.modelLabel ?: state.selectedModel.orEmpty(), actions::escalate)
+                val empty = state.loaded && state.items.isEmpty() && !hasLive
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    reverseLayout = true,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    // Bottom: a short transcript sits on the composer, not under the top bar.
+                    verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
+                ) {
+                    // The cascade's offer sits under the phone's answer (the list is reversed: first is lowest).
+                    val offer = state.cascadeOffer
+                    if (offer != null && !hasLive) {
+                        item(key = "cascade-offer:${offer.turn}", contentType = "cascade-offer") {
+                            CascadeOfferRow(offer, state.modelLabel ?: state.selectedModel.orEmpty(), actions::escalate)
+                        }
+                    }
+                    if (hasLive) {
+                        item(key = "live", contentType = "live") {
+                            val frame = currentLive() ?: return@item
+                            chatCompositionProbe?.invoke("live")
+                            LiveMessage(frame, Modifier.inkEnter(enter.armed))
+                        }
+                    }
+                    items(state.items.asReversed(), key = { it.key }, contentType = { it::class }) { item ->
+                        chatCompositionProbe?.invoke("row")
+                        // An assistant reply replaces the live message already on screen: no entrance.
+                        val fresh = remember(item.key) { enter.claim(item.key) } && item !is SessionItem.Assistant
+                        val approval = (item as? SessionItem.Tool)?.let { state.approvals[it.callId] }
+                        val ghost = if (approval != null) remember(approval.callId) { enter.claim("approval:${approval.callId}") } else false
+                        // Plain values only: a row skips unless its own item, step or flags changed.
+                        TranscriptRow(
+                            item = item,
+                            fresh = fresh,
+                            runLabel = if (item.key == firstPromptKey) runLabel else null,
+                            stepNumber = stepNumbers[item.key] ?: 0,
+                            retry = retry?.takeIf { it.key == item.key }?.prompt,
+                            approval = approval,
+                            ghost = ghost,
+                            speaking = state.speakingKey == item.key,
+                            running = state.running,
+                            actions = actions,
+                            onReceipt = onReceipt,
+                            onOpenImage = onOpenImage,
+                        )
+                    }
+                    if (empty && Composer.shows(Part.DECOR, keyboard)) {
+                        item(key = "empty") { EmptySession(state) }
                     }
                 }
-                if (hasLive) {
-                    item(key = "live", contentType = "live") {
-                        val frame = currentLive() ?: return@item
-                        chatCompositionProbe?.invoke("live")
-                        LiveMessage(frame, Modifier.inkEnter(enter.armed))
-                    }
-                }
-                items(state.items.asReversed(), key = { it.key }, contentType = { it::class }) { item ->
-                    chatCompositionProbe?.invoke("row")
-                    // An assistant reply replaces the live message already on screen: no entrance.
-                    val fresh = remember(item.key) { enter.claim(item.key) } && item !is SessionItem.Assistant
-                    val approval = (item as? SessionItem.Tool)?.let { state.approvals[it.callId] }
-                    val ghost = if (approval != null) remember(approval.callId) { enter.claim("approval:${approval.callId}") } else false
-                    // Plain values only: a row skips unless its own item, step or flags changed.
-                    TranscriptRow(
-                        item = item,
-                        fresh = fresh,
-                        runLabel = if (item.key == firstPromptKey) runLabel else null,
-                        stepNumber = stepNumbers[item.key] ?: 0,
-                        retry = retry?.takeIf { it.key == item.key }?.prompt,
-                        approval = approval,
-                        ghost = ghost,
-                        speaking = state.speakingKey == item.key,
-                        running = state.running,
-                        actions = actions,
-                        onReceipt = onReceipt,
-                        onOpenImage = onOpenImage,
+
+                if (Composer.shows(Part.PLAN, keyboard) && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
+                state.question?.let { QuestionCard(it, actions::answer) }
+                if (Composer.shows(Part.CHIPS, keyboard)) {
+                    PolicyLine(
+                        state,
+                        onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) },
+                        onThinkMore = { showThink = true },
+                        onRedact = { actions.setRedaction(state.redaction != RedactionUi.ON) },
+                        onCascade = { showCascade = true },
                     )
                 }
-                if (empty && Composer.shows(Part.DECOR, keyboard)) {
-                    item(key = "empty") { EmptySession(state) }
+                val voice = state.voice
+                if (voice != null) {
+                    VoicePanel(voice, micLevels, liveDictation, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
+                } else {
+                    InputBar(
+                        state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation,
+                        actions::consumeDictation, actions.draft, actions::setDraft, liveDictation,
+                    )
                 }
-            }
-
-            if (Composer.shows(Part.PLAN, keyboard) && state.todos.any { it.status != TodoStatus.COMPLETED }) TodoPanel(state)
-            state.question?.let { QuestionCard(it, actions::answer) }
-            if (Composer.shows(Part.CHIPS, keyboard)) {
-                PolicyLine(
-                    state,
-                    onThink = { actions.setThinking(ThinkingLabels.next(state.thinking)) },
-                    onThinkMore = { showThink = true },
-                    onRedact = { actions.setRedaction(state.redaction != RedactionUi.ON) },
-                    onCascade = { showCascade = true },
-                )
-            }
-            val voice = state.voice
-            if (voice != null) {
-                VoicePanel(voice, micLevels, liveDictation, actions::voiceTap, actions::voiceDenied, actions::setHandsFree) { actions.setVoiceMode(false) }
-            } else {
-                InputBar(
-                    state, actions::send, actions::stop, actions::attach, actions::removeAttachment, actions::attachmentThumbnail, actions::toggleDictation,
-                    actions::consumeDictation, actions.draft, actions::setDraft, liveDictation,
-                )
             }
         }
     }
@@ -502,19 +538,27 @@ private fun TranscriptRow(
     }
 }
 
+/** The run's first prompt: what ran (`Run · model · tokens`) over the prompt as the run's title. */
 @Composable
 private fun RunHeader(label: String, prompt: String) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-        SectionLabel(label)
-        Text(prompt, style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
+        Text(labelCase(label), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(prompt, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
+/** A later prompt in the run: a tonal bubble on the trailing side. */
 @Composable
 private fun FollowUp(text: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("›", style = AutobotTheme.styles.code, color = MaterialTheme.colorScheme.primary)
-        Text(text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Surface(
+            modifier = Modifier.widthIn(max = 560.dp),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ) {
+            Text(text, Modifier.padding(horizontal = 16.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyLarge)
+        }
     }
 }
 
@@ -538,8 +582,10 @@ private fun AssistantMessage(
                 onLongPress = { menu = true },
                 footer = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (item.interrupted) Tag("interrupted", accent = AutobotTheme.inks.amber)
-                        if (item.outputTokens != null) TokenRateLabel(tokensPerSecond = null, totalTokens = item.outputTokens)
+                        if (item.interrupted) {
+                            TonalLabel("Interrupted", containerColor = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer)
+                        }
+                        if (item.outputTokens != null) MetaText(rateLine(null, item.outputTokens))
                         Spacer(Modifier.weight(1f))
                         // Copies the message as written (markdown), not the rendered text.
                         CopyMessageButton(item.text)
@@ -562,6 +608,29 @@ private fun AssistantMessage(
     }
 }
 
+/** `12.4 tok/s · 256 tokens`: either part may be missing. */
+private fun rateLine(tokensPerSecond: Float?, totalTokens: Int?): String = listOfNotNull(
+    tokensPerSecond?.let { String.format(Locale.ROOT, "%.1f tok/s", it) },
+    totalTokens?.let { counted(it, "token") },
+).joinToString(" · ")
+
+/** A quiet line of detail (token counts, timings) in the label type. */
+@Composable
+private fun MetaText(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines: Int = Int.MAX_VALUE) {
+    if (text.isEmpty()) return
+    Text(text, modifier, style = MaterialTheme.typography.labelMedium, color = color, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+}
+
+/** Material's expressive loading indicator, [size] across, read out as [description] (or nothing). */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun Working(modifier: Modifier = Modifier, size: Dp = 32.dp, description: String? = null, color: Color = MaterialTheme.colorScheme.primary) {
+    LoadingIndicator(
+        modifier.size(size).then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier),
+        color = color,
+    )
+}
+
 @Composable
 private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
     SideEffect { ChatTiming.shown(live.text) }
@@ -575,27 +644,27 @@ private fun LiveMessage(live: LiveUi, modifier: Modifier = Modifier) {
             )
         }
         if (live.text.isEmpty() && live.reasoning.isEmpty() && live.toolNames.isEmpty()) {
-            // Nothing to read yet: the working pixels instead of an empty bubble.
-            InkLoader(Modifier.padding(vertical = 6.dp))
+            // Nothing to read yet: the loading indicator instead of an empty bubble.
+            Working(Modifier.padding(vertical = 6.dp), size = 40.dp, description = "Working")
         } else if (live.text.isNotEmpty()) {
             ChatBubble(
                 role = BubbleRole.ASSISTANT,
                 text = live.text,
                 isStreaming = true,
-                footer = live.tokensPerSecond?.let { { TokenRateLabel(tokensPerSecond = it, totalTokens = null) } },
+                footer = live.tokensPerSecond?.let { { MetaText(rateLine(it, null)) } },
             )
         }
         live.toolNames.forEach { name ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                InkLoader(contentDescription = null)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Working(size = 24.dp)
                 Text(stepTitle(name), style = MaterialTheme.typography.titleMedium)
-                MicroLabel("composing")
+                MetaText("Composing")
             }
         }
     }
 }
 
-/** `▪ Read file / └ read · notes.md   ✓ 0.4 s`: the terminal's step grammar. */
+/** `▪ Read file / └ read · notes.md   ✓ 0.4 s`: a tool step, its output or diff a tap away. */
 @Composable
 private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, onOpenImage: (String, List<String>) -> Unit, running: Boolean = false) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
@@ -608,7 +677,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
         ToolState.OK -> (if (item.undone) "undone" else "✓") to MaterialTheme.colorScheme.onSurfaceVariant
         ToolState.ERROR -> "×" to MaterialTheme.colorScheme.error
         ToolState.DENIED -> "denied" to MaterialTheme.colorScheme.onSurfaceVariant
-        ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "" to AutobotColors.Purple
+        ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> "" to MaterialTheme.colorScheme.primary
     }
     Column {
         Row(
@@ -616,14 +685,14 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // The step square: purple while it works or waits for you, red when it failed.
+            // The step square: primary while it works or waits for you, error when it failed.
             Text(
                 STEP_MARK,
                 modifier = Modifier.semantics { contentDescription = "Step $number" },
-                // On the title's line and at its size, as the terminal sets it beside the step.
+                // On the title's line and at its size.
                 style = MaterialTheme.typography.titleMedium,
                 color = when (item.state) {
-                    ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> AutobotColors.Purple
+                    ToolState.RUNNING, ToolState.STREAMING, ToolState.WAITING_APPROVAL -> MaterialTheme.colorScheme.primary
                     ToolState.ERROR -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
@@ -635,13 +704,10 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                     textDecoration = if (item.undone) TextDecoration.LineThrough else null,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
+                    MetaText(
                         "└ " + listOf(item.name, item.summary).filter { it.isNotBlank() }.joinToString(" · "),
-                        modifier = Modifier.weight(1f, fill = false),
-                        style = AutobotTheme.styles.micro,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Modifier.weight(1f, fill = false),
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                     if (change != null) ChangeCounts(change)
                 }
@@ -659,13 +725,13 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                 }
             }
             if (mark.isEmpty()) {
-                // Still working: the ink loader stands where the mark will be stamped.
-                InkLoader(Modifier.padding(top = 3.dp))
+                // Still working: the loading indicator stands where the mark will be stamped.
+                Working(size = 24.dp)
             } else {
                 Text(
                     mark + (item.durationMs?.let { " ${String.format(Locale.ROOT, "%.1f", it / 1000f)} s" } ?: ""),
                     modifier = Modifier.stamp(item.state to item.undone, enabled = item.state == ToolState.OK || item.state == ToolState.ERROR || item.state == ToolState.DENIED),
-                    style = AutobotTheme.styles.readout,
+                    style = MaterialTheme.typography.labelLarge,
                     color = markColor,
                 )
             }
@@ -673,9 +739,7 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
         val output = item.output
         if (expanded && item.steps.isNotEmpty()) {
             Column(Modifier.fillMaxWidth().padding(start = 24.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                item.steps.forEach { step ->
-                    Text(step, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                item.steps.forEach { step -> MetaText(step, maxLines = 1) }
             }
         }
         if (expanded && change != null) {
@@ -683,27 +747,32 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                 DiffBlock(change)
                 val redoId = item.revertId
                 when {
-                    item.undone && redoId != null -> Tag("↷ Redo", accent = MaterialTheme.colorScheme.onSurface, onClick = { if (!running) actions.redo(redoId) })
-                    !item.undone && change.undoable -> Tag("↶ Undo step", accent = MaterialTheme.colorScheme.onSurface, onClick = { if (!running) actions.undoStep(item.callId) })
+                    item.undone && redoId != null -> TextButton(onClick = { if (!running) actions.redo(redoId) }) { Text("Redo step") }
+                    !item.undone && change.undoable -> TextButton(onClick = { if (!running) actions.undoStep(item.callId) }) {
+                        Icon(AutobotIcons.Undo, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Undo step")
+                    }
                 }
             }
         } else if (expanded && output != null) {
+            // Tool output is code: monospace on a tonal plate.
             Text(
                 output.take(4000),
-                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(10.dp),
+                modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
                 style = AutobotTheme.styles.codeBlock,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (generating && item.galleryIds.isEmpty()) {
-            // A flat plate while the agent's job runs; the loader says it is working.
-            Box(Modifier.padding(bottom = 6.dp).size(120.dp).background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
-                InkLoader(contentDescription = "Generating")
+            // A plate while the agent's job runs; the indicator says it is working.
+            Box(Modifier.padding(bottom = 6.dp).size(120.dp).clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+                Working(description = "Generating")
             }
         }
         if (item.galleryIds.isNotEmpty()) {
             val saved by actions.savedImages.collectAsStateWithLifecycle()
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 item.galleryIds.forEach { id ->
                     val bitmap by produceState<ImageBitmap?>(null, id) { value = actions.thumbnail(id) }
                     // An incognito image is in memory only until saved: it opens full size from memory
@@ -713,18 +782,19 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                         Box(
                             Modifier
                                 .size(120.dp)
-                                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                                .clip(MaterialTheme.shapes.medium)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                 .clickable(onClickLabel = "View full size") { onOpenImage(saved[id] ?: id, item.galleryIds.map { saved[it] ?: it }) },
                         ) {
                             bitmap?.let { PrintReveal(it, Modifier.fillMaxSize(), animate = watched[0], contentDescription = "Generated image") }
                         }
                         if (unsaved && bitmap != null) {
                             if (saved.containsKey(id)) {
-                                MicroLabel(PanicCopy.SAVED)
+                                MetaText(PanicCopy.SAVED)
                             } else {
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    MicroLabel(PanicCopy.NOT_SAVED)
-                                    Tag(PanicCopy.SAVE, accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.saveImage(id) })
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    MetaText(PanicCopy.NOT_SAVED)
+                                    TextButton(onClick = { actions.saveImage(id) }) { Text(PanicCopy.SAVE) }
                                 }
                             }
                         }
@@ -732,44 +802,44 @@ private fun StepRow(number: Int, item: SessionItem.Tool, actions: ChatActions, o
                 }
             }
         }
-        Hairline()
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
 /**
- * The approval block: `04 · Approval needed · network access`, title, args, Deny / Approve. A
- * raised panel marked by a purple rule on its leading edge (it is what needs you now). When the
- * call would send private data (taint tracking), the header says so and every private fragment
- * is marked, in the arguments and in the reason.
+ * The approval block: `▪ Approval needed · network access`, title, args, Deny / Approve, on an
+ * outlined card ringed in the primary colour (it is what needs you now). When the call would send
+ * private data (taint tracking), the header says so and every private fragment is marked, in the
+ * arguments and in the reason.
  */
 @Composable
 private fun ApprovalCard(number: Int, item: SessionItem.Tool, approval: ApprovalUi, actions: ChatActions, ghost: Boolean) {
     val privateData = approval.privateData
     val mark = SpanStyle(background = MaterialTheme.colorScheme.primaryContainer, color = MaterialTheme.colorScheme.onPrimaryContainer)
-    val rule = AutobotColors.Purple
-    Surface(
-        modifier = Modifier.registerGhost(ghost, rule.copy(alpha = 0.5f), MaterialTheme.shapes.extraSmall),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = MaterialTheme.shapes.extraSmall,
+    val ring = MaterialTheme.colorScheme.primary
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth().registerGhost(ghost, ring.copy(alpha = 0.5f), MaterialTheme.shapes.medium),
+        border = BorderStroke(2.dp, ring),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
-        Column(
-            Modifier.fillMaxWidth().drawBehind { drawRect(rule, size = Size(3.dp.toPx(), size.height)) }.padding(start = 17.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("$STEP_MARK Approval needed", style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).semantics { contentDescription = "Step $number: approval needed" })
-                Text(if (privateData.isEmpty()) approval.reason.orEmpty() else "private data", style = AutobotTheme.styles.micro, color = if (privateData.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+                Text("$STEP_MARK Approval needed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f).semantics { contentDescription = "Step $number: approval needed" })
+                Text(
+                    if (privateData.isEmpty()) approval.reason.orEmpty() else "private data",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (privateData.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                )
             }
-            Text(stepTitle(item.name), style = MaterialTheme.typography.headlineMedium)
+            Text(stepTitle(item.name), style = MaterialTheme.typography.headlineSmall)
             Text(highlight("${item.name}(${approval.summary})", privateData, mark), style = AutobotTheme.styles.codeBlock)
             if (privateData.isNotEmpty()) Text(highlight(approval.reason.orEmpty(), privateData, mark), style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhostButton("Deny", { actions.approve(item.callId, ApprovalOutcome.REJECTED) }, Modifier.weight(1f))
-                PaperButton("Approve", { actions.approve(item.callId, ApprovalOutcome.ALLOWED_ONCE) }, Modifier.weight(1f))
+                OutlinedButton(onClick = { actions.approve(item.callId, ApprovalOutcome.REJECTED) }, modifier = Modifier.weight(1f)) { Text("Deny") }
+                Button(onClick = { actions.approve(item.callId, ApprovalOutcome.ALLOWED_ONCE) }, modifier = Modifier.weight(1f)) { Text("Approve") }
             }
             TextButton(onClick = { actions.approve(item.callId, ApprovalOutcome.ALLOWED_FOR_SESSION) }) {
-                ActionText("Always allow ${item.name} in this run", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Always allow ${item.name} in this run")
             }
         }
     }
@@ -791,8 +861,8 @@ private fun highlight(text: String, fragments: List<String>, style: SpanStyle): 
 @Composable
 private fun NoticeRow(item: SessionItem.Notice, onRetry: (() -> Unit)? = null) {
     val color = when (item.kind) {
-        NoticeKind.INFO -> MaterialTheme.colorScheme.outline
-        NoticeKind.WARN -> AutobotTheme.inks.amber
+        NoticeKind.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
+        NoticeKind.WARN -> MaterialTheme.colorScheme.tertiary
         NoticeKind.ERROR -> MaterialTheme.colorScheme.error
     }
     if (item.kind == NoticeKind.ERROR) {
@@ -801,34 +871,33 @@ private fun NoticeRow(item: SessionItem.Notice, onRetry: (() -> Unit)? = null) {
             Text(
                 "✗ ${item.text}",
                 modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { expanded = !expanded },
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = color,
                 maxLines = if (expanded) Int.MAX_VALUE else 3,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (onRetry != null) TextButton(onClick = onRetry) { ActionText("Retry", color = MaterialTheme.colorScheme.onSurface) }
+            if (onRetry != null) TextButton(onClick = onRetry) { Text("Retry") }
         }
     } else {
-        Text(
-            labelCase(item.text),
-            style = AutobotTheme.styles.micro,
-            color = color,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Text(labelCase(item.text), style = MaterialTheme.typography.labelLarge, color = color, maxLines = 3, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun EmptySession(state: ChatUiState) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        AutobotMark(size = 24.dp)
-        SectionLabel(if (state.toolsEnabled) "agent ready · workspace /workspace" else "chat")
-        Text(if (state.toolsEnabled) "What should it do?" else "Ask anything.", style = MaterialTheme.typography.headlineLarge)
+    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        AutobotMark(size = 32.dp)
+        Text(
+            if (state.toolsEnabled) "Agent ready · workspace /workspace" else "Chat",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(if (state.toolsEnabled) "What should it do?" else "Ask anything.", style = MaterialTheme.typography.headlineMedium)
     }
 }
 
-/** `Policy · workspace · asks: delete, network`: what runs without asking, in a few words. */
+/** The chat's switches (Think, Redact, Phone first) as filter chips, the context meter, and what runs without asking. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PolicyLine(
     state: ChatUiState,
@@ -843,23 +912,24 @@ private fun PolicyLine(
     if (!state.toolsEnabled && !think && !redact && cascade == null) return
     val text = when {
         !state.toolsEnabled -> ""
-        state.permission == PermissionPreset.READ_ONLY -> "policy · read-only · asks: network"
-        state.permission == PermissionPreset.WORKSPACE -> "policy · workspace · asks: delete, network"
-        else -> "policy · full access"
+        state.permission == PermissionPreset.READ_ONLY -> "Policy · read-only · asks: network"
+        state.permission == PermissionPreset.WORKSPACE -> "Policy · workspace · asks: delete, network"
+        else -> "Policy · full access"
     }
-    // Chips and the context meter on one row, the policy on its own line under them (as on iOS):
-    // beside three chips a narrow phone cut it to "Policy · workspace · …".
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    // The chips (and the context meter) wrap on a narrow window; the policy has its own line under them.
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
             if (think) ThinkChip(state.thinking, onThink, onThinkMore)
             if (redact) RedactChip(state.redaction == RedactionUi.ON, onRedact)
             if (cascade != null) CascadeChip(cascade, onCascade)
-            Spacer(Modifier.weight(1f))
             val used = state.contextUsed
             val window = state.contextWindow
-            if (used != null && window != null && window > 0) MicroLabel("${compact(used)}/${compact(window)}")
+            if (used != null && window != null && window > 0) MetaText("${compact(used)}/${compact(window)}", Modifier.padding(horizontal = 4.dp))
         }
-        if (text.isNotEmpty()) MicroLabel(text, maxLines = 2)
+        if (text.isNotEmpty()) Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -873,84 +943,101 @@ private fun compact(n: Int): String = when {
     else -> n.toString()
 }
 
-@Composable
-private fun Banner(text: String, action: String, onAction: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).hairlineEdge().padding(start = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-        TextButton(onClick = onAction) { ActionText(action, color = MaterialTheme.colorScheme.onSurface) }
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // Bottom stack
 
+/** The agent's plan, above the composer: done, doing and to do, foldable. */
 @Composable
 private fun TodoPanel(state: ChatUiState) {
     var open by rememberSaveable { mutableStateOf(true) }
     val done = state.todos.count { it.status == TodoStatus.COMPLETED }
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("plan · $done/${state.todos.size}", Modifier.weight(1f))
-            Tag(if (open) "Hide" else "Show", onClick = { open = !open })
-        }
-        if (open) {
-            state.todos.forEach { todo ->
-                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val (glyph, color) = when (todo.status) {
-                        TodoStatus.COMPLETED -> "■" to MaterialTheme.colorScheme.outline
-                        TodoStatus.IN_PROGRESS -> "▶" to AutobotColors.Purple
-                        TodoStatus.PENDING -> "□" to MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Plan · $done/${state.todos.size}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = { open = !open }) { Text(if (open) "Hide" else "Show") }
+            }
+            if (open) {
+                state.todos.forEach { todo ->
+                    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        when (todo.status) {
+                            TodoStatus.COMPLETED -> Icon(Icons.Filled.CheckCircle, contentDescription = "Done", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline)
+                            TodoStatus.IN_PROGRESS -> Icon(Icons.Filled.PlayArrow, contentDescription = "In progress", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            TodoStatus.PENDING -> Box(
+                                Modifier.size(18.dp).padding(1.dp).border(2.dp, MaterialTheme.colorScheme.onSurfaceVariant, CircleShape)
+                                    .semantics { contentDescription = "To do" },
+                            )
+                        }
+                        Text(
+                            todo.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (todo.status == TodoStatus.COMPLETED) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+                            textDecoration = if (todo.status == TodoStatus.COMPLETED) TextDecoration.LineThrough else null,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
-                    Text(glyph, style = AutobotTheme.styles.code, color = color)
-                    Text(
-                        todo.content,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (todo.status == TodoStatus.COMPLETED) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
             }
         }
     }
 }
 
+/** The agent's question: its options as chips (several when it allows), or a typed answer. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuestionCard(question: QuestionUi, onAnswer: (String, List<String>?) -> Unit) {
     var free by rememberSaveable(question.callId, saver = BoundedText) { mutableStateOf("") }
     var picked by remember(question.callId) { mutableStateOf(setOf<String>()) }
-    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("agent asks", Modifier.weight(1f))
-            Tag("Skip", onClick = { onAnswer(question.callId, null) })
-        }
-        Text(question.question.question, style = MaterialTheme.typography.titleMedium)
-        if (question.question.options.isNotEmpty()) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                question.question.options.forEach { option ->
-                    val active = option in picked
-                    ChoiceChip(
-                        option,
-                        asWritten = true,
-                        selected = active,
-                        onClick = {
-                            if (question.question.multiSelect) picked = if (active) picked - option else picked + option else onAnswer(question.callId, listOf(option))
-                        },
-                    )
+    ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Agent asks", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = { onAnswer(question.callId, null) }) { Text("Skip") }
+            }
+            Text(question.question.question, style = MaterialTheme.typography.titleMedium)
+            if (question.question.options.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    question.question.options.forEach { option ->
+                        val active = option in picked
+                        FilterChip(
+                            selected = active,
+                            onClick = {
+                                if (question.question.multiSelect) picked = if (active) picked - option else picked + option else onAnswer(question.callId, listOf(option))
+                            },
+                            label = { Text(option) },
+                        )
+                    }
                 }
             }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ConsoleTextField(free, { free = it }, Modifier.weight(1f), placeholder = "Or type an answer", singleLine = true)
-            PrimaryButton("Send", { onAnswer(question.callId, (picked + listOfNotNull(free.trim().ifBlank { null })).toList()) }, enabled = free.isNotBlank() || picked.isNotEmpty())
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NoPersonalizedLearning {
+                    OutlinedTextField(
+                        free,
+                        { free = it },
+                        Modifier.weight(1f),
+                        placeholder = { Text("Or type an answer") },
+                        singleLine = true,
+                        keyboardOptions = PrivateKeyboardOptions,
+                    )
+                }
+                Button(
+                    onClick = { onAnswer(question.callId, (picked + listOfNotNull(free.trim().ifBlank { null })).toList()) },
+                    enabled = free.isNotBlank() || picked.isNotEmpty(),
+                ) { Text("Send") }
+            }
         }
     }
 }
 
+/**
+ * The composer: attach and dictate, the field (a filled, rounded text field that grows to
+ * `Composer.MAX_LINES` lines), and Send (Queue while a turn runs) or Stop.
+ */
 @Composable
 private fun InputBar(
     state: ChatUiState,
@@ -984,32 +1071,9 @@ private fun InputBar(
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) { uris ->
         uris.take(MAX_ATTACHMENTS - state.pendingImages.size).forEach(onAttach)
     }
-    val large = isLargeText()
-    val tools = @Composable {
-        IconButton(
-            onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            enabled = state.pendingImages.size < MAX_ATTACHMENTS,
-            modifier = Modifier.size(ComposerButtonSize),
-        ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
-        IconButton(
-            onClick = {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                    onDictate()
-                } else {
-                    microphone.launch(Manifest.permission.RECORD_AUDIO)
-                }
-            },
-            enabled = state.dictation != Dictation.TRANSCRIBING,
-            modifier = Modifier.size(ComposerButtonSize),
-        ) {
-            when (state.dictation) {
-                Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
-                Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary).semantics { contentDescription = "Stop dictating" })
-                Dictation.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, contentDescription = "Transcribing")
-            }
-        }
-    }
-    ComposerBar(
+    val action = Composer.action(text, state.pendingImages.size, state.running)
+    val label = Composer.label(action)
+    MessageComposer(
         value = text,
         onValueChange = { text = it },
         placeholder = Composer.placeholder(state.running),
@@ -1017,45 +1081,66 @@ private fun InputBar(
         maxLines = Composer.MAX_LINES,
         above = {
             if (state.pendingImages.isNotEmpty()) {
-                AttachmentStrip(state.pendingImages, thumbnail, Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp), onRemove = onRemoveAttachment)
+                AttachmentStrip(state.pendingImages, thumbnail, Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp), onRemove = onRemoveAttachment)
             }
             if (text.startsWith("/")) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                     COMMANDS.filter { it.first.startsWith(text.substringBefore(' ')) }.forEach { (cmd, help) ->
-                        Row(Modifier.fillMaxWidth().clickable { text = cmd.substringBefore(' ') + " " }, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { text = cmd.substringBefore(' ') + " " }.padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            // A command is code: monospace.
                             Text(cmd, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.primary)
                             Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
-                Hairline()
             }
             if (state.dictation != Dictation.IDLE) {
                 LiveWords(liveDictation, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp))
             }
-            // A large font leaves the field too narrow beside the attach and dictate buttons: they take a row above it.
-            if (large) Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { tools() }
         },
-        leading = { if (!large) tools() },
+        tools = {
+            IconButton(
+                onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                enabled = state.pendingImages.size < MAX_ATTACHMENTS,
+            ) { Icon(AutobotIcons.Image, contentDescription = "Attach image") }
+            IconButton(
+                onClick = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        onDictate()
+                    } else {
+                        microphone.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                enabled = state.dictation != Dictation.TRANSCRIBING,
+            ) {
+                when (state.dictation) {
+                    Dictation.IDLE -> Icon(AutobotIcons.Mic, contentDescription = "Dictate")
+                    Dictation.RECORDING -> Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.extraSmall).semantics { contentDescription = "Stop dictating" })
+                    Dictation.TRANSCRIBING -> Working(size = 24.dp, description = "Transcribing")
+                }
+            }
+        },
     ) {
-        val action = Composer.action(text, state.pendingImages.size, state.running)
         if (action == Composer.Action.STOP) {
-            StopButton(onStop, label = Composer.label(action))
+            StopIconButton(onClick = onStop, label = label)
         } else {
-            SendButton(
+            SendIconButton(
                 onClick = {
                     onSend(text)
                     text = ""
                 },
                 enabled = Composer.enabled(action, text, state.pendingImages.size),
-                label = Composer.label(action),
+                label = label,
             )
         }
     }
 }
 
 /**
- * Voice mode's composer: what the loop is doing (`// VOICE · LISTENING`), a level meter while
+ * Voice mode's composer: what the loop is doing (`Voice · listening`), a level meter while
  * listening, and one button that talks, sends, stops the agent or interrupts the answer.
  */
 @Composable
@@ -1070,39 +1155,37 @@ private fun VoicePanel(
 ) {
     val context = LocalContext.current
     val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) onTap() else onDenied() }
-    val primary = MaterialTheme.colorScheme.primary
     val (label, hint) = when (voice.phase) {
-        VoicePhase.READY -> "ready" to "tap to talk"
-        VoicePhase.LISTENING -> "listening" to if (voice.handsFree) "pause to send · tap to send now" else "tap to send"
-        VoicePhase.TRANSCRIBING -> "transcribing" to "on this phone"
-        VoicePhase.THINKING -> "thinking" to "tap to stop"
-        VoicePhase.SPEAKING -> "speaking" to "tap to interrupt and talk"
+        VoicePhase.READY -> "ready" to "Tap to talk"
+        VoicePhase.LISTENING -> "listening" to if (voice.handsFree) "Pause to send · tap to send now" else "Tap to send"
+        VoicePhase.TRANSCRIBING -> "transcribing" to "On this phone"
+        VoicePhase.THINKING -> "thinking" to "Tap to stop"
+        VoicePhase.SPEAKING -> "speaking" to "Tap to interrupt and talk"
     }
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Column(
-            Modifier
-                .hairlineEdge(top = true, bottom = false)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+    Surface(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusDot(if (voice.phase == VoicePhase.READY) MaterialTheme.colorScheme.outline else primary, live = voice.phase != VoicePhase.READY)
-                SectionLabel("voice · $label", Modifier.weight(1f))
-                Tag("Hands-free", filled = voice.handsFree, onClick = { onHandsFree(!voice.handsFree) })
-                Tag("Type", onClick = onType)
+                Text("Voice · $label", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                FilterChip(selected = voice.handsFree, onClick = { onHandsFree(!voice.handsFree) }, label = { Text("Hands-free") })
+                AssistChip(onClick = onType, label = { Text("Type") })
             }
             if (voice.phase == VoicePhase.LISTENING || voice.phase == VoicePhase.TRANSCRIBING) LiveWords(words, Modifier.fillMaxWidth())
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (voice.phase == VoicePhase.SPEAKING) {
-                        // Read aloud: the working pixels on a flat strip, as tall as the meter.
-                        Box(Modifier.fillMaxWidth().height(36.dp), contentAlignment = Alignment.CenterStart) { InkLoader(contentDescription = "Speaking") }
+                        // Read aloud: the loading indicator, as tall as the meter.
+                        Box(Modifier.fillMaxWidth().height(36.dp), contentAlignment = Alignment.CenterStart) { Working(size = 36.dp, description = "Speaking") }
                     } else {
                         LevelMeter(levels, Modifier.fillMaxWidth().height(36.dp), live = voice.phase == VoicePhase.LISTENING)
                     }
-                    MicroLabel(hint)
+                    Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 val talks = voice.phase == VoicePhase.READY || voice.phase == VoicePhase.SPEAKING
+                val tonal = voice.phase == VoicePhase.THINKING || voice.phase == VoicePhase.SPEAKING
                 FilledIconButton(
                     onClick = {
                         if (talks && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -1112,19 +1195,14 @@ private fun VoicePanel(
                         }
                     },
                     enabled = voice.phase != VoicePhase.TRANSCRIBING,
-                    shape = MaterialTheme.shapes.extraSmall,
-                    colors = if (voice.phase == VoicePhase.THINKING || voice.phase == VoicePhase.SPEAKING) {
-                        IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = primary)
-                    } else {
-                        IconButtonDefaults.filledIconButtonColors()
-                    },
+                    colors = if (tonal) IconButtonDefaults.filledTonalIconButtonColors() else IconButtonDefaults.filledIconButtonColors(),
                     modifier = Modifier.size(64.dp),
                 ) {
                     when (voice.phase) {
                         VoicePhase.READY -> Icon(AutobotIcons.Mic, contentDescription = "Talk")
-                        VoicePhase.LISTENING -> Box(Modifier.size(16.dp).background(MaterialTheme.colorScheme.onPrimary).semantics { contentDescription = "Send now" })
-                        VoicePhase.TRANSCRIBING -> InkLoader(size = InkLoaderSize.Button, color = LocalContentColor.current, contentDescription = "Transcribing")
-                        VoicePhase.THINKING -> Box(Modifier.size(14.dp).background(primary).semantics { contentDescription = "Stop the agent" })
+                        VoicePhase.LISTENING -> Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send now")
+                        VoicePhase.TRANSCRIBING -> Working(size = 32.dp, description = "Transcribing", color = LocalContentColor.current)
+                        VoicePhase.THINKING -> Box(Modifier.size(16.dp).background(LocalContentColor.current, MaterialTheme.shapes.extraSmall).semantics { contentDescription = "Stop the agent" })
                         VoicePhase.SPEAKING -> Icon(AutobotIcons.Mic, contentDescription = "Interrupt")
                     }
                 }
@@ -1167,7 +1245,7 @@ private fun LiveWords(words: () -> DictationText?, modifier: Modifier = Modifier
 
 private const val LIVE_WORDS_CHARS = 160
 
-/** Microphone peaks as riso bars, newest on the right, easing to each new reading; a flat rule when not listening. */
+/** Microphone peaks as bars, newest on the right, easing to each new reading; a flat rule when not listening. */
 @Composable
 private fun LevelMeter(readings: () -> List<Float>, modifier: Modifier = Modifier, live: Boolean = true) {
     // Read here, not by the panel: each reading recomposes the meter only.
@@ -1214,22 +1292,15 @@ private fun AttachmentStrip(
             val image by produceState<ImageBitmap?>(null, id) { value = thumbnail(id) }
             Box(
                 Modifier
-                    .size(64.dp)
-                    .clip(MaterialTheme.shapes.extraSmall)
+                    .size(72.dp)
+                    .clip(MaterialTheme.shapes.medium)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             ) {
                 image?.let { Image(it, contentDescription = "Attached image", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                 if (onRemove != null) {
-                    Text(
-                        "×",
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .clickable { onRemove(id) }
-                            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.8f))
-                            .padding(horizontal = 6.dp),
-                        style = AutobotTheme.styles.code,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
+                    FilledTonalIconButton(onClick = { onRemove(id) }, modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(28.dp)) {
+                        Icon(Icons.Filled.Close, contentDescription = "Remove image", Modifier.size(16.dp))
+                    }
                 }
             }
         }
@@ -1239,7 +1310,8 @@ private fun AttachmentStrip(
 // ---------------------------------------------------------------------------------------------
 // Sheets
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/** Where the chat runs: the provider (a radio list) and the model (search field and list). */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelSheet(
     state: ChatUiState,
@@ -1253,50 +1325,92 @@ private fun ModelSheet(
     var confirmTrains by remember { mutableStateOf<String?>(null) }
     val selected = state.providers.firstOrNull { it.id == state.selectedProviderId }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SectionLabel("route", Modifier.inkStagger(0))
-            if (state.providers.isEmpty()) TextButton(onClick = onOpenProviders) { ActionText("Add a provider") }
-            state.providers.forEach { option ->
-                Row(Modifier.fillMaxWidth().inkStagger(1).clickable(role = Role.RadioButton) { onSelectProvider(option.id) }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = option.id == state.selectedProviderId, onClick = null)
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(option.name, style = MaterialTheme.typography.titleMedium)
-                        Text(option.defaultModel, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(bottom = 24.dp)) {
+            SheetHeader("Route")
+            if (state.providers.isEmpty()) TextButton(onClick = onOpenProviders, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Add a provider") }
+            Column(Modifier.selectableGroup()) {
+                state.providers.forEach { option ->
+                    val chosen = option.id == state.selectedProviderId
+                    ListItem(
+                        headlineContent = { Text(option.name) },
+                        supportingContent = { Text(option.defaultModel) },
+                        leadingContent = { RadioButton(selected = chosen, onClick = null) },
+                        modifier = Modifier.selectable(selected = chosen, role = Role.RadioButton) { onSelectProvider(option.id) },
+                    )
                 }
             }
-            Hairline(Modifier.padding(vertical = 4.dp))
-            Row(Modifier.inkStagger(2), verticalAlignment = Alignment.CenterVertically) {
-                SectionLabel("model", Modifier.weight(1f))
-                selected?.let { MicroLabel(it.modelsLabel) }
-                if (selected?.canRefresh == true) TextButton(onClick = onRefreshModels) { ActionText("Refresh") }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Row(Modifier.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Model", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                selected?.let { MetaText(it.modelsLabel) }
+                if (selected?.canRefresh == true) TextButton(onClick = onRefreshModels) { Text("Refresh") }
             }
-            ConsoleTextField(model, { model = it }, Modifier.fillMaxWidth().inkStagger(3), label = "Model id · type to search", singleLine = true, mono = true)
+            NoPersonalizedLearning {
+                OutlinedTextField(
+                    model,
+                    { model = it },
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    label = { Text("Model id · type to search") },
+                    singleLine = true,
+                    keyboardOptions = PromptKeyboardOptions,
+                )
+            }
             selected?.let { option ->
                 // The field searches the list unless it already names one of its models.
                 val query = if (option.models.any { it.id == model }) "" else model
-                val shown = ModelLists.filter(option.models, query, limit = 30)
-                shown.forEach { m ->
+                ModelLists.filter(option.models, query, limit = 30).forEach { m ->
                     val active = m.id == model
-                    Column(Modifier.fillMaxWidth().clickable { model = m.id }.padding(vertical = 4.dp)) {
-                        Text(
-                            (if (active) "● " else "") + m.id,
-                            style = AutobotTheme.styles.code,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = if (active) FontWeight.SemiBold else null,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        option.caption(m).takeIf { it.isNotEmpty() }?.let { MicroLabel(it) }
-                    }
+                    ListItem(
+                        headlineContent = { Text(m.id, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        supportingContent = option.caption(m).takeIf { it.isNotEmpty() }?.let { { Text(it) } },
+                        trailingContent = if (active) ({ Icon(Icons.Filled.Check, contentDescription = "Chosen", tint = MaterialTheme.colorScheme.primary) }) else null,
+                        modifier = Modifier.selectable(selected = active, role = Role.RadioButton) { model = m.id },
+                    )
                 }
             }
-            PrimaryButton("Use model", { if (selected?.trains(model) == true) confirmTrains = model else onSelectModel(model) }, Modifier.fillMaxWidth(), enabled = model.isNotBlank() && selected != null)
+            Button(
+                onClick = { if (selected?.trains(model) == true) confirmTrains = model else onSelectModel(model) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                enabled = model.isNotBlank() && selected != null,
+            ) { Text("Use model") }
             confirmTrains?.let { TrainsConfirmDialog(it, onConfirm = { onSelectModel(it) }, onDismiss = { confirmTrains = null }) }
+        }
+    }
+}
+
+/** A sheet's section title: titleSmall in the primary colour, read as a heading. */
+@Composable
+private fun SheetHeader(text: String) {
+    Text(
+        text,
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp).semantics { heading() },
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** A row with a switch: the whole row toggles it. */
+@Composable
+private fun SwitchItem(title: String, checked: Boolean, onChange: (Boolean) -> Unit, supporting: String? = null) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = supporting?.let { { Text(it) } },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+        modifier = Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
+    )
+}
+
+/** One choice of [options] as Material's segmented buttons. */
+@Composable
+private fun <T> Choice(options: List<T>, selected: T, onSelect: (T) -> Unit, label: (T) -> String, modifier: Modifier = Modifier) {
+    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
+        options.forEachIndexed { i, option ->
+            SegmentedButton(
+                selected = option == selected,
+                onClick = { onSelect(option) },
+                shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                label = { Text(labelCase(label(option)), textAlign = TextAlign.Center) },
+            )
         }
     }
 }
@@ -1316,144 +1430,123 @@ private fun SessionSheet(
     onChanges: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionLabel("chat", Modifier.inkStagger(0))
-            Row(Modifier.inkStagger(1), verticalAlignment = Alignment.CenterVertically) {
-                Text(state.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                TextButton(onClick = onRename) { ActionText("Rename") }
-            }
-            Row(Modifier.inkStagger(2), verticalAlignment = Alignment.CenterVertically) {
-                Text("Pin to top", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Switch(checked = state.pinned, onCheckedChange = onPin)
-            }
-            Row(Modifier.inkStagger(3), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onArchive(!state.archived) }) { ActionText(if (state.archived) "Unarchive" else "Archive") }
-                TextButton(onClick = onDelete) { ActionText("Delete chat", color = MaterialTheme.colorScheme.error) }
-            }
-            SectionLabel("session", Modifier.inkStagger(4))
-            Row(Modifier.inkStagger(5), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Agent tools", style = MaterialTheme.typography.titleMedium)
-                    Text("Files in /workspace, web fetch, image generation, skills, plans. Off = plain chat.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = state.toolsEnabled, onCheckedChange = onTools)
-            }
-            Column(Modifier.inkStagger(6), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                MicroLabel("permission preset")
-                Segmented(PermissionPreset.entries, state.permission, onPermission, { it.label }, Modifier.fillMaxWidth())
-            }
-            Row(Modifier.inkStagger(7), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Compact context", style = MaterialTheme.typography.titleMedium)
-                    Text("Summarize older turns now (also automatic near the limit).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                TextButton(onClick = onCompact, enabled = !state.running) { ActionText("Compact") }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val files = state.changes.sumOf { it.files.size }
-                Column(Modifier.weight(1f)) {
-                    Text("Files changed", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (files == 0) "Nothing yet. Every file the agent changes can be undone." else "$files file${if (files == 1) "" else "s"} across ${state.changes.size} turn${if (state.changes.size == 1) "" else "s"}; undo a step or a turn.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                TextButton(onClick = onChanges) { ActionText("View") }
-            }
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            SheetHeader("Chat")
+            ListItem(
+                headlineContent = { Text(state.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                trailingContent = { TextButton(onClick = onRename) { Text("Rename") } },
+            )
+            SwitchItem("Pin to top", state.pinned, onPin)
+            ListItem(
+                headlineContent = { Text(if (state.archived) "Unarchive" else "Archive") },
+                modifier = Modifier.clickable(role = Role.Button) { onArchive(!state.archived) },
+            )
+            ListItem(
+                headlineContent = { Text("Delete chat", color = MaterialTheme.colorScheme.error) },
+                leadingContent = { Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                modifier = Modifier.clickable(role = Role.Button, onClick = onDelete),
+            )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SheetHeader("Session")
+            SwitchItem("Agent tools", state.toolsEnabled, onTools, "Files in /workspace, web fetch, image generation, skills, plans. Off = plain chat.")
+            Text("Permission preset", Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), style = MaterialTheme.typography.labelLarge)
+            Choice(PermissionPreset.entries, state.permission, onPermission, { it.label }, Modifier.padding(horizontal = 16.dp))
+            ListItem(
+                headlineContent = { Text("Compact context") },
+                supportingContent = { Text("Summarize older turns now (also automatic near the limit).") },
+                trailingContent = { TextButton(onClick = onCompact, enabled = !state.running) { Text("Compact") } },
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            val files = state.changes.sumOf { it.files.size }
+            ListItem(
+                headlineContent = { Text("Files changed") },
+                supportingContent = {
+                    Text(if (files == 0) "Nothing yet. Every file the agent changes can be undone." else "$files file${if (files == 1) "" else "s"} across ${state.changes.size} turn${if (state.changes.size == 1) "" else "s"}; undo a step or a turn.")
+                },
+                trailingContent = { TextButton(onClick = onChanges) { Text("View") } },
+            )
         }
     }
 }
 
 /**
- * The Think switch of the chat: `think · auto`. A tap cycles auto → on → off; a long press opens
+ * The Think switch of the chat: `Think · auto`. A tap cycles auto → on → off; a long press opens
  * the budget and the model's default ([ThinkSheet]).
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ThinkChip(setting: ThinkingSetting, onTap: () -> Unit, onMore: () -> Unit) {
-    val active = setting.mode != ThinkingMode.OFF
-    val color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        Modifier
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
-            .clip(MaterialTheme.shapes.medium)
-            .selectionBar(active)
-            .combinedClickable(onClickLabel = "Change thinking", onLongClickLabel = "Thinking budget", onLongClick = onMore, onClick = onTap)
-            .semantics { contentDescription = "Thinking ${setting.mode.name.lowercase()}" + (setting.budget?.let { ", budget $it tokens" } ?: "") }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-    ) { MicroLabel("\u2234 " + ThinkingLabels.chip(setting), color = color) }
+    FilterChip(
+        selected = setting.mode != ThinkingMode.OFF,
+        onClick = onTap,
+        label = { Text(labelCase(ThinkingLabels.chip(setting))) },
+        modifier = Modifier
+            .longPressAction("Thinking budget", onMore)
+            .semantics { contentDescription = "Thinking ${setting.mode.name.lowercase()}" + (setting.budget?.let { ", budget $it tokens" } ?: "") },
+    )
 }
 
 /**
- * The redaction switch of a cloud chat: `▮ redact` while personal data becomes placeholders
- * before the provider sees it, `redact off` dimmed (like an off Think chip) otherwise. A tap switches it for this chat.
+ * The redaction switch of a cloud chat: selected while personal data becomes placeholders before
+ * the provider sees it. A tap switches it for this chat.
  */
 @Composable
 private fun RedactChip(on: Boolean, onTap: () -> Unit) {
-    val color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        Modifier
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
-            .clip(MaterialTheme.shapes.medium)
-            .selectionBar(on)
-            .clickable(onClickLabel = if (on) "Stop redacting" else "Redact personal data", onClick = onTap)
-            .semantics { contentDescription = if (on) "Redaction on: names, emails and numbers are hidden from the cloud" else "Redaction off" }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-    ) {
-        MicroLabel(
-            if (on) "\u25AE redact" else "redact off",
-            color = color,
-        )
-    }
+    FilterChip(
+        selected = on,
+        onClick = onTap,
+        label = { Text("Redact") },
+        modifier = Modifier.semantics { contentDescription = if (on) "Redaction on: names, emails and numbers are hidden from the cloud" else "Redaction off" },
+    )
 }
 
 /**
- * The local-first cascade of a plain cloud chat: `▮ phone first · ask` while this phone answers
- * first, `phone first off` dimmed otherwise. A tap opens the choice ([CascadeSheet]).
+ * The local-first cascade of a plain cloud chat: `Phone first · ask`, selected while this phone
+ * answers first. A tap opens the choice ([CascadeSheet]).
  */
 @Composable
 private fun CascadeChip(policy: CascadePolicy, onTap: () -> Unit) {
-    val on = policy.localFirst
-    val color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        Modifier
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.medium)
-            .clip(MaterialTheme.shapes.medium)
-            .selectionBar(on)
-            .clickable(onClickLabel = "Change phone first", onClick = onTap)
-            .semantics { contentDescription = "Phone first: ${policy.title}. ${policy.detail}" }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-    ) { MicroLabel(if (on) "\u25AE " + policy.chip else policy.chip, color = color) }
+    FilterChip(
+        selected = policy.localFirst,
+        onClick = onTap,
+        label = { Text(labelCase(policy.chip)) },
+        modifier = Modifier.semantics { contentDescription = "Phone first: ${policy.title}. ${policy.detail}" },
+    )
 }
 
 /** Under the phone's answer when the judge was not convinced: why, and "Ask <cloud model>". */
 @Composable
 private fun CascadeOfferRow(offer: CascadeOffer, model: String, onAsk: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.extraSmall).padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        MicroLabel("\u25AE phone first")
-        Text(offer.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Tag(CascadeLabels.ask(model), accent = MaterialTheme.colorScheme.onSurface, onClick = onAsk)
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Phone first", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(offer.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FilledTonalButton(onClick = onAsk) { Text(CascadeLabels.ask(model)) }
+        }
     }
 }
 
-/** The chat's cascade policy: off, ask, auto or never, each with its one line. */
+/** The chat's cascade policy: off, ask, auto or never, each with its one line, as a radio list. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CascadeSheet(policy: CascadePolicy, model: String, onNode: Boolean, onPick: (CascadePolicy) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionLabel("phone first", Modifier.inkStagger(0))
-            Segmented(CascadePolicy.entries, policy, onPick, { it.title }, Modifier.fillMaxWidth().inkStagger(1))
-            Text(policy.detail, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.inkStagger(2))
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            SheetHeader("Phone first")
+            Column(Modifier.selectableGroup()) {
+                CascadePolicy.entries.forEach { option ->
+                    ListItem(
+                        headlineContent = { Text(option.title) },
+                        supportingContent = { Text(option.detail) },
+                        leadingContent = { RadioButton(selected = option == policy, onClick = null) },
+                        modifier = Modifier.selectable(selected = option == policy, role = Role.RadioButton) { onPick(option) },
+                    )
+                }
+            }
             Text(
                 CascadeLabels.sheetNote(model, onNode),
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.inkStagger(3),
             )
         }
     }
@@ -1470,38 +1563,37 @@ private fun ThinkSheet(
 ) {
     val setting = state.thinking
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            SectionLabel("think", Modifier.inkStagger(0))
-            Segmented(
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SheetHeader("Think")
+            Choice(
                 ThinkingMode.entries,
                 setting.mode,
                 { mode -> onThinking(ThinkingSetting(mode, if (mode == ThinkingMode.ON) setting.budget else null)) },
                 { it.name.lowercase() },
-                Modifier.fillMaxWidth().inkStagger(1),
+                Modifier.padding(horizontal = 16.dp),
             )
             if (setting.mode == ThinkingMode.ON) {
-                Column(Modifier.inkStagger(2), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    MicroLabel("budget · tokens")
-                    Segmented(
-                        ThinkingSetting.BUDGETS,
-                        setting.budget,
-                        { budget -> onThinking(ThinkingSetting(ThinkingMode.ON, budget)) },
-                        { it?.let(ThinkingLabels::tokens) ?: "model" },
-                        Modifier.fillMaxWidth(),
-                    )
-                }
+                Text("Budget · tokens", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge)
+                Choice(
+                    ThinkingSetting.BUDGETS,
+                    setting.budget,
+                    { budget -> onThinking(ThinkingSetting(ThinkingMode.ON, budget)) },
+                    { it?.let(ThinkingLabels::tokens) ?: "model" },
+                    Modifier.padding(horizontal = 16.dp),
+                )
             }
-            Row(Modifier.inkStagger(3), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Default for this model", style = MaterialTheme.typography.titleMedium)
-                    MicroLabel(state.thinkingDefault?.let { ThinkingLabels.chip(it) } ?: "auto")
-                }
-                if (state.thinkingDefault == setting || (state.thinkingDefault == null && setting == ThinkingSetting.AUTO)) {
-                    TextButton(onClick = { onDefault(null) }, enabled = state.thinkingDefault != null) { ActionText("Clear") }
-                } else {
-                    TextButton(onClick = { onDefault(setting) }) { ActionText("Set") }
-                }
-            }
+            ListItem(
+                headlineContent = { Text("Default for this model") },
+                supportingContent = { Text(labelCase(state.thinkingDefault?.let { ThinkingLabels.chip(it) } ?: "auto")) },
+                trailingContent = {
+                    if (state.thinkingDefault == setting || (state.thinkingDefault == null && setting == ThinkingSetting.AUTO)) {
+                        TextButton(onClick = { onDefault(null) }, enabled = state.thinkingDefault != null) { Text("Clear") }
+                    } else {
+                        TextButton(onClick = { onDefault(setting) }) { Text("Set") }
+                    }
+                },
+            )
         }
     }
 }
+

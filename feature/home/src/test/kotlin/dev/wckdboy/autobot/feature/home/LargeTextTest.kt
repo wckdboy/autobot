@@ -50,6 +50,9 @@ class LargeTextTest {
 
     @Test fun largestTextFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), audit(411, 2f))
 
+    /** A tablet or unfolded window: the modes in one row, the content at its reading width. */
+    @Test fun aWideWindowFits() = assertEquals(emptyList<LargeTextAudit.Finding>(), audit(900, 1f))
+
     /** Run with the paired node's "While you were away" card under the status line. */
     private fun withDigest(width: Int, scale: Float, dark: Boolean) = LargeTextAudit.render(compose, "run-digest-${if (dark) "dark" else "light"}", width, scale) {
         val digest = dev.wckdboy.autobot.feature.home.node.NodeDigestCardState("n1", "studio-mac", dev.wckdboy.autobot.shared.invincible.NodeDigests.sample(1_000_000))

@@ -1,16 +1,32 @@
 package dev.wckdboy.autobot.feature.models
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.ui.graphics.Color
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.ChoiceChips
+import dev.wckdboy.autobot.core.designsystem.component.EmptyContent
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.SectionCard
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -19,11 +35,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -49,15 +61,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.wckdboy.autobot.core.data.diagnostics.ErrorLog
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BigReadout
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.Tag
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.diffusion.ComputeBench
 import dev.wckdboy.autobot.core.diffusion.ComputeDevices
@@ -306,77 +309,93 @@ fun ComputeRoute(onBack: () -> Unit, openReport: Boolean = false, viewModel: Com
     report?.let { text -> ReportDialog(text, onDismiss = { report = null }) }
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = "Compute",
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-                actions = {
-                    Tag(
-                        if (state.running != null) "busy" else "Report",
-                        Modifier.padding(end = 12.dp),
-                        accent = MaterialTheme.colorScheme.onSurface,
-                        onClick = { viewModel.report { report = it } }.takeIf { state.running == null },
-                    )
-                },
-            )
+            AppBar("Compute", onBack = onBack, actions = {
+                TextButton(onClick = { viewModel.report { report = it } }, enabled = state.running == null) {
+                    Text(if (state.running != null) "Busy" else "Report")
+                }
+            })
         },
     ) { padding ->
-        LazyColumn(
-            Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                SectionLabel("this phone" + (state.device?.let { " · ${it.label}" } ?: ""))
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DeviceCard("cpu", state.device?.let { "${it.cores} cores" }, true, Modifier.weight(1f))
-                    DeviceCard("gpu", state.devices?.gpu ?: "none", state.devices?.gpu != null, Modifier.weight(1f))
-                    DeviceCard("npu", state.devices?.npu ?: "none", state.devices?.npu != null, Modifier.weight(1f))
+        Centered(Modifier.padding(padding)) { width ->
+            LazyColumn(
+                width.fillMaxHeight(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    Text(
+                        labelCase("this phone" + (state.device?.let { " · ${it.label}" } ?: "")),
+                        Modifier.padding(bottom = 8.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DeviceCard("CPU", state.device?.let { "${it.cores} cores" }, true, Modifier.weight(1f).fillMaxHeight())
+                        DeviceCard("GPU", state.devices?.gpu ?: "none", state.devices?.gpu != null, Modifier.weight(1f).fillMaxHeight())
+                        DeviceCard("NPU", state.devices?.npu ?: "none", state.devices?.npu != null, Modifier.weight(1f).fillMaxHeight())
+                    }
+                    // No Snapdragon NPU is not a failure (the "none" card says it); on one, a short
+                    // "needs a look" line, the full error in the report.
+                    if (state.device?.htpArch != null) {
+                        state.devices?.npuError?.let {
+                            Hint("The NPU did not start: ${it.substringBefore(" (").take(80)}. Details in the report.", Modifier.padding(top = 8.dp), MaterialTheme.colorScheme.tertiary)
+                        }
+                    }
+                    if (state.devices?.npu != null && Backend.NPU !in state.devices!!.llmBackends) {
+                        Hint("Chat on the NPU: the Hexagon backend did not start on this phone. Images still run on the NPU.", Modifier.padding(top = 8.dp))
+                    }
                 }
-                // No Snapdragon NPU is not a failure (the "none" card says it); on one, a short
-                // "needs a look" line, the full error in the report.
-                if (state.device?.htpArch != null) {
-                    state.devices?.npuError?.let { MicroLabel("! npu did not start · ${it.substringBefore(" (").take(80)} · details in the report", Modifier.padding(top = 6.dp), color = AutobotTheme.inks.amber, maxLines = 2) }
+                system?.let { s -> item { SystemModelRow(s, onDownload = viewModel::downloadSystemModel) } }
+                item {
+                    state.running?.let {
+                        Hint(labelCase("benchmarking · $it"))
+                        // The benchmark reports phases, not a fraction: an indeterminate bar.
+                        LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                    }
+                    Text(
+                        labelCase("models · auto picks the fastest measured backend"),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
-                if (state.devices?.npu != null && Backend.NPU !in state.devices!!.llmBackends) {
-                    MicroLabel("chat on the npu: the hexagon backend did not start on this phone · images still run on the npu", Modifier.padding(top = 6.dp), maxLines = WRAP)
+                if (state.models.any { it.drafts.isNotEmpty() }) {
+                    item { SpeculativeRow(state.speculativeMode, viewModel::setSpeculativeMode) }
                 }
-            }
-            system?.let { s -> item { SystemModelRow(s, onDownload = viewModel::downloadSystemModel) } }
-            item {
-                state.running?.let {
-                    MicroLabel("benchmarking · $it")
-                    // The benchmark reports phases, not a fraction: the indeterminate ink bar.
-                    InkProgressBar(null, Modifier.fillMaxWidth().padding(vertical = 6.dp).height(2.dp))
+                items(state.models, key = { it.model.id }) { cm -> ModelCompute(cm, state, viewModel) }
+                if (state.models.isEmpty()) {
+                    item { EmptyContent("No runnable models yet. Get one in the Models tab.") }
                 }
-                SectionLabel("models · auto picks the fastest measured backend", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (state.models.any { it.drafts.isNotEmpty() }) {
-                item { SpeculativeRow(state.speculativeMode, viewModel::setSpeculativeMode) }
-            }
-            items(state.models, key = { it.model.id }) { cm -> ModelCompute(cm, state, viewModel) }
-            if (state.models.isEmpty()) {
-                item { MicroLabel("No runnable models yet. Get one in the Models tab.", maxLines = WRAP) }
             }
         }
     }
 }
 
+/** A sentence of help or state under a section; wraps rather than losing its end. */
+@Composable
+private fun Hint(text: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Text(text, modifier, style = MaterialTheme.typography.bodyMedium, color = color)
+}
+
 /** Speculative decoding: auto / on / off (shown when an installed model has a draft in the catalog). */
 @Composable
 private fun SpeculativeRow(mode: SpeculativeMode, onMode: (SpeculativeMode) -> Unit) {
-    Panel(title = "speculative decoding") {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Segmented(SpeculativeMode.entries, mode, onMode, { it.label }, Modifier.fillMaxWidth())
-            MicroLabel(
-                when (mode) {
-                    SpeculativeMode.AUTO -> "a small model of the same family drafts, the chat model checks · same replies, faster · when the pair fits"
-                    SpeculativeMode.ON -> "always draft when the pair fits at all, even when it does not pay"
-                    SpeculativeMode.OFF -> "no draft model is loaded"
-                },
-                maxLines = WRAP,
-            )
+    SectionCard(title = "Speculative decoding") {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            SpeculativeMode.entries.forEachIndexed { i, m ->
+                SegmentedButton(
+                    selected = m == mode,
+                    onClick = { onMode(m) },
+                    shape = SegmentedButtonDefaults.itemShape(i, SpeculativeMode.entries.size),
+                ) { Text(labelCase(m.label)) }
+            }
         }
+        Hint(
+            when (mode) {
+                SpeculativeMode.AUTO -> "A small model of the same family drafts, the chat model checks: same replies, faster, when the pair fits."
+                SpeculativeMode.ON -> "Always draft when the pair fits at all, even when it does not pay."
+                SpeculativeMode.OFF -> "No draft model is loaded."
+            },
+        )
     }
 }
 
@@ -389,7 +408,7 @@ private fun ReportDialog(text: String, onDismiss: () -> Unit) {
         title = { Text("Diagnostics report") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MicroLabel("no prompts, file paths or identifiers · nothing is sent", maxLines = WRAP)
+                Hint("No prompts, file paths or identifiers. Nothing is sent.")
                 Text(
                     text,
                     modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
@@ -402,39 +421,46 @@ private fun ReportDialog(text: String, onDismiss: () -> Unit) {
             TextButton(onClick = {
                 clipboard.setText(AnnotatedString(text))
                 onDismiss()
-            }) { ActionText("Copy") }
+            }) { Text("Copy") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
 
 /** The OS's own chat model: used for "This phone" when no downloaded model can run. */
 @Composable
 private fun SystemModelRow(status: SystemModelStatus, onDownload: () -> Unit) {
-    Panel(
-        title = "system model · ${status.title}",
-        accent = if (status.usable) MaterialTheme.colorScheme.primary else null,
+    SectionCard(
+        title = "System model · ${status.title}",
         trailing = {
             if (status.availability == SystemAvailability.DOWNLOADABLE) {
-                Tag("Download", accent = MaterialTheme.colorScheme.onSurface, onClick = onDownload)
+                FilledTonalButton(onClick = onDownload) { Text("Download") }
+            } else if (status.usable) {
+                TonalLabel("ready")
             }
         },
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(status.summary, style = MaterialTheme.typography.bodySmall)
-            MicroLabel("fallback when no downloaded model can run · ~4k tokens, no tools", maxLines = WRAP)
-            if (status.availability == SystemAvailability.DOWNLOADABLE) {
-                MicroLabel("the download is done by the system (AICore), outside autobot's network controls", maxLines = WRAP)
-            }
+        Text(status.summary, style = MaterialTheme.typography.bodyMedium)
+        Hint("Fallback when no downloaded model can run: about 4k tokens, no tools.")
+        if (status.availability == SystemAvailability.DOWNLOADABLE) {
+            Hint("The download is done by the system (AICore), outside Autobot's network controls.")
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DeviceCard(label: String, value: String?, present: Boolean, modifier: Modifier = Modifier) {
-    Panel(modifier, title = label) {
-        // Still probing the device: an inline loader instead of a placeholder.
-        if (value == null) InkLoader(Modifier.padding(vertical = 2.dp)) else Text(value, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = if (present) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+    OutlinedCard(modifier) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Still probing the device: a small loading indicator instead of a placeholder.
+            if (value == null) {
+                LoadingIndicator(Modifier.size(32.dp))
+            } else {
+                Text(value, style = MaterialTheme.typography.bodyMedium, color = if (present) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
@@ -443,40 +469,37 @@ private fun DeviceCard(label: String, value: String?, present: Boolean, modifier
 private fun ModelCompute(cm: ComputeModel, state: ComputeUiState, actions: ComputeViewModel) {
     val m = cm.model
     val isText = m.engine == EngineKind.LLAMA
-    Panel(title = m.title, trailing = {
-        Tag(if (state.running != null) "busy" else "Benchmark", accent = MaterialTheme.colorScheme.onSurface, onClick = { actions.benchmark(m) }.takeIf { state.running == null })
+    SectionCard(title = m.title, trailing = {
+        FilledTonalButton(onClick = { actions.benchmark(m) }, enabled = state.running == null) { Text(if (state.running != null) "Busy" else "Benchmark") }
     }) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (isText) {
-                val options = listOf(Backend.AUTO, Backend.CPU, Backend.GPU, Backend.NPU) +
-                    listOfNotNull(Backend.NPU_CPU.takeIf { it in state.devices?.llmBackends.orEmpty() || m.backend == it })
-                // Five segments leave no room for "auto · npu+cpu": what auto resolves to goes below.
-                Segmented(options, m.backend, { actions.setBackend(m, it) }, { b ->
-                    if (b == Backend.AUTO && cm.fastest != null && options.size <= 4) "auto · ${cm.fastest.label}" else b.label
-                }, Modifier.fillMaxWidth())
-                if (options.size > 4 && m.backend == Backend.AUTO && cm.fastest != null) MicroLabel("auto runs on ${cm.fastest.label}")
-            } else {
-                val pkg = m.manifest.npu
-                MicroLabel(if (pkg?.runtime == "qnn") "runs on the npu (hexagon ${pkg.htpArch.orEmpty()})" else "runs on the gpu (opencl) or cpu")
-            }
-            if (cm.results.isNotEmpty()) {
-                // Wraps: four text backends do not fit one row on a phone.
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    cm.results.entries.sortedBy { it.key.ordinal }.forEach { (backend, r) ->
-                        val value = if (isText) r.generationTps?.let { fmt(it) } ?: "–" else r.stepMs?.let { fmt(it / 1000) + "s" } ?: "–"
-                        // Each backend's prompt speed under its own readout (one line for four got cut off).
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            BigReadout(backend.label + if (isText) " · tok/s" else " · step", value)
-                            r.promptTps?.let { MicroLabel("prefill ${fmt(it)}") }
-                        }
+        if (isText) {
+            val options = listOf(Backend.AUTO, Backend.CPU, Backend.GPU, Backend.NPU) +
+                listOfNotNull(Backend.NPU_CPU.takeIf { it in state.devices?.llmBackends.orEmpty() || m.backend == it })
+            // Chips wrap; what auto resolves to rides on its own chip.
+            ChoiceChips(options, m.backend, { actions.setBackend(m, it) }, { b ->
+                labelCase(if (b == Backend.AUTO && cm.fastest != null) "auto · ${cm.fastest.label}" else b.label)
+            })
+        } else {
+            val pkg = m.manifest.npu
+            Hint(if (pkg?.runtime == "qnn") "Runs on the NPU (Hexagon ${pkg.htpArch.orEmpty()})" else "Runs on the GPU (OpenCL) or CPU")
+        }
+        if (cm.results.isNotEmpty()) {
+            // Wraps: four text backends do not fit one row on a phone.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                cm.results.entries.sortedBy { it.key.ordinal }.forEach { (backend, r) ->
+                    val value = if (isText) r.generationTps?.let { fmt(it) } ?: "–" else r.stepMs?.let { fmt(it / 1000) + "s" } ?: "–"
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(labelCase(backend.label + if (isText) " · tok/s" else " · step"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(value, style = MaterialTheme.typography.headlineSmall)
+                        r.promptTps?.let { Text("Prefill ${fmt(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
-            } else {
-                MicroLabel("not measured yet")
             }
-            if (isText && cm.drafts.isNotEmpty()) SpeculativeLine(cm, state.speculativeMode)
-            cm.lastError?.let { MicroLabel("last run: $it", color = MaterialTheme.colorScheme.error, maxLines = WRAP) }
+        } else {
+            Hint("Not measured yet")
         }
+        if (isText && cm.drafts.isNotEmpty()) SpeculativeLine(cm, state.speculativeMode)
+        cm.lastError?.let { Hint("Last run: $it", color = MaterialTheme.colorScheme.error) }
     }
 }
 
@@ -490,15 +513,12 @@ private fun SpeculativeLine(cm: ComputeModel, mode: SpeculativeMode) {
         s.error != null -> "speculative: ${s.error}"
         else -> "speculative · ${fmt(s.speedup)}x · ${fmt(s.speculativeTps)} tok/s · ${(s.acceptance * 100).toInt()}% of drafts kept · ${s.draftTitle}"
     }
-    MicroLabel(text, color = if (s?.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = WRAP)
+    Hint(labelCase(text), color = if (s?.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** A catalog model's title when it is not installed (catalog ids only). */
 private fun draftTitle(id: String): String =
     dev.wckdboy.autobot.core.models.Catalog.chatModels.firstOrNull { it.id == id }?.title ?: id.substringAfter(':')
-
-/** Hints and errors here are sentences: they wrap instead of losing their end at "…". */
-private const val WRAP = 4
 
 private fun fmt(v: Double): String = String.format(Locale.ROOT, if (v >= 100) "%.0f" else "%.1f", v)
 

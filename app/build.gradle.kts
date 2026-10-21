@@ -28,6 +28,8 @@ android {
     namespace = "dev.wckdboy.autobot"
     // Same NDK as the engines, so packaging can strip their debug symbols.
     ndkVersion = libs.versions.ndk.get()
+    // The lock screens' large-text audit renders with Robolectric and needs the app's resources.
+    testOptions.unitTests.isIncludeAndroidResources = true
 
     defaultConfig {
         applicationId = "ai.wckd.autobot"
@@ -239,6 +241,9 @@ abstract class VerifyNativePackaging : DefaultTask() {
 
 androidComponents {
     onVariants { variant ->
+        // The large-text audit (renders at 200 % font and lists text that does not fit), shared with
+        // the feature modules' LargeTextTest.
+        variant.hostTests.values.forEach { it.sources.kotlin?.addStaticSourceDirectory(rootProject.file("core/designsystem/src/largeTextTest/kotlin").path) }
         val name = variant.name.replaceFirstChar(Char::uppercase)
         val task = tasks.register<GenerateShortcuts>("generate${name}Shortcuts") {
             applicationId.set(variant.applicationId)

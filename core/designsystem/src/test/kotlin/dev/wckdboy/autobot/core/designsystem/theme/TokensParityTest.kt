@@ -95,8 +95,8 @@ class TokensParityTest {
 
     /**
      * Type and corners are each platform's own now (Material's scale and shapes here, the system
-     * text styles on iOS): `tokens.json`'s `type` and `radius` describe the riso screens still
-     * to move. The brand comes through the color scheme, generated from the palette's purple.
+     * text styles on iOS): `tokens.json`'s `type` and `radius` are the retired riso scale, no
+     * longer drawn on Android. The brand comes through the color scheme, generated from the palette's purple.
      */
     @Test
     fun materialTypeShapesAndTheBrandScheme() {

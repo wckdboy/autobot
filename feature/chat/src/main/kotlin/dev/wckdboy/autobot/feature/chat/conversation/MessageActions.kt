@@ -24,7 +24,6 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import kotlinx.coroutines.launch
 
@@ -93,7 +92,7 @@ internal fun MessageMenu(
         AlertDialog(
             onDismissRequest = { selecting = false },
             text = { SelectionContainer(Modifier.verticalScroll(rememberScrollState())) { Text(text, style = MaterialTheme.typography.bodyLarge) } },
-            confirmButton = { TextButton(onClick = { selecting = false }) { ActionText("Done") } },
+            confirmButton = { TextButton(onClick = { selecting = false }) { Text("Done") } },
         )
     }
 }

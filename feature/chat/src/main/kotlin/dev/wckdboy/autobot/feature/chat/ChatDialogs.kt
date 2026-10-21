@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.chat
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -26,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.TextRange
@@ -33,8 +35,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.Hairline
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
 
 /**
@@ -59,23 +59,23 @@ fun NameDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                NoPersonalizedLearning {
-                    OutlinedTextField(
-                        value = value,
-                        onValueChange = { value = it },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { submit() }),
-                    )
-                }
-                if (error != null && value.text.isNotEmpty()) MicroLabel(error, color = MaterialTheme.colorScheme.error)
+            NoPersonalizedLearning {
+                // Why it cannot be saved shows under the field, once something is typed.
+                val shown = error?.takeIf { value.text.isNotEmpty() }
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                    isError = shown != null,
+                    supportingText = shown?.let { { Text(it) } },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                )
             }
         },
-        confirmButton = { TextButton(onClick = submit, enabled = error == null) { ActionText(confirm) } },
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        confirmButton = { TextButton(onClick = submit, enabled = error == null) { Text(confirm) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -97,31 +97,21 @@ fun FolderPickerDialog(
         text = {
             Column {
                 FolderOption("No folder", checked = current == null) { onPick(null) }
-                folders.forEach { f ->
-                    Hairline()
-                    FolderOption(f.name, checked = current == f.id) { onPick(f.id) }
-                }
-                Hairline()
-                FolderOption("New folder…", checked = false, accent = true, onClick = onNewFolder)
+                folders.forEach { f -> FolderOption(f.name, checked = current == f.id) { onPick(f.id) } }
+                FolderOption("New folder…", checked = false, onClick = onNewFolder)
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { ActionText("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
 @Composable
-private fun FolderOption(label: String, checked: Boolean, accent: Boolean = false, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        if (checked) Icon(Icons.Filled.Check, contentDescription = "Current", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-    }
+private fun FolderOption(label: String, checked: Boolean, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(label) },
+        trailingContent = if (checked) ({ Icon(Icons.Filled.Check, contentDescription = "Current", tint = MaterialTheme.colorScheme.primary) }) else null,
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+    )
 }

@@ -12,11 +12,12 @@ Android, Neural Engine/Metal on iOS. Both apps are built from one shared core.
 3. **One app, two platforms.** Android and iOS ship the same features, version and behaviour.
    Logic lives in `:shared` (Kotlin Multiplatform) or the shared C cores; only UI and OS glue is
    per platform.
-4. **System look, one brand.** Standard platform components (SwiftUI with Liquid Glass on iOS);
-   the brand shows only as the purple tint, the pixel a and the purple dot after a title. The
-   riso look (signal red on ink or paper, halftones) is retired: iOS is system SwiftUI throughout
-   (the riso kit is deleted); Android's riso theme carries it until its screens are converted.
-   Design tokens come from `shared/design/tokens.json` on both platforms.
+4. **System look, one brand.** Standard platform components: Material 3 Expressive on Android,
+   SwiftUI with Liquid Glass on iOS. The brand shows only as the purple (the Material scheme is
+   made from it; on iOS it is the tint), the pixel a and the purple pixel dot after a title.
+   Nothing custom where a standard component does the job. The riso look (signal red on ink or
+   paper, halftones) is retired and its kits are deleted on both platforms. Design tokens come
+   from `shared/design/tokens.json` on both platforms.
 
 ## Release rules
 

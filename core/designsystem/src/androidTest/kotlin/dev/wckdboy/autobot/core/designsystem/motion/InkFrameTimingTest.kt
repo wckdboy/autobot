@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.core.designsystem.motion
 
-import dev.wckdboy.autobot.core.designsystem.component.EmptyCanvas
 import dev.wckdboy.autobot.core.designsystem.component.DevelopingPreview
 import android.os.Handler
 import android.os.HandlerThread
@@ -21,6 +20,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Button
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,16 +34,13 @@ import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.wckdboy.autobot.core.designsystem.component.BubbleRole
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.ChatBubble
-import dev.wckdboy.autobot.core.designsystem.component.InkBarState
-import dev.wckdboy.autobot.core.designsystem.component.InkLoader
-import dev.wckdboy.autobot.core.designsystem.component.InkProgressBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
-import dev.wckdboy.autobot.core.designsystem.component.RunRow
-import dev.wckdboy.autobot.core.designsystem.component.StatusDot
+import dev.wckdboy.autobot.core.designsystem.component.EmptyPicture
+import dev.wckdboy.autobot.core.designsystem.component.InlineLoading
+import dev.wckdboy.autobot.core.designsystem.component.JobProgress
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
 import dev.wckdboy.autobot.core.designsystem.component.ThinkingDisclosure
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.PaperTheme
 import java.util.Locale
@@ -126,7 +124,7 @@ private fun Chat(text: MutableState<String>) {
                 Column {
                     ThinkingDisclosure("Planning the answer\nchecking the calendar", isThinking = true)
                     ChatBubble(BubbleRole.ASSISTANT, text.value.takeLast(1200), isStreaming = true)
-                    Row { InkLoader(); MicroLabel("composing") }
+                    Row { InlineLoading(); Text("composing", style = MaterialTheme.typography.labelMedium) }
                 }
             }
             items(30, key = { it }) { i ->
@@ -136,8 +134,7 @@ private fun Chat(text: MutableState<String>) {
             }
         }
         Row(Modifier.padding(8.dp)) {
-            StatusDot(AutobotColors.Acid, live = true)
-            PrimaryButton("Send", {}, Modifier.weight(1f), busy = true)
+            Button(onClick = {}, modifier = Modifier.weight(1f)) { BusyLabel("Send", busy = true) }
         }
     }
 }
@@ -148,7 +145,15 @@ private fun ChatList() {
     LazyColumn(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         items(40, key = { it }) { i ->
             Column(Modifier.inkDissolve(dissolve, i)) {
-                RunRow("Chat number $i", "LOCAL · 12 MSG", leading = { StatusDot(AutobotColors.Acid, live = i < 2) })
+                ListItem(
+                    headlineContent = { Text("Chat number $i") },
+                    supportingContent = { Text("Local · 12 messages") },
+                    trailingContent = if (i < 2) {
+                        { TonalLabel("live") }
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }
@@ -158,12 +163,12 @@ private fun ChatList() {
 private fun Models(progress: MutableFloatState) {
     val dissolve = rememberInkDissolve()
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        InkLoader()
+        InlineLoading()
         LazyColumn(Modifier.weight(1f)) {
             items(30, key = { it }) { i ->
                 Column(Modifier.inkDissolve(dissolve, i).padding(12.dp)) {
                     Text("Model $i", Modifier.stamp(i % 3 == 0))
-                    if (i < 3) InkProgressBar(progress.floatValue, Modifier.fillMaxWidth().height(3.dp))
+                    if (i < 3) JobProgress(progress.floatValue, Modifier.fillMaxWidth())
                 }
             }
         }
@@ -175,8 +180,8 @@ private fun Imagine(progress: MutableFloatState) {
     PaperTheme {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             DevelopingPreview(null, Modifier.fillMaxWidth().aspectRatio(1f))
-            InkProgressBar(progress.floatValue, Modifier.fillMaxWidth().height(2.dp), state = InkBarState.Running)
-            PrimaryButton("Generate", {}, Modifier.fillMaxWidth(), busy = true)
+            JobProgress(progress.floatValue, Modifier.fillMaxWidth())
+            Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { BusyLabel("Generate", busy = true) }
         }
     }
 }
@@ -184,7 +189,7 @@ private fun Imagine(progress: MutableFloatState) {
 @Composable
 private fun Home() {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        EmptyCanvas(Modifier.fillMaxWidth().height(260.dp))
-        for (i in 0 until 4) RunRow("Recent run $i", "IMAGE · 12 S")
+        EmptyPicture(Modifier.fillMaxWidth().height(260.dp))
+        for (i in 0 until 4) ListItem(headlineContent = { Text("Recent run $i") }, supportingContent = { Text("Image · 12 s") })
     }
 }

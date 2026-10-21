@@ -1,7 +1,6 @@
 package dev.wckdboy.autobot.feature.settings.about
 
 import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -53,14 +52,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.NavRow
-import dev.wckdboy.autobot.core.designsystem.component.RowGutter
-import dev.wckdboy.autobot.core.designsystem.component.RowMinHeight
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import androidx.compose.material3.ListItem
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.NavListItem
+import dev.wckdboy.autobot.core.designsystem.component.Subheader
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -141,16 +140,14 @@ fun AboutScreen(
 
     Scaffold(
         topBar = {
-            AutobotTopBar(
-                title = "About",
-                navigation = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
-            )
+            AppBar("About", onBack)
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())) {
+        Centered(Modifier.padding(padding)) { width ->
+        Column(width.fillMaxSize().verticalScroll(rememberScrollState())) {
             // The app: icon, name, version (name + build number) and build date.
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = RowGutter, vertical = 16.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // The pixel a, not the launcher icon's white plate: the symbol is the ornament.
@@ -162,43 +159,40 @@ fun AboutScreen(
                         Text("Built ${info.buildDate}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                if (info.debug) Tag("debug", accent = AutobotTheme.inks.amber)
+                if (info.debug) TonalLabel("debug", containerColor = MaterialTheme.colorScheme.tertiaryContainer)
             }
             Text(
                 AboutLinks.PRIVACY,
-                Modifier.padding(horizontal = RowGutter).padding(bottom = 8.dp),
+                Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Divider()
 
             Header("What's new in ${info.versionName}")
             if (content.notes.isEmpty()) {
-                MicroLabel("no release notes in this build", Modifier.padding(horizontal = RowGutter, vertical = 8.dp))
+                Caption("no release notes in this build", Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             } else {
                 val shown = if (allNotes) content.notes else content.notes.take(NOTES_PREVIEW_BLOCKS)
-                ReleaseNotes(shown, Modifier.padding(horizontal = RowGutter, vertical = 4.dp))
+                ReleaseNotes(shown, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 if (shown.size < content.notes.size) {
                     TextButton(onClick = { allNotes = true }, Modifier.padding(horizontal = 4.dp)) {
-                        ActionText("Show all")
+                        Text("Show all")
                     }
                 }
             }
-            Divider()
 
             Header("Links")
             LinkRow("All releases", "github.com", onClick = { onOpenLink(AboutLinks.RELEASES) })
             LinkRow("Source code", "github.com", onClick = { onOpenLink(AboutLinks.SOURCE) })
-            NavRow("Licenses", { showLicenses = true }, value = content.licenses.size.takeIf { it > 0 }?.toString())
-            Divider()
+            NavListItem("Licenses", { showLicenses = true }, value = content.licenses.size.takeIf { it > 0 }?.toString())
 
             Header("Verify this APK")
             SignerBlock(info, content.signerSha256, content.loaded, onCopy = { clipboard.setText(AnnotatedString(AboutLinks.RELEASE_CERT_SHA256)) })
-            Divider()
 
             Header("Support")
-            NavRow("Copy diagnostics", onOpenDiagnostics, info = "A report of this phone's engines and errors, shown before it is copied. No prompts, paths or identifiers.")
+            NavListItem("Copy diagnostics", onOpenDiagnostics, info = "A report of this phone's engines and errors, shown before it is copied. No prompts, paths or identifiers.")
             Spacer(Modifier.height(24.dp))
+        }
         }
     }
 
@@ -209,15 +203,15 @@ fun AboutScreen(
             text = {
                 Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                     content.licenses.forEach { name ->
-                        Text(
-                            name.substringBeforeLast('.'),
-                            Modifier.fillMaxWidth().clickable(role = Role.Button) { license = name }.padding(vertical = 12.dp),
-                            style = MaterialTheme.typography.bodyLarge,
+                        ListItem(
+                            headlineContent = { Text(name.substringBeforeLast('.')) },
+                            modifier = Modifier.clickable(role = Role.Button) { license = name },
+                            colors = clearListItem(),
                         )
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showLicenses = false }) { ActionText("Close") } },
+            confirmButton = { TextButton(onClick = { showLicenses = false }) { Text("Close") } },
         )
     }
     license?.let { name ->
@@ -233,7 +227,7 @@ fun AboutScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
-            confirmButton = { TextButton(onClick = { license = null }) { ActionText("Close") } },
+            confirmButton = { TextButton(onClick = { license = null }) { Text("Close") } },
         )
     }
 }
@@ -242,10 +236,10 @@ fun AboutScreen(
 @Composable
 private fun SignerBlock(info: AboutInfo, actual: String?, loaded: Boolean, onCopy: () -> Unit) {
     val match = certMatch(actual, debug = info.debug)
-    Column(Modifier.padding(horizontal = RowGutter, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            MicroLabel("release signer · sha-256", Modifier.weight(1f))
-            TextButton(onClick = onCopy) { ActionText("Copy") }
+            Caption("release signer · sha-256", Modifier.weight(1f))
+            TextButton(onClick = onCopy) { Text("Copy") }
         }
         Text(groupedFingerprint(AboutLinks.RELEASE_CERT_SHA256), style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurface)
         Text(
@@ -254,12 +248,12 @@ private fun SignerBlock(info: AboutInfo, actual: String?, loaded: Boolean, onCop
             color = when {
                 !loaded -> MaterialTheme.colorScheme.onSurfaceVariant
                 match == CertMatch.OFFICIAL -> MaterialTheme.colorScheme.onSurface
-                match == CertMatch.DEBUG -> AutobotTheme.inks.amber
+                match == CertMatch.DEBUG -> MaterialTheme.colorScheme.tertiary
                 else -> MaterialTheme.colorScheme.error
             },
         )
         if (actual != null && match != CertMatch.OFFICIAL) {
-            MicroLabel("this apk")
+            Caption("this apk")
             Text(groupedFingerprint(actual), style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -268,18 +262,11 @@ private fun SignerBlock(info: AboutInfo, actual: String?, loaded: Boolean, onCop
 /** A link that leaves the app: `↗` instead of a chevron, and where it goes. */
 @Composable
 private fun LinkRow(title: String, host: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = RowMinHeight)
-            .clickable(role = Role.Button, onClickLabel = "Open $host in the browser", onClick = onClick)
-            .padding(horizontal = RowGutter),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("$host ↗", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-    }
+    ListItem(
+        headlineContent = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        trailingContent = { Text("$host ↗", style = MaterialTheme.typography.bodyMedium, maxLines = 1) },
+        modifier = Modifier.clickable(role = Role.Button, onClickLabel = "Open $host in the browser", onClick = onClick),
+    )
 }
 
 /** The release notes: headings, bullets and paragraphs with **bold** and `code` runs. */
@@ -310,10 +297,8 @@ private fun ReleaseNotes(blocks: List<NoteBlock>, modifier: Modifier = Modifier)
 }
 
 @Composable
-private fun Header(text: String) = SectionLabel(text, Modifier.padding(start = RowGutter, end = RowGutter, top = 12.dp, bottom = 4.dp))
+private fun Header(text: String) = Subheader(text)
 
-@Composable
-private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
 private const val ICON_PX = 192
 

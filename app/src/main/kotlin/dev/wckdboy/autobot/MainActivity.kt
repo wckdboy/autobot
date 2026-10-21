@@ -34,7 +34,6 @@ import dev.wckdboy.autobot.core.data.debug.DemoMode
 import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
-import dev.wckdboy.autobot.core.designsystem.component.InkSpecimen
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.SystemBarsBase
 import dev.wckdboy.autobot.core.security.AppLockManager
@@ -105,12 +104,6 @@ class MainActivity : FragmentActivity() {
         val debugLaunch = DebugLaunch.parse(BuildConfig.DEBUG, { intent.getBooleanExtra(it, false) }, { intent.getStringExtra(it) })
         DemoMode.on = debugLaunch.demo
         DemoMode.digestFailed = debugLaunch.digestFailed
-
-        // Debug builds only: `--ez ink_specimen true` shows the ink components on one sheet for pixel inspection.
-        if (BuildConfig.DEBUG && intent.getBooleanExtra(EXTRA_INK_SPECIMEN, false)) {
-            setContent { AutobotTheme { InkSpecimen() } }
-            return
-        }
 
         // Not on recreation (rotation): the request was already taken or is still pending.
         if (savedInstanceState == null) entry.receive(intent)
@@ -291,4 +284,3 @@ class MainActivity : FragmentActivity() {
 /** How long the lock screen stays up after a duress restart before it prints away (a PIN check's time). */
 private const val QUIET_START_MILLIS = 250L
 private const val EXTRA_ALLOW_SCREENSHOTS = "allow_screenshots"
-private const val EXTRA_INK_SPECIMEN = "ink_specimen"

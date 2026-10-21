@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,12 +24,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +47,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isUnspecified
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.Layout
@@ -65,6 +70,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
@@ -93,34 +99,64 @@ internal data class MdStyle(
     val link: Color,
     val rule: Color,
     val accent: Color,
+    /** Drawn on [accent] (a done task's check). */
+    val onAccent: Color,
+    /** A table's header row. */
+    val header: Color,
 )
 
+/**
+ * The markdown's colours on [container]: the surface's roles when it is the screen's surface
+ * (Unspecified), else tones of the container's own content colour (a user bubble's
+ * onSecondaryContainer), so text, inline code, rules and marks all read on that container.
+ */
 @Composable
-internal fun rememberMdStyle(): MdStyle {
+internal fun rememberMdStyle(container: Color = Color.Unspecified): MdStyle {
     val scheme = MaterialTheme.colorScheme
     val body = MaterialTheme.typography.bodyLarge
-    return remember(scheme, body) {
-        MdStyle(
-            body = body,
-            text = scheme.onSurface,
-            muted = scheme.onSurfaceVariant,
-            codeBackground = scheme.surfaceContainerHighest,
-            code = scheme.onSurface,
-            // Links read as text, marked by their underline (colour is for marks, not words).
-            link = scheme.onSurface,
-            rule = scheme.outlineVariant,
-            accent = scheme.primary,
-        )
+    return remember(scheme, body, container) {
+        if (container.isUnspecified) {
+            MdStyle(
+                body = body,
+                text = scheme.onSurface,
+                muted = scheme.onSurfaceVariant,
+                // Inline code: a tonal run.
+                codeBackground = scheme.secondaryContainer,
+                code = scheme.onSecondaryContainer,
+                // Links read as text, marked by their underline (colour is for marks, not words).
+                link = scheme.onSurface,
+                rule = scheme.outlineVariant,
+                accent = scheme.primary,
+                onAccent = scheme.onPrimary,
+                header = scheme.surfaceContainerHigh,
+            )
+        } else {
+            val text = scheme.contentColorFor(container).takeOrElse { scheme.onSurface }
+            MdStyle(
+                body = body,
+                text = text,
+                muted = text.copy(alpha = 0.78f),
+                codeBackground = text.copy(alpha = 0.12f),
+                code = text,
+                link = text,
+                rule = text.copy(alpha = 0.32f),
+                accent = text,
+                onAccent = container,
+                header = text.copy(alpha = 0.08f),
+            )
+        }
     }
 }
 
 /**
  * Chat markdown blocks, compact: 8 dp between top-level blocks, 4 dp inside lists and quotes.
- * [onLink] gets a tapped link's URL (nothing opens it here; see [LinkPrompt]).
+ * [onLink] gets a tapped link's URL (nothing opens it here; see [LinkPrompt]). [container] is the
+ * colour the blocks sit on when it is not the screen's surface (a user bubble): the text takes
+ * that container's content colour.
  */
 @Composable
-fun MarkdownBlocks(blocks: List<MdBlock>, onLink: (String) -> Unit, modifier: Modifier = Modifier) {
-    val style = rememberMdStyle()
+fun MarkdownBlocks(blocks: List<MdBlock>, onLink: (String) -> Unit, modifier: Modifier = Modifier, container: Color = Color.Unspecified) {
+    val style = rememberMdStyle(container)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         blocks.forEach { MarkdownBlock(it, style, onLink, depth = 0) }
     }
@@ -164,7 +200,7 @@ private fun MarkdownBlock(block: MdBlock, style: MdStyle, onLink: (String) -> Un
             }
         }
         is MdBlock.ListBlock -> ListView(block, style, onLink, depth)
-        MdBlock.Rule -> Hairline(Modifier.padding(vertical = 4.dp), color = style.rule)
+        MdBlock.Rule -> HorizontalDivider(Modifier.padding(vertical = 4.dp), color = style.rule)
         is MdBlock.Table -> TableView(block, style, onLink)
     }
 }
@@ -181,7 +217,7 @@ private fun ListView(list: MdBlock.ListBlock, style: MdStyle, onLink: (String) -
                 Box(Modifier.width(markerWidth).height(lineHeight), contentAlignment = if (list.ordered) Alignment.CenterStart else Alignment.Center) {
                     when {
                         item.task != null -> TaskBox(item.task, style)
-                        list.ordered -> Text("${list.start + index}.", style = AutobotTheme.styles.readout, color = style.muted)
+                        list.ordered -> Text("${list.start + index}.", style = style.body.copy(fontFeatureSettings = "tnum"), color = style.muted)
                         else -> Box(
                             Modifier.padding(top = 1.dp, end = 4.dp).size(if (depth == 0) 5.dp else 4.dp).clip(CircleShape)
                                 .background(if (depth == 0) style.accent else style.muted),
@@ -216,7 +252,7 @@ private fun TaskBox(done: Boolean, style: MdStyle) {
                         lineTo(size.width * 0.42f, size.height * 0.72f)
                         lineTo(size.width * 0.78f, size.height * 0.3f)
                     }
-                    drawPath(check, Color.White, style = Stroke(stroke))
+                    drawPath(check, style.onAccent, style = Stroke(stroke))
                 } else {
                     drawRect(style.muted, topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke), style = Stroke(stroke))
                 }
@@ -228,8 +264,8 @@ private fun TaskBox(done: Boolean, style: MdStyle) {
 private fun TableView(table: MdBlock.Table, style: MdStyle, onLink: (String) -> Unit) {
     val cellStyle = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum")
     val headerStyle = cellStyle.copy(fontWeight = FontWeight.SemiBold)
-    val headerBackground = MaterialTheme.colorScheme.surfaceContainerLow
-    val shape = MaterialTheme.shapes.small
+    val headerBackground = style.header
+    val shape = MaterialTheme.shapes.medium
     // Row edges in px, written by the layout and read when drawing the same frame.
     val edges = remember { arrayOf(IntArray(0)) }
     Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
@@ -298,7 +334,10 @@ private fun TableView(table: MdBlock.Table, style: MdStyle, onLink: (String) -> 
     }
 }
 
-/** A code block: language label and a copy action over the verbatim code. */
+/**
+ * A code block: a surfaceContainerHigh card in the medium shape, the language and a Copy text
+ * button over the verbatim code (mono, scrolling sideways).
+ */
 @Composable
 internal fun CodeBlockView(block: MdBlock.CodeBlock) {
     val clipboard = LocalClipboard.current
@@ -312,38 +351,33 @@ internal fun CodeBlockView(block: MdBlock.CodeBlock) {
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                    .padding(start = 10.dp),
+                Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(start = 12.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                MicroLabel(block.language ?: "code", color = MaterialTheme.colorScheme.tertiary)
-                Spacer(Modifier.weight(1f))
+                Text(
+                    block.language ?: "code",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 if (block.closed) {
-                    MicroLabel(
-                        if (copied) "copied" else "copy",
-                        modifier = Modifier
-                            .clickable(role = Role.Button, onClickLabel = "Copy code") {
-                                scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("code", block.code))) }
-                                copied = true
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        color = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Spacer(Modifier.height(25.dp))
+                    TextButton(
+                        onClick = {
+                            scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("code", block.code))) }
+                            copied = true
+                        },
+                    ) { Text(if (copied) "Copied" else "Copy") }
                 }
             }
-            Hairline()
-            VerbatimText(block.code, AutobotTheme.styles.codeBlock, Modifier.padding(10.dp))
+            VerbatimText(block.code, AutobotTheme.styles.codeBlock, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), MaterialTheme.colorScheme.onSurface)
         }
     }
 }

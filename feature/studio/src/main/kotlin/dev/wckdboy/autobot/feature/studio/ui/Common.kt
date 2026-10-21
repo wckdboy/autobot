@@ -2,9 +2,30 @@ package dev.wckdboy.autobot.feature.studio.ui
 
 import dev.wckdboy.autobot.shared.studio.StudioRoomWords
 import dev.wckdboy.autobot.core.designsystem.component.AutobotMark
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
 import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
-import dev.wckdboy.autobot.core.designsystem.component.Notice
+import dev.wckdboy.autobot.core.designsystem.component.Caption
+import dev.wckdboy.autobot.core.designsystem.component.DropdownField
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.NoticeCard
+import dev.wckdboy.autobot.core.designsystem.component.SliderField
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.labelCase
+import dev.wckdboy.autobot.core.designsystem.component.linesFor
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -60,16 +81,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.SelectField
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.ValueSlider
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
 import dev.wckdboy.autobot.core.designsystem.motion.LocalInkMotion
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.designsystem.theme.Motion
 import dev.wckdboy.autobot.feature.imagine.generate.ImageCodec
 import dev.wckdboy.autobot.shared.studio.AssetRef
@@ -104,7 +117,7 @@ val LocalAssetLoader = staticCompositionLocalOf<AssetLoader> {
 @Composable
 fun AssetThumb(asset: StudioAsset, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
     val loader = LocalAssetLoader.current
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
         when (asset.type) {
             AssetType.AUDIO -> {
                 val peaks by produceState<FloatArray?>(null, asset.id) { value = loader.peaks(asset.id) }
@@ -117,12 +130,12 @@ fun AssetThumb(asset: StudioAsset, modifier: Modifier = Modifier, contentScale: 
                     Image(img, contentDescription = null, contentScale = contentScale, modifier = Modifier.fillMaxSize())
                 }
                 if (asset.type == AssetType.VIDEO) {
-                    Tag("▶ ${duration(asset.durationMs)}", Modifier.align(Alignment.BottomStart).padding(4.dp), filled = true)
+                    TonalLabel("▶ ${duration(asset.durationMs)}", Modifier.align(Alignment.BottomStart).padding(4.dp))
                 }
             }
         }
         if (asset.favorite) {
-            Text("★", Modifier.align(Alignment.TopEnd).padding(4.dp), color = AutobotTheme.inks.amber, style = AutobotTheme.styles.action)
+            Icon(Icons.Filled.Star, contentDescription = "Favourite", Modifier.align(Alignment.TopEnd).padding(4.dp).size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
         }
     }
 }
@@ -170,9 +183,11 @@ fun Waveform(
 }
 
 /**
- * The control panel under the canvas: a hairline handle that folds it away ("just the canvas")
- * and unfolds it again. Folding is instant with reduced motion.
+ * The control panel under the canvas, on a surfaceContainerLow sheet with Material's drag handle:
+ * its header folds it away ("just the canvas") and unfolds it again. Folding is instant with
+ * reduced motion.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ControlSheet(
     expanded: Boolean,
@@ -184,25 +199,31 @@ fun ControlSheet(
 ) {
     val reduced = LocalInkMotion.current.reduced
     val millis = if (reduced) 0 else Motion.transitionMillis
-    Column(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(
+    Surface(
+        modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge.copy(bottomStart = CornerSize(0.dp), bottomEnd = CornerSize(0.dp)),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) { Column {
+        Column(
             Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onToggle)
-                .semantics { stateDescription = if (expanded) "Controls shown" else "Controls hidden" }
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .semantics { stateDescription = if (expanded) "Controls shown" else "Controls hidden" },
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(Modifier.size(width = 28.dp, height = 3.dp).background(MaterialTheme.colorScheme.outline))
-            Text(
-                summary,
-                Modifier.weight(1f).padding(start = 12.dp),
-                style = AutobotTheme.styles.micro,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(if (expanded) "Hide ▾" else "Controls ▴", style = AutobotTheme.styles.action, color = MaterialTheme.colorScheme.onSurface)
+            BottomSheetDefaults.DragHandle(Modifier.padding(top = 2.dp))
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    labelCase(summary),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = linesFor(1, 2),
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(if (expanded) "Hide" else "Controls", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Icon(if (expanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
         }
         AnimatedVisibility(
             visible = expanded,
@@ -215,13 +236,13 @@ fun ControlSheet(
                 content = content,
             )
         }
-    }
+    } }
 }
 
 /** What went wrong, as a notice in the error colour, and a dismiss button. */
 @Composable
 fun ErrorLine(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    Notice(message, modifier, tone = NoticeTone.ERROR, action = "Dismiss", onAction = onDismiss)
+    NoticeCard(message, modifier, tone = NoticeTone.ERROR, action = "Dismiss", onAction = onDismiss)
 }
 
 /** "runs on <backend>" — where a job's work happens, said before it starts. */
@@ -231,7 +252,7 @@ fun RunsOn(label: String?, modifier: Modifier = Modifier) {
     Text(
         if (local) "● Runs on this phone" else "◐ Runs on $label",
         modifier.semantics { contentDescription = if (local) "Runs on this phone" else "Runs on $label" },
-        style = AutobotTheme.styles.micro,
+        style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
@@ -243,19 +264,30 @@ fun EmptyRoom(words: StudioRoomWords.Empty, modifier: Modifier = Modifier, actio
 
 @Composable
 fun EmptyRoom(title: String, body: String, modifier: Modifier = Modifier, actions: @Composable () -> Unit = {}) {
-    Column(modifier.fillMaxWidth().padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        AutobotMark(size = 20.dp)
-        SectionLabel(title, Modifier.semantics { heading() })
+    Column(modifier.fillMaxWidth().padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        AutobotMark(size = 24.dp)
+        Text(labelCase(title), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         actions()
     }
 }
 
-/** A row of choices: the selected one reads in onSurface over the purple bar ([ChoiceChip]). */
+/** A row of choices as Material filter chips that scrolls sideways; names show as written. */
 @Composable
 fun <T> ChipRow(options: List<T>, selected: T?, onSelect: (T) -> Unit, label: (T) -> String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
-    Row(modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        options.forEach { option -> ChoiceChip(label(option), selected = option == selected, onClick = { onSelect(option) }) }
+    Row(
+        modifier.horizontalScroll(rememberScrollState()).selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEach { option ->
+            FilterChip(
+                selected = option == selected,
+                onClick = { onSelect(option) },
+                label = { Text(label(option), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                modifier = Modifier.semantics { role = Role.RadioButton },
+            )
+        }
         trailing()
     }
 }
@@ -277,7 +309,7 @@ fun ParamControls(
         val (basic, advanced) = params.partition { !it.advanced }
         basic.forEach { ParamControl(it, values[it.name] ?: it.default, onChange, assets) }
         if (advanced.isNotEmpty()) {
-            Tag(if (more) "less ▴" else "more · ${advanced.size} ▾", onClick = { more = !more })
+            TextButton(onClick = { more = !more }) { Text(if (more) "Less" else "More · ${advanced.size}") }
             if (more) advanced.forEach { ParamControl(it, values[it.name] ?: it.default, onChange, assets) }
         }
     }
@@ -286,7 +318,7 @@ fun ParamControls(
 @Composable
 private fun ParamControl(p: WorkflowParam, value: ParamValue?, onChange: (String, ParamValue) -> Unit, assets: List<StudioAsset>) {
     when (p.type) {
-        ParamType.STRING -> ConsoleTextField(
+        ParamType.STRING -> Field(
             value?.display().orEmpty(),
             { onChange(p.name, ParamValue.of(it)) },
             Modifier.fillMaxWidth(),
@@ -295,10 +327,16 @@ private fun ParamControl(p: WorkflowParam, value: ParamValue?, onChange: (String
             maxLines = if (p.multiline) 8 else 1,
             singleLine = !p.multiline,
         )
-        ParamType.ENUM -> SelectField(p.label, value?.display() ?: "—", p.options, { onChange(p.name, ParamValue.of(it)) }, Modifier.fillMaxWidth())
-        ParamType.BOOL -> Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(p.label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            Switch(checked = (value as? ParamValue.BoolValue)?.value ?: false, onCheckedChange = { onChange(p.name, ParamValue.of(it)) })
+        ParamType.ENUM -> DropdownField(p.label, value?.display() ?: "—", p.options, { onChange(p.name, ParamValue.of(it)) }, Modifier.fillMaxWidth())
+        ParamType.BOOL -> {
+            val checked = (value as? ParamValue.BoolValue)?.value ?: false
+            Row(
+                Modifier.fillMaxWidth().toggleable(checked, role = Role.Switch, onValueChange = { onChange(p.name, ParamValue.of(it)) }),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(p.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Switch(checked = checked, onCheckedChange = null)
+            }
         }
         ParamType.INT, ParamType.FLOAT -> {
             val min = p.min
@@ -306,7 +344,7 @@ private fun ParamControl(p: WorkflowParam, value: ParamValue?, onChange: (String
             val number = value?.asDouble() ?: min ?: 0.0
             val int = p.type == ParamType.INT
             if (min != null && max != null && max > min && (int.not() || max - min <= 4096)) {
-                ValueSlider(
+                SliderField(
                     p.label,
                     number.toFloat().coerceIn(min.toFloat(), max.toFloat()),
                     { v ->
@@ -328,9 +366,9 @@ private fun ParamControl(p: WorkflowParam, value: ParamValue?, onChange: (String
             val type = if (p.type == ParamType.IMAGE) AssetType.IMAGE else AssetType.AUDIO
             val choices = assets.filter { it.type == type }.take(24)
             val picked = (value as? ParamValue.AssetValue)?.ref?.assetId
-            MicroLabel(p.label + if (picked == null) " · pick one" else "")
+            Text(labelCase(p.label + if (picked == null) " · pick one" else ""), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (choices.isEmpty()) {
-                MicroLabel("no ${type.name.lowercase()} in this project yet — make or import one")
+                Caption("no ${type.name.lowercase()} in this project yet — make or import one")
             } else {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     choices.forEach { a ->
@@ -338,7 +376,7 @@ private fun ParamControl(p: WorkflowParam, value: ParamValue?, onChange: (String
                             a,
                             Modifier
                                 .size(64.dp)
-                                .then(if (a.id == picked) Modifier.border(2.dp, MaterialTheme.colorScheme.primary) else Modifier)
+                                .then(if (a.id == picked) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small) else Modifier)
                                 .clickable { onChange(p.name, ParamValue.AssetValue(AssetRef(a.id, p.role ?: p.name))) }
                                 .semantics { contentDescription = "Use ${a.label ?: a.id} for ${p.label}" },
                         )
@@ -352,7 +390,7 @@ private fun ParamControl(p: WorkflowParam, value: ParamValue?, onChange: (String
 @Composable
 fun NumberField(label: String, value: String, integer: Boolean, onValue: (String) -> Unit) {
     var text by remember(value) { mutableStateOf(value) }
-    ConsoleTextField(
+    Field(
         text,
         {
             text = it
@@ -364,6 +402,18 @@ fun NumberField(label: String, value: String, integer: Boolean, onValue: (String
         mono = true,
         keyboardOptions = KeyboardOptions(keyboardType = if (integer) KeyboardType.Number else KeyboardType.Decimal),
     )
+}
+
+/** A short action ("Upscale ×2", "+ PC") as Material's assist chip, in sentence case. */
+@Composable
+fun ActionChip(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    AssistChip(onClick = onClick, label = { Text(labelCase(text)) }, modifier = modifier, enabled = enabled)
+}
+
+/** A toggle or a pick among a few ("16:9 · 768×432", "Inpaint") as Material's filter chip. */
+@Composable
+fun PickChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    FilterChip(selected = selected, onClick = onClick, label = { Text(text) }, modifier = modifier)
 }
 
 /** `1:05` / `0:08`. */
@@ -385,7 +435,7 @@ fun RoomColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.(
 /** The "image" placeholder icon for empty media slots. */
 @Composable
 fun MediaPlaceholder(type: AssetType, modifier: Modifier = Modifier) {
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow), contentAlignment = Alignment.Center) {
+    Box(modifier.clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.surfaceContainerLow), contentAlignment = Alignment.Center) {
         Icon(
             when (type) {
                 AssetType.IMAGE -> AutobotIcons.Image

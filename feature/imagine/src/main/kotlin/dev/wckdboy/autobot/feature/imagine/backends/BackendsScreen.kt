@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.imagine.backends
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,9 +25,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BackButton
-import dev.wckdboy.autobot.core.designsystem.component.GhostButton
 import dev.wckdboy.autobot.core.designsystem.component.InfoButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -48,15 +44,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.wckdboy.autobot.core.designsystem.component.ConsoleTextField
-import dev.wckdboy.autobot.core.designsystem.component.MicroLabel
-import dev.wckdboy.autobot.core.designsystem.component.Panel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.SelectField
-import dev.wckdboy.autobot.core.designsystem.component.Tag
-import dev.wckdboy.autobot.core.designsystem.component.InkBusyLabel
 import dev.wckdboy.autobot.core.designsystem.component.counted
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import dev.wckdboy.autobot.core.designsystem.component.AppBar
+import dev.wckdboy.autobot.core.designsystem.component.BusyLabel
+import dev.wckdboy.autobot.core.designsystem.component.Centered
+import dev.wckdboy.autobot.core.designsystem.component.Choices
+import dev.wckdboy.autobot.core.designsystem.component.DropdownField
+import dev.wckdboy.autobot.core.designsystem.component.Field
+import dev.wckdboy.autobot.core.designsystem.component.SectionCard
+import dev.wckdboy.autobot.core.designsystem.component.SheetLabel
+import dev.wckdboy.autobot.core.designsystem.component.TonalLabel
+import dev.wckdboy.autobot.core.designsystem.component.clearListItem
+import dev.wckdboy.autobot.core.designsystem.component.linesFor
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ListItem
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.diffusion.BackendKind
 import dev.wckdboy.autobot.core.diffusion.DiffusionBackend
@@ -126,47 +128,66 @@ fun BackendsRoute(onBack: () -> Unit, viewModel: BackendsViewModel = hiltViewMod
     var editing by remember { mutableStateOf<DiffusionBackend?>(null) }
 
     Scaffold(
-        topBar = {
-            AutobotTopBar(title = "Image backends", navigation = { BackButton(onBack) })
-        },
+        topBar = { AppBar("Image backends", onBack = onBack) },
     ) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            state.backends.forEach { backend ->
-                val result = state.testResults[backend.id]
-                Panel(
-                    title = backend.kind.label,
-                    accent = if (backend.kind == BackendKind.LOCAL_SSE) AutobotTheme.inks.uv else AutobotTheme.inks.cyan,
-                    trailing = {
-                        Tag(if (backend.isLoopback) "loopback" else "network", accent = if (backend.isLoopback) MaterialTheme.colorScheme.onSurfaceVariant else AutobotTheme.inks.amber)
-                    },
-                ) {
-                    Row(Modifier.fillMaxWidth().clickable { editing = backend }, verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = backend.id == state.defaultId, onClick = { viewModel.setDefault(backend.id) })
-                        Column(Modifier.weight(1f)) {
-                            Text(backend.name, style = MaterialTheme.typography.titleSmall)
-                            Text(backend.baseUrl, style = AutobotTheme.styles.codeBlock, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        GhostButton("Test", { viewModel.test(backend) }, enabled = state.testing == null || state.testing == backend.id, busy = state.testing == backend.id)
-                        result?.let {
-                            MicroLabel(it, Modifier.weight(1f), color = if (it.startsWith("ok")) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        Centered(Modifier.padding(padding)) { width ->
+            Column(
+                width.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    state.backends.forEach { backend ->
+                        val result = state.testResults[backend.id]
+                        SectionCard(
+                            title = backend.kind.label,
+                            trailing = {
+                                if (backend.isLoopback) {
+                                    TonalLabel("loopback")
+                                } else {
+                                    TonalLabel("network", containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                                }
+                            },
+                        ) {
+                            ListItem(
+                                headlineContent = { Text(backend.name) },
+                                supportingContent = {
+                                    Text(backend.baseUrl, style = AutobotTheme.styles.code, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                },
+                                leadingContent = {
+                                    RadioButton(selected = backend.id == state.defaultId, onClick = { viewModel.setDefault(backend.id) })
+                                },
+                                colors = clearListItem(),
+                                modifier = Modifier.clickable(onClickLabel = "Edit") { editing = backend },
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedButton(
+                                    onClick = { if (state.testing != backend.id) viewModel.test(backend) },
+                                    enabled = state.testing == null || state.testing == backend.id,
+                                ) { BusyLabel("Test", busy = state.testing == backend.id) }
+                                result?.let {
+                                    Text(
+                                        it,
+                                        Modifier.weight(1f),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (it.startsWith("ok")) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            Panel(title = "Add backend") {
-                // One line and an ⓘ, as on iOS.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Loopback or HTTPS", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    InfoButton("Backends", "Loopback backends keep working in Offline mode. Anything else must be HTTPS and follows your network mode and kill switch.")
-                }
-                DiffusionBackendRepository.PRESETS.forEach { (kind, url) ->
-                    GhostButton("${kind.label} · $url", { editing = viewModel.newBackend(kind, url) }, Modifier.fillMaxWidth())
+                SectionCard(title = "Add backend") {
+                    // One line and an ⓘ, as on iOS.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Loopback or HTTPS", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        InfoButton("Backends", "Loopback backends keep working in Offline mode. Anything else must be HTTPS and follows your network mode and kill switch.")
+                    }
+                    DiffusionBackendRepository.PRESETS.forEach { (kind, url) ->
+                        FilledTonalButton(onClick = { editing = viewModel.newBackend(kind, url) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("${kind.label} · $url", maxLines = linesFor(1, 3), overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
@@ -202,28 +223,28 @@ private fun BackendEditor(initial: DiffusionBackend, isNew: Boolean, onSave: (Di
         Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        MicroLabel(if (isNew) "new backend" else "edit backend")
-        Segmented(listOf(BackendKind.SD_API, BackendKind.LOCAL_SSE), kind, { kind = it }, { if (it == BackendKind.SD_API) "A1111 API" else "Local SSE" }, Modifier.fillMaxWidth())
-        ConsoleTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
-        ConsoleTextField(
+        SheetLabel(if (isNew) "new backend" else "edit backend")
+        Choices(listOf(BackendKind.SD_API, BackendKind.LOCAL_SSE), kind, { kind = it }, Modifier.fillMaxWidth()) { if (it == BackendKind.SD_API) "A1111 API" else "Local SSE" }
+        Field(name, { name = it }, Modifier.fillMaxWidth(), label = "Name", singleLine = true)
+        Field(
             url,
             { url = it },
             Modifier.fillMaxWidth(),
             label = "Base URL",
             singleLine = true,
             mono = true,
+            isError = cleartextRemote,
+            supporting = if (cleartextRemote) "Cleartext http is only allowed to loopback — use https" else null,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
         )
-        if (cleartextRemote) MicroLabel("cleartext http is only allowed to loopback — use https", color = MaterialTheme.colorScheme.error)
-        SelectField("Route", routing.name.lowercase(), RouteOverride.entries, { routing = it }, optionLabel = { it.name.lowercase() })
+        DropdownField("Route", routing.name.lowercase(), RouteOverride.entries, { routing = it }, Modifier.fillMaxWidth(), optionLabel = { it.name.lowercase() })
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (!isNew) TextButton(onClick = onDelete) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
+            if (!isNew) TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = { onSave(initial.copy(name = name.trim().ifBlank { kind.label }, baseUrl = url.trim(), kind = kind, routing = routing.name)) },
                 enabled = url.isNotBlank() && !cleartextRemote,
-                shape = MaterialTheme.shapes.small,
-            ) { ActionText("Save") }
+            ) { Text("Save") }
         }
         Spacer(Modifier.size(4.dp))
     }
