@@ -27,7 +27,6 @@ enum NodePhotos {
 struct PhotoThumb: View {
     let data: Data
     let side: CGFloat
-    @Environment(\.scheme) private var c
 
     var body: some View {
         if let image = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: side * 3, height: side * 3)) ?? UIImage(data: data) {
@@ -36,7 +35,7 @@ struct PhotoThumb: View {
                 .scaledToFill()
                 .frame(width: side, height: side)
                 .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.small))
-                .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).stroke(c.outlineVariant))
+                .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).stroke(Color(uiColor: .separator)))
         }
     }
 }

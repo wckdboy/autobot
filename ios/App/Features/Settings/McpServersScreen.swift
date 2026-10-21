@@ -36,7 +36,6 @@ struct McpServerDraft: Equatable, CustomStringConvertible {
 struct McpServersScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var editor: McpServerDraft?
     @State private var deleting: McpServer?
     @State private var error: String?
@@ -45,29 +44,27 @@ struct McpServersScreen: View {
         let servers = app.mcpServers.servers
         VStack(spacing: 0) {
             AutobotTopBar(title: "MCP servers", onBack: { nav.back() }) {
-                IconAction(symbol: "plus", label: "Add MCP server", tint: c.primary) { editor = McpServerDraft() }
+                Button { editor = McpServerDraft() } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Add MCP server")
             }
             if servers.isEmpty {
-                VStack(spacing: 0) {
-                    Spacer()
-                    // One line and one action, as on Android; what a trusted server does is on its switch in the editor.
-                    EmptyState("No MCP servers yet.", actionLabel: "Add MCP server") { editor = McpServerDraft() }
-                    Spacer()
+                // One line and one action, as on Android; what a trusted server does is on its switch in the editor.
+                MarkUnavailableView(title: "No MCP servers yet.") {
+                    Button("Add MCP server") { editor = McpServerDraft() }.primaryActionStyle()
                 }
-                .frame(maxWidth: .infinity)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let error { MicroLabel(error, color: c.error, lines: 3) }
-                        ForEach(servers) { s in row(s).transition(.inkDissolve) }
+                List {
+                    if let error {
+                        Section { Text(error).foregroundStyle(.red) }
                     }
-                    .animation(.inkDissolve, value: servers.map(\.id))
-                    .padding(.horizontal, Tokens.Spacing.gutter)
-                    .padding(.bottom, 24)
+                    Section {
+                        ForEach(servers) { row($0) }
+                    }
                 }
+                .listStyle(.insetGrouped)
+                .animation(.default, value: servers.map(\.id))
             }
         }
-        .background(c.background)
         .sheet(item: Binding(get: { editor.map(EditorItem.init) }, set: { if $0 == nil { editor = nil } })) { item in
             McpServerEditorSheet(initial: item.draft) { editor = nil }
         }
@@ -84,42 +81,41 @@ struct McpServersScreen: View {
     }
 
     private func row(_ s: McpServer) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Button { startEdit(s) } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        MicroLabel(s.url)
-                        Text(s.name).textStyle(.titleMedium).foregroundStyle(c.onSurface).lineLimit(1)
-                        Text(summary(s))
-                            .textStyle(.micro)
-                            .foregroundStyle(c.onSurfaceVariant)
-                            .lineLimit(1)
-                        if let status = status(s) {
-                            MicroLabel(status.text, color: status.error ? c.error : nil, lines: 2)
-                        }
+        HStack(spacing: 12) {
+            Button { startEdit(s) } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(s.name).font(.headline).lineLimit(1)
+                    Text(s.url).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(summary(s)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if let status = status(s) {
+                        Text(status.text).font(.caption).foregroundStyle(status.error ? Color.red : .secondary).lineLimit(2)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(PressStyle())
-                Toggle("", isOn: Binding(get: { s.enabled }, set: { v in
-                    var next = s
-                    next.enabled = v
-                    do {
-                        try app.mcpServers.save(next)
-                        error = nil
-                    } catch {
-                        self.error = saveFailure(error)
-                    }
-                }))
-                .labelsHidden()
-                .tint(c.primary)
-                .accessibilityLabel("Enable \(s.name)")
-                IconAction(symbol: "trash", label: "Delete \(s.name)", tint: c.onSurfaceVariant, size: 16) { deleting = s }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 12)
-            Hairline()
+            .buttonStyle(.borderless)
+            .foregroundStyle(.primary)
+            Toggle("Enable \(s.name)", isOn: Binding(get: { s.enabled }, set: { v in
+                var next = s
+                next.enabled = v
+                do {
+                    try app.mcpServers.save(next)
+                    error = nil
+                } catch {
+                    self.error = saveFailure(error)
+                }
+            }))
+            .labelsHidden()
         }
+        .swipeActions {
+            Button("Delete", systemImage: "trash", role: .destructive) { deleting = s }
+        }
+        .contextMenu {
+            Button("Edit", systemImage: "pencil") { startEdit(s) }
+            Button("Delete \(s.name)", systemImage: "trash", role: .destructive) { deleting = s }
+        }
+        .accessibilityAction(named: "Delete \(s.name)") { deleting = s }
     }
 
     private func summary(_ s: McpServer) -> String {
@@ -162,7 +158,6 @@ private struct McpServerEditorSheet: View {
     @State private var error: String?
     @State private var testTask: Task<Void, Never>?
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     init(initial: McpServerDraft, onDismiss: @escaping () -> Void) {
         _draft = State(initialValue: initial)
@@ -170,68 +165,83 @@ private struct McpServerEditorSheet: View {
     }
 
     var body: some View {
-        // The shared form: the focused field scrolls into view and Save stays above the keyboard.
-        KeyboardForm {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel(draft.isNew ? "add mcp server" : "edit mcp server")
-
-                VStack(alignment: .leading, spacing: 4) {
-                    ConsoleTextField(text: field(\.name), label: "Name")
-                    MicroLabel("tools appear to the agent as mcp__<name>__<tool>", lines: 2)
+        NavigationStack {
+            Form {
+                Section {
+                    FormField("Name", text: field(\.name), prompt: "Name")
+                } footer: {
+                    Text("tools appear to the agent as mcp__<name>__<tool>")
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    ConsoleTextField(text: field(\.url), label: "URL", kind: .url)
+                Section {
+                    FormField("URL", text: field(\.url), prompt: "https://", kind: .url)
+                } footer: {
                     if !draft.url.isEmpty && !draft.urlValid {
-                        MicroLabel("invalid url", color: c.error, lines: 2)
+                        Text("invalid url").foregroundStyle(.red)
                     } else if let problem = ProviderDraft.cleartextProblem(draft.url) {
-                        MicroLabel(problem, color: c.error, lines: 3)
+                        Text(problem).foregroundStyle(.red)
                     } else if let note = ProviderDraft.loopbackNote(draft.url) {
-                        MicroLabel(note, lines: 3)
+                        Text(note)
                     } else {
-                        MicroLabel("the server's mcp endpoint, e.g. https://example.com/mcp · cleartext http only for 127.0.0.1 / localhost", lines: 2)
+                        Text("the server's mcp endpoint, e.g. https://example.com/mcp · cleartext http only for 127.0.0.1 / localhost")
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    ConsoleTextField(
+                Section {
+                    FormField(
+                        "Bearer token (optional)",
                         text: Binding(get: { draft.tokenInput }, set: { v in update { $0.tokenInput = v; $0.clearStoredToken = false } }),
-                        placeholder: draft.hasStoredToken && !draft.clearStoredToken ? "•••••••• saved — type to replace" : nil,
-                        label: "Bearer token (optional)",
+                        prompt: draft.hasStoredToken && !draft.clearStoredToken ? "•••••••• saved — type to replace" : "Optional",
                         kind: .secret,
                     )
-                    MicroLabel("kept in the keychain on this device · sent only to this server's host · never logged or displayed", lines: 2)
                     if draft.hasStoredToken && draft.tokenInput.isEmpty {
-                        TextAction(draft.clearStoredToken ? "Keep saved token" : "Remove saved token", color: draft.clearStoredToken ? c.primary : c.error) {
+                        Button(draft.clearStoredToken ? "Keep saved token" : "Remove saved token", role: draft.clearStoredToken ? nil : .destructive) {
                             update { $0.clearStoredToken.toggle() }
                         }
+                        .foregroundStyle(draft.clearStoredToken ? Color.accentColor : .red)
                     }
+                } footer: {
+                    Text("kept in the keychain on this device · sent only to this server's host · never logged or displayed")
                 }
-
-                MicroLabel("routing")
-                ChipRow(items: ProviderRouting.allCases, selected: draft.routing, label: { $0.label }) { r in update { $0.routing = r } }
-                Text("Offline mode always blocks remote requests. Direct cannot bypass a global Tor/SOCKS5 mode.")
-                    .textStyle(.bodySmall)
-                    .foregroundStyle(c.onSurfaceVariant)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                SwitchRow(title: "Enabled", isOn: Binding(get: { draft.enabled }, set: { v in update { $0.enabled = v } }))
-                SwitchRow(
-                    title: "Trusted",
-                    isOn: Binding(get: { draft.trusted }, set: { v in update { $0.trusted = v } }),
-                    info: "Off: every tool call asks for approval first. On: calls follow the permission preset (full access runs them, the other presets ask).",
-                )
-
-                testResult
-                if let error { MicroLabel(error, color: c.error, lines: 3) }
+                Section {
+                    Picker("Routing", selection: Binding(get: { draft.routing }, set: { r in update { $0.routing = r } })) {
+                        ForEach(ProviderRouting.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                } footer: {
+                    Text("Offline mode always blocks remote requests. Direct cannot bypass a global Tor/SOCKS5 mode.")
+                }
+                Section {
+                    Toggle("Enabled", isOn: Binding(get: { draft.enabled }, set: { v in update { $0.enabled = v } }))
+                    InfoToggle(
+                        title: "Trusted",
+                        info: "Off: every tool call asks for approval first. On: calls follow the permission preset (full access runs them, the other presets ask).",
+                        isOn: Binding(get: { draft.trusted }, set: { v in update { $0.trusted = v } }),
+                    )
+                }
+                Section {
+                    Button(action: testConnection) {
+                        HStack {
+                            Text("Test connection")
+                            if test == .running { ProgressView().padding(.leading, 4) }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .secondaryActionStyle()
+                    .disabled(!draft.urlValid || test == .running)
+                    testResult
+                    if let error { Text(error).foregroundStyle(.red) }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
             }
-        } footer: {
-            HStack(spacing: 8) {
-                TextAction("Cancel", color: c.onSurfaceVariant, action: onDismiss)
-                GhostButton("Test connection", accent: c.onSurface, enabled: draft.urlValid && test != .running, busy: test == .running, action: testConnection)
-                PrimaryButton("Save", enabled: draft.canSave && !saving, action: save)
+            .formStyle(.grouped)
+            .navigationTitle(draft.isNew ? "Add MCP server" : "Edit MCP server")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onDismiss) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save).disabled(!draft.canSave || saving)
+                }
             }
         }
-        .background(c.surfaceContainerLow.ignoresSafeArea())
         .presentationDetents([.large])
         .onDisappear { testTask?.cancel() }
     }
@@ -241,8 +251,8 @@ private struct McpServerEditorSheet: View {
         case .idle: EmptyView()
         // The Test button carries the loader.
         case .running: EmptyView()
-        case .success(let m): Text("✓ \(m)").textStyle(.bodySmall).foregroundStyle(c.onSurfaceVariant)
-        case .failure(let m): Text(m).textStyle(.bodySmall).foregroundStyle(c.error)
+        case .success(let m): Text("✓ \(m)").font(.footnote).foregroundStyle(.secondary)
+        case .failure(let m): Text(m).font(.footnote).foregroundStyle(.red)
         }
     }
 

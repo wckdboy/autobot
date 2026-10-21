@@ -10,7 +10,6 @@ import UIKit
  */
 struct NodePairingSheet: View {
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var code: String
     @State private var deviceName = UIDevice.current.name
     @State private var pairing = false
@@ -26,38 +25,74 @@ struct NodePairingSheet: View {
     private var fingerprint: String? { runtime?.pairingFingerprint(code) }
 
     var body: some View {
-        ScrollView {
-            InkStack(alignment: .leading, spacing: 12) {
-                SectionLabel("pair with my node")
-                Text("My node (Invincible)").textStyle(.titleLarge).foregroundStyle(c.onSurface)
-                Text("On the computer, run `invincible pair`. Point the Camera at the QR code it shows, or paste the code here.")
-                    .textStyle(.bodySmall)
-                    .foregroundStyle(c.onSurfaceVariant)
-                    .fixedSize(horizontal: false, vertical: true)
-                OfflineNotice()
-                ConsoleTextField(text: $code, label: "Pairing code", kind: .mono)
-
+        let offline = app.settings.settings.mode == .offline
+        NavigationStack {
+            Form {
+                Section {
+                    // Invincible's pixel i: this is about the node.
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        NodeMark()
+                        Text("My node (Invincible)").font(.title3.weight(.semibold))
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isHeader)
+                    Text("On the computer, run `invincible pair`. Point the Camera at the QR code it shows, or paste the code here.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                if offline {
+                    Section { OfflineNotice() }
+                }
+                Section {
+                    TextField("Pairing code", text: $code, axis: .vertical)
+                        .font(.body.monospaced())
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .lineLimit(1 ... 4)
+                } header: {
+                    Text("Pairing code")
+                } footer: {
+                    if fingerprint == nil, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("That is not an Invincible pairing code (invincible://pair?…).").foregroundStyle(.red)
+                    }
+                }
                 if let fingerprint {
-                    MicroLabel("node key")
-                    Text(fingerprint).textStyle(.titleMedium).foregroundStyle(c.onSurface).monospaced()
-                    MicroLabel("compare with the key the computer printed")
-                } else if !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("That is not an Invincible pairing code (invincible://pair?…).").textStyle(.bodySmall).foregroundStyle(c.error)
+                    Section {
+                        Text(fingerprint).font(.title3.monospaced()).textSelection(.enabled)
+                    } header: {
+                        Text("Node key")
+                    } footer: {
+                        Text("Compare with the key the computer printed")
+                    }
                 }
-                ConsoleTextField(text: $deviceName, label: "This phone's name on the node")
-                Text("Pairing is end-to-end encrypted (Noise) and needs no account. The kill switch and the network route apply, and the connection shows in the Privacy Center.")
-                    .textStyle(.bodySmall)
-                    .foregroundStyle(c.onSurfaceVariant)
-                    .fixedSize(horizontal: false, vertical: true)
+                Section {
+                    TextField("This phone's name on the node", text: $deviceName)
+                } header: {
+                    Text("This phone's name on the node")
+                } footer: {
+                    Text("Pairing is end-to-end encrypted (Noise) and needs no account. The kill switch and the network route apply, and the connection shows in the Privacy Center.")
+                }
                 if let problem {
-                    Text(problem).textStyle(.bodySmall).foregroundStyle(c.error).fixedSize(horizontal: false, vertical: true)
+                    Section { Text(problem).foregroundStyle(.red) }
                 }
-                PrimaryButton("Pair", enabled: fingerprint != nil && !deviceName.trimmingCharacters(in: .whitespaces).isEmpty, busy: pairing) { pair() }
-                GhostButton("Cancel") { onDone() }
+                Section {
+                    Button { pair() } label: {
+                        Group { if pairing { ProgressView() } else { Text("Pair") } }.frame(maxWidth: .infinity)
+                    }
+                    .primaryActionStyle()
+                    .controlSize(.large)
+                    .disabled(fingerprint == nil || deviceName.trimmingCharacters(in: .whitespaces).isEmpty || pairing)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
-            .padding(Tokens.Spacing.gutter)
+            .formStyle(.grouped)
+            .navigationTitle("Pair with my node")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { onDone() } }
+            }
         }
-        .background(c.background)
         .presentationDetents([.large])
     }
 
