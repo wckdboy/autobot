@@ -100,7 +100,7 @@ struct RemoteScreen: View {
     /// The network mode's dot: the brand tint offline, a system color for each route out.
     static func statusColor(_ status: PrivacyStatus) -> Color {
         switch status {
-        case .offline: AutobotColors.purple
+        case .offline: Color.brandPurple
         case .direct: .orange
         case .tor: .indigo
         case .proxy: .cyan

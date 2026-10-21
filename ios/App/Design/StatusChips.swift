@@ -21,16 +21,6 @@ enum PrivacyStatus: String, CaseIterable, Sendable {
         case .proxy: "Routed through a SOCKS5 proxy"
         }
     }
-
-    /// The status ink on [c]'s ground (text and dot).
-    func color(_ c: AutobotScheme) -> Color {
-        switch self {
-        case .offline: c.primary
-        case .direct: c.inks.amber
-        case .tor: c.inks.uv
-        case .proxy: c.inks.cyan
-        }
-    }
 }
 
 /// "12.4 tok/s · 256 tokens". Either part may be omitted.

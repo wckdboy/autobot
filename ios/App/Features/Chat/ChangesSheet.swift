@@ -1,20 +1,19 @@
 import SwiftUI
 
-/// Riso inks for diffs (Compose `diffInk`): added lines in cyan, removed lines in red.
-private func diffInk(_ line: String, _ c: AutobotScheme) -> Color {
-    if line.hasPrefix("+") { return c.inks.cyan }
-    if line.hasPrefix("-") { return c.primary }
-    return c.onSurfaceVariant
+/// Diff colours (Compose `diffInk`): added lines in green, removed lines in red.
+private func diffInk(_ line: String) -> Color {
+    if line.hasPrefix("+") { return .green }
+    if line.hasPrefix("-") { return .red }
+    return .secondary
 }
 
 /// `+3 −1` for a file step, in the diff inks.
 struct ChangeCounts: View {
     let change: FileChange
-    @Environment(\.scheme) private var c
 
     var body: some View {
         HStack(spacing: 4) {
-            if change.added > 0 { Text("+\(change.added)").foregroundStyle(c.inks.cyan) }
+            if change.added > 0 { Text("+\(change.added)").foregroundStyle(.green) }
             if change.removed > 0 { Text("−\(change.removed)").foregroundStyle(.secondary) }
             if change.added == 0 && change.removed == 0 { Text(change.op.rawValue).foregroundStyle(.secondary) }
         }
@@ -25,7 +24,6 @@ struct ChangeCounts: View {
 /// A step's line diff: monospace, `+` lines on a cyan wash, `−` lines on a red one, scrolls sideways.
 struct DiffBlock: View {
     let change: FileChange
-    @Environment(\.scheme) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -36,7 +34,7 @@ struct DiffBlock: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(change.diff.enumerated()), id: \.offset) { _, line in
-                            let ink = diffInk(line, c)
+                            let ink = diffInk(line)
                             let changed = line.hasPrefix("+") || line.hasPrefix("-")
                             Text(line.isEmpty ? " " : line)
                                 .font(.caption.monospaced())
@@ -80,7 +78,6 @@ struct UndoTurnLine: View {
                         .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }
-            .stamp(changes.undone)
         }
     }
 }
@@ -118,7 +115,6 @@ struct ChangesSheet: View {
                                             .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                                     }
                                 }
-                                .stamp(file.undone)
                             }
                         }
                     } header: {

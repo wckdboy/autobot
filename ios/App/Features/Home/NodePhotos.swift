@@ -34,8 +34,8 @@ struct PhotoThumb: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: side, height: side)
-                .clipShape(RoundedRectangle(cornerRadius: AutobotShapes.small))
-                .overlay(RoundedRectangle(cornerRadius: AutobotShapes.small).stroke(Color(uiColor: .separator)))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(uiColor: .separator)))
         }
     }
 }

@@ -6,7 +6,6 @@ import SwiftUI
 struct SettingsScreen: View {
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @State private var showBackup = false
     @State private var showSearch = false
     @State private var confirmDeleteChats = false

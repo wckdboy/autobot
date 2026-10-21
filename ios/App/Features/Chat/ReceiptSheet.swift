@@ -14,7 +14,6 @@ extension Receipt: Identifiable {
 struct ReceiptLine: View {
     let receipt: Receipt?
     let onOpen: (Receipt) -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -22,14 +21,14 @@ struct ReceiptLine: View {
                 let trains = receipt.models.contains { $0.policy == Receipt.trains }
                 Button { onOpen(receipt) } label: {
                     Label(receipt.line, systemImage: receipt.onDevice ? "lock.shield.fill" : trains ? "exclamationmark.shield" : "doc.text.magnifyingglass")
-                        .foregroundStyle(trains ? AnyShapeStyle(c.inks.amber) : receipt.onDevice ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(trains ? AnyShapeStyle(Color.orange) : receipt.onDevice ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         .chipLook(active: receipt.onDevice)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Privacy receipt: \(receipt.line)")
             }
         }
-        .stamp(receipt?.line, when: { $0 != nil })
+        .animation(.easeOut(duration: 0.2), value: receipt?.line)
     }
 }
 
@@ -38,7 +37,6 @@ struct ReceiptSheet: View {
     let receipt: Receipt
     /// Opens the spend and quota board (nil: no link).
     var onOpenUsage: (() -> Void)? = nil
-    @Environment(\.scheme) private var c
 
     var body: some View {
         NavigationStack {
@@ -62,7 +60,7 @@ struct ReceiptSheet: View {
                                 HStack(spacing: 8) {
                                     Text(m.model).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
                                     if let policy = m.policy {
-                                        CapsuleTag(policy, color: policy == Receipt.trains ? c.inks.amber : m.onDevice ? c.primary : .secondary)
+                                        CapsuleTag(policy, color: policy == Receipt.trains ? Color.orange : m.onDevice ? .accentColor : .secondary)
                                     }
                                 }
                                 Text([m.name, m.policyNote ?? (m.policy == nil ? "data policy not documented" : nil)].compactMap { $0 }.joined(separator: " · "))
@@ -111,7 +109,7 @@ struct ReceiptSheet: View {
                     Section("Tools") {
                         ChatFlow(spacing: 6) {
                             ForEach(Array(receipt.tools.enumerated()), id: \.offset) { _, t in
-                                CapsuleTag(t.network ? "\(t.name) · net" : t.name, color: t.network ? c.primary : .secondary)
+                                CapsuleTag(t.network ? "\(t.name) · net" : t.name, color: t.network ? .accentColor : .secondary)
                             }
                         }
                     }
@@ -119,7 +117,7 @@ struct ReceiptSheet: View {
 
                 if !receipt.fallbacks.isEmpty {
                     Section("Fallbacks") {
-                        ForEach(receipt.fallbacks, id: \.self) { Text($0).font(.footnote).foregroundStyle(c.inks.amber) }
+                        ForEach(receipt.fallbacks, id: \.self) { Text($0).font(.footnote).foregroundStyle(Color.orange) }
                     }
                 }
 
@@ -153,7 +151,7 @@ struct ReceiptSheet: View {
         ].compactMap { $0 }.joined(separator: " · ")
         return VStack(alignment: .leading, spacing: 2) {
             Text(host.host).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
-            Text(detail).font(.caption).foregroundStyle(host.blocked == host.requests ? AnyShapeStyle(c.inks.amber) : AnyShapeStyle(.secondary)).lineLimit(2)
+            Text(detail).font(.caption).foregroundStyle(host.blocked == host.requests ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary)).lineLimit(2)
         }
     }
 }

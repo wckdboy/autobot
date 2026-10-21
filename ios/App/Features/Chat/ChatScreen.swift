@@ -131,7 +131,6 @@ struct ChatScreen: View {
     let conversationId: String
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     /// While typing only the field, the transcript and what is being answered stay (Keyboard.swift).
     @Environment(\.keyboardUp) private var keyboardUp
     @State private var model = ChatModel()
@@ -147,7 +146,6 @@ struct ChatScreen: View {
     @State private var showThink = false
     @State private var showCascade = false
     /// Which transcript items are new since the screen loaded (they ink in).
-    @State private var ledger = InkLedger()
 
     /// The chat's model when it runs on this device through llama.cpp (not Apple Intelligence).
     private var localModelToPrepare: String? {
@@ -166,7 +164,6 @@ struct ChatScreen: View {
         let approvals = session?.approvals ?? []
         let isLive = session?.isLive ?? false
         let routing = ChatRouting(app: app, conversationId: conversationId)
-        let _ = ledger.observe(transcript.keys + approvals.map { "approval:" + $0.callId })
         let header = ["run", routing.modelLabel ?? routing.selectedModel, transcript.contextUsed.map { "\(compactCount($0)) tok" }].compactMap { $0 }.joined(separator: " · ")
         let speakingKey = model.speakingKey
         let planShown = transcript.projection.todos.contains(where: { $0.status != .completed })
@@ -201,16 +198,13 @@ struct ChatScreen: View {
                                 number: transcript.stepNumbers[item.key] ?? 0,
                                 header: item.key == transcript.firstPrompt ? header : nil,
                                 approval: approval,
-                                ghost: approval.map { ledger.isNew("approval:" + $0.callId) } ?? false,
                                 running: running,
                                 speaking: speakingKey == item.key,
                                 conversationId: conversationId,
                                 model: model,
-                                ledger: ledger,
                                 openReceipt: $openReceipt,
                             )
                             .equatable()
-                            .inkEnter(ledger.isNew(item.key)) { ledger.entered(item.key) }
                         }
                         if let session { LiveSlot(session: session) }
                         // The cascade's offer sits under the phone's answer.
@@ -437,21 +431,18 @@ private struct TranscriptRow: View, Equatable {
     let header: String?
     let approval: ApprovalState?
     /// The approval card enters out of register.
-    let ghost: Bool
     let running: Bool
     let speaking: Bool
     let conversationId: String
     let model: ChatModel
-    let ledger: InkLedger
     @Binding var openReceipt: Receipt?
     /// "Select text" from the long-press menu: the message in a sheet where any part can be selected.
     @State private var selecting: SelectableText?
     @Environment(AppContainer.self) private var app
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.item == b.item && a.retryPrompt == b.retryPrompt && a.number == b.number && a.header == b.header && a.approval == b.approval && a.ghost == b.ghost
+        a.item == b.item && a.retryPrompt == b.retryPrompt && a.number == b.number && a.header == b.header && a.approval == b.approval
             && a.running == b.running && a.speaking == b.speaking && a.conversationId == b.conversationId && a.model === b.model
     }
 
@@ -487,12 +478,9 @@ private struct TranscriptRow: View, Equatable {
             }
         case .tool(let tool):
             if let approval {
-                let key = "approval:" + tool.callId
                 ApprovalCard(number: number, tool: tool, approval: approval) { outcome in
                     app.agent.answerApproval(conversationId, callId: tool.callId, outcome: outcome)
                 }
-                .registerGhost(ghost, color: c.primary)
-                .onAppear { ledger.entered(key) }
             } else {
                 StepRow(
                     number: number, tool: tool, model: model, running: running,
@@ -633,7 +621,6 @@ private struct StepRow: View {
     /// Opens that gallery item's detail.
     let onOpenGallery: (_ id: String, _ all: [String]) -> Void
     @State private var expanded = false
-    @Environment(\.scheme) private var c
     @Environment(AppContainer.self) private var app
 
     /**
@@ -651,9 +638,9 @@ private struct StepRow: View {
     /// The `▪`: purple while the step works or waits for you, ash once done, red when it failed.
     private var stepMarkColor: Color {
         switch tool.state {
-        case .running, .streaming, .waitingApproval: AutobotColors.purple
-        case .error: c.error
-        case .ok, .denied: c.onSurfaceVariant
+        case .running, .streaming, .waitingApproval: BrandColors.purple
+        case .error: .red
+        case .ok, .denied: .secondary
         }
     }
 
@@ -670,10 +657,10 @@ private struct StepRow: View {
     var body: some View {
         let _ = InkProbe.hit("body.stepRow")
         let (mark, markColor): (String, Color) = switch tool.state {
-        case .ok: (tool.isUndone ? "undone" : "✓", c.onSurfaceVariant)
-        case .error: ("×", c.error)
-        case .denied: ("denied", c.onSurfaceVariant)
-        case .running, .streaming, .waitingApproval: ("", c.primary)
+        case .ok: (tool.isUndone ? "undone" : "✓", .secondary)
+        case .error: ("×", .red)
+        case .denied: ("denied", .secondary)
+        case .running, .streaming, .waitingApproval: ("", .accentColor)
         }
         VStack(alignment: .leading, spacing: 0) {
             Button { if tool.output != nil { expanded.toggle() } } label: {
@@ -709,7 +696,8 @@ private struct StepRow: View {
                         Text(mark + (tool.durationMs.map { String(format: " %.1f s", Double($0) / 1000) } ?? ""))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(markColor)
-                            .stamp(StampKey(state: tool.state, undone: tool.isUndone), when: { Self.settled($0.state) })
+                            .contentTransition(.opacity)
+                            .animation(.easeOut(duration: 0.2), value: StampKey(state: tool.state, undone: tool.isUndone))
                         if mark.isEmpty { ProgressView().controlSize(.small).padding(.top, 2) }
                     }
                 }
@@ -825,15 +813,14 @@ private struct GalleryThumb: View {
     }
 }
 
-/// `generate_image` in the transcript: flows and develops with the agent's job, prints its first image.
+/// `generate_image` in the transcript: a spinner (and the latent preview) while the agent's job
+/// runs, then its first image.
 private struct AgentProof: View {
     let tool: SessionItem.Tool
     let model: ChatModel
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
     @State private var image: UIImage?
-    @State private var preview: PlateImage?
-    @State private var serial = 0
+    @State private var preview: UIImage?
 
     var body: some View {
         let id = tool.galleryIds.first
@@ -841,30 +828,35 @@ private struct AgentProof: View {
             if case .running(let source, _, _, _, let step, let total, let preview, _) = app.generator.state, source == .agent { return (step, total, preview) }
             return nil
         }()
-        let ink: PlateInk = {
-            if let id, let image, let grid = LumaCache.grid(image) { return .final(PlateImage(id: id, grid: grid, image: image)) }
-            if id != nil || tool.state != .running { return .hold }
-            // Between images (or once the job ends) keep what the plate shows.
-            guard let job else { return preview != nil ? .hold : .flow(progress: 0, loading: true) }
-            if job.preview != nil, let preview { return .preview(preview) }
-            return .flow(progress: job.total > 0 ? Double(job.step) / Double(job.total) : 0, loading: app.generator.phase != nil || job.total == 0)
-        }()
-        InkPlate(ink: ink, dot: c.primary, idleDot: c.outlineVariant, plate: c.primary)
-            .frame(width: 120, height: 120)
-            .background(c.surfaceContainerLow)
-            .clipped()
-            .accessibilityElement()
-            .accessibilityLabel(id != nil ? "Generated image" : "Generating image")
-            .task(id: job?.preview) {
-                guard let data = job?.preview, let decoded = await decodeImage(data, maxSide: 512), !Task.isCancelled,
-                      let cg = decoded.cgImage, let grid = LumaGrid(image: cg) else { return }
-                serial += 1
-                preview = PlateImage(id: "\(serial)", grid: grid)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        ZStack {
+            shape.fill(.fill.tertiary)
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if let preview {
+                Image(uiImage: preview).resizable().scaledToFill()
             }
-            .task(id: id) {
-                guard let id else { return }
-                image = await model.galleryThumbnail(id, app: app)
+            if image == nil, id == nil, tool.state == .running {
+                if let job, job.total > 0, app.generator.phase == nil {
+                    ProgressView(value: Double(job.step), total: Double(job.total))
+                        .progressViewStyle(.circular)
+                } else {
+                    ProgressView()
+                }
             }
+        }
+        .frame(width: 120, height: 120)
+        .clipShape(shape)
+        .accessibilityElement()
+        .accessibilityLabel(id != nil ? "Generated image" : "Generating image")
+        .task(id: job?.preview) {
+            guard let data = job?.preview, let decoded = await decodeImage(data, maxSide: 512), !Task.isCancelled else { return }
+            preview = decoded
+        }
+        .task(id: id) {
+            guard let id else { return }
+            image = await model.galleryThumbnail(id, app: app)
+        }
     }
 }
 
@@ -876,7 +868,6 @@ private struct ApprovalCard: View {
     let tool: SessionItem.Tool
     let approval: ApprovalState
     let onDecide: (ApprovalOutcome) -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -917,8 +908,7 @@ private struct ApprovalCard: View {
         for fragment in privateData {
             var rest = out.startIndex..<out.endIndex
             while let range = out[rest].range(of: fragment, options: .caseInsensitive) {
-                out[range].backgroundColor = c.primaryContainer
-                out[range].foregroundColor = c.onPrimaryContainer
+                out[range].backgroundColor = Color.brandPurple.opacity(0.22)
                 rest = range.upperBound..<out.endIndex
             }
         }
@@ -1556,12 +1546,12 @@ private struct LevelMeter: View {
     /// Observed here only: ~10 updates a second re-render the meter, not the chat screen.
     let levels: VoiceLevels
     let listening: Bool
-    @Environment(\.scheme) private var c
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var bars = LevelBars()
 
     var body: some View {
-        InkTimeline(active: listening) { date in
+        TimelineView(.animation(paused: !listening)) { timeline in
+            let date = timeline.date
             Canvas { context, size in
                 bars.step(levels.peaks, at: date, ease: listening && !reduceMotion)
                 let slot = size.width / CGFloat(LevelBars.slots)
@@ -1571,8 +1561,8 @@ private struct LevelMeter: View {
                     let rect = CGRect(x: CGFloat(i) * slot, y: (size.height - h) / 2, width: slot * 0.6, height: h)
                     if bars.heard[i] { live.addRect(rect) } else { rule.addRect(rect) }
                 }
-                context.fill(rule, with: .color(c.outlineVariant))
-                context.fill(live, with: .color(c.primary))
+                context.fill(rule, with: .color(Color(uiColor: .tertiaryLabel)))
+                context.fill(live, with: .color(Color.brandPurple))
             }
         }
         .accessibilityHidden(true)

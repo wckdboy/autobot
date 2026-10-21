@@ -127,27 +127,6 @@ func decodeImage(_ data: Data, maxSide: CGFloat? = nil) async -> UIImage? {
     }.value
 }
 
-/// Placeholder for a screen that is not ported yet.
-struct PlaceholderScreen: View {
-    let title: String
-    var note = "coming to ios"
-    @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
-
-    var body: some View {
-        VStack(spacing: 0) {
-            AutobotTopBar(title: title, onBack: nav.path.isEmpty ? nil : { nav.back() })
-            VStack(alignment: .leading, spacing: 10) {
-                SectionLabel(title)
-                MicroLabel(note)
-                Spacer()
-            }
-            .padding(16)
-        }
-        .background(c.background)
-    }
-}
-
 /// Riso confirmation dialog (Material AlertDialog look): title, text, actions.
 struct RisoAlert: ViewModifier {
     @Binding var isPresented: Bool

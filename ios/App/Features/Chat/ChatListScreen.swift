@@ -289,7 +289,7 @@ struct ChatListScreen: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color(.systemBackground))
-        .animation(.inkDissolve, value: m.order)
+        .animation(.default, value: m.order)
     }
 
     private func row(_ item: ConversationItem) -> some View {
@@ -356,7 +356,7 @@ struct ChatListScreen: View {
     /// Hides the chats at once (running turns are cancelled) and deletes them unless undone in time.
     private func delete(_ ids: [String], titles: [String]) {
         let label = ChatListModel.deletedLabel(count: ids.count, title: titles.first)
-        withAnimation(.inkDissolve) { _ = app.chats.trash(ids, label: label) }
+        withAnimation(.default) { _ = app.chats.trash(ids, label: label) }
         selection = []
     }
 
@@ -500,7 +500,7 @@ private struct ChatListRow: View, Equatable {
     var body: some View {
         ConversationRow(item: item, selecting: selecting, selected: selected, onClick: actions.open)
             .equatable()
-            .transition(.inkDissolve)
+            .transition(.opacity)
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 Button(role: .destructive, action: actions.delete) { Label("Delete", systemImage: "trash") }
             }
@@ -531,7 +531,6 @@ private struct ConversationRow: View, Equatable {
     let selected: Bool
     let onClick: () -> Void
     @Environment(AppContainer.self) private var app
-    @Environment(\.scheme) private var c
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.item == b.item && a.selecting == b.selecting && a.selected == b.selected }
 
@@ -592,7 +591,7 @@ private struct ConversationRow: View, Equatable {
             let lower = String.Index(utf16Offset: span.lowerBound, in: text)
             let upper = String.Index(utf16Offset: span.upperBound, in: text)
             guard let range = Range(lower ..< upper, in: out) else { continue }
-            out[range].backgroundColor = c.primary.opacity(0.28)
+            out[range].backgroundColor = Color.brandPurple.opacity(0.25)
             out[range].inlinePresentationIntent = .stronglyEmphasized
         }
         return out

@@ -135,22 +135,19 @@ final class Navigator {
         #endif
     }
 
-    /// Pushes without the slide: the new screen inks in instead ([View.inkArrive]). Going back
-    /// (button or edge swipe) keeps the native, interactive pop.
+    /// Pushes [destination] with the system's slide (going back keeps the native, interactive pop).
     func push(_ destination: Destination) {
         guard path.last != destination else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { path.append(destination) }
+        path.append(destination)
     }
 
     /// Opens the Studio (Home, Imagine, the agent's results); the app stays where it was.
     func enterStudio(_ room: StudioRoom = .image) {
-        withAnimation(.inkSlide) { studio = room }
+        withAnimation(.smooth) { studio = room }
     }
 
     func leaveStudio() {
-        withAnimation(.inkSlide) { studio = nil }
+        withAnimation(.smooth) { studio = nil }
     }
 
     /// Shows [destination] alone on [tab]'s stack (a chat chosen in the chat list beside it), without the slide.
@@ -191,7 +188,6 @@ final class Navigator {
  */
 struct AutobotNavHost: View {
     @Environment(Navigator.self) private var nav
-    @Environment(\.scheme) private var c
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
@@ -199,8 +195,7 @@ struct AutobotNavHost: View {
         let inStudio = nav.studio != nil
         ZStack {
             app
-                // Hidden, not removed: its living cards and grounds must not keep ticking.
-                .environment(\.inkOffscreen, inStudio)
+                // Hidden, not removed: its stacks keep their state.
                 .opacity(inStudio ? 0 : 1)
                 .allowsHitTesting(!inStudio)
                 .accessibilityHidden(inStudio)
@@ -233,18 +228,15 @@ struct AutobotNavHost: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .tint(Color.brandPurple)
-        .background(c.background.ignoresSafeArea())
     }
 
     /// [tab]'s own stack.
     private func stack(_ tab: Tab) -> some View {
         NavigationStack(path: nav.pathBinding(tab)) {
             root(tab)
-                .inkArrive()
                 .navigationDestination(for: Destination.self) { destination in
                     screen(destination)
-                        .inkArrive()
-                        .background(c.background.ignoresSafeArea())
+                        .background(Color(.systemBackground).ignoresSafeArea())
                 }
         }
     }
