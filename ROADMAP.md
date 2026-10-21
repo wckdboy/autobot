@@ -314,6 +314,22 @@ CPU-only 1.1.
   reproducible); the app reports itself fully drawn when a real screen shows. Still to do: budgets
   measured on a phone and enforced, the chat screen in the profile journey, iOS.)*
 
+## Harness tab (iOS) *(experimental, `ios-harness` branch)*
+
+The DeepSeek Harness itself, not the Kotlin port: an Alpine + Node guest boots in the iSH-ARM64
+emulator inside the app and serves the stock `dsh` web UI over loopback, with a native screen
+around it (boot progress, the page, a guest shell, the log). Autobot's DeepSeek provider signs its
+model calls, Offline mode stops the server, and the audit log records that the guest's calls leave
+the phone directly.
+
+- ✅ Guest image build (`make rootfs`), boot path, supervisor, the tab on the 1.13 system look,
+  page recovery (failed loads, a dead web process, the foreground check).
+- ⬜ Decide the licence: dsh-ios and iSH are GPL-3.0, so a public build with the tab must be offered
+  under GPL-compatible terms, or the tab stays out of the published app.
+- ⬜ Real-device numbers: first boot, warm boot, memory, a turn's latency on an iPhone.
+- ⬜ The native agent and the harness share sessions, or the tab is dropped in favour of the
+  Kotlin port that already runs on both platforms.
+
 ## Later / experimental
 
 Video generation · home-screen widgets and shortcuts (App Intents / Android shortcuts) · a `dsh`

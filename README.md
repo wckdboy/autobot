@@ -26,6 +26,7 @@ Version 1.13. What runs, and what is not yet verified:
 | Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
 | Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
 | Generative UI | In review: in the phone chats the agent can call `show_ui` (A2UI v1.0, shared core in `:shared`) to show forms, choices and cards, drawn with Material 3 Expressive on Android (`:core:a2ui`) and SwiftUI system controls with Liquid Glass on iOS, in the app's purple; kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. Settings › Agent › Generative UI turns it off (on by default) |
+| Harness (iOS) | Experimental, on the `ios-harness` branch (TestFlight builds only): a Harness tab boots an Alpine + Node guest in the iSH-ARM64 emulator and runs the DeepSeek Harness web UI on the phone, supervised by the app; Autobot's DeepSeek key reaches it, Offline mode stops it, and the audit log records that its model calls leave from the guest. The emulator and dsh-ios are GPL-3.0, so a public build that includes the tab must be offered under GPL-compatible terms (not yet decided; see `ios/Harness/README.md`) |
 | **Not yet verified** | No independent security review yet |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).
@@ -156,6 +157,7 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
 | `:feature:settings` | Settings, Privacy Center (network mode, audit log, panic wipe), Providers editor (masked key, routing, test connection), MCP servers editor (masked token, routing, trusted, test connection) |
 | `ios/App` | The SwiftUI app: system components with Liquid Glass and the brand purple tint, every screen of the Android app, URLSession transport, encrypted store, Keychain/Secure Enclave, Core ML image generation and upscaling, export/import |
 | `ios/Packages/AutobotEngines` | Swift package over the shared llama.cpp / whisper.cpp C cores (Metal, Core ML encoder) and Apple's ml-stable-diffusion; built into `AutobotLlama` / `AutobotWhisper` xcframeworks with dSYMs |
+| `ios/Harness` | The Harness tab's native side (`HarnessKernel`, the XcodeGen fragment generator) and the vendored [dsh-ios](https://github.com/everettjf/dsh-ios) with the iSH-ARM64 emulator (GPL-3.0); the guest image is built, not committed |
 | `scripts/` | `bump-version.sh` (one version for both apps), `release.sh` (test, build, sign, TestFlight, GitHub release) |
 | `build-logic/` | Convention plugins: `autobot.android.application`, `autobot.android.library`, `autobot.android.compose`, `autobot.hilt` |
 

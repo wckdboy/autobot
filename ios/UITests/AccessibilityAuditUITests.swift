@@ -13,7 +13,7 @@ final class AccessibilityAuditUITests: XCTestCase {
     static let screens = [
         "run", "sessions", "chat", "agent", "phone-first", "a2ui-chat", "imagine", "gallery", "models", "compute",
         "accounts", "remote", "node", "bot", "settings", "privacy", "providers", "backends", "about", "memory",
-        "vault", "usage", "recipes", "mcp", "studio",
+        "vault", "usage", "recipes", "mcp", "studio", "harness",
     ]
 
     override func setUp() {

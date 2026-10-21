@@ -12,6 +12,8 @@ private struct LicenseNotice: Identifiable {
 private let notices: [LicenseNotice] = [
     LicenseNotice(id: "autobot", title: "Autobot", detail: "Copyright 2026 wckdboy", license: "Apache-2.0", file: "Apache-2.0"),
     LicenseNotice(id: "harness", title: "DeepSeek Harness", detail: "Architecture of the agent runtime (plugins, session log, loop, tools, permissions, compaction) · Copyright (c) 2026 DeepSeek", license: "MIT", file: "DeepSeek-Harness-MIT"),
+    LicenseNotice(id: "dsh-ios", title: "dsh-ios", detail: "The Harness tab: the DeepSeek Harness web UI served from a Linux guest on this device · everettjf and contributors", license: "GPL-3.0", file: "GPL-3.0"),
+    LicenseNotice(id: "ish", title: "iSH-ARM64", detail: "The Linux emulator the Harness tab boots · a fork of iSH by Theodore Dubois and contributors; the additional terms in LICENSE.IOS apply", license: "GPL-3.0", file: "iSH-LICENSE.IOS"),
     LicenseNotice(id: "llama", title: "llama.cpp (incl. ggml)", detail: "On-device chat on Metal and the CPU · Copyright (c) 2023-2026 The ggml authors", license: "MIT", file: "llama.cpp-MIT"),
     LicenseNotice(id: "whisper", title: "whisper.cpp", detail: "On-device dictation · Copyright (c) 2023-2026 The ggml authors", license: "MIT", file: "whisper.cpp-MIT"),
     LicenseNotice(id: "mlsd", title: "ml-stable-diffusion", detail: "Core ML Stable Diffusion on the Neural Engine · Copyright (c) 2024 Apple Inc.", license: "MIT", file: "ml-stable-diffusion-MIT"),

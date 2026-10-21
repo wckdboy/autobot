@@ -80,6 +80,11 @@ struct RootView: View {
             // `-AutobotOpen chat|agent|phone-first|a2ui-chat` (UI work): open the newest plain / tool
             // session, or the demo's "phone first" or generated-UI chat.
             let args = ProcessInfo.processInfo.arguments
+            // `-AutobotNetworkMode direct` (UI work): a route out, so the screens that need one (the
+            // Harness tab's guest, a cloud chat) show their running state in the simulator.
+            if let i = args.firstIndex(of: "-AutobotNetworkMode"), i + 1 < args.count, args[i + 1] == "direct" {
+                app.settings.setNetworkMode(.direct)
+            }
             if let i = args.firstIndex(of: "-AutobotOpen"), i + 1 < args.count, ["chat", "agent", "phone-first", "a2ui-chat"].contains(args[i + 1]) {
                 app.conversations.conversations.forEach { _ = app.agent.session($0.id) }
                 try? await Task.sleep(for: .milliseconds(1500))

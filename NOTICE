@@ -62,3 +62,12 @@ The full licence texts ship inside the app (assets/licenses).
 Models are not bundled. Models downloaded through the app are licensed by their authors (the
 licence of every catalog entry is shown before download); you are responsible for complying
 with them.
+
+Built into the experimental Harness tab of the iOS app (ios-harness branch only; not in the
+published app until its licence is settled):
+
+  dsh-ios (https://github.com/everettjf/dsh-ios)
+  Licensed under the GNU General Public License v3.0.
+
+  iSH-ARM64 (https://github.com/OpenMinis/ish-arm64), a fork of iSH (https://github.com/ish-app/ish)
+  Licensed under the GNU General Public License v3.0, with the additional terms in LICENSE.IOS.
