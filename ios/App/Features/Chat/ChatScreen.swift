@@ -133,6 +133,7 @@ struct ChatScreen: View {
     @Environment(Navigator.self) private var nav
     /// While typing only the field, the transcript and what is being answered stay (Keyboard.swift).
     @Environment(\.keyboardUp) private var keyboardUp
+    @Environment(\.dynamicTypeSize) private var dynamicType
     @State private var model = ChatModel()
     /// The open session, set in .task (opening must not happen while the view renders). Held in
     /// state so setting it re-renders the screen: a chat opened from the list never stays blank.
@@ -183,7 +184,7 @@ struct ChatScreen: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    TranscriptStack(lazy: transcript.items.count > TranscriptStack<EmptyView>.eagerLimit) {
+                    TranscriptStack(lazy: !TranscriptStack<EmptyView>.eager(rows: transcript.items.count, dynamicType: dynamicType)) {
                         transcriptRows(session: session, transcript: transcript, settings: settings, running: running, approvals: approvals, isLive: isLive, routing: routing, header: header, speakingKey: speakingKey)
                     }
                     .padding(.horizontal, 16)
@@ -431,13 +432,19 @@ struct ChatScreen: View {
 // MARK: - Transcript
 
 /**
- The transcript's rows: all laid out at once up to [eagerLimit] rows, lazily beyond. A lazy stack
- only estimates the rows it has not measured, and at the largest text sizes, with a tall composer
- panel, it could settle at the transcript's end without drawing the rows there (a blank chat until
- the first scroll). A short chat is cheap to lay out whole; a long one keeps the lazy stack.
+ The transcript's rows, lazily, except a short chat at the accessibility text sizes: there, with
+ a tall composer panel, the lazy stack could settle at the transcript's end without drawing the
+ rows (a blank chat until the first scroll). Laid out whole only then and only up to
+ [eagerLimit] rows: whole, a chat of heavy markdown costs about 15 ms and 1.5 MB per row up front
+ (40 rows: ~650 ms and ~60 MB against ~150 ms and ~6 MB lazily), so every other chat stays lazy.
  */
 struct TranscriptStack<Content: View>: View {
-    static var eagerLimit: Int { 40 }
+    static var eagerLimit: Int { 16 }
+
+    static func eager(rows: Int, dynamicType: DynamicTypeSize) -> Bool {
+        dynamicType.isAccessibilitySize && rows <= eagerLimit
+    }
+
     let lazy: Bool
     @ViewBuilder var content: Content
 
@@ -997,6 +1004,7 @@ private struct EmptySession: View {
 /// `POLICY · WORKSPACE · ASKS: DELETE, NETWORK` (as on Android), with the Think chip when the
 /// chat's model reasons and the REDACT chip on a cloud route.
 struct PolicyLine: View {
+    @Environment(\.dynamicTypeSize) private var dynamicType
     let settings: SessionSettings
     let contextUsed: Int?
     let contextWindow: Int?
@@ -1023,6 +1031,27 @@ struct PolicyLine: View {
         }
     }
 
+    private func oneRow(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            chips
+            if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).fixedSize() }
+            Spacer(minLength: 0)
+            context
+        }
+    }
+
+    private func policyUnderChips(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                chips
+                Spacer(minLength: 0)
+                context
+            }
+            // Two lines, all of it at the accessibility sizes.
+            if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicType.isAccessibilitySize ? nil : 2) }
+        }
+    }
+
     var body: some View {
         let think = settings.thinkingSupport != "NONE"
         let redact = settings.redaction != "NONE"
@@ -1033,29 +1062,29 @@ struct PolicyLine: View {
             case .workspace: "Policy · workspace · asks: delete, network"
             case .fullAccess: "Policy · full access"
             }
+            let chipCount = [think, redact, cascade].filter { $0 }.count
             // One row when it fits; on a narrow phone the policy moves under the chips rather than
-            // squeezing them or cutting itself short.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    chips
-                    if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).fixedSize() }
-                    Spacer(minLength: 0)
-                    context
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        chips
-                        Spacer(minLength: 0)
-                        context
+            // squeezing them or cutting itself short; when even the chips are wider than the screen
+            // (two or three of them on a 375 pt phone, or the accessibility sizes), one chip per
+            // line, each free to wrap: a fixed-size row widened the whole chat past the screen's
+            // edges. That last option only where it can be needed: measured on every chat, a third
+            // ViewThatFits candidate added ~25 ms to opening one.
+            Group {
+                if chipCount >= 2 || dynamicType.isAccessibilitySize {
+                    ViewThatFits(in: .horizontal) {
+                        oneRow(text)
+                        policyUnderChips(text)
+                        VStack(alignment: .leading, spacing: 6) {
+                            chips(wrapping: true)
+                            context
+                            if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                        }
                     }
-                    if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                }
-                // At the largest text sizes even the chips alone are wider than the screen: one per
-                // line (a fixed-size row would widen the whole chat past the screen's edges).
-                VStack(alignment: .leading, spacing: 6) {
-                    chips(wrapping: true)
-                    context
-                    if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        oneRow(text)
+                        policyUnderChips(text)
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -1267,16 +1296,27 @@ struct Banner: View {
     let onAction: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicType
 
+    private var words: some View {
+        Label(text, systemImage: "exclamationmark.circle")
+            .font(.footnote)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var button: some View {
+        Button(action, action: onAction).glassButton().controlSize(.small)
+    }
+
     var body: some View {
         // At the accessibility sizes the button goes under the words: beside them it left a column
         // a word or two wide, broken mid-word and cut short.
-        let layout = dynamicType.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
-        layout {
-            Label(text, systemImage: "exclamationmark.circle")
-                .font(.footnote)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button(action, action: onAction).glassButton().controlSize(.small)
+        Group {
+            if dynamicType.isAccessibilitySize {
+                // Every line of the words, however tall (only here: a fixed vertical size at every
+                // size added ~15 ms to opening a chat).
+                VStack(alignment: .leading, spacing: 8) { words.fixedSize(horizontal: false, vertical: true); button }
+            } else {
+                HStack(spacing: 12) { words; button }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

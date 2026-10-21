@@ -137,6 +137,44 @@ struct ScreenPerfTests {
         try line.write(to: URL(fileURLWithPath: "\(dir)/memory.txt"), atomically: true, encoding: .utf8)
     }
 
+    /// Opening a chat of heavy markdown (a table and a code block in every answer): time to its
+    /// first full layout and the footprint it adds, at 40 rows (laid out whole) and 42 (lazy).
+    @Test(.timeLimit(.minutes(5))) func openHeavyChat() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["AUTOBOT_PERF_DIR"] else { return }
+        let app = AppContainer()
+        await app.unlockData()
+        let nav = Navigator()
+        let scene = try await TestScene.first()
+        var lines: [String] = []
+        for round in 0 ..< 3 {
+            for exchanges in [20, 21] {
+                var chat = app.conversations.create(incognito: true, providerId: nil, model: "deepseek-chat")
+                chat.title = "Heavy \(round) \(exchanges)"
+                app.conversations.update(chat)
+                app.agent.preview(chat.id, state: MotionPerfTests.richState(chat.id, exchanges: exchanges))
+                MarkdownCache.shared.removeAll()
+                try await Task.sleep(for: .milliseconds(300))
+                let before = Self.footprintMB()
+                let window = UIWindow(windowScene: scene)
+                let clock = ContinuousClock()
+                let open = clock.measure {
+                    window.rootViewController = UIHostingController(rootView: NavigationStack { ChatScreen(conversationId: chat.id) }
+                        .environment(\.scenePhase, .active).environment(app).environment(nav).autobotTheme(.dark))
+                    window.makeKeyAndVisible()
+                    window.layoutIfNeeded()
+                }
+                try await Task.sleep(for: .milliseconds(1000))
+                let after = Self.footprintMB()
+                window.isHidden = true
+                window.rootViewController = nil
+                lines.append(String(format: "PERF heavyChat rows=%d round=%d open=%.1fms footprint=+%.1fMB", exchanges * 2, round, Double(open.components.attoseconds) / 1e15 + Double(open.components.seconds) * 1000, after - before))
+                try await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        lines.forEach { print($0) }
+        try lines.joined(separator: "\n").write(to: URL(fileURLWithPath: "\(dir)/heavy-chat.txt"), atomically: true, encoding: .utf8)
+    }
+
     static func footprintMB() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)

@@ -62,6 +62,16 @@ struct SolidPassTests {
         }
     }
 
+    // MARK: The transcript stack
+
+    @Test func onlyShortChatsAtAccessibilitySizesAreLaidOutWhole() {
+        typealias Stack = TranscriptStack<EmptyView>
+        #expect(!Stack.eager(rows: 8, dynamicType: .large), "the default sizes stay lazy (a heavy chat whole costs ~15 ms and 1.5 MB a row)")
+        #expect(!Stack.eager(rows: 40, dynamicType: .xxxLarge))
+        #expect(Stack.eager(rows: 8, dynamicType: .accessibility5), "a short chat at AX5 is laid out whole (the lazy stack drew nothing)")
+        #expect(!Stack.eager(rows: 40, dynamicType: .accessibility5))
+    }
+
     // MARK: Labels
 
     @Test func modelSourcesAreSpelledAsNames() {

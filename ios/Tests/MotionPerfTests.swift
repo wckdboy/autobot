@@ -109,10 +109,10 @@ struct MotionPerfTests {
     }
 
     /// 24 answers of rich markdown (a table, a code block, a list, a quote, headings).
-    static func richState(_ id: String) -> ChatSessionState {
+    static func richState(_ id: String, exchanges: Int = 24) -> ChatSessionState {
         var s = ChatSessionState(sessionId: id)
         var items: [SessionItem] = []
-        for i in 0 ..< 24 {
+        for i in 0 ..< exchanges {
             items.append(.user(key: "u\(i)", text: "Compare the options for step \(i)", images: []))
             let rows = (0 ..< 6).map { r in "| option \(r) | \(r * 3 + i) ms | `flag-\(r)` | **\(r % 2 == 0 ? "yes" : "no")** |" }.joined(separator: "\n")
             let text = """
