@@ -63,7 +63,8 @@ struct ComposerToolLabel: View {
     var body: some View {
         Image(systemName: systemImage)
             .font(.title3)
-            .frame(width: 40, height: 40)
+            // At least 40 pt: at the largest text sizes the symbol is bigger and must not spill out.
+            .frame(minWidth: 40, minHeight: 40)
             .contentShape(Rectangle())
     }
 }
@@ -98,4 +99,23 @@ extension View {
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
     }
+}
+
+/**
+ What was typed in each chat's composer and not sent yet, kept while the app runs: leaving a chat
+ (back, another chat in the iPad list, voice mode and back, another tab's shortcut) and coming back
+ finds the words where they were. Memory only, like the transcript on screen: nothing is written
+ to disk, and a panic wipe drops it with the container.
+ */
+@MainActor
+final class ComposerDrafts {
+    private var texts: [String: String] = [:]
+
+    func text(_ key: String) -> String { texts[key] ?? "" }
+
+    func set(_ key: String, _ text: String) {
+        texts[key] = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    func removeAll() { texts = [:] }
 }

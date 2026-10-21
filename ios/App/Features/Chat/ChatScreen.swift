@@ -183,37 +183,8 @@ struct ChatScreen: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if app.dataLoaded && transcript.items.isEmpty && !isLive && Composer.shared.shows(part: .decor, keyboardUp: keyboardUp) {
-                            EmptySession(toolsEnabled: settings.toolsEnabled)
-                        }
-                        let retry = AnswerRetry.target(transcript.items, running: running || isLive)
-                        ForEach(transcript.items) { item in
-                            let approval: ApprovalState? = if case .tool(let t) = item { approvals.first { $0.callId == t.callId } } else { nil }
-                            TranscriptRow(
-                                item: item,
-                                retryPrompt: retry?.key == item.key ? retry?.prompt : nil,
-                                onRetry: send,
-                                number: transcript.stepNumbers[item.key] ?? 0,
-                                header: item.key == transcript.firstPrompt ? header : nil,
-                                approval: approval,
-                                running: running,
-                                speaking: speakingKey == item.key,
-                                conversationId: conversationId,
-                                model: model,
-                                openReceipt: $openReceipt,
-                            )
-                            .equatable()
-                        }
-                        if let session { LiveSlot(session: session) }
-                        // The cascade's offer sits under the phone's answer.
-                        if let offer = transcript.projection.cascadeOffer, !running, !isLive {
-                            CascadeOfferRow(offer: offer, model: routing.modelLabel ?? routing.selectedModel ?? "") {
-                                app.agent.escalate(conversationId)
-                            }
-                            .id("cascade-offer:\(offer.turn)")
-                        }
-                        Color.clear.frame(height: 1).id("bottom")
+                    TranscriptStack(lazy: transcript.items.count > TranscriptStack<EmptyView>.eagerLimit) {
+                        transcriptRows(session: session, transcript: transcript, settings: settings, running: running, approvals: approvals, isLive: isLive, routing: routing, header: header, speakingKey: speakingKey)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -318,6 +289,41 @@ struct ChatScreen: View {
     }
 
 
+    /// The transcript's rows (the empty state, the items, the live answer, the cascade's offer, the end marker).
+    @ViewBuilder
+    private func transcriptRows(session: AgentSession?, transcript: SessionTranscript, settings: SessionSettings, running: Bool, approvals: [ApprovalState], isLive: Bool, routing: ChatRouting, header: String, speakingKey: String?) -> some View {
+        if app.dataLoaded && transcript.items.isEmpty && !isLive && Composer.shared.shows(part: .decor, keyboardUp: keyboardUp) {
+            EmptySession(toolsEnabled: settings.toolsEnabled)
+        }
+        let retry = AnswerRetry.target(transcript.items, running: running || isLive)
+        ForEach(transcript.items) { item in
+            let approval: ApprovalState? = if case .tool(let t) = item { approvals.first { $0.callId == t.callId } } else { nil }
+            TranscriptRow(
+                item: item,
+                retryPrompt: retry?.key == item.key ? retry?.prompt : nil,
+                onRetry: send,
+                number: transcript.stepNumbers[item.key] ?? 0,
+                header: item.key == transcript.firstPrompt ? header : nil,
+                approval: approval,
+                running: running,
+                speaking: speakingKey == item.key,
+                conversationId: conversationId,
+                model: model,
+                openReceipt: $openReceipt,
+            )
+            .equatable()
+        }
+        if let session { LiveSlot(session: session) }
+        // The cascade's offer sits under the phone's answer.
+        if let offer = transcript.projection.cascadeOffer, !running, !isLive {
+            CascadeOfferRow(offer: offer, model: routing.modelLabel ?? routing.selectedModel ?? "") {
+                app.agent.escalate(conversationId)
+            }
+            .id("cascade-offer:\(offer.turn)")
+        }
+        Color.clear.frame(height: 1).id("bottom")
+    }
+
     /// Plan, question, chips and the composer, under the transcript. While typing only the
     /// question being answered and the composer stay.
     @ViewBuilder
@@ -341,7 +347,7 @@ struct ChatScreen: View {
             if let voice = model.voice {
                 VoicePanel(voice: voice, model: model) { model.setVoiceMode(false, app: app, conversationId: conversationId) }
             } else {
-                InputBar(model: model, running: running, onSend: send, onStop: stop).equatable()
+                InputBar(model: model, draftKey: conversationId, running: running, onSend: send, onStop: stop).equatable()
             }
         }
         // One glass panel floats over the transcript's end: the plan, a question, the chips and the composer.
@@ -423,6 +429,26 @@ struct ChatScreen: View {
 }
 
 // MARK: - Transcript
+
+/**
+ The transcript's rows: all laid out at once up to [eagerLimit] rows, lazily beyond. A lazy stack
+ only estimates the rows it has not measured, and at the largest text sizes, with a tall composer
+ panel, it could settle at the transcript's end without drawing the rows there (a blank chat until
+ the first scroll). A short chat is cheap to lay out whole; a long one keeps the lazy stack.
+ */
+struct TranscriptStack<Content: View>: View {
+    static var eagerLimit: Int { 40 }
+    let lazy: Bool
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if lazy {
+            LazyVStack(alignment: .leading, spacing: 10) { content }
+        } else {
+            VStack(alignment: .leading, spacing: 10) { content }
+        }
+    }
+}
 
 /**
  One transcript row. Equatable on what it shows (not its actions, which only reach stable
@@ -970,7 +996,7 @@ private struct EmptySession: View {
 
 /// `POLICY · WORKSPACE · ASKS: DELETE, NETWORK` (as on Android), with the Think chip when the
 /// chat's model reasons and the REDACT chip on a cloud route.
-private struct PolicyLine: View {
+struct PolicyLine: View {
     let settings: SessionSettings
     let contextUsed: Int?
     let contextWindow: Int?
@@ -980,9 +1006,15 @@ private struct PolicyLine: View {
     var onCascade: () -> Void = {}
 
     @ViewBuilder private var chips: some View {
-        if settings.thinkingSupport != "NONE" { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet).fixedSize() }
-        if settings.redaction != "NONE" { RedactChip(on: settings.redaction == "ON", onTap: onRedact).fixedSize() }
-        if settings.cascade != "NONE" { CascadeChip(policy: settings.cascade, onTap: onCascade).fixedSize() }
+        chips(wrapping: false)
+    }
+
+    /// [wrapping]: a chip may break its words over lines (one chip per line on a narrow phone at the
+    /// largest sizes, where even "Phone first · ask" alone is wider than the screen).
+    @ViewBuilder private func chips(wrapping: Bool) -> some View {
+        if settings.thinkingSupport != "NONE" { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet).fixedSize(horizontal: !wrapping, vertical: true) }
+        if settings.redaction != "NONE" { RedactChip(on: settings.redaction == "ON", onTap: onRedact).fixedSize(horizontal: !wrapping, vertical: true) }
+        if settings.cascade != "NONE" { CascadeChip(policy: settings.cascade, onTap: onCascade).fixedSize(horizontal: !wrapping, vertical: true) }
     }
 
     @ViewBuilder private var context: some View {
@@ -1017,6 +1049,13 @@ private struct PolicyLine: View {
                         context
                     }
                     if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                }
+                // At the largest text sizes even the chips alone are wider than the screen: one per
+                // line (a fixed-size row would widen the whole chat past the screen's edges).
+                VStack(alignment: .leading, spacing: 6) {
+                    chips(wrapping: true)
+                    context
+                    if settings.toolsEnabled { Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 }
             }
             .padding(.horizontal, 14)
@@ -1222,15 +1261,20 @@ extension ChatScreen {
     }
 }
 
-private struct Banner: View {
+struct Banner: View {
     let text: String
     let action: String
     let onAction: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
-        HStack(spacing: 12) {
+        // At the accessibility sizes the button goes under the words: beside them it left a column
+        // a word or two wide, broken mid-word and cut short.
+        let layout = dynamicType.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
             Label(text, systemImage: "exclamationmark.circle")
                 .font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button(action, action: onAction).glassButton().controlSize(.small)
         }
@@ -1326,12 +1370,14 @@ private struct QuestionCard: View {
 
 private struct InputBar: View, Equatable {
     let model: ChatModel
+    /// The chat whose unsent text this composer keeps ([ComposerDrafts]).
+    let draftKey: String
     let running: Bool
     let onSend: (String) -> Void
     let onStop: () -> Void
 
     /// The actions reach stable objects (the screen's agent and conversation): not compared.
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.model === b.model && a.running == b.running }
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.model === b.model && a.draftKey == b.draftKey && a.running == b.running }
     @Environment(AppContainer.self) private var app
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
@@ -1357,7 +1403,8 @@ private struct InputBar: View, Equatable {
                 }
             }
             .font(.title3)
-            .frame(width: 40, height: 40)
+            // At least 40 pt: the symbol grows with the text and must not spill over the row above.
+            .frame(minWidth: 40, minHeight: 40)
             .contentShape(Rectangle())
         }
         .disabled(model.dictation == .transcribing)
@@ -1421,6 +1468,9 @@ private struct InputBar: View, Equatable {
             .padding(.vertical, 6)
         }
         .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(600)); focused = true } }
+        // The words typed before leaving the chat (or switching voice mode on and off) come back.
+        .onAppear { if text.isEmpty { text = app.drafts.text(draftKey) } }
+        .onChange(of: text) { _, now in app.drafts.set(draftKey, now) }
         .onChange(of: model.dictated) { _, spoken in
             guard let spoken else { return }
             text = text.trimmingCharacters(in: .whitespaces).isEmpty ? spoken : text.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) + " " + spoken

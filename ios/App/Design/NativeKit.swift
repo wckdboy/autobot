@@ -170,6 +170,18 @@ extension View {
             .contentShape(Capsule())
     }
 
+    /// At least the 44 pt the HIG asks of a tap target (the system accessibility audit's "hit area"),
+    /// for a small borderless icon or text button; the visible mark keeps its size.
+    func minimumHitTarget() -> some View {
+        frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+    }
+
+    /// A text action in a section header (Clear, Reload, Benchmark): the header's height stays, the
+    /// tap target is 44 pt tall. Apply to the button's label.
+    func headerActionTarget() -> some View {
+        frame(minHeight: 44).contentShape(Rectangle()).padding(.vertical, -14)
+    }
+
     /// A bounded reading width centred in a wide window (iPad, Mac): text lines stay readable.
     func readableWidth(_ max: CGFloat = 760) -> some View {
         frame(maxWidth: max).frame(maxWidth: .infinity)
@@ -188,6 +200,9 @@ struct RowInfo: View {
                 .imageScale(.medium)
                 // A concrete colour: a borderless button would tint a hierarchical style.
                 .foregroundStyle(Color(uiColor: .secondaryLabel))
+                // The row keeps its height (rows are 44 pt): the target spills into the padding.
+                .minimumHitTarget()
+                .padding(.vertical, -12)
         }
         .buttonStyle(.borderless)
         .accessibilityLabel("About \(title)")

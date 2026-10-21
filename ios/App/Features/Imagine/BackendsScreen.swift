@@ -35,7 +35,7 @@ struct BackendsScreen: View {
                             .onTapGesture { if backend.kind != .onDevice { editing = EditTarget(backend: backend, isNew: false) } }
                             if backend.kind != .onDevice {
                                 Button { editing = EditTarget(backend: backend, isNew: false) } label: {
-                                    Image(systemName: "pencil")
+                                    Image(systemName: "pencil").minimumHitTarget()
                                 }
                                 .buttonStyle(.borderless)
                                 .accessibilityLabel("Edit \(backend.name)")

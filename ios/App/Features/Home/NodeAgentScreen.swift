@@ -401,6 +401,8 @@ struct NodeAgentScreen: View {
     @State private var showActivity = false
 
     private let open: NodeAgentSheet?
+    /// This conversation's unsent text ([ComposerDrafts]).
+    private let draftKey: String
 
     @State private var otherFor: String?
     @State private var otherText = ""
@@ -413,6 +415,7 @@ struct NodeAgentScreen: View {
         _model = State(initialValue: NodeAgentModel(providerId: providerId, session: session, bot: bot))
         _showActivity = State(initialValue: open != nil)
         self.open = open
+        draftKey = "node:\(providerId)/\(session ?? "")/\(bot ?? "")"
     }
 
     var body: some View {
@@ -451,6 +454,8 @@ struct NodeAgentScreen: View {
             }
             .task { if DebugFlags.keyboard { try? await Task.sleep(for: .milliseconds(900)); focused = true } }
             .onDisappear { model.stopListening() }
+            .onAppear { if draft.isEmpty { draft = app.drafts.text(draftKey) } }
+            .onChange(of: draft) { _, now in app.drafts.set(draftKey, now) }
             // The model could not see the photo: the text comes back to the box.
             .onChange(of: model.returned) { _, text in
                 if let text {
