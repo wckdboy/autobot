@@ -79,6 +79,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.runtime.MutableState
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.wckdboy.autobot.core.designsystem.icon.AutobotIcons
@@ -185,7 +188,9 @@ fun Waveform(
 /**
  * The control panel under the canvas, on a surfaceContainerLow sheet with Material's drag handle:
  * its header folds it away ("just the canvas") and unfolds it again. Folding is instant with
- * reduced motion.
+ * reduced motion. Its scrolling part stays under [maxHeight] and under [MAX_WINDOW_SHARE] of the
+ * window, so a phone in landscape keeps room for the canvas and the prompt does not shrink to a
+ * line.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -199,6 +204,8 @@ fun ControlSheet(
 ) {
     val reduced = LocalInkMotion.current.reduced
     val millis = if (reduced) 0 else Motion.transitionMillis
+    val window = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
+    val cap = controlSheetHeight(maxHeight, window)
     Surface(
         modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge.copy(bottomStart = CornerSize(0.dp), bottomEnd = CornerSize(0.dp)),
@@ -231,13 +238,39 @@ fun ControlSheet(
             exit = shrinkVertically(tween(millis)) + fadeOut(tween(millis)),
         ) {
             Column(
-                Modifier.fillMaxWidth().heightIn(max = maxHeight).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 12.dp),
+                Modifier.fillMaxWidth().heightIn(max = cap).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 content = content,
             )
         }
     } }
 }
+
+/**
+ * Whether a room's [ControlSheet] starts open: folded in a short window (a phone in landscape),
+ * where the bars and the sheet would leave the canvas and the prompt no room; open otherwise.
+ * Saved across process death; turning the phone (a short window becoming tall or back) starts
+ * from that window's default again.
+ */
+@Composable
+fun rememberControlsOpen(): MutableState<Boolean> {
+    val window = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
+    val open = controlsStartOpen(window)
+    // Keyed by the default: a restored value from the other orientation is not taken.
+    return rememberSaveable(open, key = "studio-controls-$open") { mutableStateOf(open) }
+}
+
+/** Below this window height the control sheet starts folded. */
+internal val SHORT_WINDOW = 480.dp
+
+internal fun controlsStartOpen(window: Dp): Boolean = window <= 0.dp || window >= SHORT_WINDOW
+
+/** The most of the window a [ControlSheet]'s scrolling part takes. */
+internal const val MAX_WINDOW_SHARE = 0.3f
+
+/** The height a [ControlSheet]'s scrolling part may take: [maxHeight], less in a short [window] (0: unknown). */
+internal fun controlSheetHeight(maxHeight: Dp, window: Dp): Dp =
+    if (window <= 0.dp) maxHeight else minOf(maxHeight, window * MAX_WINDOW_SHARE)
 
 /** What went wrong, as a notice in the error colour, and a dismiss button. */
 @Composable

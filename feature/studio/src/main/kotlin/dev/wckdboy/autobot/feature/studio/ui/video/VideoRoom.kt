@@ -43,6 +43,7 @@ import dev.wckdboy.autobot.core.designsystem.component.counted
 import dev.wckdboy.autobot.feature.studio.ui.AssetThumb
 import dev.wckdboy.autobot.feature.studio.ui.ChipRow
 import dev.wckdboy.autobot.feature.studio.ui.ControlSheet
+import dev.wckdboy.autobot.feature.studio.ui.rememberControlsOpen
 import dev.wckdboy.autobot.feature.studio.ui.EmptyRoom
 import dev.wckdboy.autobot.feature.studio.ui.ErrorLine
 import dev.wckdboy.autobot.feature.studio.ui.LocalAssetLoader
@@ -60,7 +61,7 @@ import dev.wckdboy.autobot.shared.studio.StudioAsset
 /** The video room (darkroom): the clip plays as the hero; controls come from the workflow. */
 @Composable
 fun VideoRoom(state: VideoRoomState, shell: StudioShellState, actions: VideoActions, onOpenWorkflows: () -> Unit, modifier: Modifier = Modifier) {
-    var controls by rememberSaveable { mutableStateOf(true) }
+    var controls by rememberControlsOpen()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     val assets = shell.assets.associateBy { it.id }
     val jobs = state.jobIds.mapNotNull { id -> shell.jobs.firstOrNull { it.id == id } }
