@@ -1,6 +1,5 @@
 package dev.wckdboy.autobot.feature.settings.recipes
 
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,7 +31,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -59,18 +57,22 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.wckdboy.autobot.agent.runtime.recipes.RecipeModelChoice
-import dev.wckdboy.autobot.core.designsystem.component.AddButton
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
-import dev.wckdboy.autobot.core.designsystem.component.BackButton
 import dev.wckdboy.autobot.core.designsystem.component.InfoButton
-import dev.wckdboy.autobot.core.designsystem.component.Notice
-import dev.wckdboy.autobot.core.designsystem.component.NoticeTone
-import dev.wckdboy.autobot.core.designsystem.component.PrimaryButton
 import dev.wckdboy.autobot.core.designsystem.component.NoPersonalizedLearning
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import dev.wckdboy.autobot.core.designsystem.component.rememberBufferedText
-import dev.wckdboy.autobot.core.designsystem.theme.AutobotColors
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import dev.wckdboy.autobot.feature.settings.ui.AppBar
+import dev.wckdboy.autobot.feature.settings.ui.Centered
+import dev.wckdboy.autobot.feature.settings.ui.NoticeCard
+import dev.wckdboy.autobot.feature.settings.ui.SheetLabel
+import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
+import dev.wckdboy.autobot.feature.settings.ui.Tone
+import dev.wckdboy.autobot.feature.settings.ui.clearListItem
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.shared.recipes.NodeRecipes
 import dev.wckdboy.autobot.shared.recipes.Recipe
@@ -130,15 +132,18 @@ fun RecipesScreen(
     Scaffold(
         topBar = {
             // How recipes are scheduled sits behind the ⓘ, not in a paragraph under the list (as on iOS).
-            AutobotTopBar(title = RecipeCopy.SCREEN_TITLE, navigation = { BackButton(onBack) }) {
+            AppBar(RecipeCopy.SCREEN_TITLE, onBack) {
                 InfoButton(RecipeCopy.SCREEN_TITLE, RecipeCopy.ANDROID_NOTE)
-                AddButton(RecipeCopy.NEW_RECIPE, onAdd)
             }
         },
+        floatingActionButton = {
+            FloatingActionButton(onClick = onAdd) { Icon(Icons.Filled.Add, contentDescription = RecipeCopy.NEW_RECIPE) }
+        },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        Centered(Modifier.padding(padding)) { width ->
+        LazyColumn(width.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             if (state.loaded && state.models.isEmpty()) {
-                item { Notice(RecipeCopy.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = NoticeTone.WARNING) }
+                item { NoticeCard(RecipeCopy.NO_MODEL, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), tone = Tone.WARNING) }
             }
             if (state.loaded && state.recipes.isEmpty()) item { Note(RecipeCopy.EMPTY) }
             state.notice?.let { item { Note(it, MaterialTheme.colorScheme.error) } }
@@ -147,8 +152,9 @@ fun RecipesScreen(
                 HorizontalDivider()
             }
             item {
-                SwitchRow(RecipeCopy.SUMMARY_SWITCH, state.summaryInNotifications, onSummary, info = RecipeCopy.SUMMARY_DETAIL)
+                SwitchItem(RecipeCopy.SUMMARY_SWITCH, state.summaryInNotifications, onSummary, info = RecipeCopy.SUMMARY_DETAIL)
             }
+        }
         }
     }
     state.editor?.let { draft ->
@@ -174,31 +180,28 @@ private fun RecipeListRow(
     onRunNow: (String) -> Unit,
     onOpenChat: (String) -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clickable { onEdit(row.id) }
-            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 4.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().clickable { onEdit(row.id) }.padding(bottom = 4.dp)) {
         // When it runs over its name, then how the last run went (as on iOS and the MCP and memory rows).
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(row.schedule, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(row.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    row.status,
-                    style = AutobotTheme.styles.micro,
-                    color = if (row.lastStatus == RecipeRunStatus.DONE || row.lastStatus == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                )
-                row.lastSummary?.let { Text(it, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                row.notes.forEach { Text(it, style = AutobotTheme.styles.micro, color = MaterialTheme.colorScheme.error, maxLines = 2) }
-            }
-            Switch(checked = row.enabled, onCheckedChange = { onEnabled(row.id, it) })
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { onRunNow(row.id) }, enabled = !row.running) { ActionText(if (row.running) "Running…" else RecipeCopy.RUN_NOW) }
-            row.lastChat?.let { chat -> TextButton(onClick = { onOpenChat(chat) }) { ActionText(RecipeCopy.OPEN_RESULT) } }
+        ListItem(
+            overlineContent = { Text(row.schedule) },
+            headlineContent = { Text(row.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        row.status,
+                        color = if (row.lastStatus == RecipeRunStatus.DONE || row.lastStatus == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                        maxLines = 2,
+                    )
+                    row.lastSummary?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                    row.notes.forEach { Text(it, color = MaterialTheme.colorScheme.error, maxLines = 2) }
+                }
+            },
+            trailingContent = { Switch(checked = row.enabled, onCheckedChange = { onEnabled(row.id, it) }) },
+            colors = clearListItem(),
+        )
+        Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { onRunNow(row.id) }, enabled = !row.running) { Text(if (row.running) "Running…" else RecipeCopy.RUN_NOW) }
+            row.lastChat?.let { chat -> TextButton(onClick = { onOpenChat(chat) }) { Text(RecipeCopy.OPEN_RESULT) } }
         }
     }
 }
@@ -242,7 +245,7 @@ private fun RecipeEditorSheet(
                     minLines = 4,
                 )
 
-                SectionLabel("Schedule")
+                SheetLabel("Schedule")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RecipeSchedule.Kind.entries.forEach { kind ->
                         FilterChip(
@@ -274,12 +277,12 @@ private fun RecipeEditorSheet(
                 schedule.minute?.let { minute ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(schedule.label(), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                        TextButton(onClick = { pickingTime = true }) { ActionText(RecipeSchedule.clock(minute)) }
+                        TextButton(onClick = { pickingTime = true }) { Text(RecipeSchedule.clock(minute)) }
                     }
                 } ?: Text(schedule.label(), style = MaterialTheme.typography.bodyLarge)
 
                 if (nodes.isNotEmpty() || draft.runsOn != null) {
-                    SectionLabel(RecipeCopy.RUNS_ON_HEADER)
+                    SheetLabel(RecipeCopy.RUNS_ON_HEADER)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = draft.runsOn == null, onClick = { onDraftChange { it.copy(runsOn = null) } }, label = { Text(RecipeCopy.THIS_PHONE) })
                         nodes.forEach { n ->
@@ -288,11 +291,11 @@ private fun RecipeEditorSheet(
                     }
                     if (draft.runsOn != null) {
                         Text(RecipeCopy.NODE_DETAIL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        NodeRecipes.limits(draft).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = AutobotColors.Amber) }
+                        NodeRecipes.limits(draft).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary) }
                     }
                 }
                 if (draft.runsOn == null) {
-                    SectionLabel(RecipeCopy.MODEL_HEADER)
+                    SheetLabel(RecipeCopy.MODEL_HEADER)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = draft.model.isBlank(), onClick = { onDraftChange { it.copy(model = "") } }, label = { Text(RecipeCopy.MODEL_DEFAULT) })
                         models.forEach { m ->
@@ -302,30 +305,32 @@ private fun RecipeEditorSheet(
                     if (models.isEmpty()) Text(RecipeCopy.NO_MODEL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
 
-                SectionLabel(RecipeCopy.TOOLS_HEADER)
+                SheetLabel(RecipeCopy.TOOLS_HEADER)
                 Text(RecipeCopy.TOOLS_DETAIL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column {
                     RecipeTools.groups.forEach { group ->
-                        SwitchRow(
+                        SwitchItem(
                             group.label,
                             RecipeTools.isOn(draft.tools, group),
                             { on -> onDraftChange { it.copy(tools = RecipeTools.toggle(it.tools, group, on)) } },
                             info = group.detail,
                         )
                     }
-                    SwitchRow(RecipeCopy.RECENT_CHATS, draft.includeRecentChats, { on -> onDraftChange { it.copy(includeRecentChats = on) } }, info = RecipeCopy.RECENT_CHATS_DETAIL)
-                    SwitchRow(RecipeCopy.CHARGING, draft.requiresCharging, { on -> onDraftChange { it.copy(requiresCharging = on) } })
-                    SwitchRow(RecipeCopy.BATTERY, draft.requiresBatteryNotLow, { on -> onDraftChange { it.copy(requiresBatteryNotLow = on) } })
-                    SwitchRow("Enabled", draft.enabled, { on -> onDraftChange { it.copy(enabled = on) } })
+                    SwitchItem(RecipeCopy.RECENT_CHATS, draft.includeRecentChats, { on -> onDraftChange { it.copy(includeRecentChats = on) } }, info = RecipeCopy.RECENT_CHATS_DETAIL)
+                    SwitchItem(RecipeCopy.CHARGING, draft.requiresCharging, { on -> onDraftChange { it.copy(requiresCharging = on) } })
+                    SwitchItem(RecipeCopy.BATTERY, draft.requiresBatteryNotLow, { on -> onDraftChange { it.copy(requiresBatteryNotLow = on) } })
+                    SwitchItem("Enabled", draft.enabled, { on -> onDraftChange { it.copy(enabled = on) } })
                 }
                 if (draft.usesNetwork) Text(RecipeCopy.NETWORK_NOTE, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                 problems.forEach { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (!isNew) TextButton(onClick = { confirmDelete = true }) { ActionText(RecipeCopy.DELETE, color = MaterialTheme.colorScheme.error) }
+                    if (!isNew) {
+                        TextButton(onClick = { confirmDelete = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(RecipeCopy.DELETE) }
+                    }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { ActionText("Cancel") }
-                    PrimaryButton("Save", onSave, enabled = problems.isEmpty())
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Button(onClick = onSave, enabled = problems.isEmpty()) { Text("Save") }
                 }
                 Spacer(Modifier.height(8.dp))
             }
@@ -350,9 +355,9 @@ private fun RecipeEditorSheet(
                         )
                     }
                     pickingTime = false
-                }) { ActionText("OK") }
+                }) { Text("OK") }
             },
-            dismissButton = { TextButton(onClick = { pickingTime = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { pickingTime = false }) { Text("Cancel") } },
             text = { TimePicker(picker) },
         )
     }
@@ -362,12 +367,15 @@ private fun RecipeEditorSheet(
             title = { Text("Delete ${draft.name.ifBlank { "this recipe" }}?") },
             text = { Text("Its schedule stops. Chats it already wrote stay in the Recipes folder.") },
             confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    onDelete()
-                }) { ActionText("Delete", color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
 }

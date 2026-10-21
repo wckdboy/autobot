@@ -1,7 +1,5 @@
 package dev.wckdboy.autobot.feature.settings
 
-import dev.wckdboy.autobot.core.designsystem.component.ChoiceChip
-import dev.wckdboy.autobot.core.designsystem.component.ActionText
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
 import dev.wckdboy.autobot.shared.settings.SettingsWords
 import android.util.Log
@@ -18,13 +16,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import dev.wckdboy.autobot.feature.settings.ui.AppBar
+import dev.wckdboy.autobot.feature.settings.ui.Centered
+import dev.wckdboy.autobot.feature.settings.ui.Choices
+import dev.wckdboy.autobot.feature.settings.ui.NavItem
+import dev.wckdboy.autobot.feature.settings.ui.NoticeCard
+import dev.wckdboy.autobot.feature.settings.ui.Subheader
+import dev.wckdboy.autobot.feature.settings.ui.SwitchItem
+import dev.wckdboy.autobot.feature.settings.ui.Tone
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -49,12 +55,7 @@ import dev.wckdboy.autobot.core.data.settings.AppSettings
 import dev.wckdboy.autobot.core.data.settings.SettingsRepository
 import dev.wckdboy.autobot.core.data.settings.SettingsSchema
 import dev.wckdboy.autobot.core.data.settings.ThemeMode
-import dev.wckdboy.autobot.core.designsystem.component.AutobotTopBar
 import dev.wckdboy.autobot.core.designsystem.component.InfoButton
-import dev.wckdboy.autobot.core.designsystem.component.NavRow
-import dev.wckdboy.autobot.core.designsystem.component.SectionLabel
-import dev.wckdboy.autobot.core.designsystem.component.Segmented
-import dev.wckdboy.autobot.core.designsystem.component.SwitchRow
 import dev.wckdboy.autobot.core.designsystem.theme.AutobotTheme
 import dev.wckdboy.autobot.core.network.NetworkMode
 import dev.wckdboy.autobot.core.security.AppLockManager
@@ -218,12 +219,15 @@ fun SettingsRoute(
             title = { Text(SettingsWords.DELETE_ALL_TITLE) },
             text = { Text(SettingsWords.DELETE_ALL_TEXT) },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteAllChats()
-                    confirmDeleteChats = false
-                }) { ActionText(SettingsWords.DELETE_ALL_CONFIRM, color = MaterialTheme.colorScheme.error) }
+                TextButton(
+                    onClick = {
+                        viewModel.deleteAllChats()
+                        confirmDeleteChats = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text(SettingsWords.DELETE_ALL_CONFIRM) }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { ActionText("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDeleteChats = false }) { Text("Cancel") } },
         )
     }
     if (showWipe) {
@@ -270,8 +274,8 @@ fun SettingsRoute(
     )
 }
 
-/** Settings: the same header as Models and Remote, sections in [SettingsSections] order. */
-@OptIn(ExperimentalLayoutApi::class)
+/** Settings: a Material list under a top app bar, sections in [SettingsSections] order. */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     state: SettingsUiState,
@@ -303,136 +307,101 @@ fun SettingsScreen(
     about: String = "About",
 ) {
     val (privacy, agent, appearance, data, aboutSection) = SettingsSections
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        topBar = {
-            AutobotTopBar(
-                title = "Settings",
-                mark = onBack == null,
-                navigation = onBack?.let { back -> { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } } },
-            )
-        },
+        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
+        topBar = { AppBar("Settings", onBack, scrollBehavior = scroll) },
     ) { padding ->
-        Column(
-            Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            SectionHeader(privacy)
-            NavRow("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
-            // An app PIN always locks: the wipe and the duress PIN depend on it.
-            val pinLocks = state.panic.hasPin
-            SwitchRow(
-                "App lock",
-                pinLocks || (state.appLockEnabled && state.appLockAvailable),
-                onAppLock,
-                state = if (state.appLockAvailable || pinLocks) null else "Needs a screen lock",
-                info = if (state.appLockAvailable || pinLocks) "Require biometrics or the device credential." else null,
-                enabled = state.appLockAvailable && !pinLocks,
-            )
-            if (pinLocks || (state.appLockEnabled && state.appLockAvailable)) {
-                ChoiceTitle("Lock after")
-                FlowRow(
-                    modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    LockTimeoutOptions.forEach { (millis, label) ->
-                        ChoiceChip(label, selected = state.lockTimeoutMillis == millis, onClick = { onLockTimeout(millis) })
+        Centered(Modifier.padding(padding)) { width ->
+            Column(width.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Subheader(privacy)
+                NavItem("Privacy Center", onOpenPrivacyCenter, value = state.networkLabel)
+                // An app PIN always locks: the wipe and the duress PIN depend on it.
+                val pinLocks = state.panic.hasPin
+                SwitchItem(
+                    "App lock",
+                    pinLocks || (state.appLockEnabled && state.appLockAvailable),
+                    onAppLock,
+                    state = if (state.appLockAvailable || pinLocks) null else "Needs a screen lock",
+                    info = if (state.appLockAvailable || pinLocks) "Require biometrics or the device credential." else null,
+                    enabled = state.appLockAvailable && !pinLocks,
+                )
+                if (pinLocks || (state.appLockEnabled && state.appLockAvailable)) {
+                    ChoiceTitle("Lock after")
+                    FlowRow(
+                        modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp).selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        LockTimeoutOptions.forEach { (millis, label) ->
+                            FilterChip(
+                                selected = state.lockTimeoutMillis == millis,
+                                onClick = { onLockTimeout(millis) },
+                                label = { Text(label) },
+                            )
+                        }
                     }
                 }
+                PanicRows(state.panic, onOpenPanic, onPinBiometrics, onWipeModels)
+                SwitchItem("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = SettingsWords.INCOGNITO)
+                SwitchItem("Redact before cloud", state.redactCloud, onRedactCloud, info = SettingsWords.REDACT)
+                ChoiceTitle("Phone first", info = SettingsWords.cascade)
+                Choices(CascadePolicy.entries, state.cascade, onCascade, ChoicesModifier) { it.title }
+                NavItem(
+                    "Panic wipe",
+                    onPanicWipe,
+                    titleColor = MaterialTheme.colorScheme.error,
+                    info = SettingsWords.PANIC_WIPE,
+                    chevron = false,
+                )
+
+                Subheader(agent)
+                SwitchItem("Memory", state.memoryEnabled, onMemoryEnabled, info = SettingsWords.MEMORY)
+                NavItem("Memory notes", onOpenMemory)
+                NavItem("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
+                NavItem(
+                    "Web search",
+                    onOpenWebSearch,
+                    value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
+                    info = SettingsWords.WEB_SEARCH,
+                )
+                if (state.searchProvider != SearchProvider.NONE && state.offline) {
+                    NoticeCard(SettingsWords.OFFLINE_BLOCKS_SEARCH, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), tone = Tone.ERROR)
+                }
+                SwitchItem("Fallback on limit", state.quotaFallback, onQuotaFallback, info = SettingsWords.QUOTA_FALLBACK)
+                NavItem("Usage", onOpenUsage)
+                NavItem("MCP servers", onOpenMcpServers)
+                NavItem("Recipes", onOpenRecipes)
+
+                Subheader(appearance)
+                ChoiceTitle("Theme")
+                Choices(ThemeMode.entries, state.themeMode, onThemeMode, ChoicesModifier) { it.name.lowercase().replaceFirstChar(Char::uppercaseChar) }
+                SwitchItem("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
+                SwitchItem("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the brand's.")
+
+                Subheader(data)
+                NavItem("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
+                NavItem("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
+
+                Subheader(aboutSection)
+                NavItem(about, onOpenAbout)
+                Spacer(Modifier.height(24.dp))
             }
-            PanicRows(state.panic, onOpenPanic, onPinBiometrics, onWipeModels)
-            SwitchRow("Incognito by default", state.incognitoByDefault, onIncognitoByDefault, info = SettingsWords.INCOGNITO)
-            SwitchRow(
-                "Redact before cloud",
-                state.redactCloud,
-                onRedactCloud,
-                info = SettingsWords.REDACT,
-            )
-            ChoiceTitle("Phone first", info = SettingsWords.cascade)
-            Segmented(
-                CascadePolicy.entries,
-                state.cascade,
-                onCascade,
-                { it.title },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
-            )
-            NavRow(
-                "Panic wipe",
-                onPanicWipe,
-                titleColor = MaterialTheme.colorScheme.error,
-                info = SettingsWords.PANIC_WIPE,
-                chevron = false,
-            )
-            Divider()
-
-            SectionHeader(agent)
-            SwitchRow("Memory", state.memoryEnabled, onMemoryEnabled, info = SettingsWords.MEMORY)
-            NavRow("Memory notes", onOpenMemory)
-            NavRow("Vault", onOpenVault, value = if (state.vaultEnabled) "On" else "Off")
-            NavRow(
-                "Web search",
-                onOpenWebSearch,
-                value = if (state.searchProvider == SearchProvider.NONE) "Off" else state.searchProvider.label,
-                info = SettingsWords.WEB_SEARCH,
-            )
-            if (state.searchProvider != SearchProvider.NONE && state.offline) Note(SettingsWords.OFFLINE_BLOCKS_SEARCH, MaterialTheme.colorScheme.error)
-            SwitchRow(
-                "Fallback on limit",
-                state.quotaFallback,
-                onQuotaFallback,
-                info = SettingsWords.QUOTA_FALLBACK,
-            )
-            NavRow("Usage", onOpenUsage)
-            NavRow("MCP servers", onOpenMcpServers)
-            NavRow("Recipes", onOpenRecipes)
-            Divider()
-
-            SectionHeader(appearance)
-            ChoiceTitle("Theme")
-            Segmented(
-                ThemeMode.entries,
-                state.themeMode,
-                onThemeMode,
-                { it.name.lowercase().replaceFirstChar(Char::uppercaseChar) },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
-            )
-            SwitchRow("AMOLED black", state.amoled, onAmoled, enabled = state.themeMode != ThemeMode.LIGHT)
-            SwitchRow("Dynamic color", state.dynamicColor, onDynamicColor, info = "Use the wallpaper's colors instead of the ink palette.")
-            Divider()
-
-            SectionHeader(data)
-            NavRow("Export & import", onOpenBackup, info = "Move sessions, gallery and memory between phones, sealed with a passphrase.")
-            NavRow("Delete all chats", onDeleteAllChats, titleColor = MaterialTheme.colorScheme.error, chevron = false)
-            Divider()
-
-            SectionHeader(aboutSection)
-            NavRow(about, onOpenAbout)
-            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
-@Composable
-private fun Divider() = HorizontalDivider(Modifier.padding(vertical = 8.dp))
+/** The title over a choice (Lock after, Phone first, Theme): a list headline without an action, its ⓘ after it. */
+private val ChoicesModifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp)
 
-@Composable
-private fun Note(text: String, color: androidx.compose.ui.graphics.Color) =
-    Text(text, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = color)
-
-/** The title over a choice row (Lock after, Phone first, Theme): a row title without a row, its ⓘ after it. */
 @Composable
 private fun ChoiceTitle(text: String, info: String? = null) {
-    Row(Modifier.padding(start = 16.dp, end = 16.dp, top = if (info == null) 12.dp else 0.dp, bottom = if (info == null) 4.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = if (info == null) 12.dp else 0.dp, bottom = if (info == null) 8.dp else 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
         if (info != null) InfoButton(text, info)
     }
-}
-
-/** `Privacy & security`: the app's section label (as on iOS). */
-@Composable
-internal fun SectionHeader(text: String) {
-    SectionLabel(text, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp))
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0B0C0F)
