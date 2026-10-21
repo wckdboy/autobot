@@ -5,6 +5,7 @@ import dev.wckdboy.autobot.agent.core.tools.ToolOutput
 import dev.wckdboy.autobot.agent.core.tools.ToolRunContext
 import dev.wckdboy.autobot.agent.core.tools.UserQuestion
 import dev.wckdboy.autobot.agent.core.tools.validateArgs
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
 import dev.wckdboy.autobot.shared.a2ui.A2uiPrompt
 import dev.wckdboy.autobot.shared.a2ui.ShowUiTool
 import kotlinx.coroutines.runBlocking
@@ -115,15 +116,14 @@ class A2uiEvalRunner(
     /** Recover `show_ui` calls a model wrote as text (`<tool_call>` blocks, `{"name":..}` JSON, bare A2UI). */
     private val salvage: Boolean = true,
     /**
-     * An experiment, not what the app sends: declare `messages` as an array of objects instead of a
-     * string, so the model writes the A2UI as plain JSON (and a grammar-constrained server keeps it
-     * well formed). The array is turned back into the string [ShowUiTool] takes.
+     * The old declaration, for comparison: `messages` as a string holding the JSON (what the tool
+     * declared before it took an array). The tool accepts both either way.
      */
-    private val arrayArgs: Boolean = false,
+    private val stringArgs: Boolean = false,
 ) {
     private val tool = ShowUiTool()
 
-    private val parameters: JsonObject = if (!arrayArgs) tool.parameters else buildJsonObject {
+    private val parameters: JsonObject = if (!stringArgs) tool.schema().parameters else buildJsonObject {
         put("type", "object")
         put(
             "properties",
@@ -131,14 +131,14 @@ class A2uiEvalRunner(
                 put(
                     "messages",
                     buildJsonObject {
-                        put("type", "array")
-                        put("description", "A2UI v1.0 messages, starting with createSurface")
-                        put("items", buildJsonObject { put("type", "object") })
+                        put("type", "string")
+                        put("description", "A2UI v1.0 messages as a JSON array, starting with createSurface")
                     },
                 )
             },
         )
         put("required", buildJsonArray { add(JsonPrimitive("messages")) })
+        put("additionalProperties", false)
     }
 
     val tools: JsonArray = buildJsonArray {
@@ -213,7 +213,7 @@ class A2uiEvalRunner(
                 }
                 if (!out.isError) {
                     validAt = tries
-                    validStream = argsOf(call.arguments)?.let { streamOf(it) }
+                    validStream = A2uiChat.stream(out.meta)
                     outcome = "valid"
                     break@loop
                 }
@@ -237,12 +237,7 @@ class A2uiEvalRunner(
     /** What the app's executor and [ShowUiTool] answer for [call]. */
     internal fun execute(call: A2uiEvalToolCall, session: String): ToolOutput {
         if (call.name != tool.name) return ToolOutput.error("unknown tool '${call.name}'", "UNKNOWN_TOOL")
-        val raw = argsOf(call.arguments) ?: return ToolOutput.error("arguments must be a JSON object", "INVALID_ARGS")
-        val args = if (arrayArgs && raw["messages"] !is JsonPrimitive && raw["messages"] != null) {
-            JsonObject(raw + ("messages" to JsonPrimitive(raw["messages"].toString())))
-        } else {
-            raw
-        }
+        val args = argsOf(call.arguments) ?: return ToolOutput.error("arguments must be a JSON object", "INVALID_ARGS")
         validateArgs(tool.parameters, args)?.let { return ToolOutput.error("invalid arguments: $it", "INVALID_ARGS") }
         return runBlocking { tool.execute(args, Context(call.id, session)) }
     }
@@ -273,12 +268,6 @@ class A2uiEvalRunner(
     sealed interface TextCall {
         data class Found(val call: A2uiEvalToolCall) : TextCall
         data class Malformed(val why: String) : TextCall
-    }
-
-    private fun streamOf(args: JsonObject): String? = when (val m = args["messages"]) {
-        is JsonPrimitive -> m.content
-        null -> null
-        else -> if (arrayArgs) m.toString() else null
     }
 
     companion object {

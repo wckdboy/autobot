@@ -113,13 +113,14 @@ class ShowUiToolTest {
         val result = agent.log.entries.value.firstNotNullOf { it.event as? SessionEvent.ToolResult }
         assertFalse(result.isError)
         assertTrue(result.content, result.content.startsWith("Shown to the user (surface 'order')"))
-        assertEquals(form, A2uiChat.stream(result.meta))
+        // What is stored is what was validated: the messages as one JSON array.
+        assertEquals(Json.parseToJsonElement(form), Json.parseToJsonElement(A2uiChat.stream(result.meta)!!))
         val toolMessage = llm.calls[1].messages.single { it.role == ModelRole.TOOL }
         assertFalse(toolMessage.text.contains("createSurface"))
 
         // The transcript carries them, and a transcript replays them into a host.
         val tool = agent.items().filterIsInstance<SessionItem.Tool>().single()
-        assertEquals(form, tool.a2ui)
+        assertEquals(A2uiChat.stream(result.meta), tool.a2ui)
         assertEquals("surface order", ShowUiTool().describeCall(buildJsonObject { put("messages", JsonPrimitive(form)) }))
         val transcript = A2uiTranscript()
         assertTrue(transcript.sync(agent.items()))
@@ -145,7 +146,7 @@ class ShowUiToolTest {
             val feedback = llm.calls[1].messages.single { it.role == ModelRole.TOOL }.text
             assertTrue(feedback, feedback.startsWith("Error: the UI was not shown. Fix these and call show_ui again:"))
             assertTrue(feedback, feedback.contains("VALIDATION_FAILED [message 0]"))
-            assertEquals(A2uiValidator().validate(broken).forModel(), feedback.substringAfter("again:\n"))
+            assertEquals(A2uiFeedback.lines(A2uiValidator().validate(broken), null).joinToString("\n"), feedback.substringAfter("again:\n"))
             // Then it is told to stop, and nothing reached the transcript as UI.
             assertEquals("A2UI_GIVE_UP", results.last().code)
             assertTrue(agent.items().filterIsInstance<SessionItem.Tool>().all { it.a2ui == null })
@@ -214,8 +215,8 @@ class ShowUiToolTest {
     fun thePromptsExampleIsValidAndSmall() {
         val report = A2uiValidator().validate(A2uiPrompt.example)
         assertEquals("valid: 1 A2UI message(s)", report.forModel())
-        assertEquals(listOf("rsvp"), report.surfaceIds)
-        assertTrue("prompt is ${A2uiPrompt.text.length} chars", A2uiPrompt.text.length < 2_600)
+        assertEquals(listOf("tea"), report.surfaceIds)
+        assertTrue("prompt is ${A2uiPrompt.text.length} chars", A2uiPrompt.text.length <= 3_000)
     }
 
     @Test

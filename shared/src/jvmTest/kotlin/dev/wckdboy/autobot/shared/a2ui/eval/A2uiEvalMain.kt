@@ -108,7 +108,7 @@ A2UI show_ui eval. Options (as --name=value, or -Pname=value through Gradle):
   --extra=JSON       merged into every request body, e.g. {"reasoning_effort":"none"}
   --salvage=false    don't recover show_ui calls written as text (counted as no call)
   --prompt=FILE      experiment: this show_ui guidance instead of A2uiPrompt.text
-  --args=array       experiment: declare messages as a JSON array instead of a string
+  --args=string      declare messages as a string holding the JSON (the old schema) instead of an array
   --out=DIR          output folder (default build/a2ui-eval)
 """
 
@@ -135,9 +135,9 @@ fun main(argv: Array<String>) {
     val byModel = LinkedHashMap<String, List<A2uiTaskResult>>()
     for (model in models) {
         val client = OpenAiEvalClient(endpoint, model, key, temperature, opts["max-tokens"]?.toInt() ?: 4096, extra, opts["timeout"]?.toLong() ?: 600)
-        val arrayArgs = opts["args"] == "array"
-        val label = model + (if (arrayArgs) " (array args)" else "") + (promptFile?.let { " (prompt: ${it.nameWithoutExtension})" } ?: "")
-        val runner = A2uiEvalRunner(client, label, system, salvage = opts["salvage"] != "false", arrayArgs = arrayArgs)
+        val stringArgs = opts["args"] == "string"
+        val label = model + (if (stringArgs) " (string args)" else "") + (promptFile?.let { " (prompt: ${it.nameWithoutExtension})" } ?: "")
+        val runner = A2uiEvalRunner(client, label, system, salvage = opts["salvage"] != "false", stringArgs = stringArgs)
         val slug = label.replace(Regex("[^A-Za-z0-9._-]+"), "_")
         val results = ArrayList<A2uiTaskResult>()
         File(out, "$slug.attempts.jsonl").printWriter().use { attemptsOut ->

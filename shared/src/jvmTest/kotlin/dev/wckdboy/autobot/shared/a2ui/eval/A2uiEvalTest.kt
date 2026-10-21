@@ -180,11 +180,11 @@ class A2uiEvalTest {
     }
 
     @Test
-    fun anArrayInsteadOfAStringIsRejectedLikeTheExecutorDoes() {
-        val asArray = A2uiEvalCompletion(toolCalls = listOf(A2uiEvalToolCall("c", "show_ui", """{"messages":$form}""")))
-        val r = A2uiEvalRunner(Script(asArray, A2uiEvalCompletion(content = "Sorry.")), "m").run(task)
+    fun missingMessagesIsRejectedLikeTheExecutorDoes() {
+        val empty = A2uiEvalCompletion(toolCalls = listOf(A2uiEvalToolCall("c", "show_ui", """{"ui":$form}""")))
+        val r = A2uiEvalRunner(Script(empty, A2uiEvalCompletion(content = "Sorry.")), "m").run(task)
         assertEquals("gave-up", r.outcome)
-        assertEquals(listOf("INVALID_ARGS invalid arguments: arguments.messages must be a string"), r.errors)
+        assertEquals(listOf("INVALID_ARGS invalid arguments: missing required 'messages'"), r.errors)
     }
 
     @Test
@@ -206,14 +206,18 @@ class A2uiEvalTest {
     }
 
     @Test
-    fun arrayArgsExperimentDeclaresAnArrayAndPassesItOnAsText() {
+    fun theToolDeclaresAnArrayAndStillTakesAString() {
+        fun declared(r: A2uiEvalRunner) =
+            (((((r.tools[0] as JsonObject)["function"] as JsonObject)["parameters"] as JsonObject)["properties"] as JsonObject)["messages"] as JsonObject)["type"]!!.jsonPrimitive.content
         val asArray = A2uiEvalCompletion(toolCalls = listOf(A2uiEvalToolCall("c", "show_ui", """{"messages":$form}""")))
-        val runner = A2uiEvalRunner(Script(asArray), "m", arrayArgs = true)
-        val schema = ((((runner.tools[0] as JsonObject)["function"] as JsonObject)["parameters"] as JsonObject)["properties"] as JsonObject)["messages"] as JsonObject
-        assertEquals("array", schema["type"]!!.jsonPrimitive.content)
+        val runner = A2uiEvalRunner(Script(asArray), "m")
+        assertEquals("array", declared(runner))
         val r = runner.run(task)
         assertEquals("valid", r.outcome)
         assertEquals(1.0, r.expectScore, 0.0)
+        val legacy = A2uiEvalRunner(Script(call(form)), "m", stringArgs = true)
+        assertEquals("string", declared(legacy))
+        assertEquals("valid", legacy.run(task).outcome)
     }
 
     @Test

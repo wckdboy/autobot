@@ -665,9 +665,9 @@ checks, templates).
 merged into each request. It writes `build/a2ui-eval/`: `report.md` (a table per model and per
 task, the most common validator errors) and, per model, every request and the tool's answer as
 JSONL. Calls a model writes as text instead of a tool call are recovered and counted
-(`-Psalvage=false` to not). Two experiments: `-Pargs=array` declares `messages` as a JSON array
-instead of a string, `-Pprompt=<file>` swaps `A2uiPrompt.text` for another guidance text
-(`a2ui/eval/prompt-candidate.txt` is one). The scoring runs in `:shared:jvmTest` on canned output.
+(`-Psalvage=false` to not). `show_ui` declares `messages` as a JSON array of message objects;
+`-Pargs=string` declares the old string form instead (the tool accepts both), and
+`-Pprompt=<file>` swaps `A2uiPrompt.text` for another guidance text. The scoring runs in `:shared:jvmTest` on canned output.
 Ollama drops tool calls whose JSON does not parse (they show as `no-call`); llama.cpp's server
 reports them, which the eval counts as `malformed-call`.
 
