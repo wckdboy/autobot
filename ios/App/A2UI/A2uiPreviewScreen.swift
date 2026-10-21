@@ -30,9 +30,8 @@ struct A2uiPreviewScreen: View {
                         ForEach(Sample.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    // This branch's shell still tints riso red; the preview shows the brand purple.
                     if let model = models[sample] {
-                        A2uiSurfaceView(model: model, tint: .a2uiBrand) { action in
+                        A2uiSurfaceView(model: model) { action in
                             outgoing = Self.describe(action)
                         }
                         .id(sample)

@@ -66,12 +66,14 @@ struct A2uiTextFieldView: View {
                     TextField(placeholder, text: text)
                 }
             }
+            // A sent (locked) form's field reads as disabled: secondary text on a fill, no border.
+            .foregroundStyle(readOnly ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(readOnly ? AnyShapeStyle(Color(.tertiarySystemFill)) : AnyShapeStyle(.background.secondary), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(edited && !node.isValid ? AnyShapeStyle(.red) : AnyShapeStyle(.separator), lineWidth: edited && !node.isValid ? 1 : 0.5),
+                    .strokeBorder(edited && !node.isValid ? AnyShapeStyle(.red) : AnyShapeStyle(.separator), lineWidth: readOnly ? 0 : edited && !node.isValid ? 1 : 0.5),
             )
             .disabled(!bound)
             .accessibilityLabel(label ?? placeholder)

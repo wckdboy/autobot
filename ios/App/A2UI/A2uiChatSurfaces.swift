@@ -121,7 +121,7 @@ final class A2uiChatSurfaces {
  The surfaces a `show_ui` call created, drawn in place of its step row: the chat screen's call
  site. Draws nothing when the call has none alive (deleted, or the history was replaced).
 
- Accents in the brand purple; images through the app's policy-bound client and only after a tap
+ Accents in the app's tint (the brand purple); images through the app's policy-bound client and only after a tap
  (nothing loads without asking, as on Android); links ask first ([A2uiSurfaceView]); a `.send`
  action becomes the chat's next user turn, shown as its label; a sent surface is read-only with
  "Sending…" / "Sent" under it.
@@ -139,7 +139,7 @@ struct A2uiToolSurfaces: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(chat.surfaces(itemKey), id: \.surfaceId) { model in
                 VStack(alignment: .leading, spacing: 4) {
-                    A2uiSurfaceView(model: model, tint: .a2uiBrand, onAction: act)
+                    A2uiSurfaceView(model: model, onAction: act)
                     if let note = chat.note(model.surfaceId) {
                         Text(note)
                             .font(.caption)

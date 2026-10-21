@@ -160,7 +160,7 @@ struct A2uiRendererTests {
     }
 
     @Test func brandPurpleResolvesPerAppearance() {
-        let ui = UIColor(Color.a2uiBrand)
+        let ui = UIColor(Color.brandPurple)
         func hex(_ style: UIUserInterfaceStyle) -> String {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             ui.resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
@@ -199,7 +199,7 @@ struct A2uiRendererTests {
         let dir = ProcessInfo.processInfo.environment["AUTOBOT_SNAPSHOT_DIR"]
         for (name, model) in [("contact", try contact()), ("gallery", try gallery())] {
             for style in [UIUserInterfaceStyle.light, .dark] {
-                let view = ScrollView { A2uiSurfaceView(model: model, tint: .a2uiBrand).padding(16) }
+                let view = ScrollView { A2uiSurfaceView(model: model).padding(16).tint(Color.brandPurple) }
                     .background(Color(uiColor: .systemBackground))
                 let host = UIHostingController(rootView: view)
                 let fit = host.sizeThatFits(in: CGSize(width: 440, height: CGFloat.greatestFiniteMagnitude))

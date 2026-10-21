@@ -373,15 +373,13 @@ struct A2uiButtonView: View {
 }
 
 extension View {
-    /// Button variants: primary → glass prominent (brand tint), default → glass, borderless → link-like.
+    /// Button variants on the app's kit (NativeKit): primary → glass prominent (the tint),
+    /// default → glass, borderless → link-like.
     @ViewBuilder func a2uiButtonStyle(_ variant: String) -> some View {
         switch variant {
-        case "primary":
-            if #available(iOS 26, *) { buttonStyle(.glassProminent).controlSize(.large) } else { buttonStyle(.borderedProminent).controlSize(.large) }
-        case "borderless":
-            buttonStyle(.borderless)
-        default:
-            if #available(iOS 26, *) { buttonStyle(.glass).controlSize(.large) } else { buttonStyle(.bordered).controlSize(.large) }
+        case "primary": glassProminentButton().controlSize(.large)
+        case "borderless": buttonStyle(.borderless)
+        default: glassButton().controlSize(.large)
         }
     }
 }
@@ -414,11 +412,7 @@ private struct A2uiChipLabelStyle: LabelStyle {
 
 extension View {
     @ViewBuilder func a2uiChipStyle(_ selected: Bool) -> some View {
-        if #available(iOS 26, *) {
-            if selected { buttonStyle(.glassProminent).buttonBorderShape(.capsule) } else { buttonStyle(.glass).buttonBorderShape(.capsule) }
-        } else {
-            if selected { buttonStyle(.borderedProminent).buttonBorderShape(.capsule) } else { buttonStyle(.bordered).buttonBorderShape(.capsule) }
-        }
+        if selected { glassProminentButton().buttonBorderShape(.capsule) } else { glassButton().buttonBorderShape(.capsule) }
     }
 }
 

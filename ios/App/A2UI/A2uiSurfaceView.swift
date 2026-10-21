@@ -5,7 +5,7 @@ import UIKit
 /**
  Renders one A2UI v1.0 surface (basic catalog) with standard SwiftUI controls: Liquid Glass
  buttons on iOS 26 (bordered ones before), system text styles (Dynamic Type). Accents follow the
- environment's tint (the app shell's `.tint`); pass [tint] (e.g. `.a2uiBrand`) to force one.
+ environment's tint (the app's `Color.brandPurple`); pass [tint] to force another.
  The tree comes from [A2uiSurfaceModel]; inputs write back through the shared host and a tap
  runs the host's dispatch.
 
@@ -59,12 +59,6 @@ struct A2uiSurfaceView: View {
             Text(url.absoluteString)
         }
     }
-}
-
-extension Color {
-    /// The brand purple (#7C5CFF family): `BrandPurple` in the asset catalog, #6A4BEB on light
-    /// grounds and #9C85FF on dark ones so text and glyphs keep >= 4.5:1 contrast.
-    static let a2uiBrand = Color("BrandPurple")
 }
 
 /// Applies [tint] only when set, so the environment's tint (the app's) otherwise wins.
