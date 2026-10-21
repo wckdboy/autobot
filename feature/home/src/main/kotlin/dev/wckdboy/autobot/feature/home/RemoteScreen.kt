@@ -1,5 +1,6 @@
 package dev.wckdboy.autobot.feature.home
 
+import dev.wckdboy.autobot.shared.invincible.NodePairingWords
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -220,7 +221,7 @@ fun RemoteScreen(
                 // Bringing a PC is a first-run path (the welcome screen's "Pair a PC"): one row away here too.
                 item {
                     SectionLabel("agents · my node")
-                    RunRow("Pair a PC", "your Invincible node · end to end encrypted", leading = { NodeMark() }, onClick = onPairNode) { Chevron() }
+                    RunRow(NodePairingWords.REMOTE_ROW, NodePairingWords.REMOTE_ROW_DETAIL, leading = { NodeMark() }, onClick = onPairNode) { Chevron() }
                     Spacer(Modifier.height(18.dp))
                 }
             }

@@ -22,6 +22,7 @@ import dev.wckdboy.autobot.navigation.Chat
 import dev.wckdboy.autobot.navigation.Imagine
 import dev.wckdboy.autobot.navigation.Models
 import dev.wckdboy.autobot.navigation.Recipes
+import dev.wckdboy.autobot.navigation.Remote
 import dev.wckdboy.autobot.navigation.Run
 import dev.wckdboy.autobot.navigation.Providers
 import dev.wckdboy.autobot.navigation.Settings
@@ -69,7 +70,8 @@ object EntryRouting {
         is EntryPlan.Workflow -> listOf(Run, Studio(room = "workflows"))
         EntryPlan.Setup -> listOf(Models)
         is EntryPlan.Recipe -> listOfNotNull(Settings, Recipes, plan.chatId?.let(::Chat))
-        is EntryPlan.PairNode -> listOf(Settings, Providers())
+        // Where pairing lives (Remote), so back leads there.
+        is EntryPlan.PairNode -> listOf(Remote, Providers())
     }
 }
 

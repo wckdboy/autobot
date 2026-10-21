@@ -118,6 +118,6 @@ struct NodeFeaturesTests {
     }
 
     @Test func theNoKeyBannerSaysWhatAndroidSays() {
-        #expect(ChatBannerWords.shared.missingKey(provider: "DeepSeek") == "DeepSeek has no API key, so messages will fail. Add it in Model providers.")
+        #expect(ChatBannerWords.shared.missingKey(provider: "DeepSeek") == "DeepSeek has no API key, so messages will fail. Add it in Remote › Providers.")
     }
 }

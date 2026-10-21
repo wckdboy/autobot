@@ -61,7 +61,7 @@ class SessionProjectionTest {
     @Test
     fun failuresAreExplainedInWords() {
         assertEquals(
-            "The provider rejected the API key. Check it under Settings › Model providers (HTTP 401: invalid key)",
+            "The provider rejected the API key. Check it in Remote › Providers (HTTP 401: invalid key)",
             explainFailure("AUTH: HTTP 401: invalid key"),
         )
         assertTrue(explainFailure("BLOCKED: offline mode").startsWith("Blocked by the network mode"))

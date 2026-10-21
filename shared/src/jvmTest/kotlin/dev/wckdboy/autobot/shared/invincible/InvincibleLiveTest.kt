@@ -189,7 +189,9 @@ class InvincibleLiveTest {
         assertTrue(admin("GET", "/v1/admin/devices")["devices"]!!.jsonArray.any { it.jsonObject["name"]!!.jsonPrimitive.content == "Autobot-test" })
 
         // The same code does not pair twice.
-        assertTrue(runCatching { InvincibleNode.pair(crypto, connect(), code, NodeKeyPair.generate(crypto), "other") }.isFailure)
+        // The same code does not pair twice: a refusal, said as one (not a connection error).
+        val used = runCatching { InvincibleNode.pair(crypto, connect(), code, NodeKeyPair.generate(crypto), "other") }.exceptionOrNull()
+        assertTrue("$used", used is NodeRefusedException)
 
         // A session, then the node's API inside it.
         val info = exchange(InvincibleNode.session(crypto, connect(), code.nodeKey, device), "GET", "/v1/node")
@@ -215,7 +217,8 @@ class InvincibleLiveTest {
         // A stranger gets no session; after unpairing, neither does the device.
         assertTrue(runCatching { InvincibleNode.session(crypto, connect(), code.nodeKey, NodeKeyPair.generate(crypto)) }.isFailure)
         admin("DELETE", "/v1/admin/devices/Autobot-test")
-        assertTrue(runCatching { InvincibleNode.session(crypto, connect(), code.nodeKey, device) }.isFailure)
+        val unpaired = runCatching { InvincibleNode.session(crypto, connect(), code.nodeKey, device) }.exceptionOrNull()
+        assertTrue("$unpaired", unpaired is NodeRefusedException)
     }
 
     /**

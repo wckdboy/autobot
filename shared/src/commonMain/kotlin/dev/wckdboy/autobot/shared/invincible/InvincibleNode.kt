@@ -99,15 +99,25 @@ object InvincibleNode {
 
     /**
      * Pairs [device] with the node in [code] over [link] (connected to one of `code.addresses`),
-     * under [name]. Throws when the code is wrong, used or expired, or the node is not the one
-     * the code names.
+     * under [name]. Throws [NodeRefusedException] when the code is wrong, used or expired, or the
+     * node is not the one the code names; [NodeTimeoutException] past [timeoutMillis].
      */
-    suspend fun pair(crypto: NodeCrypto, link: NodeLink, code: PairingCode, device: NodeKeyPair, name: String): Paired {
+    suspend fun pair(
+        crypto: NodeCrypto,
+        link: NodeLink,
+        code: PairingCode,
+        device: NodeKeyPair,
+        name: String,
+        timeoutMillis: Long = NodeErrors.HANDSHAKE_MILLIS,
+    ): Paired {
         val handshake = NoiseHandshake.initiator(crypto, device, code.nodeKey, PAIR_PROLOGUE, psk = code.secret)
         val hello = buildJsonObject { put("name", name) }.toString().encodeToByteArray()
-        link.write(byteArrayOf(MODE_PAIR))
-        link.writeFrame(handshake.write(hello))
-        val reply = json.parseToJsonElement(handshake.read(link.readFrame()).decodeToString()) as JsonObject
+        // A wrong, used or expired code: the node closes the connection without a reply.
+        val reply = link.handshake(timeoutMillis) {
+            link.write(byteArrayOf(MODE_PAIR))
+            link.writeFrame(handshake.write(hello))
+            json.parseToJsonElement(handshake.read(link.readFrame()).decodeToString()) as JsonObject
+        }
         return Paired(
             node = reply["node"]?.jsonPrimitive?.content ?: "node",
             device = reply["device"]?.jsonPrimitive?.content ?: name,
@@ -117,12 +127,24 @@ object InvincibleNode {
         )
     }
 
-    /** Opens an encrypted session to a node whose key [device] pinned when it paired. */
-    suspend fun session(crypto: NodeCrypto, link: NodeLink, nodeKey: ByteArray, device: NodeKeyPair): NodeChannel {
+    /**
+     * Opens an encrypted session to a node whose key [device] pinned when it paired. Throws
+     * [NodeRefusedException] when the node no longer knows [device], [NodeTimeoutException] past [timeoutMillis].
+     */
+    suspend fun session(
+        crypto: NodeCrypto,
+        link: NodeLink,
+        nodeKey: ByteArray,
+        device: NodeKeyPair,
+        timeoutMillis: Long = NodeErrors.HANDSHAKE_MILLIS,
+    ): NodeChannel {
         val handshake = NoiseHandshake.initiator(crypto, device, nodeKey, SESSION_PROLOGUE)
-        link.write(byteArrayOf(MODE_SESSION))
-        link.writeFrame(handshake.write(ByteArray(0)))
-        handshake.read(link.readFrame())
+        // A device the node no longer knows: it closes the connection without a reply.
+        link.handshake(timeoutMillis) {
+            link.write(byteArrayOf(MODE_SESSION))
+            link.writeFrame(handshake.write(ByteArray(0)))
+            handshake.read(link.readFrame())
+        }
         return NodeChannel(link, handshake.split())
     }
 }

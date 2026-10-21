@@ -114,6 +114,8 @@ class NodeAgentException(val status: Int, val type: String?, message: String, va
  * [transport] to the node (a [NodeHttpTransport]: every request is its own Noise session).
  */
 class NodeAgent(private val transport: HttpTransport, private val tag: String = "node agent") {
+    /** The node's name for messages: the tag's first part (`node-a · agent`). */
+    private val nodeName: String get() = tag.substringBefore(" · ").takeIf { " · " in tag } ?: "The node"
 
     /**
      * Runs a turn in [session]; events as they come. Cancelling stops listening, not the turn.
@@ -209,7 +211,13 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     }
 
     suspend fun info(): AgentInfo {
-        val o = json.parseToJsonElement(request("GET", "")).jsonObject
+        val body = try {
+            request("GET", "")
+        } catch (e: NodeAgentException) {
+            // A node without the agent API (an older Invincible) answers 404 for it.
+            if (e.status == 404) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName), e.code) else throw e
+        }
+        val o = json.parseToJsonElement(body).jsonObject
         return AgentInfo(
             o.text("name") ?: "Autobot",
             o.text("model") ?: "auto",
@@ -457,6 +465,8 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     }
 
     companion object {
+        /** [NodeAgentException.type] of [info] on a node without the agent API. */
+        const val NO_AGENT = "no_agent"
         private const val BASE = "http://invincible/v1/agent"
         private const val AUDIT = "http://invincible/v1/audit"
         private const val MAX_BYTES = 8L * 1024 * 1024

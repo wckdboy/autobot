@@ -414,8 +414,11 @@ fun explainFailure(detail: String?): String {
     val code = detail.substringBefore(": ", "")
     val message = if (code.isNotEmpty() && code.all { it.isUpperCase() || it == '_' }) detail.substringAfter(": ") else return detail
     if (code == "QUOTA" && QuotaErrors.isLimitMessage(message)) return "$message $QUOTA_ADVICE"
+    // A node says what went wrong in its own words (unreachable, unpaired: not an API key).
+    if (code == "AUTH" && dev.wckdboy.autobot.shared.invincible.NodeErrors.isUnpaired(message)) return message.removePrefix("HTTP 403: ")
+    if (code == "TRANSPORT" && dev.wckdboy.autobot.shared.invincible.NodeErrors.isWorded(message)) return message
     val lead = when (code) {
-        "AUTH" -> "The provider rejected the API key. Check it under Settings › Model providers"
+        "AUTH" -> "The provider rejected the API key. Check it in Remote › Providers"
         "QUOTA" -> "The provider says the account is out of credit or quota"
         "RATE_LIMIT" -> "The provider is rate limiting requests. Wait a moment and send again"
         "TRANSPORT" -> "Couldn't reach the provider"

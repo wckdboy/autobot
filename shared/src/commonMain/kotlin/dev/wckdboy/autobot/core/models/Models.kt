@@ -66,6 +66,8 @@ enum class EngineKind(val label: String) {
 enum class AppPlatform(val engines: Set<EngineKind>) {
     ANDROID(setOf(EngineKind.LLAMA, EngineKind.DIFFUSION, EngineKind.NPU, EngineKind.WHISPER, EngineKind.ONNX)),
     IOS(setOf(EngineKind.LLAMA, EngineKind.WHISPER, EngineKind.COREML)),
+    /** The Mac app: the same engines as iOS (llama.cpp on Metal, whisper.cpp, Core ML). */
+    MACOS(setOf(EngineKind.LLAMA, EngineKind.WHISPER, EngineKind.COREML)),
     ;
 
     fun runs(engine: EngineKind): Boolean = engine in engines

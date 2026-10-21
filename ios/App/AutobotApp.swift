@@ -128,7 +128,8 @@ struct RootView: View {
                         // Straight to what they came for: the pairing sheet, or the provider picker.
                         onPairPc: {
                             nav.reset(.remote, [.providers])
-                            nav.pendingPairing = ""
+                            // A code a pairing link brought stays (an empty sheet must not replace it).
+                            if nav.pendingPairing == nil { nav.pendingPairing = "" }
                             app.settings.setOnboarded()
                         },
                         onAddApiKey: {
