@@ -38,6 +38,8 @@ import dev.wckdboy.autobot.core.network.AuditLog
 import dev.wckdboy.autobot.providers.remote.LocalProviderSync
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 
+import dev.wckdboy.autobot.shared.a2ui.A2uiCatalog
+import dev.wckdboy.autobot.shared.a2ui.A2uiChat
 import dev.wckdboy.autobot.shared.recipes.RecipeCopy
 import dev.wckdboy.autobot.shared.recipes.RecipePlanner
 import dev.wckdboy.autobot.shared.recipes.RecipeRunRecord
@@ -51,6 +53,8 @@ import kotlinx.datetime.TimeZone
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Sample data for screenshots and UI work (`--ez demo true`, debug builds only; release builds
@@ -149,6 +153,7 @@ class DemoSeed @Inject constructor(
             add(SessionEvent.AssistantMessage(0, 0, "Sure. Nothing here leaves this phone.", model = "qwen3"))
             add(SessionEvent.TurnEnd(0, TurnEndReason.COMPLETED))
         }
+        seedGenerativeUi(now)
         seedCascade(now)
         seedRecipe(now)
         seedGallery(now)
@@ -190,6 +195,24 @@ class DemoSeed @Inject constructor(
         if (!tools) log.add(SessionEvent.AgentSettingsChanged(toolsEnabled = false))
         log.build()
         events.append(log.lines.mapIndexed { seq, (time, json) -> SessionEventRow(id, seq.toLong(), time, json) })
+    }
+
+    /**
+     * Generative UI (`open ui`): the agent answered with a form through `show_ui` (a text field
+     * with a check, chips, a slider, a checkbox and a send button), still open to fill in.
+     */
+    private suspend fun seedGenerativeUi(now: Long) {
+        val args = buildJsonObject { put("messages", UI_STREAM) }.toString()
+        seed(DebugLaunch.DEMO_UI, "Plan Friday dinner", DEMO_DEEPSEEK, "deepseek-chat", now, minutesAgo = 8, tools = true) {
+            add(SessionEvent.TurnStart(0))
+            add(SessionEvent.UserMessage("Help me book dinner for Friday"))
+            add(SessionEvent.RequestContext(DEMO_DEEPSEEK, "deepseek-chat", 128_000))
+            add(SessionEvent.AssistantMessage(0, 0, "", toolCalls = listOf(ToolCallRecord("u1", A2uiChat.TOOL, args)), usage = TokenUsage(inputTokens = 2_104, outputTokens = 380), model = "deepseek-chat"))
+            add(SessionEvent.ToolCall("u1", A2uiChat.TOOL, args))
+            add(SessionEvent.ToolResult("u1", A2uiChat.TOOL, "Shown: surface dinner", meta = A2uiChat.meta(UI_STREAM)))
+            add(SessionEvent.AssistantMessage(0, 1, "Fill this in and I'll find a table.", usage = TokenUsage(inputTokens = 2_520, outputTokens = 12), model = "deepseek-chat"))
+            add(SessionEvent.TurnEnd(0, TurnEndReason.COMPLETED))
+        }
     }
 
     /**
@@ -294,7 +317,22 @@ class DemoSeed @Inject constructor(
         }
     }
 
-    private companion object {
+    internal companion object {
+        /** The demo's `show_ui` stream: one surface, every input kind a chat form uses. */
+        val UI_STREAM = """
+            [{"version":"v1.0","createSurface":{"surfaceId":"dinner","catalogId":"${A2uiCatalog.BASIC_CATALOG_ID}","components":[
+              {"id":"root","component":"Card","child":"form"},
+              {"id":"form","component":"Column","children":["title","name","day","people","window","go"]},
+              {"id":"title","component":"Text","text":"Dinner on Friday"},
+              {"id":"name","component":"TextField","label":"Name for the booking","value":{"@path":"/name"},"checks":[{"condition":{"@call":"required","args":{"value":{"@path":"/name"}}},"message":"A name is needed."}]},
+              {"id":"day","component":"ChoicePicker","label":"Time","options":[{"label":"19:00","value":"19"},{"label":"20:00","value":"20"},{"label":"21:00","value":"21"}],"value":{"@path":"/time"},"displayStyle":"chips"},
+              {"id":"people","component":"Slider","label":"People","min":1,"max":8,"value":{"@path":"/people"}},
+              {"id":"window","component":"CheckBox","label":"A table by the window","value":{"@path":"/window"}},
+              {"id":"go","component":"Button","variant":"primary","child":"go_t","action":{"event":{"name":"book","context":{"name":{"@path":"/name"},"time":{"@path":"/time"},"people":{"@path":"/people"},"window":{"@path":"/window"}}}}},
+              {"id":"go_t","component":"Text","text":"Find a table"}],
+              "dataModel":{"name":"","time":["20"],"people":2,"window":false}}}]
+        """.trimIndent()
+
         const val DEMO_DEEPSEEK = "demo-deepseek"
         const val DEMO_OLLAMA = "demo-ollama"
         const val PHONE_MODEL = "catalog:qwen3-4b-2507-q4_0"
