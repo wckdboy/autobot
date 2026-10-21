@@ -1,0 +1,337 @@
+{
+  "about": "A2UI eval for show_ui (AUTO-104). Each task is one user message in a phone chat. 'expect' is checked on the first valid show_ui stream: components (each entry a type or 'A|B'), minInputs, inputsBound (every input's value is a {\"@path\"}), actionUsesInputs (a Button's event context, or sendDataModel, carries every bound input), action (a Button with an action), checks (at least N components with checks), checkFunctions (functions the checks must use, 'a|b' for either), template (a ChildList template over an array of 2+ items in the data model), props (a component of that type whose prop equals a value or has minItems). noUi tasks pass when the model answers in text without show_ui.",
+  "tasks": [
+    {
+      "id": "haircut-slot",
+      "category": "choice",
+      "prompt": "Can you help me book a haircut tomorrow? The free slots are 9:00, 10:30, 13:00, 15:30 and 17:00. Let me pick one.",
+      "expect": {
+        "components": ["ChoicePicker|List", "Button"],
+        "action": true,
+        "props": [{ "component": "ChoicePicker", "prop": "options", "minItems": 5 }],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "dinner-rsvp",
+      "category": "rsvp",
+      "prompt": "Sam invited me to dinner on Saturday. Ask me whether I'm coming and how many guests I'm bringing.",
+      "expect": { "components": ["Button"], "minInputs": 2, "inputsBound": true, "action": true, "actionUsesInputs": true }
+    },
+    {
+      "id": "offsite-rsvp-chips",
+      "category": "rsvp",
+      "prompt": "Quick RSVP for the team offsite next Friday: yes, no or maybe. Show them as chips and a send button.",
+      "expect": {
+        "components": ["ChoicePicker", "Button"],
+        "props": [
+          { "component": "ChoicePicker", "prop": "displayStyle", "equals": "chips" },
+          { "component": "ChoicePicker", "prop": "options", "minItems": 3 }
+        ],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "newsletter-signup",
+      "category": "form-validation",
+      "prompt": "Sign me up for the newsletter. Ask for my name and email; both are required and the email has to be a valid address.",
+      "expect": {
+        "components": ["TextField", "Button"],
+        "minInputs": 2,
+        "inputsBound": true,
+        "checks": 2,
+        "checkFunctions": ["email", "required"],
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "change-password",
+      "category": "form-validation",
+      "prompt": "I want to change my password. Ask for the current one and a new one; the new password must be at least 8 characters. Hide what I type.",
+      "expect": {
+        "components": ["TextField", "Button"],
+        "minInputs": 2,
+        "inputsBound": true,
+        "checks": 1,
+        "checkFunctions": ["length|regex"],
+        "props": [{ "component": "TextField", "prop": "variant", "equals": "obscured" }],
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "notification-settings",
+      "category": "settings",
+      "prompt": "Show my notification settings so I can change them: email alerts are on, push notifications are off, the weekly digest is on. Add a save button.",
+      "expect": {
+        "components": ["CheckBox", "Button"],
+        "minInputs": 3,
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "thermostat",
+      "category": "settings",
+      "prompt": "Set the living room temperature. It's 21 degrees now and it can go from 16 to 28.",
+      "expect": {
+        "components": ["Slider", "Button"],
+        "props": [
+          { "component": "Slider", "prop": "min", "equals": 16 },
+          { "component": "Slider", "prop": "max", "equals": 28 }
+        ],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "pizza-toppings",
+      "category": "choice",
+      "prompt": "I'm ordering a pizza. Let me choose my toppings: mushrooms, olives, pepperoni, peppers, onions, extra cheese. I can pick as many as I want.",
+      "expect": {
+        "components": ["ChoicePicker", "Button"],
+        "props": [
+          { "component": "ChoicePicker", "prop": "variant", "equals": "multipleSelection" },
+          { "component": "ChoicePicker", "prop": "options", "minItems": 6 }
+        ],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "cuisine-chips",
+      "category": "choice",
+      "prompt": "Where should we eat tonight? Give me chips for Thai, Italian, Mexican, Japanese and Indian.",
+      "expect": {
+        "components": ["ChoicePicker"],
+        "props": [
+          { "component": "ChoicePicker", "prop": "displayStyle", "equals": "chips" },
+          { "component": "ChoicePicker", "prop": "options", "minItems": 5 }
+        ],
+        "inputsBound": true
+      }
+    },
+    {
+      "id": "hotel-results",
+      "category": "list-template",
+      "prompt": "Here are hotels near the station: Hotel Aster (120 EUR, 4.5 stars), Ibis Central (85 EUR, 4.0), The Linden (160 EUR, 4.7), Parkview Inn (95 EUR, 3.9). Show them as a list built from data, with a button on each to pick it.",
+      "expect": { "components": ["List", "Button"], "template": true, "action": true }
+    },
+    {
+      "id": "recent-contacts",
+      "category": "list-template",
+      "prompt": "Show my recent contacts as a list from data with a call button on each: Ana, Ben, Chloe, Dev and Ema.",
+      "expect": { "components": ["List", "Button"], "template": true, "action": true }
+    },
+    {
+      "id": "todo-list",
+      "category": "list-template",
+      "prompt": "Show my to-do list with a checkbox on each item: buy milk, pay rent, call mom, book flights. Use a template over the items.",
+      "expect": { "components": ["List|Column", "CheckBox"], "template": true, "inputsBound": true }
+    },
+    {
+      "id": "flight-dates",
+      "category": "date",
+      "prompt": "I want to book a flight to Lisbon. Ask me for the departure date and the return date.",
+      "expect": {
+        "components": ["DateTimeInput", "Button"],
+        "minInputs": 2,
+        "props": [{ "component": "DateTimeInput", "prop": "enableDate", "equals": true }],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "dentist-reminder",
+      "category": "date",
+      "prompt": "Remind me to call the dentist. Let me pick the date and the time.",
+      "expect": {
+        "components": ["DateTimeInput", "Button"],
+        "props": [{ "component": "DateTimeInput", "prop": "enableTime", "equals": true }],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "birthday",
+      "category": "date",
+      "prompt": "Ask for my date of birth to finish setting up my profile.",
+      "expect": {
+        "components": ["DateTimeInput", "Button"],
+        "props": [{ "component": "DateTimeInput", "prop": "enableDate", "equals": true }],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "trip-planner-tabs",
+      "category": "multi-step",
+      "prompt": "Help me plan a weekend trip in steps, one tab each: 1. destination, 2. dates, 3. budget. Then a button to plan it.",
+      "expect": {
+        "components": ["Tabs", "DateTimeInput", "Button"],
+        "minInputs": 3,
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "recipe-tabs",
+      "category": "multi-step",
+      "prompt": "Show the pancake recipe with two tabs, Ingredients and Steps. Ingredients: 200 g flour, 2 eggs, 300 ml milk, a pinch of salt. Steps: whisk everything, rest 10 minutes, fry in a hot pan.",
+      "expect": { "components": ["Tabs", "Text"] }
+    },
+    {
+      "id": "account-setup-tabs",
+      "category": "multi-step",
+      "prompt": "Set up my account in two tabs: Profile (name, required) and Preferences (dark mode on or off, language). One button at the end to finish.",
+      "expect": {
+        "components": ["Tabs", "TextField", "Button"],
+        "minInputs": 3,
+        "inputsBound": true,
+        "checks": 1,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "order-summary",
+      "category": "card",
+      "prompt": "Summarize my coffee order in a card: 2 oat lattes, 1 croissant, total 11.40 EUR, pickup at 8:15. Add a button to confirm it.",
+      "expect": { "components": ["Card", "Text", "Button"], "action": true }
+    },
+    {
+      "id": "weather-card",
+      "category": "card",
+      "prompt": "Show the weather for Berlin as a card: 14 degrees, light rain, wind 12 km/h, with a button to see the hourly forecast.",
+      "expect": { "components": ["Card", "Button"], "action": true }
+    },
+    {
+      "id": "listing-photo",
+      "category": "card",
+      "prompt": "Show the apartment listing as a card with its photo (https://example.com/flat.jpg), the rent of 1,250 EUR a month and a 'Request a viewing' button.",
+      "expect": { "components": ["Card", "Image", "Button"], "action": true }
+    },
+    {
+      "id": "delete-backups-modal",
+      "category": "card",
+      "prompt": "I want to delete my 3 old backups. Show a delete button that opens a confirmation first.",
+      "expect": { "components": ["Modal", "Button"], "action": true }
+    },
+    {
+      "id": "app-rating",
+      "category": "form",
+      "prompt": "Ask me to rate the app from 1 to 5 and leave an optional comment.",
+      "expect": {
+        "components": ["Slider|ChoicePicker", "TextField", "Button"],
+        "minInputs": 2,
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "bug-report",
+      "category": "form-validation",
+      "prompt": "I want to report a bug: a title (required), a description, and the severity: low, medium or high.",
+      "expect": {
+        "components": ["TextField", "ChoicePicker", "Button"],
+        "minInputs": 3,
+        "inputsBound": true,
+        "checks": 1,
+        "checkFunctions": ["required|length"],
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "shipping-address",
+      "category": "form-validation",
+      "prompt": "Collect my shipping address: street, city, postal code (exactly 5 digits) and country. All fields are required.",
+      "expect": {
+        "components": ["TextField", "Button"],
+        "minInputs": 4,
+        "inputsBound": true,
+        "checks": 4,
+        "checkFunctions": ["regex|length|numeric"],
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "bill-split",
+      "category": "form",
+      "prompt": "Help me split an 84 EUR dinner bill: let me enter the number of people and the tip percentage.",
+      "expect": {
+        "components": ["Button"],
+        "minInputs": 2,
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "meeting-poll",
+      "category": "choice",
+      "prompt": "Which of these times work for you for next week's sync: Mon 10:00, Tue 14:00, Wed 9:30, Thu 16:00? Let me pick all that work.",
+      "expect": {
+        "components": ["ChoicePicker", "Button"],
+        "props": [
+          { "component": "ChoicePicker", "prop": "variant", "equals": "multipleSelection" },
+          { "component": "ChoicePicker", "prop": "options", "minItems": 4 }
+        ],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "app-language",
+      "category": "settings",
+      "prompt": "Change the app language. Options: English, Deutsch, Francais, Espanol, Italiano.",
+      "expect": {
+        "components": ["ChoicePicker"],
+        "props": [{ "component": "ChoicePicker", "prop": "options", "minItems": 5 }],
+        "inputsBound": true,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "subscription-plans",
+      "category": "card",
+      "prompt": "Show me the plans and let me pick one: Free (1 device), Plus at 4 EUR a month (5 devices), Pro at 9 EUR a month (unlimited devices).",
+      "expect": { "components": ["Card|ChoicePicker", "Button"], "action": true }
+    },
+    {
+      "id": "run-log",
+      "category": "form-validation",
+      "prompt": "Log today's run: distance in km (required), duration in minutes, and how it felt: easy, ok or hard.",
+      "expect": {
+        "components": ["TextField|Slider", "ChoicePicker", "Button"],
+        "minInputs": 3,
+        "inputsBound": true,
+        "checks": 1,
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "table-booking",
+      "category": "form-validation",
+      "prompt": "Book a table at Nora's: the date, the time, the party size (1 to 8) and a name for the booking. The name is required.",
+      "expect": {
+        "components": ["DateTimeInput", "TextField", "Button"],
+        "minInputs": 3,
+        "inputsBound": true,
+        "checks": 1,
+        "checkFunctions": ["required|length"],
+        "actionUsesInputs": true
+      }
+    },
+    {
+      "id": "no-ui-math",
+      "category": "no-ui",
+      "prompt": "What's 15% of 80?",
+      "expect": { "noUi": true }
+    },
+    {
+      "id": "no-ui-fact",
+      "category": "no-ui",
+      "prompt": "Tell me one fun fact about octopuses.",
+      "expect": { "noUi": true }
+    }
+  ]
+}
