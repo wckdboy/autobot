@@ -18,15 +18,15 @@ struct ChatBubble<Footer: View>: View {
     var body: some View {
         let _ = InkProbe.hit("body.chatBubble")
         let blocks = MarkdownCache.shared.blocks(text)
-        VStack(alignment: .leading, spacing: Tokens.Spacing.chatBlockGap) {
+        VStack(alignment: .leading, spacing: 8) {
             MarkdownBlocks(blocks: blocks)
             if isStreaming && blocks.isEmpty { TypingIndicator() }
             if hasFooter { footer() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
-        .padding(.horizontal, Tokens.Spacing.chatAssistantPaddingHorizontal)
-        .padding(.vertical, Tokens.Spacing.chatAssistantPaddingVertical)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
         // Links never open by themselves: a tap only asks.
         .environment(\.openURL, OpenURLAction { url in
             link = url

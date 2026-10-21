@@ -317,3 +317,70 @@ struct LabeledSlider: View {
         }
     }
 }
+
+/**
+ A row that picks one of [options] from a menu, the current value trailing (a `Picker`'s look
+ without its selection binding: the value may be one the list does not hold, shown as is, and
+ an empty list leaves the row read-only).
+ */
+struct MenuRow<T: Hashable>: View {
+    let label: String
+    let value: String
+    let options: [T]
+    var optionLabel: (T) -> String = { "\($0)" }
+    let onSelect: (T) -> Void
+
+    init(_ label: String, value: String, options: [T], optionLabel: @escaping (T) -> String = { "\($0)" }, onSelect: @escaping (T) -> Void) {
+        self.label = label
+        self.value = value
+        self.options = options
+        self.optionLabel = optionLabel
+        self.onSelect = onSelect
+    }
+
+    var body: some View {
+        LabeledContent(label) {
+            if options.isEmpty {
+                Text(value.isEmpty ? "—" : value)
+            } else {
+                Menu {
+                    ForEach(options, id: \.self) { option in
+                        Button { onSelect(option) } label: {
+                            if optionLabel(option) == value { Label(optionLabel(option), systemImage: "checkmark") } else { Text(optionLabel(option)) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(value.isEmpty ? "—" : value).lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down").imageScale(.small)
+                    }
+                }
+                .accessibilityLabel("Choose \(label)")
+                .accessibilityValue(value)
+            }
+        }
+    }
+}
+
+/// A one-line notice with a dismiss button (an error or a note on top of a screen's content).
+struct NoticeBanner: View {
+    let message: String
+    var systemImage = "exclamationmark.circle"
+    var tint: Color? = nil
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Label(message, systemImage: systemImage)
+                .font(.subheadline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: onDismiss) { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Dismiss")
+        }
+        .padding(12)
+        .background((tint.map { AnyShapeStyle($0.opacity(0.14)) } ?? AnyShapeStyle(.tint.opacity(0.14))), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}

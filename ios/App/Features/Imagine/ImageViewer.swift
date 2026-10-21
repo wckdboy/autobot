@@ -63,7 +63,7 @@ struct ImageViewer: View {
             Color.black.opacity(1 - dismissProgress * 0.85).ignoresSafeArea()
             TabView(selection: $current) {
                 ForEach(ids, id: \.self) { id in
-                    ViewerPage(id: id, onTap: { withAnimation(.inkReduced) { chrome.toggle() } },
+                    ViewerPage(id: id, onTap: { withAnimation(.easeOut(duration: 0.2)) { chrome.toggle() } },
                                onZoom: { zoomed = $0 }, onDismissProgress: { dismissProgress = $0 }, onDismiss: onClose)
                         .tag(id)
                         .ignoresSafeArea()
@@ -82,7 +82,7 @@ struct ImageViewer: View {
                 .transition(.opacity)
             }
         }
-        .darkroomTheme()
+        .environment(\.colorScheme, .dark)
         .statusBarHidden(!chrome)
         .onAppear {
             if ids.isEmpty {
@@ -101,10 +101,10 @@ struct ImageViewer: View {
         .task(id: message) {
             guard message != nil else { return }
             try? await Task.sleep(for: .seconds(2.4))
-            withAnimation(.inkReduced) { message = nil }
+            withAnimation(.easeOut(duration: 0.2)) { message = nil }
         }
         .sheet(isPresented: $showInfo) {
-            if let item { ImageInfoSheet(item: item, pixels: pixels) { message = $0 }.darkroomTheme().presentationDetents([.medium, .large]) }
+            if let item { ImageInfoSheet(item: item, pixels: pixels) { message = $0 }.presentationDetents([.medium, .large]) }
         }
         .risoAlert($confirmSave, title: "Save unencrypted copy?",
                    message: "A plain image will be added to your photo library, where other apps and backups can read it.",
@@ -130,11 +130,11 @@ struct ImageViewer: View {
 
     private func messageLine(_ text: String) -> some View {
         Text(text)
-            .textStyle(.bodySmall)
-            .foregroundStyle(AutobotColors.bone100)
-            .padding(.horizontal, 12)
+            .font(.footnote)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: AutobotShapes.extraSmall).fill(Color.black.opacity(0.7)))
+            .glassSurface(in: Capsule())
             .padding(.bottom, 8)
             .accessibilityAddTraits(.updatesFrequently)
     }
@@ -143,7 +143,7 @@ struct ImageViewer: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 if unsaved {
-                    ViewerAction(symbol: "tray.and.arrow.down", label: PanicCopy.shared.SAVE, hint: "Saves this incognito image to the encrypted gallery", tint: AutobotColors.amber) { keep() }
+                    ViewerAction(symbol: "tray.and.arrow.down", label: PanicCopy.shared.SAVE, hint: "Saves this incognito image to the encrypted gallery", tint: .yellow) { keep() }
                 }
                 ViewerAction(symbol: "photo.on.rectangle.angled", label: "img2img", hint: "Opens Imagine with this image as the input") { onHandoff(item.id, .img2img) }
                 ViewerAction(symbol: "sparkles", label: "Vary", hint: "Opens Imagine for a close variation of this image") { onHandoff(item.id, .vary) }
@@ -157,7 +157,7 @@ struct ImageViewer: View {
                     ShareLink(item: SharedImage(data: bytes), preview: SharePreview(String(item.prompt.prefix(60)), image: Image(uiImage: image))) {
                         ViewerActionLabel(symbol: "square.and.arrow.up", label: "Share")
                     }
-                    .buttonStyle(PressStyle())
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Share")
                 }
                 if !unsaved {
@@ -167,12 +167,14 @@ struct ImageViewer: View {
                     UIPasteboard.general.setItems([[UTType.plainText.identifier: GalleryExport.parametersText(item, pixels: pixels)]], options: [.localOnly: true])
                     message = "Parameters copied"
                 }
-                if !unsaved { ViewerAction(symbol: "trash", label: "Delete", tint: AutobotColors.redDeep) { confirmDelete = true } }
+                if !unsaved { ViewerAction(symbol: "trash", label: "Delete", tint: .red) { confirmDelete = true } }
             }
             .padding(.horizontal, 8)
         }
         .padding(.vertical, 6)
-        .background(Color.black.opacity(0.72).ignoresSafeArea(edges: .bottom))
+        .glassSurface(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
     }
 
     // MARK: Actions
@@ -274,45 +276,74 @@ private struct ViewerTopBar: View {
     let onFavorite: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            IconAction(symbol: "xmark", label: "Close", tint: AutobotColors.bone100, action: onClose)
+        HStack(spacing: 8) {
+            ViewerRoundButton(symbol: "xmark", label: "Close", action: onClose)
             Text(position)
-                .textStyle(.micro)
-                .foregroundStyle(AutobotColors.bone100)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel(position.replacingOccurrences(of: " / ", with: " of "))
-            IconAction(symbol: "info.circle", label: "Image info", tint: AutobotColors.bone100, action: onInfo)
+            ViewerRoundButton(symbol: "info", label: "Image info", action: onInfo)
             if unsaved {
-                Text(PanicCopy.shared.NOT_SAVED.sentenceCased).textStyle(.micro).foregroundStyle(AutobotColors.amber).padding(.horizontal, 8)
+                Text(PanicCopy.shared.NOT_SAVED.sentenceCased)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.yellow)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .glassSurface(in: Capsule())
             } else {
-            IconAction(symbol: favorite ? "star.fill" : "star", label: favorite ? "Remove from favorites" : "Add to favorites",
-                       tint: favorite ? AutobotColors.amber : AutobotColors.bone100, action: onFavorite)
-                .accessibilityAddTraits(favorite ? .isSelected : [])
-                .stamp(favorite) { $0 }
+                ViewerRoundButton(symbol: favorite ? "star.fill" : "star", label: favorite ? "Remove from favorites" : "Add to favorites",
+                                  tint: favorite ? .yellow : .white, action: onFavorite)
+                    .symbolEffect(.bounce, value: favorite)
+                    .accessibilityAddTraits(favorite ? .isSelected : [])
             }
         }
-        .padding(.horizontal, 4)
-        .background(LinearGradient(colors: [Color.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .top))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+}
+
+/// A round glass button over the image.
+private struct ViewerRoundButton: View {
+    let symbol: String
+    let label: String
+    var tint: Color = .white
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 24, height: 24)
+        }
+        .glassButton()
+        .buttonBorderShape(.circle)
+        .accessibilityLabel(label)
     }
 }
 
 private struct ViewerActionLabel: View {
     let symbol: String
     let label: String
-    var tint: Color = AutobotColors.bone100
+    var tint: Color = .white
     var busy = false
 
     var body: some View {
         VStack(spacing: 4) {
-            InkBusyLabel(busy: busy, size: .inline, color: tint) {
-                Image(systemName: symbol).font(.system(size: 20, weight: .medium))
+            Group {
+                if busy {
+                    ProgressView().tint(tint)
+                } else {
+                    Image(systemName: symbol).font(.title3)
+                }
             }
             .frame(height: 24)
-            Text(label.sentenceCased).textStyle(.micro).lineLimit(1)
+            Text(label.sentenceCased).font(.caption2).lineLimit(1)
         }
         .foregroundStyle(tint)
         .frame(minWidth: 64, minHeight: 52)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 2)
         .contentShape(Rectangle())
     }
 }
@@ -321,7 +352,7 @@ private struct ViewerAction: View {
     let symbol: String
     let label: String
     var hint: String? = nil
-    var tint: Color = AutobotColors.bone100
+    var tint: Color = .white
     var enabled = true
     var busy = false
     let action: () -> Void
@@ -330,7 +361,7 @@ private struct ViewerAction: View {
         Button(action: action) {
             ViewerActionLabel(symbol: symbol, label: label, tint: enabled ? tint : tint.opacity(0.38), busy: busy)
         }
-        .buttonStyle(PressStyle())
+        .buttonStyle(.plain)
         .disabled(!enabled || busy)
         .accessibilityLabel(label)
         .accessibilityHint(hint ?? "")
@@ -356,7 +387,7 @@ private struct ViewerPage: View {
                     .accessibilityHint("Pinch or double-tap to zoom, swipe down to close")
                     .accessibilityAddTraits(.isImage)
             } else {
-                InkLoader(.block, caption: "decrypting").darkroomTheme()
+                ProgressView("Decrypting").tint(.white).foregroundStyle(.white)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -538,49 +569,48 @@ struct ImageInfoSheet: View {
     let item: GalleryItem
     let pixels: (width: Int, height: Int)?
     let onMessage: (String) -> Void
-    @Environment(\.scheme) private var c
 
     var body: some View {
         let params = ImageGenerator.decodeParams(item)
         let size = pixels ?? (item.width, item.height)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionLabel("image · \(relativeTime(item.createdAt))")
-                MicroLabel("Prompt")
-                Text(item.prompt.isEmpty ? "—" : item.prompt).textStyle(.code).foregroundStyle(c.onSurface).textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+        NavigationStack {
+            Form {
+                Section("Prompt") {
+                    Text(item.prompt.isEmpty ? "—" : item.prompt).font(.callout.monospaced()).textSelection(.enabled)
+                }
                 if !item.negativePrompt.isEmpty {
-                    MicroLabel("Negative")
-                    Text(item.negativePrompt).textStyle(.codeBlock).foregroundStyle(c.onSurfaceVariant).textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Section("Negative") {
+                        Text(item.negativePrompt).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
                 }
-                ImagineTagFlow(spacing: 18) {
-                    Readout(label: "Size", value: "\(size.width)×\(size.height) px", valueColor: c.primary)
-                    Readout(label: "Seed", value: "\(item.seed)")
-                    Readout(label: "Steps", value: "\(item.steps)")
-                    Readout(label: "CFG", value: String(format: "%.1f", item.cfgScale))
-                    Readout(label: "Sampler", value: item.sampler)
-                    Readout(label: "Mode", value: item.mode.lowercased())
-                    if let p = params, p.mode != .txt2img { Readout(label: "Strength", value: String(format: "%.2f", p.denoiseStrength)) }
-                    Readout(label: "Engine", value: item.engine)
-                    Readout(label: "Time", value: String(format: "%.1f s", Double(item.durationMs) / 1000))
+                Section("Parameters") {
+                    LabeledContent("Size", value: "\(size.width)×\(size.height) px")
+                    LabeledContent("Seed") { Text("\(item.seed)").monospacedDigit().textSelection(.enabled) }
+                    LabeledContent("Steps", value: "\(item.steps)")
+                    LabeledContent("CFG", value: String(format: "%.1f", item.cfgScale))
+                    LabeledContent("Sampler", value: item.sampler)
+                    LabeledContent("Mode", value: item.mode.lowercased())
+                    if let p = params, p.mode != .txt2img { LabeledContent("Strength", value: String(format: "%.2f", p.denoiseStrength)) }
+                    LabeledContent("Engine", value: item.engine)
+                    LabeledContent("Time", value: String(format: "%.1f s", Double(item.durationMs) / 1000))
+                    if let model = item.model {
+                        LabeledContent("Model") { Text(model).font(.callout.monospaced()).textSelection(.enabled) }
+                    }
+                    if let loras = params?.loras, !loras.isEmpty {
+                        LabeledContent("LoRA", value: loras.map { "\($0.name) \(String(format: "%.2f", $0.weight))" }.joined(separator: ", "))
+                    }
                 }
-                if let model = item.model {
-                    MicroLabel("Model")
-                    Text(model).textStyle(.code).foregroundStyle(c.onSurface).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                }
-                if let loras = params?.loras, !loras.isEmpty {
-                    MicroLabel("LoRA")
-                    Text(loras.map { "\($0.name) \(String(format: "%.2f", $0.weight))" }.joined(separator: ", ")).textStyle(.code).foregroundStyle(c.onSurface)
-                }
-                TextAction("Copy parameters", color: c.primary) {
-                    UIPasteboard.general.setItems([[UTType.plainText.identifier: GalleryExport.parametersText(item, pixels: pixels)]], options: [.localOnly: true])
-                    onMessage("Parameters copied")
+                Section {
+                    Button {
+                        UIPasteboard.general.setItems([[UTType.plainText.identifier: GalleryExport.parametersText(item, pixels: pixels)]], options: [.localOnly: true])
+                        onMessage("Parameters copied")
+                    } label: {
+                        Label("Copy parameters", systemImage: "doc.on.doc")
+                    }
                 }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .navigationTitle("Image · \(relativeTime(item.createdAt))")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .background(c.surfaceContainerLow)
     }
 }
