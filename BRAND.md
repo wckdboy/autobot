@@ -1,7 +1,7 @@
 # Brand
 
 Invincible and Autobot are two tools from one lab, [WCKD](https://wckd.ai). The whole family
-(WCKD, Sovware, Autobot, Invincible, Omnie, Nightfall) shares one kit: its source is
+(WCKD, Sovware, Autobot, Invincible, Omnie, Nightfall, Niobium) shares one kit: its source is
 [`brand/kit.json`](https://github.com/wckdboy/autobot-www/blob/main/brand/kit.json) in the
 sites' repository, and each site shows its version at `/brand/`. This file is the product side
 of it. Each has its
