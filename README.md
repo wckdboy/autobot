@@ -218,15 +218,26 @@ The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
   on iOS (`SwiftNodeCrypto`): X25519, ChaCha20-Poly1305, SHA-256, HMAC, Ed25519. The Noise state
   machine is common code; no primitive is.
 - **Signed receipts.** `NodeReceipts.verify` checks the node's per-request receipts (what ran where,
-  what left the node) against the receipt key pinned at pairing.
+  what left the node) against the receipt key pinned at pairing, as the node checks them: version 0
+  and version 1 (which also binds the request and answer by hash, the time and the caller), each
+  under its own signing prefix. Any other version, a receipt without one, or a version 1 receipt
+  missing a field it must carry does not verify. The phone does not yet recompute the request and
+  answer hashes a version 1 receipt carries, so it shows nothing it has not checked about them.
 - **Same rules as the node.** `scripts/sync-invincible-spec.sh` copies Invincible's conformance
-  vectors into `shared/src/jvmTest/resources/invincible`. `InvincibleSpecTest` checks Noise
-  byte for byte against the node's snow transcripts, receipts against OpenSSL-made signatures,
-  pairing codes, runs `RedactionVault` on the node's redaction vectors (the phone and the node
-  hide the same things), and the kill switch and network modes on the egress vectors (the same
-  request is blocked, sent direct or proxied on both). `InvincibleLiveTest` pairs with a real `invincible serve` when
-  `INVINCIBLE_BIN` is set. On iOS, `InvincibleNodeTests` runs the same Noise and receipt vectors
-  on CryptoKit (passing on the iOS 26.1 simulator).
+  vectors into `shared/src/jvmTest/resources/invincible` (`SOURCE` names the commit).
+  `InvincibleSpecTest` checks Noise byte for byte against the node's snow transcripts, receipts
+  of both versions against the node's signatures and canonical JSON against RFC 8785's rules
+  (numbers included), pairing codes, runs `RedactionVault` on the node's redaction vectors (the
+  phone and the node hide the same things), and the kill switch and network modes on the egress
+  vectors (the same request is blocked, sent direct or proxied on both).
+  `scripts/check-invincible-spec.sh` says whether the copies are still Invincible's (on `main`, a
+  tag, a commit or a checkout) and exits non-zero when they are not; CI's `invincible-spec` job
+  runs it against `SOURCE` on every push and pull request, and the daily `invincible-spec`
+  workflow against Invincible's `main`, so a rule changed on the node fails here before its
+  release reaches users. Invincible's
+  `routing` and `cluster` vectors are not copied: the app has neither rule. `InvincibleLiveTest`
+  pairs with a real `invincible serve` when `INVINCIBLE_BIN` is set. On iOS,
+  `InvincibleNodeTests` runs the same Noise and receipt vectors on CryptoKit.
 
 **On Android, "My node" works end to end** (checked on an Android 16 emulator against a real node):
 Remote › *Pair a node* (or the welcome screen's *Pair a node*, or Remote › Providers › + › *My node
@@ -248,6 +259,15 @@ BouncyCastle's RFC 8032 verifier, because Android's software provider has no Ed2
 
 **The agent on your machine.** If the machine also runs the Autobot Agent (`autobot serve`,
 installed with the node by Invincible's `install.sh`), REMOTE › *Agents · my node* opens it.
+A node lets a paired phone reach its agent and its request log only when it granted them
+(Invincible's [spec/pairing.md](https://github.com/wckdboy/invincible/blob/main/spec/pairing.md),
+Capabilities): on the node, `invincible pair --capabilities shard,agent,audit`, then pair the
+phone again with that code. Keep `shard` in the list: the new code replaces what the phone held,
+and without `shard` it loses chat and the model list. The operator can also grant them without
+pairing again (`PATCH /v1/cluster/nodes/<the phone's name>` on the node's API, in Invincible's
+README). A pairing keeps what the node granted, and a phone it did not grant them is told so, with
+this command; a pairing made before this version also says to update Invincible if the node does
+not know `--capabilities`.
 Tasks run on that machine: shell commands and file work, on its models. Every command, every file
 write and every read outside the agent's working directory comes to the phone as a card first:
 Allow, Always (this conversation), or Deny. Answers show the model and tier that ran each turn. It

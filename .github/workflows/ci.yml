@@ -1,5 +1,6 @@
-# Every push and pull request: the Android / shared JVM test suites on Linux, and the Kotlin/Native
-# compile plus the iOS app and engine test suites on macOS.
+# Every push and pull request: the Android / shared JVM test suites on Linux, the Kotlin/Native
+# compile plus the iOS app and engine test suites on macOS, and whether the conformance vectors
+# shared with Invincible are still Invincible's.
 name: ci
 
 on:
@@ -13,6 +14,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The vectors the JVM, Android device and iOS tests run (scripts/check-invincible-spec.sh):
+  # byte for byte the files at the Invincible commit SOURCE names. Whether Invincible's main has
+  # moved on is checked daily (invincible-spec.yml), so a rule change there does not fail
+  # unrelated pull requests here.
+  invincible-spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The vectors are Invincible's at SOURCE
+        run: scripts/check-invincible-spec.sh SOURCE
+
   android:
     runs-on: ubuntu-latest
     steps:

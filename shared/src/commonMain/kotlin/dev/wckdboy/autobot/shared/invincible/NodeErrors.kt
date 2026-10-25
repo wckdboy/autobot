@@ -46,7 +46,37 @@ object NodeErrors {
 
     fun unpaired(node: String): String = "$node doesn't know this phone any more: it was unpaired there. Pair it again in Remote."
 
-    fun noAgent(node: String): String = "$node has no Autobot Agent yet. Update Invincible there (`invincible update`), then run `autobot serve`."
+    /**
+     * The command, on the node, for a code that grants a device chat (`shard`), its agent and its
+     * audit log (Invincible's README, Pairing). `shard` stays in it: pairing again with a code
+     * replaces what the device held, so a code without it takes chat, models and receipts away
+     * (spec/pairing.md, Capabilities).
+     */
+    const val GRANT = "invincible pair --capabilities shard,agent,audit"
+
+    /**
+     * Why [node] answers 404 for its Autobot Agent. A node with capabilities (spec/pairing.md)
+     * answers so to a device it did not grant `agent`, as for a path it does not have. With
+     * [capabilities] known (the node sent them at pairing) that is the reason; unknown (null), the
+     * node may be one from before capabilities, which has no such command, so the words also say
+     * to update it.
+     */
+    fun noAgent(node: String, capabilities: List<String>?): String {
+        val grant = "On the node, run `$GRANT` and pair this phone again with that code."
+        return if (capabilities != null) {
+            "$node hasn't given this phone its Autobot Agent. $grant"
+        } else {
+            "$node doesn't let this phone use its Autobot Agent. $grant If it doesn't know `--capabilities`, " +
+                "update Invincible there first (`invincible update`), then run `autobot serve`."
+        }
+    }
+
+    /**
+     * Why [node] answers 404 for its audit log. Only a node with capabilities withholds it, from a
+     * device it did not grant `audit` (spec/pairing.md, Capabilities); the releases before them
+     * (0.0.3 to 0.0.21) give it to every paired device.
+     */
+    fun noAudit(node: String): String = "$node hasn't given this phone its request log. On the node, run `$GRANT` and pair this phone again with that code."
 
     /** Why pairing with the node in a code at [addresses] failed. */
     fun pairing(error: Throwable, addresses: List<String>): String = when (error) {

@@ -112,8 +112,14 @@ class NodeAgentException(val status: Int, val type: String?, message: String, va
 /**
  * The Autobot Agent on a paired node, through the gateway's `/v1/agent` (spec/agent.md), over a
  * [transport] to the node (a [NodeHttpTransport]: every request is its own Noise session).
+ * [capabilities] is what the node granted this device at pairing ([PairedNode.capabilities]), so
+ * a refusal says how to grant what is missing.
  */
-class NodeAgent(private val transport: HttpTransport, private val tag: String = "node agent") {
+class NodeAgent(
+    private val transport: HttpTransport,
+    private val tag: String = "node agent",
+    private val capabilities: List<String>? = null,
+) {
     /** The node's name for messages: the tag's first part (`node-a · agent`). */
     private val nodeName: String get() = tag.substringBefore(" · ").takeIf { " · " in tag } ?: "The node"
 
@@ -214,8 +220,8 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         val body = try {
             request("GET", "")
         } catch (e: NodeAgentException) {
-            // A node without the agent API (an older Invincible) answers 404 for it.
-            if (e.status == 404) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName), e.code) else throw e
+            // A node that did not grant this device `agent` answers 404 for it, as one without the agent does.
+            if (e.status == 404) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities), e.code) else throw e
         }
         val o = json.parseToJsonElement(body).jsonObject
         return AgentInfo(
@@ -373,8 +379,15 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
      * The node's audit log (Invincible's spec/audit.md), newest first: the requests it answered,
      * each receipt checked against [receiptKey], the key pinned at pairing.
      */
-    suspend fun requests(crypto: NodeCrypto, node: String, receiptKey: String?, limit: Int = 100, since: Long? = null): List<NodeRequest> =
-        NodeActivityParser.requests(request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT), node, receiptKey, crypto)
+    suspend fun requests(crypto: NodeCrypto, node: String, receiptKey: String?, limit: Int = 100, since: Long? = null): List<NodeRequest> {
+        val text = try {
+            request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT)
+        } catch (e: NodeAgentException) {
+            // A node that did not grant this device `audit` answers 404 for it.
+            if (e.status == 404) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName), e.code) else throw e
+        }
+        return NodeActivityParser.requests(text, node, receiptKey, crypto)
+    }
 
     /** The agent's action log, newest first: what it asked to do, whether it ran, who decided. */
     suspend fun actions(limit: Int = 100, since: Long? = null): List<AgentActionEntry> =
@@ -465,8 +478,11 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     }
 
     companion object {
-        /** [NodeAgentException.type] of [info] on a node without the agent API. */
+        /** [NodeAgentException.type] of [info] on a node that did not grant this device its agent (or has none). */
         const val NO_AGENT = "no_agent"
+
+        /** [NodeAgentException.type] of [requests] on a node that did not grant this device its audit log. */
+        const val NO_AUDIT = "no_audit"
         private const val BASE = "http://invincible/v1/agent"
         private const val AUDIT = "http://invincible/v1/audit"
         private const val MAX_BYTES = 8L * 1024 * 1024

@@ -3,7 +3,9 @@ package dev.wckdboy.autobot.shared.invincible
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -91,8 +93,19 @@ class NodeChannel internal constructor(private val link: NodeLink, private val t
     fun close() = link.close()
 }
 
-/** What pairing told the device. Pin [nodeKey] and [receiptKey]. */
-class Paired(val node: String, val device: String, val nodeKey: ByteArray, val receiptKey: String?, val channel: NodeChannel)
+/**
+ * What pairing told the device. Pin [nodeKey] and [receiptKey]. [capabilities]: what the node
+ * granted this device (spec/pairing.md, Capabilities); null when it said nothing, as a node from
+ * before capabilities does.
+ */
+class Paired(
+    val node: String,
+    val device: String,
+    val nodeKey: ByteArray,
+    val receiptKey: String?,
+    val channel: NodeChannel,
+    val capabilities: List<String>? = null,
+)
 
 object InvincibleNode {
     private val json = Json { ignoreUnknownKeys = true }
@@ -124,6 +137,7 @@ object InvincibleNode {
             nodeKey = code.nodeKey,
             receiptKey = reply["receipts"]?.jsonPrimitive?.content?.takeIf { it.isNotEmpty() },
             channel = NodeChannel(link, handshake.split()),
+            capabilities = (reply["capabilities"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content },
         )
     }
 
