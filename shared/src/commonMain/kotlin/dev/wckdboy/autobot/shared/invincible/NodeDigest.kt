@@ -39,11 +39,12 @@ data class NodeDigestLine(val text: String, val tone: Tone) {
 /**
  * What a paired node did since the owner last looked ([since], Unix seconds), and what waits for
  * them now: the "While you were away" card. Computed by [NodeDigests.compute] from the node's own
- * logs (spec/audit.md) and the app's recipes.
+ * logs (spec/audit.md) and the app's recipes. The requests are this device's own (from Invincible
+ * 0.0.22 on, a node gives a device no one else's); what the agent did comes from its own logs.
  */
 data class NodeDigest(
     val since: Long,
-    /** Requests the node answered (or asked about, or refused). */
+    /** This device's requests the node answered (or asked about, or refused). */
     val requests: Int = 0,
     /** Requests that ran on the node's own models. */
     val onNode: Int = 0,
@@ -91,8 +92,9 @@ data class NodeDigest(
     /**
      * Something happened since [since] (a question that started waiting counts; one the owner saw
      * already does not bring the card back on its own, though the card counts it when it shows).
+     * This device's requests do not either: the owner made them.
      */
-    val hasNews: Boolean get() = requests > 0 || actions > 0 || runs.isNotEmpty() || waiting.any { it.updated > since } ||
+    val hasNews: Boolean get() = actions > 0 || runs.isNotEmpty() || waiting.any { it.updated > since } ||
         approvals.orEmpty().any { it.askedAt > since } || failedTasks.isNotEmpty()
 
     /** Approvals waiting now (none when the node cannot say). */
@@ -123,11 +125,12 @@ object NodeDigests {
     fun since(lastSeen: Long?, now: Long): Long = lastSeen?.coerceAtMost(now) ?: (now - FIRST_LOOK_SECONDS)
 
     /**
-     * The digest of [activity] after [since]. [runs] are the recipe and schedule runs ([runs]);
-     * requests from [exceptDevice] (this device: the owner was there) are left out.
+     * The digest of [activity] after [since]. [runs] are the recipe and schedule runs ([runs]).
+     * Only requests from [device] (this device) count: a node before 0.0.22 gives every caller's,
+     * a later one this device's alone. Null counts them all.
      */
-    fun compute(activity: NodeActivity, runs: List<NodeDigestRun>, since: Long, exceptDevice: String? = null): NodeDigest {
-        val requests = activity.requests.filter { it.at > since && (exceptDevice == null || it.device != exceptDevice) }
+    fun compute(activity: NodeActivity, runs: List<NodeDigestRun>, since: Long, device: String? = null): NodeDigest {
+        val requests = activity.requests.filter { it.at > since && (device == null || it.device == device) }
         val ran = requests.filter { it.action == "run" }
         val actions = activity.actions.filter { it.at > since }
         val (allowed, refused) = actions.partition { it.ran }
@@ -216,7 +219,7 @@ object NodeDigests {
     fun recipeJson(json: String): NodeDigestRecipe? = RecipeCodec.decode(json)?.let(::recipe)
 
     /**
-     * The digest of [agent]'s node after [since], for [providerId] and its [recipes]: the node's
+     * The digest of [agent]'s node after [since], for [providerId] and its [recipes]: [device]'s
      * requests (receipts checked against [receiptKey]), the agent's actions, its board and schedules.
      * The agent's part is empty, with [NodeDigest.agentProblem], when it is not running.
      */
@@ -228,7 +231,7 @@ object NodeDigests {
         providerId: String,
         since: Long,
         recipes: List<NodeDigestRecipe>,
-        exceptDevice: String? = null,
+        device: String? = null,
     ): NodeDigest {
         val requests = agent.requests(crypto, node, receiptKey, limit = MAX_ENTRIES, since = since)
         val activity: NodeActivity
@@ -254,7 +257,7 @@ object NodeDigests {
             if (e.status == 0) throw e
             NodeActivity(requests, emptyList(), emptyList(), emptyList(), agentProblem = e.message)
         }
-        val digest = compute(activity, runs(providerId, recipes, schedules), since, exceptDevice).copy(approvals = approvals?.sortedBy { it.askedAt })
+        val digest = compute(activity, runs(providerId, recipes, schedules), since, device).copy(approvals = approvals?.sortedBy { it.askedAt })
         return byBot(digest, bots, activity.actions)
     }
 
@@ -314,7 +317,7 @@ object NodeDigests {
 object NodeDigestWords {
     const val TITLE = "While you were away"
 
-    /** "12 requests, all on your node · 18.2k tokens". */
+    /** "12 requests from this phone, all on your node · 18.2k tokens". */
     fun requests(d: NodeDigest): String? {
         if (d.requests == 0) return null
         val where = when {
@@ -324,7 +327,8 @@ object NodeDigestWords {
             else -> "${d.onNode} on your node, ${d.inCloud} in the cloud"
         }
         val runs = d.onNode + d.inCloud
-        val head = if (d.inCloud > 0 && d.onNode > 0) "${plural(d.requests, "request")}: $where" else "${plural(d.requests, "request")}, $where"
+        val asked = "${plural(d.requests, "request")} from this phone"
+        val head = if (d.inCloud > 0 && d.onNode > 0) "$asked: $where" else "$asked, $where"
         return buildString {
             append(head)
             if (d.notRun > 0 && runs > 0) append(", ${d.notRun} not run")
@@ -420,7 +424,7 @@ object NodeDigestWords {
         return listOfNotNull(approvals, questions).takeIf { it.isNotEmpty() }?.joinToString(", ", postfix = " waiting")
     }
 
-    /** The whole card for a screen reader: "While you were away on studio-mac. 12 requests, …". */
+    /** The whole card for a screen reader: "While you were away on studio-mac. 12 requests from this phone, …". */
     fun spoken(d: NodeDigest, node: String): String = buildString {
         append("$TITLE on $node.")
         lines(d).forEach { append(' ').append(unmarked(it.text)).append('.') }

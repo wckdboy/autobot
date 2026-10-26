@@ -80,14 +80,27 @@ class NodeDigestTest {
     }
 
     @Test
-    fun thisDevicesOwnRequestsAreNotNews() {
+    fun onlyThisDevicesRequestsCount() {
+        // A node before 0.0.22 gives every caller's entries: another device's and the agent's are not this phone's.
         val d = NodeDigests.compute(
-            activity(listOf(request(200, caller = "device:My-Phone"), request(201, caller = "device:Tablet"))),
+            activity(listOf(request(200, caller = "device:My-Phone"), request(201, caller = "device:Tablet"), request(202))),
             emptyList(),
             since = 100,
-            exceptDevice = "My-Phone",
+            device = "My-Phone",
         )
         assertEquals(1, d.requests)
+    }
+
+    @Test
+    fun thisDevicesRequestsAloneAreNotNews() {
+        // The owner made them: the card counts them when it shows, but they do not bring it.
+        val mine = listOf(request(200, caller = "device:My-Phone"))
+        val alone = NodeDigests.compute(activity(mine), emptyList(), since = 100, device = "My-Phone")
+        assertEquals(1, alone.requests)
+        assertFalse(alone.hasNews)
+        val withAction = NodeDigests.compute(activity(mine, listOf(action(150, true, "policy"))), emptyList(), since = 100, device = "My-Phone")
+        assertTrue(withAction.hasNews)
+        assertEquals("1 request from this phone, all on your node", NodeDigestWords.lines(withAction).first().text)
     }
 
     @Test
@@ -119,7 +132,7 @@ class NodeDigestTest {
         val d = NodeDigests.compute(activity(listOf(request(200), request(201, verified = false), request(202, verified = false))), emptyList(), since = 100)
         val lines = NodeDigestWords.lines(d)
         assertEquals(NodeDigestLine("2 receipts failed to verify ✗", NodeDigestLine.Tone.ERROR), lines.first())
-        assertEquals("3 requests, all on your node", lines[1].text)
+        assertEquals("3 requests from this phone, all on your node", lines[1].text)
         assertTrue(lines.none { it.tone == NodeDigestLine.Tone.OK })
 
         val one = NodeDigests.compute(activity(listOf(request(200, verified = false))), emptyList(), since = 100)
@@ -137,11 +150,14 @@ class NodeDigestTest {
     @Test
     fun wordsForRequests() {
         fun words(vararg r: NodeRequest) = NodeDigestWords.requests(NodeDigests.compute(activity(r.toList()), emptyList(), since = 0))
-        assertEquals("1 request, all on your node", words(request(1)))
-        assertEquals("2 requests, all in the cloud · 1.2k tokens", words(request(1, "cloud", tokens = 1_000L to 0L), request(2, "cloud", tokens = 150L to 50L)))
-        assertEquals("3 requests: 2 on your node, 1 in the cloud", words(request(1), request(2), request(3, "cloud")))
-        assertEquals("3 requests, all on your node, 1 not run", words(request(1), request(2), request(3, action = "ask")))
-        assertEquals("1 request, none ran", words(request(1, action = "block")))
+        assertEquals("1 request from this phone, all on your node", words(request(1)))
+        assertEquals(
+            "2 requests from this phone, all in the cloud · 1.2k tokens",
+            words(request(1, "cloud", tokens = 1_000L to 0L), request(2, "cloud", tokens = 150L to 50L)),
+        )
+        assertEquals("3 requests from this phone: 2 on your node, 1 in the cloud", words(request(1), request(2), request(3, "cloud")))
+        assertEquals("3 requests from this phone, all on your node, 1 not run", words(request(1), request(2), request(3, action = "ask")))
+        assertEquals("1 request from this phone, none ran", words(request(1, action = "block")))
         assertNull(words())
     }
 
@@ -184,7 +200,7 @@ class NodeDigestTest {
     fun spokenReadsTheWholeCardWithoutGlyphs() {
         val d = NodeDigests.sample(now = 100_000)
         assertEquals(
-            "While you were away on studio-mac. 12 requests, all on your node · 18.2k tokens. 3 actions: 2 by the rules, 1 approved by you. " +
+            "While you were away on studio-mac. 12 requests from this phone, all on your node · 18.2k tokens. 3 actions: 2 by the rules, 1 approved by you. " +
                 "Morning brief ran. All 12 receipts verified. 2 approvals, 1 question waiting.",
             NodeDigestWords.spoken(d, "studio-mac"),
         )
@@ -272,11 +288,20 @@ class NodeDigestTest {
         }
     }
 
+    /** What a node before 0.0.22 gives a device: every caller's entries (here the agent's and this phone's). */
     private val audit = """{"entries":[
         {"at":150,"caller":"local","client":"autobot-agent","api":"chat","prev":"00","receipt":{"receipt":{"version":0,"request_id":"q1","node":"k",
           "decision":{"action":"run","model":"qwen","tier":"local"},"tokens":{"input":1200,"output":410},"egress":[]},"signature":"x"}},
         {"at":160,"caller":"device:My-Phone","api":"chat","prev":"ab","receipt":{"receipt":{"version":0,"request_id":"q2","node":"k",
-          "decision":{"action":"run","model":"claude","tier":"cloud"},"egress":[{"host":"api.anthropic.com","route":"tor"}]},"signature":"x"}}
+          "decision":{"action":"run","model":"claude","tier":"cloud"},"tokens":{"input":300,"output":20},"egress":[{"host":"api.anthropic.com","route":"tor"}]},"signature":"x"}}
+    ]}"""
+
+    /** What a node gives a device from 0.0.22 on: its own entries only, with the key it was pinned with and without `prev`. */
+    private val ownAudit = """{"entries":[
+        {"at":160,"caller":"device:My-Phone","caller_key":"q6ur","api":"chat","receipt":{"receipt":{"version":0,"request_id":"q2","node":"k",
+          "decision":{"action":"run","model":"claude","tier":"cloud"},"tokens":{"input":300,"output":20},"egress":[{"host":"api.anthropic.com","route":"tor"}]},"signature":"x"}},
+        {"at":170,"caller":"device:My-Phone","caller_key":"q6ur","api":"chat","receipt":{"receipt":{"version":0,"request_id":"q3","node":"k",
+          "decision":{"action":"run","model":"qwen","tier":"local"},"tokens":{"input":800,"output":90},"egress":[]},"signature":"x"}}
     ]}"""
 
     @Test
@@ -292,12 +317,15 @@ class NodeDigestTest {
                     {"id":"a1","session":"cron-t1","text":"write","action":{"kind":"write","path":"/etc/x","bytes":3,"inside":false},"agent":"coder","asked_at":150}]}""",
             ),
         )
-        val d = NodeDigests.fetch(NodeAgent(node), JvmNodeCrypto, "studio", null, "node-1", since = 100, recipes = emptyList(), exceptDevice = "My-Phone")
+        val d = NodeDigests.fetch(NodeAgent(node), JvmNodeCrypto, "studio", null, "node-1", since = 100, recipes = emptyList(), device = "My-Phone")
         assertTrue(node.asked.contains("/v1/audit?limit=500&since=100"))
         assertTrue(node.asked.contains("/v1/agent/actions?limit=500&since=100"))
-        // The phone's own request is left out; the agent's has its tokens; nothing verifies without a pinned key.
+        // Of every caller's entries, the phone's own counts, with its tokens; the agent's is in its
+        // actions instead. Nothing verifies without a pinned key.
         assertEquals(1, d.requests)
-        assertEquals(1610L, d.tokens)
+        assertEquals(1, d.inCloud)
+        assertEquals(1, d.leftTheNode)
+        assertEquals(320L, d.tokens)
         assertEquals(1, d.unverified)
         assertEquals(1, d.autoAllowed)
         assertEquals(listOf("b1"), d.waiting.map { it.id })
@@ -311,6 +339,21 @@ class NodeDigestTest {
         assertEquals("cron-t1", d.approvalSession)
         assertEquals("2 approvals, 1 question waiting", NodeDigestWords.needsYou(d))
         assertFalse(d.opensBoard)
+    }
+
+    @Test
+    fun aNodeThatGivesThisDeviceOnlyItsOwnEntriesCountsThemAll() = runBlocking {
+        val actions = """{"actions":[{"at":155,"session":"cron-t1","kind":"command","action":"run: df -h","ran":true,"by":"policy"}]}"""
+        val node = Node(mapOf("/v1/audit" to ownAudit, "/v1/agent/actions" to actions))
+        val d = NodeDigests.fetch(NodeAgent(node), JvmNodeCrypto, "studio", null, "node-1", since = 100, recipes = emptyList(), device = "My-Phone")
+        assertEquals(2, d.requests)
+        assertEquals(1, d.onNode)
+        assertEquals(1, d.inCloud)
+        assertEquals(1, d.leftTheNode)
+        assertEquals(1_210L, d.tokens)
+        assertEquals(1, d.actions)
+        assertTrue(d.hasNews)
+        assertEquals("2 requests from this phone: 1 on your node, 1 in the cloud · 1.2k tokens", NodeDigestWords.requests(d))
     }
 
     @Test

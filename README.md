@@ -301,12 +301,15 @@ web group: the node fetches through its gateway, under its network rules.
 question there, with a field to answer, and the tab counts what is waiting. The answer sends the
 task on, as `/board answer` does in Telegram.
 
-**While you were away.** With a node paired, the Run screen shows a short card when it did
-something since you last looked: how many requests it answered (on the node or in the cloud,
-tokens), the agent's actions (by the rules or approved by you), the recipes that ran, what
-failed, and whether every receipt verified (one that did not is the first line, in red). Questions
-waiting for you are its main button, which opens the agent's board; Details opens the activity.
-Dismissing or opening it marks it seen, per node.
+**While you were away.** With a node paired, the Run screen shows a short card when its agent did
+something since you last looked: the agent's actions (by the rules or approved by you), the
+recipes that ran, what failed, and what waits for you. The card also counts this phone's own
+requests to the node in that time (on the node or in the cloud, tokens) and whether every receipt
+verified (one that did not is the first line, in red); those alone bring no card. It counts no
+other device's requests: from Invincible 0.0.22 a node gives a phone only its own entries of the
+request log, and with an older node the card leaves the others out too. Questions waiting for you
+are its main button, which opens the agent's board; Details opens the activity. Dismissing or
+opening it marks it seen, per node.
 
 **Bots.** A node in bots mode runs several named bots, each with its own persona, model, approvals
 mode and channels (Telegram, Discord, Slack, email, Signal, Matrix, the API). Remote › *Agents · my
@@ -338,11 +341,12 @@ this and the page stays as it was.
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and
-tier, tokens, and whether anything left the node), each receipt checked against the key pinned at
-pairing, so an entry that does not verify says so in red. *Actions* is everything the agent asked
-to do and who decided: the rules, an "always" earlier, or you on the app, the CLI or Telegram.
-*Memory* shows what the agent remembered between conversations (forget any of it) and the skills
-on the machine. The requests show even when the agent is not running.
+tier, tokens, and whether anything left the node; from Invincible 0.0.22, this phone's own only),
+each receipt checked against the key pinned at pairing, so an entry that does not verify says so
+in red. *Actions* is everything the agent asked to do and who decided: the rules, an "always"
+earlier, or you on the app, the CLI or Telegram. *Memory* shows what the agent remembered between
+conversations (forget any of it) and the skills on the machine. The requests show even when the
+agent is not running.
 
 **The node's own receipts.** Every answer from a node comes with its request id; when the turn's
 privacy receipt is built, the phone fetches the node's receipt for it (Invincible's

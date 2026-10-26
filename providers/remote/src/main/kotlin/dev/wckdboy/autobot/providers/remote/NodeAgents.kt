@@ -61,13 +61,13 @@ class NodeAgents @Inject constructor(
 
     /**
      * "While you were away" for [provider]'s node: what it did after [since] (Unix seconds), with
-     * [recipes] for the result chats; this device's own requests left out. Null when it is not a usable pairing.
+     * [recipes] for the result chats; the requests are this device's own. Null when it is not a usable pairing.
      */
     suspend fun digest(provider: Provider, since: Long, recipes: List<NodeDigestRecipe>): NodeDigest? {
         if (provider.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = providers.apiKey(provider)?.reveal()?.let(PairedNode::fromSecret) ?: return null
         val tag = "${provider.displayName} · digest"
         val agent = NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag, paired.capabilities)
-        return NodeDigests.fetch(agent, JvmNodeCrypto, paired.name, paired.receiptKey, provider.id, since, recipes, exceptDevice = paired.deviceName)
+        return NodeDigests.fetch(agent, JvmNodeCrypto, paired.name, paired.receiptKey, provider.id, since, recipes, device = paired.deviceName)
     }
 }

@@ -34,7 +34,7 @@ class NodeDigestCardTest {
         compose.setContent {
             Themed { NodeDigestCard(sample, { clicks += "needs" }, { clicks += "details" }, { clicks += "dismiss" }) }
         }
-        compose.onNodeWithText(useUnmergedTree = true, text = "12 requests, all on your node · 18.2k tokens").assertIsDisplayed()
+        compose.onNodeWithText(useUnmergedTree = true, text = "12 requests from this phone, all on your node · 18.2k tokens").assertIsDisplayed()
         compose.onNodeWithText(useUnmergedTree = true, text = "3 actions: 2 by the rules, 1 approved by you").assertIsDisplayed()
         compose.onNodeWithText(useUnmergedTree = true, text = "Morning brief ran").assertIsDisplayed()
         compose.onNodeWithText("2 approvals, 1 question waiting").performClick()

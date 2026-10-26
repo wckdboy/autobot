@@ -831,7 +831,7 @@ class AgentBridge(
     ) {
         val (agent, paired) = nodeAgentAndPairing(providerId) ?: error("This node's pairing is unreadable here; pair it again in Providers.")
         val recipes = recipesJson.mapNotNull(NodeDigests::recipeJson)
-        NodeDigests.fetch(agent, nodeCrypto!!, paired.name, paired.receiptKey, providerId, since, recipes, exceptDevice = paired.deviceName) to null
+        NodeDigests.fetch(agent, nodeCrypto!!, paired.name, paired.receiptKey, providerId, since, recipes, device = paired.deviceName) to null
     }
 
     /*

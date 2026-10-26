@@ -200,7 +200,8 @@ models, shared core). Ordered by value.
    photos in node chats (downscaled to 1568 px, JPEG), retry on the node and the agent's `kept`
    notes. Version 1 node receipts verify (each version under its own prefix), CI checks the
    vectors against Invincible's `main`, and a pairing keeps what the node granted, so a phone not
-   granted the agent is told `invincible pair --capabilities shard,agent,audit`. Not yet: the node's
+   granted the agent is told `invincible pair --capabilities shard,agent,audit`. "While you were
+   away" counts this phone's own requests, the only ones a 0.0.22 node shows it. Not yet: the node's
    agent API takes no images in a turn (0.0.14), so photos reach the model only once it does; the
    phone does not recompute the request and answer hashes a version 1 receipt binds; the pairing
    sheet does not show what the node granted.)*
