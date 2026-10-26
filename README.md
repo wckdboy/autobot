@@ -342,11 +342,12 @@ and when the judge finds its answer weak, the prompt goes to your node instead o
 The node is yours, on hardware you own or on a server you rent, so "Never" (nothing to the cloud)
 does not keep a prompt from it: under "Never", as under "Auto", a weak answer's prompt goes to the
 node on its own, a sensitive one included, and an answer the judge is only unsure about is
-offered ("Ask" offers both). With no on-device chat model, or a chat too long for it, the node
-answers directly. These turns are sent with `invincible-private: 1`, so the node keeps them on its
-own models and never forwards them to a cloud backend: here "never" means never to a cloud model.
-The notice reads `phone → my node`, and the receipt says the turn was sent to your node and kept
-there. Nothing is redacted for the node; it redacts what it sends on itself.
+offered ("Ask" offers both). Under "Never" the judge uses its rules only, without the self-check,
+so an answer no rule objects to is kept. With no on-device chat model, or a chat too long for it,
+the node answers directly. These turns are sent with `invincible-private: 1`, so the node keeps
+them on its own models and never forwards them to a cloud backend: here "never" means never to a
+cloud model. The notice reads `phone → my node`, and the receipt says the turn was sent to your
+node and kept there. Nothing is redacted for the node; it redacts what it sends on itself.
 
 **On iOS too.** Remote › *Pair a node* (or Remote › Providers › + › *My node (Invincible)*) opens
 the same pairing sheet (paste the code, or open an `invincible://pair?…` link: the Camera app's QR
