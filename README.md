@@ -748,8 +748,10 @@ See [ROADMAP.md](ROADMAP.md): goals, release rules and the phased plan for both 
 
 ## Reporting a vulnerability
 
-Privately, through GitHub's **Report a vulnerability** on this repository's Security tab. Scope,
-response targets and how fixes ship: [SECURITY.md](SECURITY.md).
+Privately, through GitHub's **Report a vulnerability** on this repository's Security tab.
+If the Security tab has no **Report a vulnerability** button, open an issue titled
+`security contact` with no details; a maintainer will open a private advisory and invite you to it.
+Scope, response targets and how fixes ship: [SECURITY.md](SECURITY.md).
 
 ## License
 

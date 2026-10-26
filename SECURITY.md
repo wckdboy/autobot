@@ -8,12 +8,12 @@ vulnerability, and so is anything that lets someone else's code pass as an Autob
 
 Report it privately through GitHub: this repository's **Security** tab › **Report a
 vulnerability** ([new advisory](https://github.com/wckdboy/autobot/security/advisories/new)).
+If the Security tab has no **Report a vulnerability** button, open an issue titled
+`security contact` with no details; a maintainer will open a private advisory and invite you to it.
 Only you and the maintainers see the report; the fix, the advisory text and the credit are
 worked out there.
 
-Please do not open a public issue, pull request or discussion about it. If the **Report a
-vulnerability** button is missing, open an issue that asks for a private channel and says
-nothing about the problem itself.
+Please do not describe it in a public issue, pull request or discussion.
 
 A useful report names the app version and platform (Settings › About), the steps, what you
 expected and what happened. Models → Compute → `report` adds the device and engine details
@@ -42,9 +42,10 @@ built from its tag.
 Not in scope here:
 
 - **The Invincible node and the `autobot` agent on your machine** (`autobot serve`). Report
-  those to [Invincible](https://github.com/wckdboy/invincible) through its Security tab. When a
-  flaw sits in what the app and the node must agree on (pairing, receipts, the agent protocol),
-  report it there and say that the app is affected too; the two fixes are coordinated.
+  those to [Invincible](https://github.com/wckdboy/invincible) the same way, through its Security
+  tab or a `security contact` issue there. When a flaw sits in what the app and the node must
+  agree on (pairing, receipts, the agent protocol), report it there and say that the app is
+  affected too; the two fixes are coordinated.
 - **Upstream engines and libraries** (llama.cpp, whisper.cpp, stable-diffusion.cpp, MNN,
   Qualcomm's QNN runtime, dsh-ios, iSH-ARM64). Report those upstream, and tell us here when the
   version Autobot ships is affected.
