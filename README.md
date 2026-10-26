@@ -28,7 +28,7 @@ Version 1.14. What runs, and what is not yet verified:
 | Snapdragon | Built for the 8 Elite Gen 5 (Hexagon V81 NPU, Adreno 840 GPU). Measured on a OnePlus 15: chat on the CPU and the NPU (Qwen3.5 0.8B) and SDXL on the NPU ([1.6.5](https://github.com/wckdboy/autobot/releases/tag/v1.6.5)); Models → Compute → `report` shows the diagnostics on your phone |
 | Generative UI | Since 1.13: in the phone chats the agent can call `show_ui` (A2UI v1.0, shared core in `:shared`) to show forms, choices and cards, drawn with Material 3 Expressive on Android (`:core:a2ui`) and SwiftUI system controls with Liquid Glass on iOS, in the app's purple; kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. Settings › Agent › Generative UI turns it off (on by default) |
 | Harness (iOS) | Since 1.14: the Harness tab boots an Alpine + Node guest in the iSH-ARM64 emulator and runs the DeepSeek Harness web UI on the phone, supervised by the app. Autobot's DeepSeek key reaches it, Offline mode stops it, and the audit log records that its model calls leave from the guest. Experimental: the guest boots in about a minute, and the emulator is slow. The emulator and dsh-ios are GPL-3.0, so the iOS build is distributed under GPL-3.0 (see [License](#license)) |
-| **Not yet verified** | No independent security review yet ([reporting a vulnerability](SECURITY.md)). No diagnostics report from an 8 Elite Gen 5 is published: chat on the GPU, SD 1.5 on the NPU, images on MNN and the NPU upscaler have not been shown to run on one |
+| **Not yet verified** | No independent security review yet ([reporting a vulnerability](SECURITY.md)). No diagnostics report from an 8 Elite Gen 5 is published: chat and images on the GPU, SD 1.5 on the NPU and the NPU upscaler have not been shown to run on one |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).
 
@@ -761,7 +761,10 @@ Scope, response targets and how fixes ship: [SECURITY.md](SECURITY.md).
 
 ## License
 
-Autobot's own code is Apache License 2.0. See [LICENSE](LICENSE).
+Autobot's own code in this repository, both apps and their shared core, is Apache License 2.0.
+See [LICENSE](LICENSE). The Autobot Agent on your machine (`autobot serve`) is not in this
+repository: it is the Rust `autobot` in the [Invincible](https://github.com/wckdboy/invincible)
+repository, under the MIT License.
 
 The Android app is not all open source: it contains Qualcomm's QNN runtime
 (`com.qualcomm.qti:qnn-runtime` 2.51.0 from Maven Central), which is proprietary and ships as
