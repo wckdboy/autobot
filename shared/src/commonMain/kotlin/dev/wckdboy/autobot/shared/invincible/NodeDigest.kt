@@ -92,9 +92,10 @@ data class NodeDigest(
     /**
      * Something happened since [since] (a question that started waiting counts; one the owner saw
      * already does not bring the card back on its own, though the card counts it when it shows).
-     * This device's requests do not either: the owner made them.
+     * This device's requests do not either: the owner made them. A receipt among them that failed
+     * to verify does: it is the card's first line.
      */
-    val hasNews: Boolean get() = actions > 0 || runs.isNotEmpty() || waiting.any { it.updated > since } ||
+    val hasNews: Boolean get() = unverified > 0 || actions > 0 || runs.isNotEmpty() || waiting.any { it.updated > since } ||
         approvals.orEmpty().any { it.askedAt > since } || failedTasks.isNotEmpty()
 
     /** Approvals waiting now (none when the node cannot say). */

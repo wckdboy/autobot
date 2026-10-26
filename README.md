@@ -306,11 +306,11 @@ task on, as `/board answer` does in Telegram.
 something since you last looked: the agent's actions (by the rules or approved by you), the
 recipes that ran, what failed, and what waits for you. The card also counts this phone's own
 requests to the node in that time (on the node or in the cloud, tokens) and whether every receipt
-verified (one that did not is the first line, in red); those alone bring no card. It counts no
-other device's requests: from Invincible 0.0.22 a node gives a phone only its own entries of the
-request log, and with an older node the card leaves the others out too. Questions waiting for you
-are its main button, which opens the agent's board; Details opens the activity. Dismissing or
-opening it marks it seen, per node.
+verified; those requests alone bring no card, but a receipt that did not verify does, as its
+first line, in red. It counts no other device's requests: from Invincible 0.0.22 a node gives a
+phone only its own entries of the request log, and with an older node the card leaves the others
+out too. Questions waiting for you are its main button, which opens the agent's board; Details
+opens the activity. Dismissing or opening it marks it seen, per node.
 
 **Bots.** A node in bots mode runs several named bots, each with its own persona, model, approvals
 mode and channels (Telegram, Discord, Slack, email, Signal, Matrix, the API). Remote › *Agents · my

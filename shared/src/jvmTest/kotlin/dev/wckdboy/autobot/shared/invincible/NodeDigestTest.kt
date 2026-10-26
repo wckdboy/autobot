@@ -104,6 +104,14 @@ class NodeDigestTest {
     }
 
     @Test
+    fun aReceiptThatFailedToVerifyBringsTheCardOnItsOwn() {
+        // Even one of this phone's own: the card shows it first, because it matters most.
+        val d = NodeDigests.compute(activity(listOf(request(200, caller = "device:My-Phone", verified = false))), emptyList(), since = 100, device = "My-Phone")
+        assertTrue(d.hasNews)
+        assertEquals(NodeDigestLine("1 receipt failed to verify ✗", NodeDigestLine.Tone.ERROR), NodeDigestWords.lines(d).first())
+    }
+
+    @Test
     fun nothingNewIsNoCard() {
         val d = NodeDigests.compute(activity(listOf(request(10)), listOf(action(10, true, "policy")), listOf(task("b1", "done", 10))), emptyList(), since = 100)
         assertFalse(d.hasNews)
