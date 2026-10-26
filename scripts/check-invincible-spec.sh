@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Checks that the conformance vectors Autobot runs (copied by scripts/sync-invincible-spec.sh into
 # the JVM test resources, and the same files for the Android device test) are Invincible's, byte
-# for byte. A rule that changed on the node's side then fails here, before a release, instead of
-# in a user's app (receipts v1 went unnoticed for 86 commits).
+# for byte, in both copies. A rule that changed on the node's side then fails here, before a
+# release, instead of in a user's app (receipts v1 went unnoticed for 86 commits).
 #
 #   scripts/check-invincible-spec.sh                  # Invincible's main on GitHub
 #   scripts/check-invincible-spec.sh v0.0.22          # a tag, branch or commit there
@@ -41,29 +41,40 @@ fi
 
 echo "Autobot's vectors (synced from $synced_from) against $against:"
 status=0
-for f in "$dest"/*.json; do
-  name="$(basename "$f")"
+# Every vector file the JVM tests or the Android device test runs, whichever copy has it: it must
+# be in both, the same in both, and Invincible's. A file only one copy has fails as well, so a
+# vector the device test runs is never left unchecked because the JVM tests lack it.
+shopt -s nullglob
+names="$(for f in "$dest"/*.json "$device_dest"/*.json; do basename "$f"; done | sort -u)"
+[ -n "$names" ] || { echo "no vector files in $dest or $device_dest" >&2; exit 2; }
+fail() { echo "  $name: $1"; status=1; ok=false; }
+while read -r name; do
+  jvm="$dest/$name"
+  device="$device_dest/$name"
+  ok=true
+  [ -f "$jvm" ] || fail "only the Android device test has it, not the JVM tests"
+  [ -f "$device" ] || fail "the Android device test has no copy"
+  if [ -f "$jvm" ] && [ -f "$device" ] && ! cmp -s "$jvm" "$device"; then
+    fail "the Android device test's copy differs from the JVM tests'"
+  fi
   if [ ! -f "$vectors/$name" ]; then
-    echo "  $name: Invincible has no such file"
-    status=1
-  elif cmp -s "$f" "$vectors/$name"; then
-    echo "  $name: the same"
+    fail "Invincible has no such file"
   else
-    echo "  $name: differs"
-    status=1
+    if [ -f "$jvm" ] && ! cmp -s "$jvm" "$vectors/$name"; then fail "differs"; fi
+    if [ -f "$device" ] && ! cmp -s "$device" "$vectors/$name"; then fail "the Android device test's copy differs from Invincible's"; fi
   fi
-done
-# The Android device test runs its own copy: it must be the same files, from the same commit.
-for f in "$dest"/*.json "$dest/SOURCE"; do
-  if ! cmp -s "$f" "$device_dest/$(basename "$f")"; then
-    echo "  $(basename "$f"): the Android device test's copy differs from the JVM tests'"
-    status=1
-  fi
-done
+  if $ok; then echo "  $name: the same"; fi
+done <<< "$names"
+# Both copies come from the same commit.
+if ! cmp -s "$dest/SOURCE" "$device_dest/SOURCE"; then
+  echo "  SOURCE: the Android device test's differs from the JVM tests'"
+  status=1
+fi
 # Vector files Autobot does not copy (rules the app does not implement): said, not failed.
 others=()
 for f in "$vectors"/*.json; do
-  [ -f "$dest/$(basename "$f")" ] || others+=("$(basename "$f" .json)")
+  name="$(basename "$f")"
+  [ -f "$dest/$name" ] || [ -f "$device_dest/$name" ] || others+=("$(basename "$f" .json)")
 done
 [ ${#others[@]} -eq 0 ] || echo "  not copied (the app has no such rule): ${others[*]}"
 
