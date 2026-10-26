@@ -15,7 +15,7 @@ struct NodeDigestTests {
     }
 
     private var nothing: NodeDigest {
-        NodeDigests.shared.compute(activity: NodeActivity(requests: [], actions: [], facts: [], skills: [], agentProblem: nil, board: []), runs: [], since: 0, exceptDevice: nil)
+        NodeDigests.shared.compute(activity: NodeActivity(requests: [], actions: [], facts: [], skills: [], agentProblem: nil, board: []), runs: [], since: 0, device: nil)
     }
 
     @Test func theFirstLookCoversADayAndShowsTheCard() async {

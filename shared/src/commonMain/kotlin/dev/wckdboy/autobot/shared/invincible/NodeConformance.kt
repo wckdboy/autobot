@@ -58,19 +58,33 @@ object NodeConformance {
         problems
     }
 
-    /** Canonical JSON and signature checks of the node's receipts. */
+    /**
+     * Canonical JSON and signature checks of the node's receipts: `sign` (the canonical form, and
+     * the node's signature of it verifies), `verify` (valid or not) and `canonical` (the RFC 8785
+     * known-answer value and its SHA-256). A kind this runner does not know is a failure.
+     */
     fun receipts(crypto: NodeCrypto, vectors: String): List<String> = cases(vectors).mapNotNull { case ->
         val input = case.getValue("input").jsonObject
         val expect = case.getValue("expect").jsonObject
-        val receipt = input.getValue("receipt")
-        if (input.str("kind") == "sign") {
-            val canonical = NodeReceipts.canonical(receipt)
-            val valid = NodeReceipts.verify(crypto, expect.str("public_key"), receipt, expect.str("signature"))
-            if (canonical == expect.str("canonical") && valid) null
-            else "${case.str("name")}: canonical ${canonical == expect.str("canonical")}, valid $valid"
-        } else {
-            val valid = NodeReceipts.verify(crypto, input.str("public_key"), receipt, input.str("signature"))
-            if (valid == expect.getValue("valid").jsonPrimitive.boolean) null else "${case.str("name")}: valid $valid"
+        when (val kind = input.str("kind")) {
+            "sign" -> {
+                val receipt = input.getValue("receipt")
+                val canonical = NodeReceipts.canonical(receipt)
+                val valid = NodeReceipts.verify(crypto, expect.str("public_key"), receipt, expect.str("signature"))
+                if (canonical == expect.str("canonical") && valid) null
+                else "${case.str("name")}: canonical ${canonical == expect.str("canonical")}, valid $valid"
+            }
+            "verify" -> {
+                val valid = NodeReceipts.verify(crypto, input.str("public_key"), input.getValue("receipt"), input.str("signature"))
+                if (valid == expect.getValue("valid").jsonPrimitive.boolean) null else "${case.str("name")}: valid $valid"
+            }
+            "canonical" -> {
+                val canonical = NodeReceipts.canonical(input.getValue("value"))
+                val sha256 = canonical?.let { hex(crypto.sha256(it.encodeToByteArray())) }
+                if (canonical == expect.str("canonical") && sha256 == expect.str("sha256")) null
+                else "${case.str("name")}\n  expected ${expect.str("canonical")}\n  got      $canonical"
+            }
+            else -> "${case.str("name")}: a case of kind `$kind`, which this runner does not know"
         }
     }
 }

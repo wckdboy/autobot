@@ -199,8 +199,14 @@ models, shared core). Ordered by value.
    agent and its bots are in both apps: chats with approvals, the Bots view and Bot detail with
    each bot's personality, what it knows about you (`USER.md`) and its usage over the last week;
    photos in node chats (downscaled to 1568 px, JPEG), retry on the node and the agent's `kept`
-   notes. Not yet: the node's agent API takes no images in a turn (0.0.14), so photos reach the
-   model only once it does.)*
+   notes. Version 1 node receipts verify (each version under its own prefix), CI checks the
+   vectors against Invincible's `main`, and a pairing keeps what the node granted, so a phone not
+   granted the agent is told `invincible devices grant <phone> shard,agent,audit` (0.0.22 and
+   later, no new pairing) or `invincible pair --capabilities shard,agent,audit`. "While you were
+   away" counts this phone's own requests, the only ones a 0.0.22 node shows it. Not yet: the node's
+   agent API takes no images in a turn (0.0.14), so photos reach the model only once it does; the
+   phone does not recompute the request and answer hashes a version 1 receipt binds; the pairing
+   sheet does not show what the node granted.)*
 7. ✅ **On-device agents on a schedule.** Recipes ("every morning: summarise these feeds over Tor") run
    with BGTaskScheduler / WorkManager on local models, with results as notifications and receipts.
    *(done, both apps: Settings › Recipes with three disabled templates (morning brief from feeds,

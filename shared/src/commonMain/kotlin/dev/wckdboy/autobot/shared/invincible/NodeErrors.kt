@@ -46,7 +46,72 @@ object NodeErrors {
 
     fun unpaired(node: String): String = "$node doesn't know this phone any more: it was unpaired there. Pair it again in Remote."
 
-    fun noAgent(node: String): String = "$node has no Autobot Agent yet. Update Invincible there (`invincible update`), then run `autobot serve`."
+    /**
+     * The command, on the node, for a code that grants a device chat (`shard`), its agent and its
+     * audit log (Invincible's README, Pairing). `shard` stays in it: pairing again with a code
+     * replaces what the device held, so a code without it takes chat, models and receipts away
+     * (spec/pairing.md, Capabilities).
+     */
+    const val GRANT = "invincible pair --capabilities shard,agent,audit"
+
+    /**
+     * [GRANT] plus whatever else the device holds now ([capabilities], as the node sent them at
+     * pairing), so following the advice takes nothing away (`dispatch`, or one this app does not
+     * know yet).
+     */
+    fun grant(capabilities: List<String>?): String {
+        val kept = capabilities.orEmpty().filter { it.isNotBlank() && it !in BASE }.distinct()
+        return if (kept.isEmpty()) GRANT else GRANT + "," + kept.joinToString(",")
+    }
+
+    private val BASE = GRANT.substringAfter("--capabilities ").split(',')
+
+    /**
+     * The command, on the node, that gives [device] (the name it pinned this phone under) the set
+     * [grant] names without a new pairing: `invincible devices grant`, from Invincible 0.0.22 on
+     * (spec/pairing.md, Capabilities). Like a code, it replaces what the device held.
+     */
+    fun devicesGrant(device: String, capabilities: List<String>?): String =
+        "invincible devices grant $device ${grant(capabilities).substringAfter("--capabilities ")}"
+
+    /**
+     * What to run on the node for a grant it withholds: [devicesGrant] when [device] is known, and
+     * [grant] with a new pairing for a node without that command (one with capabilities from
+     * before it, such as an edge build of Invincible's `main`).
+     */
+    private fun howToGrant(capabilities: List<String>?, device: String?): String {
+        val pair = "`${grant(capabilities)}` and pair this phone again with that code."
+        return if (device == null) {
+            "On the node, run $pair"
+        } else {
+            "On the node, run `${devicesGrant(device, capabilities)}`. If it doesn't know that command, run $pair"
+        }
+    }
+
+    /**
+     * Why [node] answers 404 for its Autobot Agent. A node with capabilities (spec/pairing.md)
+     * answers so to a device it did not grant `agent`, as for a path it does not have. With
+     * [capabilities] known (the node sent them at pairing) that is the reason; unknown (null), the
+     * node may be one from before capabilities, which has no such command, so the words also say
+     * to update it. [device] is the name the node pinned this phone under, for [devicesGrant].
+     */
+    fun noAgent(node: String, capabilities: List<String>?, device: String? = null): String {
+        val grant = howToGrant(capabilities, device)
+        return if (capabilities != null) {
+            "$node hasn't given this phone its Autobot Agent. $grant"
+        } else {
+            "$node doesn't let this phone use its Autobot Agent. $grant If it doesn't know `--capabilities`, " +
+                "update Invincible there first (`invincible update`), then run `autobot serve`."
+        }
+    }
+
+    /**
+     * Why [node] answers 404 for its audit log. Only a node with capabilities withholds it, from a
+     * device it did not grant `audit` (spec/pairing.md, Capabilities); the releases before them
+     * (0.0.3 to 0.0.21) give it to every paired device.
+     */
+    fun noAudit(node: String, capabilities: List<String>? = null, device: String? = null): String =
+        "$node hasn't given this phone its request log. ${howToGrant(capabilities, device)}"
 
     /** Why pairing with the node in a code at [addresses] failed. */
     fun pairing(error: Throwable, addresses: List<String>): String = when (error) {

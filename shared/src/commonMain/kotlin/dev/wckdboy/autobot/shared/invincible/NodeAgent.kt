@@ -112,8 +112,16 @@ class NodeAgentException(val status: Int, val type: String?, message: String, va
 /**
  * The Autobot Agent on a paired node, through the gateway's `/v1/agent` (spec/agent.md), over a
  * [transport] to the node (a [NodeHttpTransport]: every request is its own Noise session).
+ * [capabilities] is what the node granted this device at pairing ([PairedNode.capabilities]) and
+ * [device] the name it pinned this device under ([PairedNode.deviceName]), so a refusal says how
+ * to grant what is missing.
  */
-class NodeAgent(private val transport: HttpTransport, private val tag: String = "node agent") {
+class NodeAgent(
+    private val transport: HttpTransport,
+    private val tag: String = "node agent",
+    private val capabilities: List<String>? = null,
+    private val device: String? = null,
+) {
     /** The node's name for messages: the tag's first part (`node-a · agent`). */
     private val nodeName: String get() = tag.substringBefore(" · ").takeIf { " · " in tag } ?: "The node"
 
@@ -214,8 +222,9 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         val body = try {
             request("GET", "")
         } catch (e: NodeAgentException) {
-            // A node without the agent API (an older Invincible) answers 404 for it.
-            if (e.status == 404) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName), e.code) else throw e
+            // A node that did not grant this device `agent` answers as for a path it does not have;
+            // a 404 of the agent's own (`unknown_bot`: no bot to answer) is the agent's, as it said it.
+            if (notMounted(e)) throw noAgent(e) else throw e
         }
         val o = json.parseToJsonElement(body).jsonObject
         return AgentInfo(
@@ -373,12 +382,31 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
      * The node's audit log (Invincible's spec/audit.md), newest first: the requests it answered,
      * each receipt checked against [receiptKey], the key pinned at pairing.
      */
-    suspend fun requests(crypto: NodeCrypto, node: String, receiptKey: String?, limit: Int = 100, since: Long? = null): List<NodeRequest> =
-        NodeActivityParser.requests(request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT), node, receiptKey, crypto)
+    suspend fun requests(crypto: NodeCrypto, node: String, receiptKey: String?, limit: Int = 100, since: Long? = null): List<NodeRequest> {
+        val text = try {
+            request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT)
+        } catch (e: NodeAgentException) {
+            // A node that did not grant this device `audit` answers as for a path it does not have.
+            if (notMounted(e)) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName, capabilities, device), e.code) else throw e
+        }
+        return NodeActivityParser.requests(text, node, receiptKey, crypto)
+    }
 
     /** The agent's action log, newest first: what it asked to do, whether it ran, who decided. */
-    suspend fun actions(limit: Int = 100, since: Long? = null): List<AgentActionEntry> =
-        NodeActivityParser.actions(request("GET", "/actions?limit=$limit" + sinceQuery(since)))
+    suspend fun actions(limit: Int = 100, since: Long? = null): List<AgentActionEntry> {
+        val text = try {
+            request("GET", "/actions?limit=$limit" + sinceQuery(since))
+        } catch (e: NodeAgentException) {
+            // As in [info]: a node that did not grant this device `agent` answers as for a path it
+            // does not have (every node with an agent has this one, from 0.0.3 on).
+            if (notMounted(e)) throw noAgent(e) else throw e
+        }
+        return NodeActivityParser.actions(text)
+    }
+
+    /** The refusal of a node that did not grant this device `agent` ([e], its 404), with how to grant it. */
+    private fun noAgent(e: NodeAgentException) =
+        NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities, device), e.code)
 
     private fun sinceQuery(since: Long?): String = if (since == null) "" else "&since=$since"
 
@@ -407,7 +435,10 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     /** The owner's skills on the node. */
     suspend fun skills(): List<AgentSkill> = NodeActivityParser.skills(request("GET", "/skills"))
 
-    /** All of it at once; the agent's part is empty, with [NodeActivity.agentProblem] set, when it is not running. */
+    /**
+     * All of it at once; the agent's part is empty, with [NodeActivity.agentProblem] set, when it is
+     * not running or the node did not grant this device `agent`.
+     */
     suspend fun activity(crypto: NodeCrypto, node: String, receiptKey: String?): NodeActivity {
         val requests = requests(crypto, node, receiptKey)
         return try {
@@ -465,8 +496,11 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
     }
 
     companion object {
-        /** [NodeAgentException.type] of [info] on a node without the agent API. */
+        /** [NodeAgentException.type] of [info] and [actions] on a node that did not grant this device its agent (or has none). */
         const val NO_AGENT = "no_agent"
+
+        /** [NodeAgentException.type] of [requests] on a node that did not grant this device its audit log. */
+        const val NO_AUDIT = "no_audit"
         private const val BASE = "http://invincible/v1/agent"
         private const val AUDIT = "http://invincible/v1/audit"
         private const val MAX_BYTES = 8L * 1024 * 1024
@@ -474,6 +508,19 @@ class NodeAgent(private val transport: HttpTransport, private val tag: String = 
         private val json = Json { ignoreUnknownKeys = true }
 
         private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+
+        /** The message of the node's answer for a path it does not have (its router's fallback). */
+        private const val NO_SUCH_ENDPOINT = "no such endpoint"
+
+        /**
+         * Whether [e] is the node's answer for a path it does not have, which is also its answer to
+         * a device for a route it did not grant, byte for byte (spec/pairing.md, Transport): 404
+         * `{"error":{"message":"no such endpoint","type":"not_found","code":"not_found"}}`, or a
+         * 404 with no error at all from a node whose router had no fallback of its own (0.0.1 and
+         * 0.0.2). A 404 that names its own error (the agent's `unknown_bot`) is not that.
+         */
+        private fun notMounted(e: NodeAgentException): Boolean =
+            e.status == 404 && ((e.type == null && e.code == null) || (e.type == "not_found" && e.message == NO_SUCH_ENDPOINT))
 
         private fun errorMessage(status: Int, body: String?): NodeAgentException {
             val error = runCatching { json.parseToJsonElement(body.orEmpty()).jsonObject["error"]?.jsonObject }.getOrNull()

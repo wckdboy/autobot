@@ -1,0 +1,19 @@
+# Daily: whether the conformance vectors Autobot runs are still the ones on Invincible's main
+# (scripts/check-invincible-spec.sh). A red run means a rule changed on the node's side: sync them
+# (scripts/sync-invincible-spec.sh), make the JVM and iOS tests pass, and only then let the node
+# release reach users. Receipts v1 went unnoticed for 86 commits without this.
+name: invincible-spec
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Invincible's main has the same vectors
+        run: scripts/check-invincible-spec.sh main
