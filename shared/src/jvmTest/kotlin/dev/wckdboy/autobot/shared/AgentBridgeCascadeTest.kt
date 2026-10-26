@@ -6,6 +6,7 @@ import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.SystemModelStatus
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -56,6 +57,20 @@ class AgentBridgeCascadeTest {
         }
     }
 
+    /** A bridge on a workspace of its own; both are gone after [block]. */
+    private fun withBridge(block: suspend (AgentBridge) -> Unit) = runBlocking {
+        val workspace = Files.createTempDirectory("ws").toFile()
+        val bridge = AgentBridge(workspace.path, Providers, NoTransport, NoLocal, MemoryStore(), null, { null })
+        try {
+            block(bridge)
+        } finally {
+            val done = CompletableDeferred<Unit>()
+            bridge.shutdown { done.complete(Unit) }
+            withTimeout(5_000) { done.await() }
+            workspace.deleteRecursively()
+        }
+    }
+
     /** The chip of a plain chat (tools off) on [provider]. */
     private suspend fun AgentBridge.chip(provider: String): String {
         val frames = Frames()
@@ -67,8 +82,7 @@ class AgentBridgeCascadeTest {
     }
 
     @Test
-    fun aPlainChatOnTheUsersNodeHasThePhoneFirstChip() = runBlocking {
-        val bridge = AgentBridge(Files.createTempDirectory("ws").toString(), Providers, NoTransport, NoLocal, MemoryStore(), null, { null })
+    fun aPlainChatOnTheUsersNodeHasThePhoneFirstChip() = withBridge { bridge ->
         bridge.setCascadeDefault("AUTO")
         assertEquals("AUTO", bridge.chip("cloud"))
         // The node is not a cloud route, but the cascade applies there (LocalFirstCascade's owned).
@@ -76,12 +90,10 @@ class AgentBridgeCascadeTest {
         // On the phone or a loopback server there is nothing to cascade to.
         assertEquals("NONE", bridge.chip("phone"))
         assertEquals("NONE", bridge.chip("loopback"))
-        bridge.shutdown { }
     }
 
     @Test
-    fun anAgentRunOnTheNodeHasNoChip() = runBlocking {
-        val bridge = AgentBridge(Files.createTempDirectory("ws").toString(), Providers, NoTransport, NoLocal, MemoryStore(), null, { null })
+    fun anAgentRunOnTheNodeHasNoChip() = withBridge { bridge ->
         bridge.setCascadeDefault("NEVER")
         val frames = Frames()
         val handle = bridge.openStream("run", "node", "auto", frames)
@@ -89,6 +101,5 @@ class AgentBridgeCascadeTest {
         assertEquals(true, frames.frames.last().toolsEnabled)
         assertEquals("NONE", frames.frames.last().cascade)
         handle.cancel()
-        bridge.shutdown { }
     }
 }

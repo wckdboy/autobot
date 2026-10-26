@@ -39,7 +39,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The cloud follow-up is a turn of its own, opened by a [CASCADE_ESCALATION] context message: the
  * phone's answer stays on screen, the cloud model answers the user's prompt afresh (the phone's
  * answer leaves the model surface, see `deriveMessages`), and the request goes through
- * `llm/stream` like any other, so the redaction gateway hides personal data from it. Both turns'
+ * `llm/stream` like any other, so the redaction gateway hides personal data from it. A follow-up
+ * to the user's own node is not redacted by the phone; it goes marked private instead. Both turns'
  * receipts say what happened and why ([ReceiptCascade]); never any content.
  *
  * Not in play for agent runs (tools on), subagents, chats on "This phone" or a loopback server,
@@ -49,7 +50,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @param onDevice the on-device chat route (the installed default model), null when none.
  * @param cloud whether a provider's requests leave the phone.
  * @param owned whether a provider is the user's own paired node: then the follow-up goes there,
- *   marked private in [privateTurns] so the node keeps it on its own models ("phone → my node").
+ *   marked private in [privateTurns] so the node never runs it on a cloud model ("phone → my node").
  * @param selfCheck whether the judge may ask the on-device model to grade its answer (else rules only).
  */
 class LocalFirstCascade(
@@ -104,9 +105,9 @@ class LocalFirstCascade(
         if (config.toolsEnabled || !(cloudRoute || owned)) NONE else CascadePolicy.resolve(config.cascade, defaultPolicy()).name
 
     /**
-     * "Ask <cloud model>": sends the prompt of the offered answer ([pendingOffer]) to the chat's
-     * cloud model as a follow-up turn. False when there is no offer (another turn started) or a
-     * turn is running.
+     * "Ask <model>": sends the prompt of the offered answer ([pendingOffer]) to the chat's model (a
+     * cloud one, or the user's node) as a follow-up turn. False when there is no offer (another
+     * turn started) or a turn is running.
      */
     fun escalate(agent: Agent): Boolean {
         if (agent.status.value == AgentStatus.RUNNING) return false
@@ -182,7 +183,7 @@ class LocalFirstCascade(
                 turn, CascadePolicy.parse(origin?.policy) ?: policyOf(agent), CascadeRoute.NotApplicable, null,
                 CascadeRisk(origin?.risk.orEmpty()), "", trigger = marker.text.ifBlank { TRIGGER_ASKED }, origin = origin, owned = toNode,
             )
-            // The follow-up to the user's own node stays there.
+            // The follow-up to the user's own node goes marked private.
             if (toNode) privateTurns?.mark(TurnTrace(agent.id, turn))
             lock.withLock { turns[agent.id] = state }
             return null

@@ -31,22 +31,25 @@ enum class CascadePolicy(
 
     /**
      * The phone answers; a weak answer to a low-risk prompt goes to the cloud model on its own.
-     * With a node, a weak answer goes there on its own, a sensitive prompt included.
+     * With a node, a weak answer goes there on its own, a sensitive prompt included; an answer the
+     * judge is unsure about is offered.
      */
     AUTO(
         "phone first · auto", "Auto", "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks.",
-        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, personal prompts included.",
+        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
+            "When the phone isn't sure, you can ask your node.",
     ),
 
     /**
-     * The phone answers and nothing goes to the cloud, even when its answer is weak. With a node,
-     * a weak answer, or a prompt the phone cannot answer, still goes there (marked private).
+     * The phone answers and nothing goes to the cloud, even when its answer is weak. With a node it
+     * works as [AUTO] does there, without the self-check, and a prompt the phone cannot answer goes
+     * to the node too (marked private) instead of being refused.
      */
     NEVER(
         "phone only", "Never", "This phone answers. Nothing goes to the cloud.",
         nodeChip = "phone · my node",
-        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, and so does a prompt the phone can't answer. " +
-            "Nothing goes to a cloud model.",
+        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
+            "When the phone isn't sure, you can ask your node. Even a prompt the phone can't answer goes there.",
     ),
     ;
 
@@ -79,7 +82,7 @@ sealed interface CascadeRoute {
     /** The phone answers first. */
     data object Local : CascadeRoute
 
-    /** The cloud model answers directly, because the phone cannot ([reason]: `no-local-model`, `too-long`). */
+    /** The chat's model (a cloud one, or the user's node) answers directly, because the phone cannot ([reason]: `no-local-model`, `too-long`). */
     data class Direct(val reason: String) : CascadeRoute
 
     /** The turn does not run: "Never" with no on-device model ([message] says so). */
@@ -100,10 +103,12 @@ object CascadeRoutes {
 
     /**
      * @param policy the chat's policy ([CascadePolicy.resolve]).
-     * @param cloudRoute whether the chat's model is a cloud one (not "This phone", not loopback).
+     * @param cloudRoute whether the chat's model is a cloud one (not "This phone", not loopback, not the user's node).
      * @param toolsEnabled agent runs (tools on) never cascade in this version: plain chat only.
      * @param hasLocalModel whether an on-device chat model is installed.
      * @param promptTokens the request's estimated size; [localWindow] the on-device model's window (null: unknown).
+     * @param owned whether the chat's model is the user's own paired node: the cascade applies there
+     *   too, and "Never" does not keep a turn from it.
      */
     fun route(
         policy: CascadePolicy,

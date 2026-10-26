@@ -1461,7 +1461,7 @@ class AgentBridge(
         a.chooseCascade(cascade.override(chosen))
     }
 
-    /** "Ask <cloud model>" under the phone's answer: sends that prompt to the chat's cloud model as a follow-up. */
+    /** "Ask <model>" under the phone's answer: sends that prompt to the chat's model (a cloud one, or the user's node) as a follow-up. */
     fun escalate(sessionId: String) = withAgent(sessionId) { a -> cascade.escalate(a) }
 
     /**

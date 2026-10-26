@@ -236,7 +236,7 @@ class CascadeRulesTest {
         assertEquals(CascadeAction.KEPT, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, low))
         assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, sensitive))
         assertEquals("phone → my node · you asked", CascadeLabels.followUp("asked", emptyList(), "node"))
-        assertTrue(CascadeLabels.sheetNote("studio", node = true).contains("marked private: your node keeps these on its own models, never a cloud one"))
+        assertTrue(CascadeLabels.sheetNote("studio", node = true).contains("Anything \"phone first\" sends your node is marked private, so it never runs on a cloud model."))
         assertFalse(CascadeLabels.sheetNote("studio", node = true).contains("hardware you own"))
     }
 
@@ -253,23 +253,33 @@ class CascadeRulesTest {
         // "Never" on a node: the node still answers a weak answer's prompt, or one the phone cannot answer.
         assertEquals("phone · my node", CascadePolicy.NEVER.nodeChip)
         assertEquals(
-            "This phone answers first. A weak answer goes to your node on its own, and so does a prompt the phone can't answer. " +
-                "Nothing goes to a cloud model.",
+            "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
+                "When the phone isn't sure, you can ask your node. Even a prompt the phone can't answer goes there.",
             CascadePolicy.NEVER.nodeDetail,
         )
+        val health = CascadeRisk(listOf(CascadeRisk.HEALTH))
         assertEquals(CascadeRoute.Direct(CascadeRoutes.NO_LOCAL_MODEL), CascadeRoutes.route(CascadePolicy.NEVER, false, false, hasLocalModel = false, owned = true))
-        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, CascadeRisk(emptyList()), owned = true))
-        // "Auto" on a node sends a personal prompt on too.
-        assertEquals("This phone answers first. A weak answer goes to your node on its own, personal prompts included.", CascadePolicy.AUTO.nodeDetail)
-        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, CascadeRisk(listOf(CascadeRisk.HEALTH)), owned = true))
+        assertEquals(CascadeRoute.Direct(CascadeRoutes.TOO_LONG), CascadeRoutes.route(CascadePolicy.NEVER, false, false, true, 1_000, 1_000, owned = true))
+        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, health, owned = true))
+        assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.UNSURE, health, owned = true))
+        // "Auto" on a node sends a personal prompt on too, and offers when the phone isn't sure.
+        assertEquals(
+            "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
+                "When the phone isn't sure, you can ask your node.",
+            CascadePolicy.AUTO.nodeDetail,
+        )
+        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, health, owned = true))
+        assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.UNSURE, health, owned = true))
+        // Everything "Auto" says holds under "Never": on a node they differ only in the judge's self-check.
+        assertTrue(CascadePolicy.NEVER.nodeDetail.startsWith(CascadePolicy.AUTO.nodeDetail))
         assertEquals("This phone answers first. When its answer looks weak, you can ask your node.", CascadePolicy.ASK.nodeDetail)
         // Where nothing differs, the words are the same.
         assertEquals(CascadePolicy.OFF.detail, CascadePolicy.OFF.nodeDetail)
         for (p in listOf(CascadePolicy.OFF, CascadePolicy.ASK, CascadePolicy.AUTO)) assertEquals(p.chip, p.nodeChip)
-        // No node line names the cloud as where an answer comes from, or claims the phone alone answers.
+        // No node line speaks of the cloud (the sheet's note says the node keeps these off it), or claims the phone alone answers.
         for (p in CascadePolicy.entries) {
             assertFalse(p.name, "phone only" in p.nodeChip)
-            assertFalse(p.name, "ask the cloud" in p.nodeDetail || "goes to the cloud" in p.nodeDetail)
+            assertFalse(p.name, "cloud" in p.nodeDetail)
         }
     }
 }

@@ -58,8 +58,8 @@ object CascadeLabels {
      */
     fun sheetNote(model: String, node: Boolean = false): String =
         if (node) {
-            "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "your node" }} answers below it, " +
-                "marked private: your node keeps these on its own models, never a cloud one. The receipt says why."
+            "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "your node" }} answers below it. " +
+                "Anything \"phone first\" sends your node is marked private, so it never runs on a cloud model. The receipt says why."
         } else {
             "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "the cloud model" }} answers below it, " +
                 "through redaction when it is on. The receipt says why."

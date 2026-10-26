@@ -33,7 +33,7 @@ class NodeHttpTransport(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     /** Told the node's request id (`invincible-request-id`) of each answer made for an agent turn. */
     private val onRequestId: (suspend (TurnTrace, String) -> Unit)? = null,
-    /** Turns that must not leave the node: their requests carry `invincible-private: 1`. */
+    /** Turns that must never run on a cloud model: their requests carry `invincible-private: 1`. */
     private val privateTurns: PrivateTurns? = null,
     /** The node's name and addresses, for the words a failure is shown in ([NodeErrors]). */
     private val node: String = "the node",
@@ -96,7 +96,7 @@ class NodeHttpTransport(
     companion object {
         /**
          * The request as HTTP/1.1, one exchange per session (`Connection: close`); [private] adds
-         * `invincible-private: 1` (the node keeps it on its own models).
+         * `invincible-private: 1` (the node's router never runs it on a cloud model).
          */
         fun encode(request: HttpRequestSpec, private: Boolean = false): ByteArray {
             val target = request.url.substringAfter("://").let { rest -> rest.indexOf('/').let { if (it < 0) "/" else rest.substring(it) } }
