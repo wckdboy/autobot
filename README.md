@@ -6,7 +6,7 @@
 **Private AI on your phone and your machine.** An agent for Android and iOS that runs models on
 the device (NPU, GPU, CPU) and treats every network request as something you opt into, can see,
 and can switch off. With [Invincible](https://github.com/wckdboy/invincible), your own node, it
-works on a machine you own too.
+works on a machine you own or a server you rent too.
 
 [Install](#install) · [Privacy](#privacy-stance) · [Your node](#your-own-node-invincible--in-progress) ·
 [Building](#building) · [Releases](https://github.com/wckdboy/autobot/releases) · [Security](SECURITY.md) ·
@@ -112,8 +112,10 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
   on-device model first; a small judge (rules plus one short self-check on the same model)
   decides whether that answer is good enough. "Ask" then offers the cloud model, "Auto" sends a
   weak answer's prompt on its own unless it looks personal, "Never" keeps everything on the
-  phone. The cloud request goes through redaction, both answers stay on screen, and the receipt
-  says why. Shared code (`dev.wckdboy.autobot.shared.cascade`).
+  phone, or, with your paired node as the chat's model, on the phone and that node (see
+  [Your own node](#your-own-node-invincible--in-progress)). The cloud request goes through
+  redaction, both answers stay on screen, and the receipt says why. Shared code
+  (`dev.wckdboy.autobot.shared.cascade`).
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,
   secrets and caches. The process is then killed.
@@ -205,9 +207,10 @@ model, else the on-device model, and the answer says so.
 
 ## Your own node (Invincible) — in progress
 
-[Invincible](https://github.com/wckdboy/invincible) is a self-hosted node: a desktop or GPU box
-that serves open models and, when its rules allow, frontier models behind redaction. It is the
-"my own cloud" of ROADMAP Phase 2.5 #6, the tier between this phone and the cloud.
+[Invincible](https://github.com/wckdboy/invincible) is a self-hosted node: a desktop, a GPU box or
+a server you rent that serves open models and, when its rules allow, frontier models behind
+redaction. It is the "my own cloud" of ROADMAP Phase 2.5 #6, the tier between this phone and the
+cloud.
 
 The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
 
@@ -336,11 +339,14 @@ runs this on Invincible's own signed receipt vectors, tampered and mis-keyed cop
 
 **Phone first, then my node.** "Phone first" works on a node chat too: this phone answers first,
 and when the judge finds its answer weak, the prompt goes to your node instead of a cloud model.
-The node is hardware you own, so a sensitive prompt may go there on its own and "Never" (nothing
-to the cloud) allows it. These turns are sent with `invincible-private: 1`, so the node keeps
-them on its own models and never forwards them to a cloud backend. The notice reads
-`phone → my node`, and the receipt says the turn was sent to your node and kept there. Nothing
-is redacted for the node; it redacts what it sends on itself.
+The node is yours, on hardware you own or on a server you rent, so "Never" (nothing to the cloud)
+does not keep a prompt from it: under "Never", as under "Auto", a weak answer's prompt goes to the
+node on its own, a sensitive one included, and an answer the judge is only unsure about is
+offered ("Ask" offers both). With no on-device chat model, or a chat too long for it, the node
+answers directly. These turns are sent with `invincible-private: 1`, so the node keeps them on its
+own models and never forwards them to a cloud backend: here "never" means never to a cloud model.
+The notice reads `phone → my node`, and the receipt says the turn was sent to your node and kept
+there. Nothing is redacted for the node; it redacts what it sends on itself.
 
 **On iOS too.** Remote › *Pair a node* (or Remote › Providers › + › *My node (Invincible)*) opens
 the same pairing sheet (paste the code, or open an `invincible://pair?…` link: the Camera app's QR
