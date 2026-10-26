@@ -51,11 +51,15 @@ object CascadeLabels {
     /** The button of the offer: "Ask DeepSeek V3". */
     fun ask(model: String): String = "Ask ${model.ifBlank { "the cloud" }}"
 
-    /** The small print of the chat's "phone first" choice; [node]: the chat's model is the user's own node. */
+    /**
+     * The small print of the chat's "phone first" choice; [node]: the chat's model is the user's own
+     * node. What the cascade sends there goes with `invincible-private: 1` ([LocalFirstCascade]),
+     * and the node's router never runs such a request on a cloud model (Invincible's spec/routing.md).
+     */
     fun sheetNote(model: String, node: Boolean = false): String =
         if (node) {
             "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "your node" }} answers below it, " +
-                "on hardware you own: it never sends these on to a cloud model. The receipt says why."
+                "marked private: your node keeps these on its own models, never a cloud one. The receipt says why."
         } else {
             "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "the cloud model" }} answers below it, " +
                 "through redaction when it is on. The receipt says why."

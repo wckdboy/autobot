@@ -5,9 +5,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Agent turns whose requests to a paired node must stay on hardware the user owns: the node gets
- * them with `invincible-private: 1`, and its router never sends them on to a cloud model
- * (Invincible's spec/routing.md). The "phone first" cascade marks the turns it hands to a node.
+ * Agent turns whose requests to a paired node must stay on that node: the node gets them with
+ * `invincible-private: 1`, and its router never sends them on to a cloud model (Invincible's
+ * spec/routing.md). The "phone first" cascade marks the turns it hands to a node.
  */
 class PrivateTurns(private val max: Int = 256) {
     private val lock = Mutex()

@@ -227,7 +227,7 @@ class AgentHost @Inject constructor(
         enabled = { redactionDefault.value },
     )
 
-    /** Settings → "Phone first" (off by default): what plain chats on a cloud model without their own choice do. */
+    /** Settings → "Phone first" (off by default): what plain chats on a cloud model or the user's node without their own choice do. */
     val cascadeDefault: StateFlow<CascadePolicy> = settings.settings.map { it.cascade }
         .stateIn(scope, SharingStarted.Eagerly, AppSettings().cascade)
 

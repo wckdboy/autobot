@@ -646,7 +646,7 @@ final class SharedAgentRuntime: AgentRuntime {
         bridge.setRedaction(sessionId: id, enabled: enabled)
     }
 
-    /// Settings → "Phone first" (OFF by default): plain cloud chats without their own choice follow it.
+    /// Settings → "Phone first" (OFF by default): plain chats on a cloud model or the user's node without their own choice follow it.
     func setCascadeDefault(_ policy: String) {
         bridge.setCascadeDefault(policy: policy)
     }

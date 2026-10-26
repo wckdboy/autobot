@@ -33,7 +33,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The local-first cascade (ROADMAP Phase 2.5, item 3): in a plain chat (tools off) on a cloud
  * model, "This phone" answers first; a small judge ([CascadeJudge]) decides whether its answer is
  * good enough, and only then may the prompt go to the cloud: offered ("Ask"), or on its own
- * ("Auto", low-risk prompts only, [CascadeRiskClassifier]).
+ * ("Auto", low-risk prompts only, [CascadeRiskClassifier]). On the user's own node ([owned]) the
+ * node takes the cloud's place, with rules of its own ([CascadeRoutes]).
  *
  * The cloud follow-up is a turn of its own, opened by a [CASCADE_ESCALATION] context message: the
  * phone's answer stays on screen, the cloud model answers the user's prompt afresh (the phone's
@@ -95,10 +96,12 @@ class LocalFirstCascade(
 
     /**
      * The chat bar's chip: the effective policy's name, or `NONE` when the cascade cannot apply
-     * (an agent run, or a chat whose model is on the phone or a loopback server).
+     * (an agent run, or a chat whose model is on the phone or a loopback server). [cloudRoute]: the
+     * chat's model is a cloud one; [owned]: it is the user's own paired node, where the cascade
+     * applies too ([CascadeRoutes.route]).
      */
-    fun chipState(config: AgentConfig, cloudRoute: Boolean): String =
-        if (config.toolsEnabled || !cloudRoute) NONE else CascadePolicy.resolve(config.cascade, defaultPolicy()).name
+    fun chipState(config: AgentConfig, cloudRoute: Boolean, owned: Boolean): String =
+        if (config.toolsEnabled || !(cloudRoute || owned)) NONE else CascadePolicy.resolve(config.cascade, defaultPolicy()).name
 
     /**
      * "Ask <cloud model>": sends the prompt of the offered answer ([pendingOffer]) to the chat's

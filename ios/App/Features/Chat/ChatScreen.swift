@@ -197,7 +197,7 @@ struct ChatScreen: View {
                 .defaultScrollAnchor(.bottom, for: .sizeChanges)
                 .scrollDismissesKeyboard(.interactively)
                 // The bottom stack rides on the keyboard; the transcript's end stays right above it.
-                .safeAreaInset(edge: .bottom, spacing: 0) { bottomStack(session: session, transcript: transcript, settings: settings, running: running, planShown: planShown) }
+                .safeAreaInset(edge: .bottom, spacing: 0) { bottomStack(session: session, transcript: transcript, settings: settings, running: running, planShown: planShown, onNode: routing.provider?.kind == .invincibleNode) }
                 // Generative UI follows every new transcript: a sent form locks, an updated one unlocks.
                 .onChange(of: transcript, initial: true) { _, t in model.a2ui.sync(t) }
                 .onChange(of: transcript.items.last?.key) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
@@ -258,7 +258,7 @@ struct ChatScreen: View {
             .presentationDetents([.height(300)])
         }
         .sheet(isPresented: $showCascade) {
-            CascadeSheet(policy: settings.cascade, model: routing.modelLabel ?? routing.selectedModel ?? "") {
+            CascadeSheet(policy: settings.cascade, model: routing.modelLabel ?? routing.selectedModel ?? "", node: routing.provider?.kind == .invincibleNode) {
                 app.agent.setCascade(conversationId, $0)
             }
             .presentationDetents([.height(300)])
@@ -317,7 +317,7 @@ struct ChatScreen: View {
         if let session { LiveSlot(session: session) }
         // The cascade's offer sits under the phone's answer.
         if let offer = transcript.projection.cascadeOffer, !running, !isLive {
-            CascadeOfferRow(offer: offer, model: routing.modelLabel ?? routing.selectedModel ?? "") {
+            CascadeOfferRow(offer: offer, model: routing.modelLabel ?? routing.selectedModel ?? "", node: routing.provider?.kind == .invincibleNode) {
                 app.agent.escalate(conversationId)
             }
             .id("cascade-offer:\(offer.turn)")
@@ -326,9 +326,9 @@ struct ChatScreen: View {
     }
 
     /// Plan, question, chips and the composer, under the transcript. While typing only the
-    /// question being answered and the composer stay.
+    /// question being answered and the composer stay. [onNode]: the chat's model is the user's own node.
     @ViewBuilder
-    private func bottomStack(session: AgentSession?, transcript: SessionTranscript, settings: SessionSettings, running: Bool, planShown: Bool) -> some View {
+    private func bottomStack(session: AgentSession?, transcript: SessionTranscript, settings: SessionSettings, running: Bool, planShown: Bool, onNode: Bool) -> some View {
         VStack(spacing: 0) {
             if planShown && Composer.shared.shows(part: .plan, keyboardUp: keyboardUp) {
                 TodoPanel(todos: transcript.projection.todos)
@@ -338,7 +338,7 @@ struct ChatScreen: View {
             }
             if Composer.shared.shows(part: .chips, keyboardUp: keyboardUp) {
                 PolicyLine(
-                    settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow,
+                    settings: settings, contextUsed: transcript.contextUsed, contextWindow: transcript.projection.contextWindow, onNode: onNode,
                     onThink: { app.agent.setThinking(conversationId, settings.thinking.next) },
                     onThinkSheet: { showThink = true },
                     onRedact: { app.agent.setRedaction(conversationId, settings.redaction != "ON") },
@@ -1008,6 +1008,8 @@ struct PolicyLine: View {
     let settings: SessionSettings
     let contextUsed: Int?
     let contextWindow: Int?
+    /// The chat's model is the user's own node: the cascade chip says what happens there.
+    var onNode = false
     var onThink: () -> Void = {}
     var onThinkSheet: () -> Void = {}
     var onRedact: () -> Void = {}
@@ -1022,7 +1024,7 @@ struct PolicyLine: View {
     @ViewBuilder private func chips(wrapping: Bool) -> some View {
         if settings.thinkingSupport != "NONE" { ThinkChip(choice: settings.thinking, onTap: onThink, onLongPress: onThinkSheet).fixedSize(horizontal: !wrapping, vertical: true) }
         if settings.redaction != "NONE" { RedactChip(on: settings.redaction == "ON", onTap: onRedact).fixedSize(horizontal: !wrapping, vertical: true) }
-        if settings.cascade != "NONE" { CascadeChip(policy: settings.cascade, onTap: onCascade).fixedSize(horizontal: !wrapping, vertical: true) }
+        if settings.cascade != "NONE" { CascadeChip(policy: settings.cascade, onNode: onNode, onTap: onCascade).fixedSize(horizontal: !wrapping, vertical: true) }
     }
 
     @ViewBuilder private var context: some View {
@@ -1133,30 +1135,35 @@ private struct RedactChip: View {
     }
 }
 
-/// `▮ PHONE FIRST · ASK` while this phone answers a plain cloud chat first, `PHONE FIRST OFF`
-/// dimmed otherwise (the shared `CascadePolicy` chip words). A tap opens the choice for this chat.
+/// `▮ PHONE FIRST · ASK` while this phone answers a plain chat on a cloud model or the user's own
+/// node ([onNode]) first, `PHONE FIRST OFF` dimmed otherwise (the shared `CascadePolicy` chip
+/// words). A tap opens the choice for this chat.
 private struct CascadeChip: View {
     let policy: String
+    let onNode: Bool
     let onTap: () -> Void
 
     var body: some View {
         let p = CascadePolicy.companion.parse(value: policy) ?? CascadePolicy.off
         let on = p.localFirst
-        Label(p.chip.prefix(1).uppercased() + p.chip.dropFirst(), systemImage: "iphone")
+        let chip = onNode ? p.nodeChip : p.chip
+        Label(chip.prefix(1).uppercased() + chip.dropFirst(), systemImage: "iphone")
             .chipLook(active: on)
             .onTapGesture(perform: onTap)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Phone first")
-            .accessibilityValue("\(p.title). \(p.detail)")
+            .accessibilityValue("\(p.title). \(onNode ? p.nodeDetail : p.detail)")
             .accessibilityHint("Tap to choose for this chat.")
             .accessibilityAddTraits(.isButton)
     }
 }
 
 /// Under the phone's answer when the judge was not convinced: why, and "Ask <cloud model>".
+/// [node]: the chat's model is the user's own node, which gets the prompt marked private.
 struct CascadeOfferRow: View {
     let offer: CascadeOffer
     let model: String
+    let node: Bool
     let onAsk: () -> Void
 
     var body: some View {
@@ -1166,7 +1173,7 @@ struct CascadeOfferRow: View {
             Button(CascadeLabels.shared.ask(model: model), action: onAsk)
                 .glassProminentButton()
                 .controlSize(.small)
-                .accessibilityHint("Sends this prompt to the cloud model, redacted when redaction is on.")
+                .accessibilityHint(node ? "Sends this prompt to your node, marked private." : "Sends this prompt to the cloud model, redacted when redaction is on.")
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1175,15 +1182,18 @@ struct CascadeOfferRow: View {
 }
 
 /// The chat's "phone first" policy: off, ask, auto or never, each with its line, and the scope.
+/// [node]: the chat's model is the user's own node.
 struct CascadeSheet: View {
     let policy: String
     let model: String
+    let node: Bool
     let onChoose: (String) -> Void
     @State private var current: String
 
-    init(policy: String, model: String, onChoose: @escaping (String) -> Void) {
+    init(policy: String, model: String, node: Bool, onChoose: @escaping (String) -> Void) {
         self.policy = policy
         self.model = model
+        self.node = node
         self.onChoose = onChoose
         _current = State(initialValue: policy)
     }
@@ -1203,8 +1213,8 @@ struct CascadeSheet: View {
                     .labelsHidden()
                 } footer: {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(chosen.detail)
-                        Text(CascadeLabels.shared.sheetNote(model: model, node: false))
+                        Text(node ? chosen.nodeDetail : chosen.detail)
+                        Text(CascadeLabels.shared.sheetNote(model: model, node: node))
                     }
                 }
             }

@@ -496,13 +496,13 @@ class ChatViewModel @AssistedInject constructor(
             voice = v.mode,
             changes = snap.projection.changes,
             thinking = snap.thinking,
-            // The node redacts what it sends on itself; the phone has nothing to hide from hardware the user owns.
+            // The node redacts what it sends on itself; the phone has nothing to hide from the user's own node.
             redaction = when {
                 provider == null || isLocal || loopback || provider.kind == ProviderKind.INVINCIBLE_NODE -> RedactionUi.NONE
                 snap.redacting -> RedactionUi.ON
                 else -> RedactionUi.OFF
             },
-            // Plain chats on a cloud model only (agent runs are not cascaded in this version).
+            // Plain chats on a cloud model or the user's own node only (agent runs are not cascaded in this version).
             cascade = if (provider == null || isLocal || loopback || snap.toolsEnabled) null else snap.cascade,
             cascadeOffer = snap.projection.cascadeOffer.takeIf { !snap.running },
             onNode = provider?.kind == ProviderKind.INVINCIBLE_NODE,

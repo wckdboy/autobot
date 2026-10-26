@@ -13,7 +13,7 @@ struct SessionSettings: Equatable, Sendable {
     var thinkingSupport = "NONE"
     /// The redaction gateway for the chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide).
     var redaction = "NONE"
-    /// The local-first cascade policy of a plain cloud chat (OFF, ASK, AUTO, NEVER), NONE where it cannot apply.
+    /// The local-first cascade policy of a plain chat on a cloud model or the user's own node (OFF, ASK, AUTO, NEVER), NONE where it cannot apply.
     var cascade = "NONE"
 
     var permissionPreset: PermissionPreset { PermissionPreset.fromLabel(permission) ?? .workspace }

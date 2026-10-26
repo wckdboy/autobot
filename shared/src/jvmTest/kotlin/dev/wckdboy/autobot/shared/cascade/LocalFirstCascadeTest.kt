@@ -255,7 +255,7 @@ class LocalFirstCascadeTest {
             val seen = mutableListOf<Boolean>()
             s.cloud.onCall = { seen += private.isPrivate(dev.wckdboy.autobot.agent.core.TurnTrace.current()!!) }
             s.phone.answer = { "I don't know." }
-            // Sensitive: to the cloud "Auto" would only offer; the node is hardware the user owns.
+            // Sensitive: to the cloud "Auto" would only offer; the node gets it as private, off cloud models.
             s.agent.followup("What dose of sertraline should I take?")
             advanceUntilIdle()
 
@@ -421,9 +421,12 @@ class LocalFirstCascadeTest {
         assertEquals(1, s.cloud.chats.size)
         assertTrue(s.phone.calls.isEmpty())
         assertNull(s.agent.cascades().single())
-        assertEquals(LocalFirstCascade.NONE, s.cascade.chipState(s.agent.config.value, cloudRoute = true))
-        assertEquals(LocalFirstCascade.NONE, s.cascade.chipState(s.agent.config.value.copy(toolsEnabled = false), cloudRoute = false))
-        assertEquals("AUTO", s.cascade.chipState(s.agent.config.value.copy(toolsEnabled = false), cloudRoute = true))
+        assertEquals(LocalFirstCascade.NONE, s.cascade.chipState(s.agent.config.value, cloudRoute = true, owned = false))
+        assertEquals(LocalFirstCascade.NONE, s.cascade.chipState(s.agent.config.value.copy(toolsEnabled = false), cloudRoute = false, owned = false))
+        assertEquals("AUTO", s.cascade.chipState(s.agent.config.value.copy(toolsEnabled = false), cloudRoute = true, owned = false))
+        // The user's own node is not a cloud route, and a plain chat on it has the chip (as on Android).
+        assertEquals("AUTO", s.cascade.chipState(s.agent.config.value.copy(toolsEnabled = false), cloudRoute = false, owned = true))
+        assertEquals(LocalFirstCascade.NONE, s.cascade.chipState(s.agent.config.value, cloudRoute = false, owned = true))
     }
 
     @Test

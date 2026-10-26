@@ -236,6 +236,40 @@ class CascadeRulesTest {
         assertEquals(CascadeAction.KEPT, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, low))
         assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, sensitive))
         assertEquals("phone → my node · you asked", CascadeLabels.followUp("asked", emptyList(), "node"))
-        assertTrue(CascadeLabels.sheetNote("studio", node = true).contains("never sends these on to a cloud model"))
+        assertTrue(CascadeLabels.sheetNote("studio", node = true).contains("marked private: your node keeps these on its own models, never a cloud one"))
+        assertFalse(CascadeLabels.sheetNote("studio", node = true).contains("hardware you own"))
+    }
+
+    /** On a node chat the chip and the line say what happens there; a cloud chat's words do not change. */
+    @Test
+    fun aNodeChatsWordsSayWhatTheNodeDoes() {
+        // Cloud chats, as before.
+        assertEquals("phone only", CascadePolicy.NEVER.chip)
+        assertEquals("This phone answers. Nothing goes to the cloud.", CascadePolicy.NEVER.detail)
+        assertEquals(
+            "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks.",
+            CascadePolicy.AUTO.detail,
+        )
+        // "Never" on a node: the node still answers a weak answer's prompt, or one the phone cannot answer.
+        assertEquals("phone · my node", CascadePolicy.NEVER.nodeChip)
+        assertEquals(
+            "This phone answers first. A weak answer goes to your node on its own, and so does a prompt the phone can't answer. " +
+                "Nothing goes to a cloud model.",
+            CascadePolicy.NEVER.nodeDetail,
+        )
+        assertEquals(CascadeRoute.Direct(CascadeRoutes.NO_LOCAL_MODEL), CascadeRoutes.route(CascadePolicy.NEVER, false, false, hasLocalModel = false, owned = true))
+        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, CascadeRisk(emptyList()), owned = true))
+        // "Auto" on a node sends a personal prompt on too.
+        assertEquals("This phone answers first. A weak answer goes to your node on its own, personal prompts included.", CascadePolicy.AUTO.nodeDetail)
+        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, CascadeRisk(listOf(CascadeRisk.HEALTH)), owned = true))
+        assertEquals("This phone answers first. When its answer looks weak, you can ask your node.", CascadePolicy.ASK.nodeDetail)
+        // Where nothing differs, the words are the same.
+        assertEquals(CascadePolicy.OFF.detail, CascadePolicy.OFF.nodeDetail)
+        for (p in listOf(CascadePolicy.OFF, CascadePolicy.ASK, CascadePolicy.AUTO)) assertEquals(p.chip, p.nodeChip)
+        // No node line names the cloud as where an answer comes from, or claims the phone alone answers.
+        for (p in CascadePolicy.entries) {
+            assertFalse(p.name, "phone only" in p.nodeChip)
+            assertFalse(p.name, "ask the cloud" in p.nodeDetail || "goes to the cloud" in p.nodeDetail)
+        }
     }
 }

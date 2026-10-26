@@ -4,6 +4,9 @@ package dev.wckdboy.autobot.shared.cascade
  * The local-first cascade policy of a chat (ROADMAP Phase 2.5, item 3): whether "This phone"
  * answers before the chat's cloud model, and what happens when the judge finds the phone's
  * answer wanting.
+ *
+ * On a chat whose model is the user's own node, the node takes the cloud model's place and the
+ * rules differ ([CascadeRoutes]), so the chip and the line are [nodeChip] and [nodeDetail] there.
  */
 enum class CascadePolicy(
     /** The chip on the chat bar (micro label, upper-cased by the platforms). */
@@ -12,18 +15,39 @@ enum class CascadePolicy(
     val title: String,
     /** One line under the option. */
     val detail: String,
+    /** [chip] on a chat with the user's own node. */
+    val nodeChip: String = chip,
+    /** [detail] on a chat with the user's own node. */
+    val nodeDetail: String = detail,
 ) {
     /** No cascade: the chat's own model answers, as before. The default. */
     OFF("phone first off", "Off", "The chat's model answers, as before."),
 
     /** The phone answers; when the judge is unsure, an "Ask" button offers the cloud model. */
-    ASK("phone first · ask", "Ask", "This phone answers first. When its answer looks weak, you can ask the cloud model."),
+    ASK(
+        "phone first · ask", "Ask", "This phone answers first. When its answer looks weak, you can ask the cloud model.",
+        nodeDetail = "This phone answers first. When its answer looks weak, you can ask your node.",
+    ),
 
-    /** The phone answers; a weak answer to a low-risk prompt goes to the cloud model on its own. */
-    AUTO("phone first · auto", "Auto", "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks."),
+    /**
+     * The phone answers; a weak answer to a low-risk prompt goes to the cloud model on its own.
+     * With a node, a weak answer goes there on its own, a sensitive prompt included.
+     */
+    AUTO(
+        "phone first · auto", "Auto", "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks.",
+        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, personal prompts included.",
+    ),
 
-    /** The phone answers and nothing goes to the cloud, even when its answer is weak. */
-    NEVER("phone only", "Never", "This phone answers. Nothing goes to the cloud."),
+    /**
+     * The phone answers and nothing goes to the cloud, even when its answer is weak. With a node,
+     * a weak answer, or a prompt the phone cannot answer, still goes there (marked private).
+     */
+    NEVER(
+        "phone only", "Never", "This phone answers. Nothing goes to the cloud.",
+        nodeChip = "phone · my node",
+        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, and so does a prompt the phone can't answer. " +
+            "Nothing goes to a cloud model.",
+    ),
     ;
 
     /** Whether the phone answers first under this policy. */
@@ -90,8 +114,9 @@ object CascadeRoutes {
         localWindow: Int? = null,
         owned: Boolean = false,
     ): CascadeRoute {
-        // The user's own node is hardware they own: "Never" (nothing to the cloud) does not keep a
-        // turn from it, so with a node the phone only steps aside when it cannot answer.
+        // The user's own node is not the cloud: "Never" (nothing to the cloud) does not keep a turn
+        // from it, so with a node the phone steps aside when it cannot answer. Such a turn goes to
+        // the node marked private (LocalFirstCascade), so the node keeps it off cloud models.
         val cloudRuledOut = policy == CascadePolicy.NEVER && !owned
         return when {
             !policy.localFirst || !(cloudRoute || owned) || toolsEnabled -> CascadeRoute.NotApplicable
@@ -111,8 +136,8 @@ object CascadeRoutes {
     fun action(policy: CascadePolicy, verdict: CascadeVerdict, risk: CascadeRisk, owned: Boolean = false): CascadeAction = when {
         verdict == CascadeVerdict.GOOD -> CascadeAction.KEPT
         policy == CascadePolicy.OFF -> CascadeAction.KEPT
-        // To the user's own node (kept private there): "Never" and "Auto" send a weak answer on, a
-        // sensitive prompt included, since it stays on hardware they own; "Ask" offers.
+        // To the user's own node (marked private, so it keeps the prompt off cloud models): "Never"
+        // and "Auto" send a weak answer on, a sensitive prompt included; "Ask" offers.
         owned -> if (policy != CascadePolicy.ASK && verdict == CascadeVerdict.WEAK) CascadeAction.ESCALATED else CascadeAction.OFFERED
         policy == CascadePolicy.NEVER -> CascadeAction.KEPT
         policy == CascadePolicy.AUTO && verdict == CascadeVerdict.WEAK && !risk.sensitive -> CascadeAction.ESCALATED

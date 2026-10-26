@@ -48,8 +48,9 @@ data class AppSettings(
     /**
      * Local-first cascade ("Phone first"): in plain chats on a cloud model, this phone answers
      * first and a judge decides whether to offer (ASK) or send (AUTO) the prompt to the cloud;
-     * NEVER keeps every answer on the phone. OFF by default: chats behave as before. Chats can
-     * choose their own.
+     * NEVER keeps every answer on the phone. On the user's own node, the node takes the cloud's
+     * place, and NEVER still sends it a weak answer's prompt. OFF by default: chats behave as
+     * before. Chats can choose their own.
      */
     val cascade: CascadePolicy = CascadePolicy.DEFAULT,
     /**

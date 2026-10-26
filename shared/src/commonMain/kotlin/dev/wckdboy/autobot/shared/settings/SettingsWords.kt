@@ -20,8 +20,15 @@ object SettingsWords {
     const val DELETE_ALL_CONFIRM = "Delete all"
 
     /** What "Phone first" covers. */
-    const val CASCADE_SCOPE = "For plain chats on a cloud model; chats can choose their own."
+    const val CASCADE_SCOPE = "For plain chats on a cloud model or your node; chats can choose their own."
 
-    /** "Phone first"'s ⓘ: each option on its line, then what it covers. */
-    val cascade: String = CascadePolicy.entries.joinToString("\n") { "${it.title}: ${it.detail}" } + "\n\n" + CASCADE_SCOPE
+    /** Heads the options as they work on a cloud model's chats, then on the user's own node's. */
+    const val CASCADE_CLOUD = "With a cloud model:"
+    const val CASCADE_NODE = "With your node:"
+
+    /** "Phone first"'s ⓘ: each option on its line, with a cloud model and then with a node, then what it covers. */
+    val cascade: String =
+        CASCADE_CLOUD + "\n" + CascadePolicy.entries.joinToString("\n") { "${it.title}: ${it.detail}" } + "\n\n" +
+            CASCADE_NODE + "\n" + CascadePolicy.entries.joinToString("\n") { "${it.title}: ${it.nodeDetail}" } + "\n\n" +
+            CASCADE_SCOPE
 }

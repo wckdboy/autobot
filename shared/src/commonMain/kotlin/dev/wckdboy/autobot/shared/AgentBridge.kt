@@ -1464,11 +1464,14 @@ class AgentBridge(
     /** "Ask <cloud model>" under the phone's answer: sends that prompt to the chat's cloud model as a follow-up. */
     fun escalate(sessionId: String) = withAgent(sessionId) { a -> cascade.escalate(a) }
 
-    /** The chip: the chat's effective cascade policy, NONE for agent runs and on-device or loopback routes. */
+    /**
+     * The chip: the chat's effective cascade policy, NONE for agent runs and on-device or loopback
+     * routes. A chat on the user's own node has it too, as on Android.
+     */
     private fun cascadeState(config: AgentConfig): String {
         val spec = providers.provider(config.llm.provider)
         val cloudRoute = spec == null || RedactionGateway.isCloud(spec.kind, spec.baseUrl)
-        return cascade.chipState(config, cloudRoute)
+        return cascade.chipState(config, cloudRoute, owned = spec?.kind == ProviderKind.INVINCIBLE_NODE)
     }
 
     /** ON / OFF for a cloud route, NONE when the route stays on the phone. */

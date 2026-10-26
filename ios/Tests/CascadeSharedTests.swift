@@ -8,6 +8,9 @@ struct CascadeSharedTests {
     @Test func theChipAndTheOfferUseTheSharedWords() {
         #expect(CascadePolicy.ask.chip == "phone first · ask")
         #expect(CascadePolicy.never.chip == "phone only")
+        // On the user's own node "Never" still sends a weak answer's prompt there.
+        #expect(CascadePolicy.never.nodeChip == "phone · my node")
+        #expect(CascadePolicy.ask.nodeChip == CascadePolicy.ask.chip)
         #expect(CascadePolicy.entries.map(\.name) == ["OFF", "ASK", "AUTO", "NEVER"])
         #expect(CascadeLabels.shared.ask(model: "deepseek-chat") == "Ask deepseek-chat")
         #expect(CascadeLabels.shared.offer(verdict: "WEAK", reasons: ["refusal"]) == "The phone's answer looks weak: it declined.")

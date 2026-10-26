@@ -929,7 +929,7 @@ private fun PolicyLine(
         ) {
             if (think) ThinkChip(state.thinking, onThink, onThinkMore)
             if (redact) RedactChip(state.redaction == RedactionUi.ON, onRedact)
-            if (cascade != null) CascadeChip(cascade, onCascade)
+            if (cascade != null) CascadeChip(cascade, state.onNode, onCascade)
             val used = state.contextUsed
             val window = state.contextWindow
             if (used != null && window != null && window > 0) MetaText("${compact(used)}/${compact(window)}", Modifier.padding(horizontal = 4.dp))
@@ -1490,16 +1490,19 @@ private fun RedactChip(on: Boolean, onTap: () -> Unit) {
 }
 
 /**
- * The local-first cascade of a plain cloud chat: `Phone first · ask`, selected while this phone
- * answers first. A tap opens the choice ([CascadeSheet]).
+ * The local-first cascade of a plain chat on a cloud model or the user's own node ([onNode]):
+ * `Phone first · ask`, selected while this phone answers first. A tap opens the choice
+ * ([CascadeSheet]).
  */
 @Composable
-private fun CascadeChip(policy: CascadePolicy, onTap: () -> Unit) {
+private fun CascadeChip(policy: CascadePolicy, onNode: Boolean, onTap: () -> Unit) {
+    val chip = if (onNode) policy.nodeChip else policy.chip
+    val detail = if (onNode) policy.nodeDetail else policy.detail
     FilterChip(
         selected = policy.localFirst,
         onClick = onTap,
-        label = { Text(labelCase(policy.chip)) },
-        modifier = Modifier.semantics { contentDescription = "Phone first: ${policy.title}. ${policy.detail}" },
+        label = { Text(labelCase(chip)) },
+        modifier = Modifier.semantics { contentDescription = "Phone first: ${policy.title}. $detail" },
     )
 }
 
@@ -1526,7 +1529,7 @@ private fun CascadeSheet(policy: CascadePolicy, model: String, onNode: Boolean, 
                 CascadePolicy.entries.forEach { option ->
                     ListItem(
                         headlineContent = { Text(option.title) },
-                        supportingContent = { Text(option.detail) },
+                        supportingContent = { Text(if (onNode) option.nodeDetail else option.detail) },
                         leadingContent = { RadioButton(selected = option == policy, onClick = null) },
                         modifier = Modifier.selectable(selected = option == policy, role = Role.RadioButton) { onPick(option) },
                     )

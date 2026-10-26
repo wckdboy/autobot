@@ -140,7 +140,7 @@ struct SettingsScreen: View {
     }
 }
 
-/// Settings → "Phone first": off, ask, auto or never for plain chats on a cloud model; what each
+/// Settings → "Phone first": off, ask, auto or never for plain chats on a cloud model or the user's node; what each
 /// does sits behind the ⓘ (the shared `SettingsWords.cascade`, as on Android).
 private struct CascadeSettingRow: View {
     let title: String
