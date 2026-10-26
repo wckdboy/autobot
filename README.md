@@ -108,13 +108,15 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
   cloud provider sees a request, and the answer gets the real values back on the phone. Each
   chat can switch it off; the receipt counts what was hidden. Shared code
   (`dev.wckdboy.autobot.shared.redaction`).
-- **Phone first.** Off by default. With it on, a plain chat on a cloud model is answered by the
-  on-device model first; a small judge (rules plus one short self-check on the same model; rules
-  only under "Never") decides whether that answer is good enough. "Ask" then offers the cloud
-  model, "Auto" sends a weak answer's prompt on its own unless it looks personal, "Never" keeps
-  everything on the phone, or, with your paired node as the chat's model, on the phone and that
-  node (see [Your own node](#your-own-node-invincible--in-progress)). The cloud request goes
-  through redaction, both answers stay on screen, and the receipt says why. Shared code
+- **Phone first.** Off by default. With it on, a plain chat on a cloud model or on your paired
+  node is answered by the on-device model first; a small judge (rules plus one short self-check
+  on the same model; rules only under "Never") decides whether that answer is good enough. On a
+  cloud model, "Ask" then offers the cloud model, "Auto" sends a weak answer's prompt on its own
+  unless it looks personal, and "Never" keeps everything on the phone; the cloud request goes
+  through redaction. On your node, the follow-up goes to the node, which keeps it on its own
+  models: "Ask" offers it, and "Auto" and "Never" alike send a weak answer's prompt there on
+  their own, a personal one included (see [Your own node](#your-own-node-invincible--in-progress)).
+  Both answers stay on screen, and the receipt says why. Shared code
   (`dev.wckdboy.autobot.shared.cascade`).
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,
