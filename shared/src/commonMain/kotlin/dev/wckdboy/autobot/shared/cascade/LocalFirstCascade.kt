@@ -31,24 +31,27 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The local-first cascade (ROADMAP Phase 2.5, item 3): in a plain chat (tools off) on a cloud
- * model, "This phone" answers first; a small judge ([CascadeJudge]) decides whether its answer is
- * good enough, and only then may the prompt go to the cloud: offered ("Ask"), or on its own
- * ("Auto", low-risk prompts only, [CascadeRiskClassifier]). On the user's own node ([owned]) the
- * node takes the cloud's place, with rules of its own ([CascadeRoutes]).
+ * model or the user's own node ([owned]), "This phone" answers first; a small judge
+ * ([CascadeJudge]) decides whether its answer is good enough, and only then may the prompt go to
+ * the chat's model: offered ("Ask"), or on its own ("Auto": to a cloud model, low-risk prompts
+ * only, [CascadeRiskClassifier]). On the node the rules differ ([CascadeRoutes]): "Auto" and
+ * "Never" send a weak answer's prompt on, a sensitive one included, and under "Never" too the node
+ * answers a turn the phone cannot take.
  *
- * The cloud follow-up is a turn of its own, opened by a [CASCADE_ESCALATION] context message: the
- * phone's answer stays on screen, the cloud model answers the user's prompt afresh (the phone's
+ * The follow-up is a turn of its own, opened by a [CASCADE_ESCALATION] context message: the
+ * phone's answer stays on screen, the chat's model answers the user's prompt afresh (the phone's
  * answer leaves the model surface, see `deriveMessages`), and the request goes through
- * `llm/stream` like any other, so the redaction gateway hides personal data from it. A follow-up
- * to the user's own node is not redacted by the phone; it goes marked private instead. Both turns'
- * receipts say what happened and why ([ReceiptCascade]); never any content.
+ * `llm/stream` like any other, so the redaction gateway hides personal data from a cloud model. A
+ * follow-up to the user's own node is not redacted by the phone; it goes marked private instead.
+ * Both turns' receipts say what happened and why ([ReceiptCascade]); never any content.
  *
  * Not in play for agent runs (tools on), subagents, chats on "This phone" or a loopback server,
  * and with the policy [CascadePolicy.OFF] (the default).
  *
  * @param defaultPolicy Settings → "Phone first", for chats without their own choice.
  * @param onDevice the on-device chat route (the installed default model), null when none.
- * @param cloud whether a provider's requests leave the phone.
+ * @param cloud whether a provider is a cloud one (`RedactionGateway.isCloud`: not "This phone", a
+ *   loopback server or the user's node).
  * @param owned whether a provider is the user's own paired node: then the follow-up goes there,
  *   marked private in [privateTurns] so the node never runs it on a cloud model ("phone → my node").
  * @param selfCheck whether the judge may ask the on-device model to grade its answer (else rules only).
@@ -76,7 +79,7 @@ class LocalFirstCascade(
         val local: LlmCallConfig?,
         val risk: CascadeRisk,
         val prompt: String,
-        /** A cloud follow-up: its trigger (`auto` / `asked`) and the phone's judged answer it follows. */
+        /** A follow-up (to a cloud model or the node): its trigger (`auto` / `asked`) and the phone's judged answer it follows. */
         val trigger: String? = null,
         val origin: ReceiptCascade? = null,
         /** The follow-up target is the user's own node. */
@@ -119,7 +122,7 @@ class LocalFirstCascade(
     val plugin: Plugin = plugin("local-first-cascade") { ctx ->
         ctx.on(Hooks.AgentDisposed) { agent -> lock.withLock { turns.remove(agent.id) } }
 
-        // Before a turn's first step: route it (phone, cloud, or not at all).
+        // Before a turn's first step: route it (phone, the chat's model, or not at all).
         ctx.intercept(Hooks.PreStep) { input, next ->
             if (input.step == 1 && !TaskTool.isSubagent(input.agent.id)) {
                 val blocked = begin(input.agent, input.turn)
@@ -155,7 +158,7 @@ class LocalFirstCascade(
             decision
         }
 
-        // The receipt says what the cascade did; "Auto" queues the cloud follow-up here.
+        // The receipt says what the cascade did; an escalation queues the follow-up here.
         ctx.intercept(Hooks.TurnReceipt) { input, next ->
             val receipt = next(input)
             privateTurns?.clear(TurnTrace(input.agent.id, input.turn))
@@ -223,7 +226,7 @@ class LocalFirstCascade(
         return null
     }
 
-    /** The risk of sending this chat's request to the cloud: the prompt, attachments, memory on the surface. */
+    /** The risk of sending this chat's request off the phone: the prompt, attachments, memory on the surface. */
     private fun risk(agent: Agent, prompt: SessionEvent.UserMessage, entries: List<LogEntry>): CascadeRisk {
         val visible = visibleEntries(entries).mapNotNull { it.event as? SessionEvent.UserMessage }
         val images = prompt.images.isNotEmpty() || visible.any { it.images.isNotEmpty() }
@@ -339,7 +342,7 @@ class LocalFirstCascade(
         const val NOT_JUDGED = "NONE"
         const val TARGET_NODE = "node"
 
-        /** The phone's offered answer still waiting for "Ask": the latest turn's, when the judge offered the cloud. */
+        /** The phone's offered answer still waiting for "Ask": the latest turn's, when the judge offered the chat's model. */
         fun pendingOffer(entries: List<LogEntry>): ReceiptCascade? {
             for (entry in entries.asReversed()) {
                 when (val e = entry.event) {

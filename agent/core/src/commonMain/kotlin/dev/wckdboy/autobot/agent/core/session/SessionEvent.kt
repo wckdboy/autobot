@@ -295,13 +295,13 @@ data class ReceiptModel(
  * The local-first cascade in a turn's receipt: codes only, never content.
  *
  * @property role `local` when this phone answered first, `cloud` for the follow-up the cascade
- *   sent to the chat's cloud model.
+ *   sent to the chat's model (a cloud one, or the user's node: see [target]).
  * @property policy the chat's policy then (`ASK`, `AUTO`, `NEVER`).
  * @property verdict the judge's verdict on the phone's answer (`GOOD`, `UNSURE`, `WEAK`), or
  *   `NONE` when it never judged (no on-device model, a prompt too long for it).
  * @property reasons why, as codes (`refusal`, `unsure`, `fresh`, `truncated`, `self-check`, …).
- * @property action `KEPT` (the phone's answer stands), `OFFERED` (the user may ask the cloud),
- *   `ESCALATED` (sent to the cloud), `DIRECT` (the cloud answered, the phone could not).
+ * @property action `KEPT` (the phone's answer stands), `OFFERED` (the user may ask the chat's
+ *   model), `ESCALATED` (sent to it), `DIRECT` (it answered, the phone could not).
  * @property risk why the prompt counts as sensitive (`personal`, `health`, `finance`,
  *   `attachment`, `memory`); empty when it is low-risk.
  * @property judge `self-check` (the on-device model graded its own answer) or `heuristic`.

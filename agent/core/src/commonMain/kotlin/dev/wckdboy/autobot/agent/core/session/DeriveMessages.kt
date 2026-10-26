@@ -9,10 +9,10 @@ const val ABORTED_BEFORE_DISPATCH = "Error: tool call aborted before dispatch."
 
 /**
  * The [SessionEvent.UserMessage.contextId] of a local-first cascade escalation: a
- * [UserMessageKind.CONTEXT] message that opens the cloud follow-up turn. It never reaches the
- * model; instead the answers since the user's last prompt (the phone's) leave the model surface,
- * so the cloud model answers that prompt afresh and later requests carry only its answer. Its
- * text is the trigger (`auto` or `asked`).
+ * [UserMessageKind.CONTEXT] message that opens the follow-up turn. It never reaches the model;
+ * instead the answers since the user's last prompt (the phone's) leave the model surface, so the
+ * chat's model (a cloud one, or the user's node) answers that prompt afresh and later requests
+ * carry only its answer. Its text is the trigger (`auto` or `asked`).
  */
 const val CASCADE_ESCALATION = "cascade/escalate"
 

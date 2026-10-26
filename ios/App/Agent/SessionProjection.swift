@@ -394,7 +394,7 @@ struct SessionProjection: Codable, Equatable, Sendable {
     var contextWindow: Int? = nil
     /// Files the agent changed in this session, per turn (absent from older states).
     var changes: [ChangeGroup] = []
-    /// "Ask <cloud model>" under the phone's latest answer, when the cascade's judge offered the cloud.
+    /// "Ask <model>" under the phone's latest answer, when the cascade's judge offered the chat's model (a cloud one, or the user's node).
     var cascadeOffer: CascadeOffer? = nil
     /// User turns sent from a generated UI (Kotlin `SessionItem.User.a2ui`), by item key: kept
     /// beside [items] so the `.user` case stays as it is. [A2uiChatSurfaces] locks those forms.

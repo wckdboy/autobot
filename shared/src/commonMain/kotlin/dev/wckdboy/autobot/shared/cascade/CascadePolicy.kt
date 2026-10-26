@@ -2,8 +2,8 @@ package dev.wckdboy.autobot.shared.cascade
 
 /**
  * The local-first cascade policy of a chat (ROADMAP Phase 2.5, item 3): whether "This phone"
- * answers before the chat's cloud model, and what happens when the judge finds the phone's
- * answer wanting.
+ * answers before the chat's model (a cloud one, or the user's own node), and what happens when the
+ * judge finds the phone's answer wanting.
  *
  * On a chat whose model is the user's own node, the node takes the cloud model's place and the
  * rules differ ([CascadeRoutes]), so the chip and the line are [nodeChip] and [nodeDetail] there.
@@ -23,7 +23,7 @@ enum class CascadePolicy(
     /** No cascade: the chat's own model answers, as before. The default. */
     OFF("phone first off", "Off", "The chat's model answers, as before."),
 
-    /** The phone answers; when the judge is unsure, an "Ask" button offers the cloud model. */
+    /** The phone answers; when the judge is not convinced, an "Ask" button offers the chat's model (cloud or node). */
     ASK(
         "phone first · ask", "Ask", "This phone answers first. When its answer looks weak, you can ask the cloud model.",
         nodeDetail = "This phone answers first. When its answer looks weak, you can ask your node.",
@@ -32,24 +32,24 @@ enum class CascadePolicy(
     /**
      * The phone answers; a weak answer to a low-risk prompt goes to the cloud model on its own.
      * With a node, a weak answer goes there on its own, a sensitive prompt included; an answer the
-     * judge is unsure about is offered.
+     * judge is unsure about is offered; a turn the phone cannot take (no on-device model, a chat
+     * too long for it) goes to the node directly. All of these go marked private.
      */
     AUTO(
         "phone first · auto", "Auto", "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks.",
         nodeDetail = "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
-            "When the phone isn't sure, you can ask your node.",
+            "If the phone isn't sure, you can ask your node; if it can't answer, your node does. All of it goes marked private.",
     ),
 
     /**
      * The phone answers and nothing goes to the cloud, even when its answer is weak. With a node it
-     * works as [AUTO] does there, without the self-check, and a prompt the phone cannot answer goes
-     * to the node too (marked private) instead of being refused.
+     * works exactly as [AUTO] does there (a turn the phone cannot take goes to the node instead of
+     * being refused), only the judge skips the self-check: rules alone decide.
      */
     NEVER(
         "phone only", "Never", "This phone answers. Nothing goes to the cloud.",
         nodeChip = "phone · my node",
-        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
-            "When the phone isn't sure, you can ask your node. Even a prompt the phone can't answer goes there.",
+        nodeDetail = "Same as Auto, but the phone's answer is judged by rules alone, without a self-check.",
     ),
     ;
 
@@ -85,7 +85,7 @@ sealed interface CascadeRoute {
     /** The chat's model (a cloud one, or the user's node) answers directly, because the phone cannot ([reason]: `no-local-model`, `too-long`). */
     data class Direct(val reason: String) : CascadeRoute
 
-    /** The turn does not run: "Never" with no on-device model ([message] says so). */
+    /** The turn does not run: "Never" on a cloud chat with no on-device model ([message] says so). */
     data class Blocked(val message: String) : CascadeRoute
 }
 
@@ -133,10 +133,10 @@ object CascadeRoutes {
     }
 
     /**
-     * What follows a judged answer: keep it, offer the cloud, or escalate. "Auto" escalates only
-     * a [CascadeVerdict.WEAK] answer to a prompt the risk classifier calls low-risk; a sensitive
-     * prompt, or an answer the judge is merely unsure about, is offered instead. With the user's
-     * own node as the chat's model ([owned]), see below.
+     * What follows a judged answer: keep it, offer the chat's model, or escalate to it. To a cloud
+     * model, "Auto" escalates only a [CascadeVerdict.WEAK] answer to a prompt the risk classifier
+     * calls low-risk; a sensitive prompt, or an answer the judge is merely unsure about, is offered
+     * instead. With the user's own node as the chat's model ([owned]), see below.
      */
     fun action(policy: CascadePolicy, verdict: CascadeVerdict, risk: CascadeRisk, owned: Boolean = false): CascadeAction = when {
         verdict == CascadeVerdict.GOOD -> CascadeAction.KEPT

@@ -106,12 +106,13 @@ data class SessionProjection(
     val changes: List<ChangeGroup> = emptyList(),
     /**
      * The local-first cascade's offer under the latest answer: the phone answered, the judge was
-     * not convinced, and the user may ask the chat's cloud model. Gone once another turn starts.
+     * not convinced, and the user may ask the chat's model (a cloud one, or the user's node). Gone
+     * once another turn starts.
      */
     val cascadeOffer: CascadeOffer? = null,
 )
 
-/** "Ask <cloud model>" under the phone's answer of [turn]; [text] says why ([CascadeLabels.offer]). */
+/** "Ask <model>" ([CascadeLabels.ask]) under the phone's answer of [turn]; [text] says why ([CascadeLabels.offer]). */
 @Serializable
 data class CascadeOffer(val turn: Int, val text: String)
 

@@ -1158,8 +1158,8 @@ private struct CascadeChip: View {
     }
 }
 
-/// Under the phone's answer when the judge was not convinced: why, and "Ask <cloud model>".
-/// [node]: the chat's model is the user's own node, which gets the prompt marked private.
+/// Under the phone's answer when the judge was not convinced: why, and "Ask <model>".
+/// [node]: the chat's model is the user's own node ("Ask my node"), which gets the prompt marked private.
 struct CascadeOfferRow: View {
     let offer: CascadeOffer
     let model: String
@@ -1170,7 +1170,7 @@ struct CascadeOfferRow: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Phone first", systemImage: "iphone").font(.caption.weight(.semibold)).foregroundStyle(.tint)
             Text(offer.text).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Button(CascadeLabels.shared.ask(model: model), action: onAsk)
+            Button(CascadeLabels.shared.ask(model: model, node: node), action: onAsk)
                 .glassProminentButton()
                 .controlSize(.small)
                 .accessibilityHint(node ? "Sends this prompt to your node, marked private." : "Sends this prompt to the cloud model, redacted when redaction is on.")

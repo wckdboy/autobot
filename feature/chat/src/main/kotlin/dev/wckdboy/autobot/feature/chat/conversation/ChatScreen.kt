@@ -355,7 +355,7 @@ fun ChatScreen(
                     val offer = state.cascadeOffer
                     if (offer != null && !hasLive) {
                         item(key = "cascade-offer:${offer.turn}", contentType = "cascade-offer") {
-                            CascadeOfferRow(offer, state.modelLabel ?: state.selectedModel.orEmpty(), actions::escalate)
+                            CascadeOfferRow(offer, state.modelLabel ?: state.selectedModel.orEmpty(), state.onNode, actions::escalate)
                         }
                     }
                     if (hasLive) {
@@ -1506,14 +1506,14 @@ private fun CascadeChip(policy: CascadePolicy, onNode: Boolean, onTap: () -> Uni
     )
 }
 
-/** Under the phone's answer when the judge was not convinced: why, and "Ask <cloud model>". */
+/** Under the phone's answer when the judge was not convinced: why, and "Ask <model>" ("Ask my node" on a node chat, [onNode]). */
 @Composable
-private fun CascadeOfferRow(offer: CascadeOffer, model: String, onAsk: () -> Unit) {
+private fun CascadeOfferRow(offer: CascadeOffer, model: String, onNode: Boolean, onAsk: () -> Unit) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Phone first", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(offer.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            FilledTonalButton(onClick = onAsk) { Text(CascadeLabels.ask(model)) }
+            FilledTonalButton(onClick = onAsk) { Text(CascadeLabels.ask(model, onNode)) }
         }
     }
 }

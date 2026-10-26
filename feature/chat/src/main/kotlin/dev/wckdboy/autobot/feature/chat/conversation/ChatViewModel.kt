@@ -241,9 +241,9 @@ data class ChatUiState(
     val redaction: RedactionUi = RedactionUi.NONE,
     /** The chat's local-first cascade policy; null where it cannot apply (agent runs, on-device or loopback routes). */
     val cascade: CascadePolicy? = null,
-    /** "Ask <cloud model>" under the phone's latest answer, when the judge offered the cloud. */
+    /** "Ask <model>" under the phone's latest answer, when the judge offered the chat's model (a cloud one, or the user's node). */
     val cascadeOffer: CascadeOffer? = null,
-    /** The chat's model is the user's own paired node (Invincible): no redaction, and "phone first" follow-ups stay there. */
+    /** The chat's model is the user's own paired node (Invincible): no redaction, and "phone first" follow-ups go there, marked private. */
     val onNode: Boolean = false,
 )
 

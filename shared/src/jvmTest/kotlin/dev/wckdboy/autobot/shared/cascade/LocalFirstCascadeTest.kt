@@ -298,6 +298,33 @@ class LocalFirstCascadeTest {
         assertTrue(CascadeLabels.summary(c).startsWith("Your node answered directly, and kept it there"))
     }
 
+    /** What [CascadePolicy.NEVER]'s node line says: on a node it is "Auto" without the self-check. */
+    @Test
+    fun onAPairedNodeNeverIsAutoWithoutTheSelfCheck() = runTest {
+        val actions = mutableMapOf<CascadePolicy, String>()
+        for (policy in listOf(CascadePolicy.AUTO, CascadePolicy.NEVER)) {
+            val s = setup(policy = policy, node = true)
+            // No rule objects to this answer; only the self-check finds it weak.
+            s.phone.answer = { "Mount Everest is 8,848 m tall and in the Alps." }
+            s.phone.grade = { "2" }
+            s.agent.followup("Where is Mount Everest?")
+            advanceUntilIdle()
+            val local = s.agent.cascades().first()!!
+            assertEquals("node", local.target)
+            if (policy == CascadePolicy.AUTO) {
+                assertEquals(1, s.phone.selfChecks.size)
+                assertEquals("self-check", local.judge)
+                assertEquals(1, s.cloud.chats.size)
+            } else {
+                assertTrue(s.phone.selfChecks.isEmpty())
+                assertEquals("heuristic", local.judge)
+                assertTrue(s.cloud.calls.isEmpty())
+            }
+            actions[policy] = local.action
+        }
+        assertEquals(mapOf(CascadePolicy.AUTO to "ESCALATED", CascadePolicy.NEVER to "KEPT"), actions)
+    }
+
     @Test
     fun theEscalatedRequestGoesThroughRedaction() = runTest {
         val s = setup(policy = CascadePolicy.ASK, redact = true)

@@ -222,7 +222,7 @@ protocol AgentRuntime: AnyObject {
     func setRedaction(_ conversationId: String, _ enabled: Bool)
     /// This chat's "phone first" policy (OFF, ASK, AUTO, NEVER; what Settings says makes it follow Settings again).
     func setCascade(_ conversationId: String, _ policy: String)
-    /// "Ask <cloud model>": sends the prompt of the phone's offered answer to the chat's cloud model.
+    /// "Ask <model>": sends the prompt of the phone's offered answer to the chat's model (a cloud one, or the user's node).
     func escalate(_ conversationId: String)
     /// A tap on a generated UI (`show_ui`, A2UI): a `.send` action becomes the chat's next user
     /// turn (queued behind a running one), shown in the transcript as its label. False when it

@@ -202,8 +202,8 @@ class CascadeRulesTest {
 
     @Test
     fun bothAppsShareTheWords() {
-        assertEquals("Ask DeepSeek V3", CascadeLabels.ask("DeepSeek V3"))
-        assertEquals("Ask the cloud", CascadeLabels.ask(""))
+        assertEquals("Ask DeepSeek V3", CascadeLabels.ask("DeepSeek V3", node = false))
+        assertEquals("Ask the cloud", CascadeLabels.ask("", node = false))
         assertEquals("The phone's answer looks weak: it declined.", CascadeLabels.offer("WEAK", listOf(CascadeJudge.REFUSAL)))
         assertEquals("The phone isn't sure about this answer: this needs fresh information.", CascadeLabels.offer("UNSURE", listOf(CascadeJudge.FRESH)))
         assertEquals("phone → cloud · auto · it said it doesn't know", CascadeLabels.followUp("auto", listOf(CascadeJudge.DONT_KNOW_CODE)))
@@ -240,6 +240,20 @@ class CascadeRulesTest {
         assertFalse(CascadeLabels.sheetNote("studio", node = true).contains("hardware you own"))
     }
 
+    /** On a node chat the offer's button names the node: its model is often "auto" (the node chooses), or blank. */
+    @Test
+    fun theOfferOnANodeChatAsksTheNode() {
+        assertEquals("Ask my node", CascadeLabels.ask("auto", node = true))
+        assertEquals("Ask my node", CascadeLabels.ask("", node = true))
+        assertEquals("Ask my node", CascadeLabels.ask("qwen3-32b", node = true))
+        // A cloud chat's button is as before.
+        assertEquals("Ask auto", CascadeLabels.ask("auto", node = false))
+        // The sheet's note does not say "auto answers below it".
+        assertTrue(CascadeLabels.sheetNote("auto", node = true).contains("The phone's answer stays; your node answers below it."))
+        assertTrue(CascadeLabels.sheetNote("", node = true).contains("The phone's answer stays; your node answers below it."))
+        assertTrue(CascadeLabels.sheetNote("qwen3-32b", node = true).contains("The phone's answer stays; qwen3-32b answers below it."))
+    }
+
     /** On a node chat the chip and the line say what happens there; a cloud chat's words do not change. */
     @Test
     fun aNodeChatsWordsSayWhatTheNodeDoes() {
@@ -250,28 +264,30 @@ class CascadeRulesTest {
             "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks.",
             CascadePolicy.AUTO.detail,
         )
-        // "Never" on a node: the node still answers a weak answer's prompt, or one the phone cannot answer.
-        assertEquals("phone · my node", CascadePolicy.NEVER.nodeChip)
+        // "Auto" on a node: a weak answer goes there, a personal prompt included; an unsure one is
+        // offered; a turn the phone cannot take goes there directly; all of it marked private.
         assertEquals(
             "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
-                "When the phone isn't sure, you can ask your node. Even a prompt the phone can't answer goes there.",
-            CascadePolicy.NEVER.nodeDetail,
-        )
-        val health = CascadeRisk(listOf(CascadeRisk.HEALTH))
-        assertEquals(CascadeRoute.Direct(CascadeRoutes.NO_LOCAL_MODEL), CascadeRoutes.route(CascadePolicy.NEVER, false, false, hasLocalModel = false, owned = true))
-        assertEquals(CascadeRoute.Direct(CascadeRoutes.TOO_LONG), CascadeRoutes.route(CascadePolicy.NEVER, false, false, true, 1_000, 1_000, owned = true))
-        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.WEAK, health, owned = true))
-        assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.NEVER, CascadeVerdict.UNSURE, health, owned = true))
-        // "Auto" on a node sends a personal prompt on too, and offers when the phone isn't sure.
-        assertEquals(
-            "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
-                "When the phone isn't sure, you can ask your node.",
+                "If the phone isn't sure, you can ask your node; if it can't answer, your node does. All of it goes marked private.",
             CascadePolicy.AUTO.nodeDetail,
         )
-        assertEquals(CascadeAction.ESCALATED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.WEAK, health, owned = true))
-        assertEquals(CascadeAction.OFFERED, CascadeRoutes.action(CascadePolicy.AUTO, CascadeVerdict.UNSURE, health, owned = true))
-        // Everything "Auto" says holds under "Never": on a node they differ only in the judge's self-check.
-        assertTrue(CascadePolicy.NEVER.nodeDetail.startsWith(CascadePolicy.AUTO.nodeDetail))
+        // "Never" on a node: the same as "Auto", only without the self-check.
+        assertEquals("phone · my node", CascadePolicy.NEVER.nodeChip)
+        assertEquals("Same as Auto, but the phone's answer is judged by rules alone, without a self-check.", CascadePolicy.NEVER.nodeDetail)
+        val health = CascadeRisk(listOf(CascadeRisk.HEALTH))
+        val low = CascadeRisk(emptyList())
+        for (p in listOf(CascadePolicy.AUTO, CascadePolicy.NEVER)) {
+            // Routes and actions on a node are the same under both.
+            assertEquals(p.name, CascadeRoute.Direct(CascadeRoutes.NO_LOCAL_MODEL), CascadeRoutes.route(p, false, false, hasLocalModel = false, owned = true))
+            assertEquals(p.name, CascadeRoute.Direct(CascadeRoutes.TOO_LONG), CascadeRoutes.route(p, false, false, true, 1_000, 1_000, owned = true))
+            assertEquals(p.name, CascadeRoute.Local, CascadeRoutes.route(p, false, false, true, 10, 1_000, owned = true))
+            for (risk in listOf(low, health)) {
+                assertEquals(p.name, CascadeAction.ESCALATED, CascadeRoutes.action(p, CascadeVerdict.WEAK, risk, owned = true))
+                assertEquals(p.name, CascadeAction.OFFERED, CascadeRoutes.action(p, CascadeVerdict.UNSURE, risk, owned = true))
+                assertEquals(p.name, CascadeAction.KEPT, CascadeRoutes.action(p, CascadeVerdict.GOOD, risk, owned = true))
+            }
+        }
+        assertTrue("Auto" == CascadePolicy.AUTO.title && CascadePolicy.NEVER.nodeDetail.startsWith("Same as ${CascadePolicy.AUTO.title}, "))
         assertEquals("This phone answers first. When its answer looks weak, you can ask your node.", CascadePolicy.ASK.nodeDetail)
         // Where nothing differs, the words are the same.
         assertEquals(CascadePolicy.OFF.detail, CascadePolicy.OFF.nodeDetail)

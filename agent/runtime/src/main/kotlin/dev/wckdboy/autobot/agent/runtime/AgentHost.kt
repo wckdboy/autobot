@@ -236,7 +236,7 @@ class AgentHost @Inject constructor(
         onDevice = { onDeviceRoute() },
         // An unknown provider counts as cloud, as for redaction.
         cloud = { id -> providers.getProvider(id)?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
-        // "Phone first" on the user's own node: follow-ups go there and stay there (private).
+        // "Phone first" on the user's own node: follow-ups go there, marked private (never to a cloud model).
         owned = { id -> providers.getProvider(id)?.kind == ProviderKind.INVINCIBLE_NODE },
         privateTurns = nodes.privateTurns,
     )
@@ -528,7 +528,7 @@ class AgentHost @Inject constructor(
     /** This chat's cascade policy; choosing what Settings says makes the chat follow Settings again. */
     suspend fun setCascade(conversationId: String, policy: CascadePolicy) = agent(conversationId).chooseCascade(cascade.override(policy))
 
-    /** "Ask <cloud model>" under the phone's answer: that prompt goes to the chat's cloud model as a follow-up. */
+    /** "Ask <model>" under the phone's answer: that prompt goes to the chat's model (a cloud one, or the user's node) as a follow-up. */
     suspend fun escalate(conversationId: String): Boolean = cascade.escalate(agent(conversationId))
 
     /** Manual `/compact`. */

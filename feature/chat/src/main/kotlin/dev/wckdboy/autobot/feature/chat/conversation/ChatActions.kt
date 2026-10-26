@@ -58,7 +58,7 @@ interface ChatActions {
     /** This chat's local-first cascade policy (remembered with the chat; what Settings says makes it follow Settings). */
     fun setCascade(policy: dev.wckdboy.autobot.shared.cascade.CascadePolicy)
 
-    /** "Ask <cloud model>": sends the prompt of the phone's offered answer to the chat's cloud model. */
+    /** "Ask <model>": sends the prompt of the phone's offered answer to the chat's model (a cloud one, or the user's node). */
     fun escalate()
     fun compact()
     fun rename(title: String)

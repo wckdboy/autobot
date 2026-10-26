@@ -475,7 +475,7 @@ class AgentBridge(
         onDevice = { quotaFallback.onDevice },
         // An unknown provider counts as cloud, as for redaction.
         cloud = { id -> withContext(IoDispatcher) { providers.provider(id) }?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
-        // "Phone first" on the user's own node: follow-ups go there and stay there (private).
+        // "Phone first" on the user's own node: follow-ups go there, marked private (never to a cloud model).
         owned = { id -> withContext(IoDispatcher) { providers.provider(id) }?.kind == ProviderKind.INVINCIBLE_NODE },
         privateTurns = privateTurns,
     )
