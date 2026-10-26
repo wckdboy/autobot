@@ -39,7 +39,7 @@ Get 1.2 into hands, prove the accelerator paths on real hardware, and close the 
 | ✅ | Same app id and version on both; `bump-version.sh` | both |
 | ✅ | TestFlight build live (`ai.wckd.autobot`) | iOS |
 | ✅ | **Diagnostics report**: Compute → "copy report" with SoC, backends that loaded, per-backend benchmark and engine logs, no personal data. This makes hardware bug reports actionable | both |
-| ⬜ | Hardware verification on the 8 Elite Gen 5: chat on NPU/GPU/CPU, SD 1.5 + SDXL on QNN, MNN on GPU, upscaler | Android |
+| ⬜ | Hardware verification on the 8 Elite Gen 5: chat on NPU/GPU/CPU, SD 1.5 + SDXL on QNN, MNN on GPU, upscaler *(measured on a OnePlus 15 so far: chat on the CPU and the NPU, SDXL on QNN (1.6.5 release notes); no diagnostics report committed yet)* | Android |
 | ✅ | Design-token parity test: Android `Theme.kt` must match `tokens.json` | Android |
 | ✅ | iOS build fails loudly when the Kotlin framework build fails | iOS |
 | ✅ | iOS background downloads: every redirect hop through the kill switch | iOS |
@@ -99,19 +99,20 @@ session exported on Android opens on iOS.
   Foundation Models on iOS 26+; Gemini Nano via AICore on Android only where it does not pull Google
   Play Services into the default build) when no downloaded model fits or loads, always labelled.
 
-- **Generative UI (A2UI v1.0)**, first in the phone chats: the agent answers with native forms,
-  lists and cards (Compose on Android, SwiftUI on iOS) instead of only text. *(shared core in
+- ✅ **Generative UI (A2UI v1.0)**, first in the phone chats: the agent answers with native forms,
+  lists and cards (Compose on Android, SwiftUI on iOS) instead of only text. *(shipped in 1.13.0
+  on both platforms. Shared core in
   `:shared/a2ui`: JSONL/array message parser with version routing, a catalog-driven validator
   that passes all 157 v1.0 spec cases and reports A2UI error codes with JSON Pointer paths for
   the model to fix its output, surface state with bindings, templates and the basic catalog's
-  functions, input write-back, `action` messages, `openUrl` http(s) only, size limits. Android
-  (in review): the `show_ui` tool with a compact prompt (Settings `generative_ui`, on by default,
+  functions, input write-back, `action` messages, `openUrl` http(s) only, size limits. Android:
+  the `show_ui` tool with a compact prompt (Settings `generative_ui`, on by default,
   in the phone's chats), invalid UI returned to the model to fix (3 tries a turn), surfaces stored
   with the chat and replayed (`A2uiTranscript`), actions as the next user turn (the sent form
   locks, read-only with its input, until the agent updates it; only interactive chats get the
   tool, not subagents or recipes), and `:core:a2ui`,
   a Material 3 renderer of all 18 basic components (images load on tap through the kill switch;
-  video and audio open in the browser). iOS (in review): the SwiftUI renderer (system controls,
+  video and audio open in the browser). iOS: the SwiftUI renderer (system controls,
   Liquid Glass, the brand purple tint) in the phone chats over the same shared tool, replay and
   lock rules, images on tap through the policy-bound client. Both on the native kits (Material 3
   Expressive, NativeKit), with a Generative UI switch in Settings › Agent on both. Still to do:
@@ -156,17 +157,17 @@ models, shared core). Ordered by value.
    ("Phone first" in Settings: off / ask / auto / never, a `phone first` chip per chat): in a plain
    chat on a cloud model the installed on-device chat model answers; the judge is rules (no
    answer, failed or cut off, refusals, "I don't know", loops, hedges, very short answers, prompts
-   that need fresh information) plus one self-check pass on the same model (at most 8 tokens,
-   Think off, rules only when it fails or times out), scored against a tunable threshold. Ask
-   offers "Ask <model>" under the answer; Auto sends a weak answer's prompt on its own only when
-   the risk rules find nothing personal, health, money, attachment or memory related; Never keeps
-   it on the phone. The follow-up is its own turn: the phone's answer stays on screen but leaves
-   the model surface, the request passes the redaction gateway, and both receipts say what
-   happened and why (verdict, reason codes, policy, risk, judge time; never content). No
-   on-device model: the cloud answers (Never refuses); a chat too long for the phone's window
-   goes straight to the cloud. Judge rules cost a few milliseconds per turn on the simulator.
-   Not yet: agent runs (tools on) and subagents; the self-check's latency on real hardware; a
-   separate small judge model.)*
+   that need fresh information) plus, except under Never, one self-check pass on the same model (at
+   most 8 tokens, Think off, rules only when it fails or times out), scored against a tunable
+   threshold. Ask offers "Ask <model>" under the answer; Auto sends a weak answer's prompt on its
+   own only when the risk rules find nothing personal, health, money, attachment or memory related;
+   Never keeps it on the phone. The follow-up is its own turn: the phone's answer stays on screen
+   but leaves the model surface, the request passes the redaction gateway, and both receipts say
+   what happened and why (verdict, reason codes, policy, risk, judge time; never content). No
+   on-device model: the cloud answers (Never refuses); a chat too long for the phone's window goes
+   straight to the cloud (under Never the phone still tries). Judge rules cost a few milliseconds
+   per turn on the simulator. Not yet: agent runs (tools on) and subagents; the self-check's
+   latency on real hardware; a separate small judge model.)*
 4. **Taint tracking for tools.** Data that came from memory, attachments or private files is
    tagged; when the agent tries to put tainted data into a network tool (web_fetch, web_search,
    MCP), the approval card highlights exactly which private fragment would leave. Defends against

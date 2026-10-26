@@ -6,10 +6,11 @@
 **Private AI on your phone and your machine.** An agent for Android and iOS that runs models on
 the device (NPU, GPU, CPU) and treats every network request as something you opt into, can see,
 and can switch off. With [Invincible](https://github.com/wckdboy/invincible), your own node, it
-works on a machine you own too.
+works on a machine you own or a server you rent too.
 
 [Install](#install) · [Privacy](#privacy-stance) · [Your node](#your-own-node-invincible--in-progress) ·
-[Building](#building) · [Releases](https://github.com/wckdboy/autobot/releases) · [Brand](BRAND.md)
+[Building](#building) · [Releases](https://github.com/wckdboy/autobot/releases) · [Security](SECURITY.md) ·
+[Brand](BRAND.md)
 
 ## Status
 
@@ -24,10 +25,10 @@ Version 1.14. What runs, and what is not yet verified:
 | Protection | A PIN with a duress code and wipe after failed unlocks; recipes run scheduled agents on the phone |
 | Your node | Pairs with Invincible over Noise: the node's agent, approvals, schedules, receipts and audit log in the app |
 | Core | One Kotlin Multiplatform core for both apps: agent runtime, network policy, redaction, settings, model management, the encrypted export format |
-| Snapdragon | Verified on a OnePlus 15 (8 Elite Gen 5: Hexagon V81 NPU, Adreno 840 GPU); Models → Compute → `report` shows the same diagnostics on your phone |
-| Generative UI | In review: in the phone chats the agent can call `show_ui` (A2UI v1.0, shared core in `:shared`) to show forms, choices and cards, drawn with Material 3 Expressive on Android (`:core:a2ui`) and SwiftUI system controls with Liquid Glass on iOS, in the app's purple; kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. Settings › Agent › Generative UI turns it off (on by default) |
+| Snapdragon | Built for the 8 Elite Gen 5 (Hexagon V81 NPU, Adreno 840 GPU). Measured on a OnePlus 15: chat on the CPU and the NPU (Qwen3.5 0.8B) and SDXL on the NPU ([1.6.5](https://github.com/wckdboy/autobot/releases/tag/v1.6.5)); Models → Compute → `report` shows the diagnostics on your phone |
+| Generative UI | Since 1.13: in the phone chats the agent can call `show_ui` (A2UI v1.0, shared core in `:shared`) to show forms, choices and cards, drawn with Material 3 Expressive on Android (`:core:a2ui`) and SwiftUI system controls with Liquid Glass on iOS, in the app's purple; kept with the chat; a sent form locks and keeps what was entered (unsent typing is not kept across a restart); images load only on tap. Not offered to subagents or recipe runs. Settings › Agent › Generative UI turns it off (on by default) |
 | Harness (iOS) | Since 1.14: the Harness tab boots an Alpine + Node guest in the iSH-ARM64 emulator and runs the DeepSeek Harness web UI on the phone, supervised by the app. Autobot's DeepSeek key reaches it, Offline mode stops it, and the audit log records that its model calls leave from the guest. Experimental: the guest boots in about a minute, and the emulator is slow. The emulator and dsh-ios are GPL-3.0, so the iOS build is distributed under GPL-3.0 (see [License](#license)) |
-| **Not yet verified** | No independent security review yet |
+| **Not yet verified** | No independent security review yet ([reporting a vulnerability](SECURITY.md)). No diagnostics report from an 8 Elite Gen 5 is published: chat and images on the GPU, SD 1.5 on the NPU and the NPU upscaler have not been shown to run on one |
 
 Autobot and Invincible are made by [Sovware](https://sovware.io).
 
@@ -107,12 +108,16 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
   cloud provider sees a request, and the answer gets the real values back on the phone. Each
   chat can switch it off; the receipt counts what was hidden. Shared code
   (`dev.wckdboy.autobot.shared.redaction`).
-- **Phone first.** Off by default. With it on, a plain chat on a cloud model is answered by the
-  on-device model first; a small judge (rules plus one short self-check on the same model)
-  decides whether that answer is good enough. "Ask" then offers the cloud model, "Auto" sends a
-  weak answer's prompt on its own unless it looks personal, "Never" keeps everything on the
-  phone. The cloud request goes through redaction, both answers stay on screen, and the receipt
-  says why. Shared code (`dev.wckdboy.autobot.shared.cascade`).
+- **Phone first.** Off by default. With it on, a plain chat on a cloud model or on your paired
+  node is answered by the on-device model first; a small judge (rules plus one short self-check
+  on the same model; rules only under "Never") decides whether that answer is good enough. On a
+  cloud model, "Ask" then offers the cloud model, "Auto" sends a weak answer's prompt on its own
+  unless it looks personal, and "Never" keeps everything on the phone; the cloud request goes
+  through redaction. On your node, the follow-up goes to the node, which keeps it on its own
+  models: "Ask" offers it, and "Auto" and "Never" alike send a weak answer's prompt there on
+  their own, a personal one included (see [Your own node](#your-own-node-invincible--in-progress)).
+  Both answers stay on screen, and the receipt says why. Shared code
+  (`dev.wckdboy.autobot.shared.cascade`).
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,
   secrets and caches. The process is then killed.
@@ -204,9 +209,10 @@ model, else the on-device model, and the answer says so.
 
 ## Your own node (Invincible) — in progress
 
-[Invincible](https://github.com/wckdboy/invincible) is a self-hosted node: a desktop or GPU box
-that serves open models and, when its rules allow, frontier models behind redaction. It is the
-"my own cloud" of ROADMAP Phase 2.5 #6, the tier between this phone and the cloud.
+[Invincible](https://github.com/wckdboy/invincible) is a self-hosted node: a desktop, a GPU box or
+a server you rent that serves open models and, when its rules allow, frontier models behind
+redaction. It is the "my own cloud" of ROADMAP Phase 2.5 #6, the tier between this phone and the
+cloud.
 
 The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
 
@@ -362,11 +368,15 @@ runs this on Invincible's own signed receipt vectors, tampered and mis-keyed cop
 
 **Phone first, then my node.** "Phone first" works on a node chat too: this phone answers first,
 and when the judge finds its answer weak, the prompt goes to your node instead of a cloud model.
-The node is hardware you own, so a sensitive prompt may go there on its own and "Never" (nothing
-to the cloud) allows it. These turns are sent with `invincible-private: 1`, so the node keeps
-them on its own models and never forwards them to a cloud backend. The notice reads
-`phone → my node`, and the receipt says the turn was sent to your node and kept there. Nothing
-is redacted for the node; it redacts what it sends on itself.
+The node is yours, on hardware you own or on a server you rent, so "Never" (nothing to the cloud)
+does not keep a prompt from it: under "Never", as under "Auto", a weak answer's prompt goes to the
+node on its own, a sensitive one included, and an answer the judge is only unsure about is
+offered ("Ask" offers both). Under "Never" the judge uses its rules only, without the self-check,
+so an answer no rule objects to is kept. With no on-device chat model, or a chat too long for it,
+the node answers directly. These turns are sent with `invincible-private: 1`, so the node keeps
+them on its own models and never forwards them to a cloud backend: here "never" means never to a
+cloud model. The notice reads `phone → my node`, and the receipt says the turn was sent to your
+node and kept there. Nothing is redacted for the node; it redacts what it sends on itself.
 
 **On iOS too.** Remote › *Pair a node* (or Remote › Providers › + › *My node (Invincible)*) opens
 the same pairing sheet (paste the code, or open an `invincible://pair?…` link: the Camera app's QR
@@ -452,8 +462,10 @@ Phones are fast at inference only off the CPU, so Autobot uses every accelerator
 - **Images on the Hexagon NPU.** Precompiled Stable Diffusion 1.5 and SDXL packages in the Local
   Dream layout (for example [xororz](https://huggingface.co/xororz): `sd-qnn`, `sdxl-qnn`) run
   through Qualcomm's QNN runtime. The UNet and VAE are QNN context binaries built per Hexagon
-  generation (`8gen1` = V69 … `8gen4` = V79). Autobot picks the build for your phone (an
-  8 Elite Gen 5, V81, uses the `8gen4`/`8gen3` builds). The text encoders run with MNN. Zip
+  generation (`8gen1` = V69 … `8gen4` = V79). Autobot picks a build your phone can load, as Local
+  Dream does: every phone from V73 up, the 8 Elite Gen 5 (V81) included, gets the `8gen2` (V73)
+  builds; SDXL is published as `8gen3` (V75) builds only, which run on V75 and newer. `8gen4`
+  builds are never picked on a V81. The text encoders run with MNN. Zip
   packages are never downloaded whole: the needed entries are fetched by byte range, inflated
   and checked against the zip's CRC-32. SDXL needs a Snapdragon 8 Gen 3 or newer. DMD2 packages
   default to 8 LCM steps. Anima packages are not supported yet.
@@ -518,7 +530,8 @@ in voice mode they are read sentence by sentence while they stream, and with han
 talking over an answer interrupts it (echo-cancelled microphone behind an energy gate).
 
 Qualcomm's QNN runtime (`com.qualcomm.qti:qnn-runtime` from Maven Central) is proprietary. It is
-redistributed in object code inside the app under Qualcomm's AI Stack license; see NOTICE.
+redistributed in object code inside the Android app under Qualcomm's AI Stack license; see
+[License](#license) and NOTICE.
 
 ## Agent runtime (DeepSeek Harness port)
 
@@ -769,14 +782,34 @@ hub clients and download state machine live in `:shared` (`dev.wckdboy.autobot.c
 
 See [ROADMAP.md](ROADMAP.md): goals, release rules and the phased plan for both platforms.
 
+## Reporting a vulnerability
+
+Privately, through GitHub's **Report a vulnerability** on this repository's Security tab.
+If the Security tab has no **Report a vulnerability** button, open an issue titled
+`security contact` with no details; a maintainer will open a private advisory and invite you to it.
+Scope, response targets and how fixes ship: [SECURITY.md](SECURITY.md).
+
 ## License
 
-Autobot's own code is Apache License 2.0. See [LICENSE](LICENSE).
+Autobot's own code in this repository, both apps and their shared core, is Apache License 2.0.
+See [LICENSE](LICENSE). The Autobot Agent on your machine (`autobot serve`) is not in this
+repository: it is the Rust `autobot` in the [Invincible](https://github.com/wckdboy/invincible)
+repository, under the MIT License.
+
+The Android app is not all open source: it contains Qualcomm's QNN runtime
+(`com.qualcomm.qti:qnn-runtime` 2.51.0 from Maven Central), which is proprietary and ships as
+object code only, under Qualcomm's AI Stack license rather than Apache-2.0. It runs the UNet and
+VAE of the NPU image models (SD 1.5, SDXL) and the 4× upscaler on the Hexagon NPU. Every Android
+build contains it, the published `foss` APK and the opt-in `playServices` build alike: both depend
+on `:engine:npu`, and the packaging check (`verify<Variant>NativePackaging` in
+`app/build.gradle.kts`) fails an APK without the QNN libraries. There is no Android build without
+it today. Chat on the NPU does not use it (that is llama.cpp's own Hexagon backend), and
+the iOS app does not contain it.
 
 The iOS app includes the Harness tab, which links [dsh-ios](https://github.com/everettjf/dsh-ios)
 and the iSH-ARM64 emulator, both GPL-3.0. The iOS app as distributed (TestFlight and any store
 build) is therefore a combined work under the GNU General Public License v3.0, with iSH's
 additional terms (`ios/Harness/dsh-ios/ish-arm64/LICENSE.IOS`). Apache-2.0 is GPL-3.0-compatible,
 so the Apache-licensed files stay Apache-licensed and can be reused under that licence on their
-own. The Android app links no GPL code and is distributed under Apache-2.0. See [NOTICE](NOTICE)
-and Settings › Licenses in the app.
+own. The Android app links no GPL code and is distributed under Apache-2.0, apart from the QNN
+runtime above. See [NOTICE](NOTICE) and Settings › Licenses in the app.
