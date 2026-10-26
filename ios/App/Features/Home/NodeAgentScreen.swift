@@ -863,9 +863,6 @@ struct NodeActivitySheet: View {
 
     @ViewBuilder private func requests(_ activity: NodeActivity) -> some View {
         Section {
-            if activity.requests.isEmpty {
-                Text("The node has not answered anything yet.").foregroundStyle(.secondary)
-            }
             ForEach(Array(activity.requests.enumerated()), id: \.offset) { _, r in
                 let clean = r.receipt.verified && r.receipt.egress.isEmpty
                 VStack(alignment: .leading, spacing: 2) {

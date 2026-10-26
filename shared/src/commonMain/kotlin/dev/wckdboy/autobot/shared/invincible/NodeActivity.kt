@@ -130,7 +130,12 @@ object NodeActivityWords {
         return "$mark ${t.id} ${t.agent}: ${t.goal}$after"
     }
 
-    fun summary(a: NodeActivity): String = buildString {
+    /**
+     * "2 requests · 1 sent off the node · 1 not verified", of the requests the node listed for this
+     * phone: from Invincible 0.0.22 its own only, from an older node every caller's. None listed is
+     * "No requests from this phone yet", which is true of both.
+     */
+    fun summary(a: NodeActivity): String = if (a.requests.isEmpty()) "No requests from this phone yet" else buildString {
         append("${a.requests.size} requests · ")
         append(if (a.leftTheNode == 0) "nothing left the node" else "${a.leftTheNode} sent off the node")
         if (a.unverified > 0) append(" · ${a.unverified} not verified")

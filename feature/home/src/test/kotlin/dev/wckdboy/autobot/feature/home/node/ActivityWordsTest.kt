@@ -26,6 +26,9 @@ class ActivityWordsTest {
         assertEquals("nothing left the node", NodeActivityWords.left(request("local")))
         val activity = NodeActivity(listOf(sent, request("local", verified = false)), emptyList(), emptyList(), emptyList())
         assertEquals("2 requests · 1 sent off the node · 1 not verified", NodeActivityWords.summary(activity))
+        // From Invincible 0.0.22 the node lists only this phone's own requests: an empty list does
+        // not mean the node answered nothing.
+        assertEquals("No requests from this phone yet", NodeActivityWords.summary(NodeActivity(emptyList(), emptyList(), emptyList(), emptyList())))
     }
 
     @Test
