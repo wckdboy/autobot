@@ -210,6 +210,25 @@ class NodeCapabilitiesTest {
     }
 
     @Test
+    fun withoutTheRequestLogTheDigestStillHasTheAgentsPart() = runBlocking {
+        // A phone granted `shard,agent` (`invincible devices grant My-Phone shard,agent`): the request
+        // log is a route the node did not grant. What the agent did still shows, and the requests
+        // are missing with why, as the agent's part is when the agent does not answer.
+        val actions = """{"actions":[{"at":155,"session":"cron-t1","kind":"command","action":"run: df -h","ran":true,"by":"policy"}]}"""
+        val agent = NodeAgent(Granting(mapOf("/v1/agent/actions" to actions)), "studio · agent", listOf("shard", "agent"), "My-Phone")
+        val d = NodeDigests.fetch(agent, crypto, "studio", "key", "node-1", since = 100, recipes = emptyList(), device = "My-Phone")
+        assertEquals(1, d.actions)
+        assertTrue(d.hasNews)
+        assertEquals(0, d.requests)
+        assertNull(d.agentProblem)
+        assertEquals(NodeErrors.noAudit("studio", listOf("shard", "agent"), "My-Phone"), d.auditProblem)
+        assertEquals(
+            listOf("1 action, all allowed by the rules", "This phone's requests could not be read there !"),
+            NodeDigestWords.lines(d).map { it.text },
+        )
+    }
+
+    @Test
     fun aNotFoundOfTheAgentsOwnIsNotWordedAsAMissingGrant() = runBlocking {
         // The agent answers `GET /v1/agent` 404 `unknown_bot` when it has no bot to answer with
         // (crates/autobot/src/api.rs): the route was reached, so the grant is not what is missing.

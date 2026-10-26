@@ -76,6 +76,8 @@ data class NodeDigest(
     val failedTasks: List<BoardTask> = emptyList(),
     /** Why the agent's part is missing (it is not running, or not granted to this device); null when it answered. */
     val agentProblem: String? = null,
+    /** Why this device's requests are missing (the node did not give it its request log); null when they came. */
+    val auditProblem: String? = null,
     /**
      * Per bot, for a node with more than one (bots mode), the default bot first; empty on a node
      * with one bot or none, where the card reads as before.
@@ -222,7 +224,9 @@ object NodeDigests {
     /**
      * The digest of [agent]'s node after [since], for [providerId] and its [recipes]: [device]'s
      * requests (receipts checked against [receiptKey]), the agent's actions, its board and schedules.
-     * The agent's part is empty, with [NodeDigest.agentProblem], when it is not running.
+     * The agent's part is empty, with [NodeDigest.agentProblem], when it is not running or not
+     * granted to this device; the requests are, with [NodeDigest.auditProblem], when the node does
+     * not give this device its request log.
      */
     suspend fun fetch(
         agent: NodeAgent,
@@ -234,7 +238,15 @@ object NodeDigests {
         recipes: List<NodeDigestRecipe>,
         device: String? = null,
     ): NodeDigest {
-        val requests = agent.requests(crypto, node, receiptKey, limit = MAX_ENTRIES, since = since)
+        var auditProblem: String? = null
+        val requests = try {
+            agent.requests(crypto, node, receiptKey, limit = MAX_ENTRIES, since = since)
+        } catch (e: NodeAgentException) {
+            // A phone granted the agent without `audit` still gets what the agent did.
+            if (e.status == 0) throw e
+            auditProblem = e.message
+            emptyList()
+        }
         val activity: NodeActivity
         var schedules = emptyList<AgentSchedule>()
         var approvals: List<PendingApproval>? = null
@@ -258,7 +270,8 @@ object NodeDigests {
             if (e.status == 0) throw e
             NodeActivity(requests, emptyList(), emptyList(), emptyList(), agentProblem = e.message)
         }
-        val digest = compute(activity, runs(providerId, recipes, schedules), since, device).copy(approvals = approvals?.sortedBy { it.askedAt })
+        val digest = compute(activity, runs(providerId, recipes, schedules), since, device)
+            .copy(approvals = approvals?.sortedBy { it.askedAt }, auditProblem = auditProblem)
         return byBot(digest, bots, activity.actions)
     }
 
@@ -411,6 +424,7 @@ object NodeDigestWords {
             ran(d)?.let { add(NodeDigestLine(it, NodeDigestLine.Tone.PLAIN)) }
             failed(d)?.let { add(NodeDigestLine("$it ✗", NodeDigestLine.Tone.ERROR)) }
             if (d.agentProblem != null) add(NodeDigestLine("The agent was not running there !", NodeDigestLine.Tone.WARNING))
+            if (d.auditProblem != null) add(NodeDigestLine("This phone's requests could not be read there !", NodeDigestLine.Tone.WARNING))
             if (receipts?.tone == NodeDigestLine.Tone.OK) add(receipts)
         }
     }
