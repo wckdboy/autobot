@@ -245,7 +245,8 @@ class LocalFirstCascade(
         state.judging = true
         val started = millis()
         val signals = judge.signals(state.prompt, answer.text)
-        // "Never" only reports; a hard signal already decides. Neither needs the extra pass.
+        // "Never" only reports; a hard signal already decides. Neither needs the extra pass. (With a
+        // node, "Never" sends a weak answer on as "Auto" does, still judged by the rules alone.)
         val grade = if (signals.hard.isEmpty() && state.policy != CascadePolicy.NEVER && selfCheck()) selfCheck(agent, state, answer.text) else null
         state.result = judge.judge(signals, grade)
         state.judgeName = if (grade != null) JUDGE_SELF_CHECK else JUDGE_HEURISTIC
