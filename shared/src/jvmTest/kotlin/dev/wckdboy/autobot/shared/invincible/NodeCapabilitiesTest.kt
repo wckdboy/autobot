@@ -156,6 +156,29 @@ class NodeCapabilitiesTest {
     }
 
     @Test
+    fun theAdviceAlsoNamesTheGrantThatNeedsNoNewPairing() = runBlocking {
+        // `invincible devices grant <name> <codes>` (0.0.22 and later) replaces the set of the device
+        // the node pinned under that name; a node without the command still takes a new code.
+        val agent = NodeAgent(Answering(404, notGranted), "studio · agent", capabilities = listOf("shard", "dispatch"), device = "My-Phone")
+        val noAgent = runCatching { agent.info() }.exceptionOrNull() as NodeAgentException
+        assertEquals(
+            "studio hasn't given this phone its Autobot Agent. On the node, run `invincible devices grant My-Phone shard,agent,audit,dispatch`. " +
+                "If it doesn't know that command, run `invincible pair --capabilities shard,agent,audit,dispatch` and pair this phone again with that code.",
+            noAgent.message,
+        )
+        val noAudit = runCatching { agent.requests(crypto, "studio", "key") }.exceptionOrNull() as NodeAgentException
+        assertEquals(NodeErrors.noAudit("studio", listOf("shard", "dispatch"), "My-Phone"), noAudit.message)
+        assertTrue(noAudit.message!!, "`invincible devices grant My-Phone shard,agent,audit,dispatch`" in noAudit.message!!)
+        assertTrue(noAudit.message!!, "`invincible pair --capabilities shard,agent,audit,dispatch`" in noAudit.message!!)
+        // A pairing stored before capabilities: the node may have been updated since, or may need it.
+        val unknown = NodeErrors.noAgent("studio", null, "My-Phone")
+        assertTrue(unknown, "`invincible devices grant My-Phone shard,agent,audit`" in unknown)
+        assertTrue(unknown, "`invincible update`" in unknown)
+        // Without the name, the code alone.
+        assertFalse(NodeErrors.noAgent("studio", listOf("shard")), "devices grant" in NodeErrors.noAgent("studio", listOf("shard")))
+    }
+
+    @Test
     fun aNotFoundOfTheAgentsOwnIsNotWordedAsAMissingGrant() = runBlocking {
         // The agent answers `GET /v1/agent` 404 `unknown_bot` when it has no bot to answer with
         // (crates/autobot/src/api.rs): the route was reached, so the grant is not what is missing.

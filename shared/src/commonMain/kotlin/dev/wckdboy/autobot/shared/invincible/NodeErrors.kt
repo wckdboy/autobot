@@ -67,14 +67,36 @@ object NodeErrors {
     private val BASE = GRANT.substringAfter("--capabilities ").split(',')
 
     /**
+     * The command, on the node, that gives [device] (the name it pinned this phone under) the set
+     * [grant] names without a new pairing: `invincible devices grant`, from Invincible 0.0.22 on
+     * (spec/pairing.md, Capabilities). Like a code, it replaces what the device held.
+     */
+    fun devicesGrant(device: String, capabilities: List<String>?): String =
+        "invincible devices grant $device ${grant(capabilities).substringAfter("--capabilities ")}"
+
+    /**
+     * What to run on the node for a grant it withholds: [devicesGrant] when [device] is known, and
+     * [grant] with a new pairing for a node without that command (one with capabilities from
+     * before it, such as an edge build of Invincible's `main`).
+     */
+    private fun howToGrant(capabilities: List<String>?, device: String?): String {
+        val pair = "`${grant(capabilities)}` and pair this phone again with that code."
+        return if (device == null) {
+            "On the node, run $pair"
+        } else {
+            "On the node, run `${devicesGrant(device, capabilities)}`. If it doesn't know that command, run $pair"
+        }
+    }
+
+    /**
      * Why [node] answers 404 for its Autobot Agent. A node with capabilities (spec/pairing.md)
      * answers so to a device it did not grant `agent`, as for a path it does not have. With
      * [capabilities] known (the node sent them at pairing) that is the reason; unknown (null), the
      * node may be one from before capabilities, which has no such command, so the words also say
-     * to update it.
+     * to update it. [device] is the name the node pinned this phone under, for [devicesGrant].
      */
-    fun noAgent(node: String, capabilities: List<String>?): String {
-        val grant = "On the node, run `${grant(capabilities)}` and pair this phone again with that code."
+    fun noAgent(node: String, capabilities: List<String>?, device: String? = null): String {
+        val grant = howToGrant(capabilities, device)
         return if (capabilities != null) {
             "$node hasn't given this phone its Autobot Agent. $grant"
         } else {
@@ -88,8 +110,8 @@ object NodeErrors {
      * device it did not grant `audit` (spec/pairing.md, Capabilities); the releases before them
      * (0.0.3 to 0.0.21) give it to every paired device.
      */
-    fun noAudit(node: String, capabilities: List<String>? = null): String =
-        "$node hasn't given this phone its request log. On the node, run `${grant(capabilities)}` and pair this phone again with that code."
+    fun noAudit(node: String, capabilities: List<String>? = null, device: String? = null): String =
+        "$node hasn't given this phone its request log. ${howToGrant(capabilities, device)}"
 
     /** Why pairing with the node in a code at [addresses] failed. */
     fun pairing(error: Throwable, addresses: List<String>): String = when (error) {

@@ -263,11 +263,12 @@ A node lets a paired phone reach its agent and its request log only when it gran
 (Invincible's [spec/pairing.md](https://github.com/wckdboy/invincible/blob/main/spec/pairing.md),
 Capabilities): on the node, `invincible pair --capabilities shard,agent,audit`, then pair the
 phone again with that code. Keep `shard` in the list: the new code replaces what the phone held,
-and without `shard` it loses chat and the model list. The operator can also grant them without
-pairing again (`PATCH /v1/cluster/nodes/<the phone's name>` on the node's API, in Invincible's
-README). A pairing keeps what the node granted, and a phone it did not grant them is told so, with
-this command; a pairing made before this version also says to update Invincible if the node does
-not know `--capabilities`.
+and without `shard` it loses chat and the model list. From Invincible 0.0.22 the operator can
+grant them without pairing again: `invincible devices grant <the phone's name> shard,agent,audit`
+(the list is again the whole set). A pairing keeps what the node granted, and a phone it did not
+grant them is told so, with both commands (the pairing one for a node without `devices grant`); a
+pairing made before this version also says to update Invincible if the node does not know
+`--capabilities`.
 Tasks run on that machine: shell commands and file work, on its models. Every command, every file
 write and every read outside the agent's working directory comes to the phone as a card first:
 Allow, Always (this conversation), or Deny. Answers show the model and tier that ran each turn. It

@@ -30,7 +30,8 @@ class NodeAgents @Inject constructor(
         if (provider.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = providers.apiKey(provider)?.reveal()?.let(PairedNode::fromSecret) ?: return null
         val tag = "${provider.displayName} · agent"
-        return NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag, paired.capabilities) to paired.deviceName
+        val agent = NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag, paired.capabilities, paired.deviceName)
+        return agent to paired.deviceName
     }
 
     /** The bots on [provider]'s node (bots mode); null when it is not a usable pairing. */
@@ -46,7 +47,7 @@ class NodeAgents @Inject constructor(
         val paired = providers.apiKey(provider)?.reveal()?.let(PairedNode::fromSecret) ?: return null
         val tag = "${provider.displayName} · recipes"
         val transport = paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag))
-        return NodeRecipeTarget(NodeAgent(transport, tag, paired.capabilities), paired.name) { id ->
+        return NodeRecipeTarget(NodeAgent(transport, tag, paired.capabilities, paired.deviceName), paired.name) { id ->
             NodeReceiptLog.fetch(JvmNodeCrypto, transport, paired.name, paired.receiptKey, id)
         }
     }
@@ -55,7 +56,7 @@ class NodeAgents @Inject constructor(
         if (provider.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = providers.apiKey(provider)?.reveal()?.let(PairedNode::fromSecret) ?: return null
         val tag = "${provider.displayName} · activity"
-        val agent = NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag, paired.capabilities)
+        val agent = NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag, paired.capabilities, paired.deviceName)
         return agent.activity(JvmNodeCrypto, paired.name, paired.receiptKey)
     }
 
@@ -67,7 +68,7 @@ class NodeAgents @Inject constructor(
         if (provider.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = providers.apiKey(provider)?.reveal()?.let(PairedNode::fromSecret) ?: return null
         val tag = "${provider.displayName} · digest"
-        val agent = NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag, paired.capabilities)
+        val agent = NodeAgent(paired.transport(JvmNodeCrypto, connect = nodes.connector(provider.routing, tag)), tag, paired.capabilities, paired.deviceName)
         return NodeDigests.fetch(agent, JvmNodeCrypto, paired.name, paired.receiptKey, provider.id, since, recipes, device = paired.deviceName)
     }
 }

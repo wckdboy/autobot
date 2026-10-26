@@ -112,13 +112,15 @@ class NodeAgentException(val status: Int, val type: String?, message: String, va
 /**
  * The Autobot Agent on a paired node, through the gateway's `/v1/agent` (spec/agent.md), over a
  * [transport] to the node (a [NodeHttpTransport]: every request is its own Noise session).
- * [capabilities] is what the node granted this device at pairing ([PairedNode.capabilities]), so
- * a refusal says how to grant what is missing.
+ * [capabilities] is what the node granted this device at pairing ([PairedNode.capabilities]) and
+ * [device] the name it pinned this device under ([PairedNode.deviceName]), so a refusal says how
+ * to grant what is missing.
  */
 class NodeAgent(
     private val transport: HttpTransport,
     private val tag: String = "node agent",
     private val capabilities: List<String>? = null,
+    private val device: String? = null,
 ) {
     /** The node's name for messages: the tag's first part (`node-a · agent`). */
     private val nodeName: String get() = tag.substringBefore(" · ").takeIf { " · " in tag } ?: "The node"
@@ -222,7 +224,7 @@ class NodeAgent(
         } catch (e: NodeAgentException) {
             // A node that did not grant this device `agent` answers as for a path it does not have;
             // a 404 of the agent's own (`unknown_bot`: no bot to answer) is the agent's, as it said it.
-            if (notMounted(e)) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities), e.code) else throw e
+            if (notMounted(e)) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities, device), e.code) else throw e
         }
         val o = json.parseToJsonElement(body).jsonObject
         return AgentInfo(
@@ -385,7 +387,7 @@ class NodeAgent(
             request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT)
         } catch (e: NodeAgentException) {
             // A node that did not grant this device `audit` answers as for a path it does not have.
-            if (notMounted(e)) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName, capabilities), e.code) else throw e
+            if (notMounted(e)) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName, capabilities, device), e.code) else throw e
         }
         return NodeActivityParser.requests(text, node, receiptKey, crypto)
     }

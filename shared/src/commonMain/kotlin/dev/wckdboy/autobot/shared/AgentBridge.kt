@@ -661,7 +661,7 @@ class AgentBridge(
         if (spec.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = spec.apiKey?.let(PairedNode::fromSecret) ?: return null
         val transport = paired.transport(crypto) { addresses -> connector(addresses, spec.route) }
-        return NodeAgent(transport, "${spec.displayName} · agent", paired.capabilities) to paired
+        return NodeAgent(transport, "${spec.displayName} · agent", paired.capabilities, paired.deviceName) to paired
     }
 
     private suspend fun requireNodeAgent(providerId: String): Pair<NodeAgent, String> =
@@ -848,7 +848,7 @@ class AgentBridge(
         if (spec.kind != ProviderKind.INVINCIBLE_NODE) return null
         val paired = spec.apiKey?.let(PairedNode::fromSecret) ?: return null
         val transport = paired.transport(crypto) { addresses -> connector(addresses, spec.route) }
-        return NodeRecipeTarget(NodeAgent(transport, "${spec.displayName} · recipes", paired.capabilities), paired.name) { id ->
+        return NodeRecipeTarget(NodeAgent(transport, "${spec.displayName} · recipes", paired.capabilities, paired.deviceName), paired.name) { id ->
             NodeReceiptLog.fetch(crypto, transport, paired.name, paired.receiptKey, id)
         }
     }
