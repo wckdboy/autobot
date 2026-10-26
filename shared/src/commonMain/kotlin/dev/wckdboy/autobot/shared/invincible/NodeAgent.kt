@@ -220,8 +220,9 @@ class NodeAgent(
         val body = try {
             request("GET", "")
         } catch (e: NodeAgentException) {
-            // A node that did not grant this device `agent` answers 404 for it, as one without the agent does.
-            if (e.status == 404) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities), e.code) else throw e
+            // A node that did not grant this device `agent` answers as for a path it does not have;
+            // a 404 of the agent's own (`unknown_bot`: no bot to answer) is the agent's, as it said it.
+            if (notMounted(e)) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities), e.code) else throw e
         }
         val o = json.parseToJsonElement(body).jsonObject
         return AgentInfo(
@@ -383,8 +384,8 @@ class NodeAgent(
         val text = try {
             request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT)
         } catch (e: NodeAgentException) {
-            // A node that did not grant this device `audit` answers 404 for it.
-            if (e.status == 404) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName, capabilities), e.code) else throw e
+            // A node that did not grant this device `audit` answers as for a path it does not have.
+            if (notMounted(e)) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName, capabilities), e.code) else throw e
         }
         return NodeActivityParser.requests(text, node, receiptKey, crypto)
     }
@@ -490,6 +491,19 @@ class NodeAgent(
         private val json = Json { ignoreUnknownKeys = true }
 
         private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+
+        /** The message of the node's answer for a path it does not have (its router's fallback). */
+        private const val NO_SUCH_ENDPOINT = "no such endpoint"
+
+        /**
+         * Whether [e] is the node's answer for a path it does not have, which is also its answer to
+         * a device for a route it did not grant, byte for byte (spec/pairing.md, Transport): 404
+         * `{"error":{"message":"no such endpoint","type":"not_found","code":"not_found"}}`, or a
+         * 404 with no error at all from a node whose router had no fallback of its own (0.0.1 and
+         * 0.0.2). A 404 that names its own error (the agent's `unknown_bot`) is not that.
+         */
+        private fun notMounted(e: NodeAgentException): Boolean =
+            e.status == 404 && ((e.type == null && e.code == null) || (e.type == "not_found" && e.message == NO_SUCH_ENDPOINT))
 
         private fun errorMessage(status: Int, body: String?): NodeAgentException {
             val error = runCatching { json.parseToJsonElement(body.orEmpty()).jsonObject["error"]?.jsonObject }.getOrNull()

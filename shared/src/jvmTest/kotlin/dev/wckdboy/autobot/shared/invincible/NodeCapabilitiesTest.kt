@@ -156,6 +156,37 @@ class NodeCapabilitiesTest {
     }
 
     @Test
+    fun aNotFoundOfTheAgentsOwnIsNotWordedAsAMissingGrant() = runBlocking {
+        // The agent answers `GET /v1/agent` 404 `unknown_bot` when it has no bot to answer with
+        // (crates/autobot/src/api.rs): the route was reached, so the grant is not what is missing.
+        val noBot = """{"error":{"message":"no bot \"\" here","type":"unknown_bot","code":"unknown_bot"}}"""
+        val e = runCatching { NodeAgent(Answering(404, noBot), "studio · agent", capabilities = listOf("shard", "agent")).info() }
+            .exceptionOrNull() as NodeAgentException
+        assertEquals(404, e.status)
+        assertEquals("unknown_bot", e.type)
+        assertEquals("unknown_bot", e.code)
+        assertEquals("no bot \"\" here", e.message)
+        // The gate's answer is the fallback's body exactly: the agent route's own `not_found` (the
+        // proxy's, for a path it will not pass on) is not it, and is passed on as the node said it.
+        val proxy = """{"error":{"message":"no such agent path","type":"not_found","code":"not_found"}}"""
+        val refused = runCatching { NodeAgent(Answering(404, proxy), "studio · agent", capabilities = listOf("shard")).info() }
+            .exceptionOrNull() as NodeAgentException
+        assertEquals("not_found", refused.type)
+        assertEquals("no such agent path", refused.message)
+    }
+
+    @Test
+    fun aNodeWhoseRouterAnswersAnUnknownPathWithNoBodyIsReadAsTheSame() = runBlocking {
+        // 0.0.1 and 0.0.2 had no fallback: a path they do not have is a bare 404.
+        val agent = NodeAgent(Answering(404, ""), "studio · agent")
+        val noAgent = runCatching { agent.info() }.exceptionOrNull() as NodeAgentException
+        assertEquals(NodeAgent.NO_AGENT, noAgent.type)
+        assertEquals(NodeErrors.noAgent("studio", null), noAgent.message)
+        val noAudit = runCatching { agent.requests(crypto, "studio", "key") }.exceptionOrNull() as NodeAgentException
+        assertEquals(NodeAgent.NO_AUDIT, noAudit.type)
+    }
+
+    @Test
     fun otherFailuresAreNotWordedAsAMissingGrant() = runBlocking {
         val stopped = Answering(503, """{"error":{"message":"x","type":"agent_unavailable"}}""")
         val e = runCatching { NodeAgent(stopped, "studio · agent", capabilities = listOf("shard")).info() }.exceptionOrNull() as NodeAgentException
