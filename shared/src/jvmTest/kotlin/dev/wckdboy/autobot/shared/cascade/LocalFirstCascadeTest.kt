@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.shared.cascade
 
 import dev.wckdboy.autobot.agent.core.Harness
+import dev.wckdboy.autobot.agent.core.TurnTrace
 import dev.wckdboy.autobot.agent.core.llm.LlmAdapter
 import dev.wckdboy.autobot.agent.core.llm.LlmCall
 import dev.wckdboy.autobot.agent.core.llm.LlmCallConfig
@@ -18,6 +19,7 @@ import dev.wckdboy.autobot.agent.core.session.InMemorySessionStore
 import dev.wckdboy.autobot.agent.core.session.ReceiptCascade
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
+import dev.wckdboy.autobot.shared.invincible.PrivateTurns
 import dev.wckdboy.autobot.shared.redaction.RedactionGateway
 import dev.wckdboy.autobot.shared.session.Receipts
 import dev.wckdboy.autobot.shared.session.SessionItem
@@ -89,16 +91,19 @@ class LocalFirstCascadeTest {
         /** The chat's model ("cloud" here) is the user's own paired node. */
         node: Boolean = false,
         privateTurns: dev.wckdboy.autobot.shared.invincible.PrivateTurns? = null,
+        /** The user's own node as a provider of its own ("node"), so the chat can switch between it and "cloud". */
+        myNode: Scripted? = null,
     ): Setup {
         val harness = Harness()
         harness.llm.register(phone)
         harness.llm.register(cloud)
+        myNode?.let { harness.llm.register(it) }
         var now = 0L
         val cascade = LocalFirstCascade(
             defaultPolicy = { policy },
             onDevice = { if (phoneInstalled) LlmCallConfig("phone", "qwen3-1.7b") else null },
             cloud = { it == "cloud" && !node },
-            owned = { it == "cloud" && node },
+            owned = { (it == "cloud" && node) || (it == "node" && myNode != null) },
             privateTurns = privateTurns,
             selfCheckTimeoutMs = selfCheckTimeoutMs,
             millis = { now.also { now += 120 } },
@@ -112,6 +117,17 @@ class LocalFirstCascadeTest {
 
     private inline fun <reified T : SessionEvent> Agent.all(): List<T> = log.entries.value.map { it.event }.filterIsInstance<T>()
     private fun Agent.cascades(): List<ReceiptCascade?> = all<SessionEvent.TurnReceipt>().map { it.cascade }
+    private fun Agent.projection() = projectSession(log.entries.value, emptySet(), emptySet()) { _, _ -> "" }
+
+    /** The user picks another model for the chat (AgentHost / AgentBridge `setRoute`): no event, only the config. */
+    private fun Agent.switchTo(provider: String, model: String) = updateConfig { it.copy(llm = it.llm.copy(provider = provider, model = model)) }
+
+    /** Whether each request [adapter] gets is marked private ([PrivateTurns]). */
+    private fun Scripted.recordPrivate(private: PrivateTurns): MutableList<Boolean> {
+        val seen = mutableListOf<Boolean>()
+        onCall = { seen += private.isPrivate(TurnTrace.current()!!) }
+        return seen
+    }
 
     @Test
     fun offByDefaultNothingChanges() = runTest {
@@ -323,6 +339,122 @@ class LocalFirstCascadeTest {
             actions[policy] = local.action
         }
         assertEquals(mapOf(CascadePolicy.AUTO to "ESCALATED", CascadePolicy.NEVER to "KEPT"), actions)
+    }
+
+    /**
+     * An offer stays on screen when the user switches the chat's model, and "Ask my node" then sends
+     * the prompt to the node, marked private: where a follow-up goes is the chat's model when it
+     * starts, not where the phone's answer was judged.
+     */
+    @Test
+    fun anOfferMadeOnACloudChatGoesToTheNodeMarkedPrivateAfterASwitch() = runTest {
+        val private = PrivateTurns()
+        val node = Scripted("node")
+        val s = setup(policy = CascadePolicy.ASK, privateTurns = private, myNode = node)
+        val toNode = node.recordPrivate(private)
+        s.phone.answer = { "I don't know." }
+        s.agent.followup("Who wrote the novel Stiller?")
+        advanceUntilIdle()
+        val offered = s.agent.cascades().single()!!
+        assertEquals("OFFERED", offered.action)
+        assertNull("offered on the cloud chat", offered.target)
+
+        s.agent.switchTo("node", "auto")
+        assertTrue(s.cascade.escalate(s.agent))
+        advanceUntilIdle()
+
+        assertTrue(s.cloud.calls.isEmpty())
+        assertEquals("the node got it as private", listOf(true), toNode)
+        val follow = s.agent.cascades().last()!!
+        assertEquals("asked", follow.trigger)
+        assertEquals("node", follow.target)
+        val projection = s.agent.projection()
+        assertEquals("phone → my node · you asked", projection.items.filterIsInstance<SessionItem.Notice>().single().text)
+        val receipt = (projection.items.last() as SessionItem.Assistant).receipt!!
+        assertTrue(receipt.cascade!!.summary, receipt.cascade!!.summary.startsWith("Sent to your node because you asked, and kept there."))
+        assertEquals("my node", receipt.cascade!!.followUpTarget)
+    }
+
+    /** The other way: an offer made on a node chat, then a switch to a cloud model, goes to the cloud as a cloud follow-up, or not at all under "Never". */
+    @Test
+    fun anOfferMadeOnANodeChatGoesToTheCloudAsSuchAfterASwitch() = runTest {
+        val private = PrivateTurns()
+        val node = Scripted("node")
+        val s = setup(policy = CascadePolicy.ASK, privateTurns = private, myNode = node)
+        s.agent.switchTo("node", "auto")
+        val toCloud = s.cloud.recordPrivate(private)
+        s.phone.answer = { "I don't know." }
+        s.agent.followup("Who wrote the novel Stiller?")
+        advanceUntilIdle()
+        assertEquals("node", s.agent.cascades().single()!!.target)
+
+        s.agent.switchTo("cloud", "deepseek-chat")
+        assertTrue(s.cascade.escalate(s.agent))
+        advanceUntilIdle()
+
+        assertTrue(node.calls.isEmpty())
+        assertEquals(listOf(false), toCloud)
+        val follow = s.agent.cascades().last()!!
+        assertEquals("asked", follow.trigger)
+        assertNull(follow.target)
+        val projection = s.agent.projection()
+        assertEquals("phone → cloud · you asked", projection.items.filterIsInstance<SessionItem.Notice>().single().text)
+        val receipt = (projection.items.last() as SessionItem.Assistant).receipt!!
+        assertTrue(receipt.cascade!!.summary, receipt.cascade!!.summary.startsWith("Sent to the cloud because you asked."))
+        assertEquals("cloud", receipt.cascade!!.followUpTarget)
+
+        // "Never" offers on a node chat (the judge unsure); after a switch to a cloud model nothing goes there.
+        val never = setup(policy = CascadePolicy.NEVER, myNode = Scripted("node"))
+        never.agent.switchTo("node", "auto")
+        never.phone.answer = { "Sounds good." }
+        never.agent.followup("What's the bitcoin price right now?")
+        advanceUntilIdle()
+        assertEquals("OFFERED", never.agent.cascades().single()!!.action)
+        never.agent.switchTo("cloud", "deepseek-chat")
+        assertFalse(never.cascade.escalate(never.agent))
+        advanceUntilIdle()
+        assertTrue(never.cloud.calls.isEmpty())
+        assertFalse(CascadePolicy.NEVER.allowsAsk(node = false))
+        assertTrue(CascadePolicy.NEVER.allowsAsk(node = true))
+        assertTrue(CascadePolicy.ASK.allowsAsk(node = false))
+    }
+
+    /** A switch while the phone answers: the judged answer follows the rules, and goes to the target, of the chat's model by then. */
+    @Test
+    fun aSwitchWhileThePhoneAnswersAppliesTheNewModelsRules() = runTest {
+        // Cloud to node under "Auto": a weak answer to a sensitive prompt goes to the node on its own, private.
+        val private = PrivateTurns()
+        val node = Scripted("node")
+        val s = setup(policy = CascadePolicy.AUTO, privateTurns = private, myNode = node)
+        val toNode = node.recordPrivate(private)
+        s.phone.answer = { "I don't know." }
+        s.phone.onCall = { s.agent.switchTo("node", "auto") }
+        s.agent.followup("What dose of sertraline should I take?")
+        advanceUntilIdle()
+        assertTrue(s.cloud.calls.isEmpty())
+        assertEquals(listOf(true), toNode)
+        val (local, follow) = s.agent.cascades()
+        assertEquals("ESCALATED", local!!.action)
+        assertEquals("node", local.target)
+        assertTrue(CascadeLabels.summary(local), CascadeLabels.summary(local).endsWith("so the prompt went to your node, which keeps it on its own models."))
+        assertEquals("node", follow!!.target)
+        assertEquals("phone → my node · auto · it said it doesn't know", s.agent.projection().items.filterIsInstance<SessionItem.Notice>().single().text)
+
+        // Node to cloud: "Never" keeps the weak answer, and "Auto" only offers for a sensitive prompt.
+        for ((policy, action) in listOf(CascadePolicy.NEVER to "KEPT", CascadePolicy.AUTO to "OFFERED")) {
+            val n = Scripted("node")
+            val t = setup(policy = policy, myNode = n)
+            t.agent.switchTo("node", "auto")
+            t.phone.answer = { "I don't know." }
+            t.phone.onCall = { t.agent.switchTo("cloud", "deepseek-chat") }
+            t.agent.followup("What dose of sertraline should I take?")
+            advanceUntilIdle()
+            assertTrue(policy.name, t.cloud.calls.isEmpty())
+            assertTrue(policy.name, n.calls.isEmpty())
+            val c = t.agent.cascades().single()!!
+            assertEquals(policy.name, action, c.action)
+            assertNull(policy.name, c.target)
+        }
     }
 
     @Test

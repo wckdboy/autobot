@@ -12,7 +12,8 @@ const val ABORTED_BEFORE_DISPATCH = "Error: tool call aborted before dispatch."
  * [UserMessageKind.CONTEXT] message that opens the follow-up turn. It never reaches the model;
  * instead the answers since the user's last prompt (the phone's) leave the model surface, so the
  * chat's model (a cloud one, or the user's node) answers that prompt afresh and later requests
- * carry only its answer. Its text is the trigger (`auto` or `asked`).
+ * carry only its answer. Its text is the trigger (`auto` or `asked`); its
+ * [SessionEvent.UserMessage.meta] says where the follow-up goes (`target`: `node` or `cloud`).
  */
 const val CASCADE_ESCALATION = "cascade/escalate"
 

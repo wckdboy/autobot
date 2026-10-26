@@ -241,7 +241,10 @@ data class ChatUiState(
     val redaction: RedactionUi = RedactionUi.NONE,
     /** The chat's local-first cascade policy; null where it cannot apply (agent runs, on-device or loopback routes). */
     val cascade: CascadePolicy? = null,
-    /** "Ask <model>" under the phone's latest answer, when the judge offered the chat's model (a cloud one, or the user's node). */
+    /**
+     * "Ask <model>" under the phone's latest answer, when the judge offered the chat's model (a cloud
+     * one, or the user's node) and "Ask" may still send it there ([CascadePolicy.allowsAsk]).
+     */
     val cascadeOffer: CascadeOffer? = null,
     /** The chat's model is the user's own paired node (Invincible): no redaction, and "phone first" follow-ups go there, marked private. */
     val onNode: Boolean = false,
@@ -504,7 +507,9 @@ class ChatViewModel @AssistedInject constructor(
             },
             // Plain chats on a cloud model or the user's own node only (agent runs are not cascaded in this version).
             cascade = if (provider == null || isLocal || loopback || snap.toolsEnabled) null else snap.cascade,
-            cascadeOffer = snap.projection.cascadeOffer.takeIf { !snap.running },
+            // "Ask" goes to the chat's model as it is now, and never to a cloud model under "Never"
+            // (an offer made on a node chat outlives a switch; LocalFirstCascade.escalate refuses it).
+            cascadeOffer = snap.projection.cascadeOffer.takeIf { !snap.running && snap.cascade.allowsAsk(provider?.kind == ProviderKind.INVINCIBLE_NODE) },
             onNode = provider?.kind == ProviderKind.INVINCIBLE_NODE,
             loaded = true,
         )

@@ -84,7 +84,8 @@ sealed interface SessionEvent {
         /**
          * App data kept with the turn and never sent to the model: a generated-UI action stores
          * which surface it came from and the user's input there (`a2ui`), so the chat can lock
-         * that form and show what was entered after a restart.
+         * that form and show what was entered after a restart; a cascade escalation
+         * ([CASCADE_ESCALATION]) stores where its follow-up goes (`target`).
          */
         val meta: JsonObject? = null,
     ) : SessionEvent

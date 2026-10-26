@@ -56,6 +56,13 @@ enum class CascadePolicy(
     /** Whether the phone answers first under this policy. */
     val localFirst: Boolean get() = this != OFF
 
+    /**
+     * Whether "Ask" under an offered answer may send its prompt to the chat's model under this
+     * policy: to the user's own node ([node]) always, to any other model unless "Never" (nothing
+     * goes to the cloud). An offer made on a node chat outlives a switch to a cloud model.
+     */
+    fun allowsAsk(node: Boolean): Boolean = node || this != NEVER
+
     companion object {
         /** Settings and chats start with the cascade off: nothing changes until the user opts in. */
         val DEFAULT = OFF

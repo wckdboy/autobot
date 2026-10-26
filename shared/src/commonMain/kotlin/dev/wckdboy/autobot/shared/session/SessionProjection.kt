@@ -5,6 +5,7 @@ import dev.wckdboy.autobot.agent.core.session.LogEntry
 import dev.wckdboy.autobot.agent.core.session.ReceiptCascade
 import dev.wckdboy.autobot.shared.cascade.CascadeAction
 import dev.wckdboy.autobot.shared.cascade.CascadeLabels
+import dev.wckdboy.autobot.shared.cascade.LocalFirstCascade
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.TodoItem
 import dev.wckdboy.autobot.agent.core.session.TokenUsage
@@ -222,7 +223,10 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
                 UserMessageKind.PROMPT -> items += SessionItem.User(key, e.display ?: e.text, e.images, A2uiChat.submission(e.meta, e.display ?: e.text))
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
                 UserMessageKind.CONTEXT -> if (e.contextId == CASCADE_ESCALATION) {
-                    items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty(), localCascade?.target), NoticeKind.INFO)
+                    // The marker says where it goes (the chat's model when it was queued), which need
+                    // not be where the phone's answer was judged; older markers don't say.
+                    val target = LocalFirstCascade.escalationTarget(e) ?: localCascade?.target
+                    items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty(), target), NoticeKind.INFO)
                 }
             }
             is SessionEvent.AssistantMessage -> {

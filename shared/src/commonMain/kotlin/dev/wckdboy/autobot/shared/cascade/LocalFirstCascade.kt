@@ -28,6 +28,10 @@ import dev.wckdboy.autobot.agent.core.session.visibleEntries
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
 
 /**
  * The local-first cascade (ROADMAP Phase 2.5, item 3): in a plain chat (tools off) on a cloud
@@ -43,6 +47,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * answer leaves the model surface, see `deriveMessages`), and the request goes through
  * `llm/stream` like any other, so the redaction gateway hides personal data from a cloud model. A
  * follow-up to the user's own node is not redacted by the phone; it goes marked private instead.
+ * Where a follow-up goes, and by which rules, is the chat's model as it is then, not the one the
+ * phone's answer was judged for: the user may switch models in between (an offer outlives that).
  * Both turns' receipts say what happened and why ([ReceiptCascade]); never any content.
  *
  * Not in play for agent runs (tools on), subagents, chats on "This phone" or a loopback server,
@@ -52,8 +58,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @param onDevice the on-device chat route (the installed default model), null when none.
  * @param cloud whether a provider is a cloud one (`RedactionGateway.isCloud`: not "This phone", a
  *   loopback server or the user's node).
- * @param owned whether a provider is the user's own paired node: then the follow-up goes there,
- *   marked private in [privateTurns] so the node never runs it on a cloud model ("phone → my node").
+ * @param owned whether a provider is the user's own paired node: when the chat's model is one as
+ *   a follow-up (or a turn the phone cannot take) starts, it goes there marked private in
+ *   [privateTurns], so the node never runs it on a cloud model ("phone → my node").
  * @param selfCheck whether the judge may ask the on-device model to grade its answer (else rules only).
  */
 class LocalFirstCascade(
@@ -108,15 +115,27 @@ class LocalFirstCascade(
         if (config.toolsEnabled || !(cloudRoute || owned)) NONE else CascadePolicy.resolve(config.cascade, defaultPolicy()).name
 
     /**
-     * "Ask <model>": sends the prompt of the offered answer ([pendingOffer]) to the chat's model (a
-     * cloud one, or the user's node) as a follow-up turn. False when there is no offer (another
-     * turn started) or a turn is running.
+     * "Ask <model>": sends the prompt of the offered answer ([pendingOffer]) to the chat's model as
+     * it is now (a cloud one, or the user's node) as a follow-up turn. False when there is no offer
+     * (another turn started), a turn is running, or the chat's policy is "Never" and its model is
+     * now not the user's node ([CascadePolicy.allowsAsk]).
      */
-    fun escalate(agent: Agent): Boolean {
+    suspend fun escalate(agent: Agent): Boolean {
+        val node = isOwned(agent.config.value.llm.provider)
         if (agent.status.value == AgentStatus.RUNNING) return false
         pendingOffer(agent.log.entries.value) ?: return false
-        agent.queueTurn(SessionEvent.UserMessage(TRIGGER_ASKED, UserMessageKind.CONTEXT, CASCADE_ESCALATION), first = true)
+        if (!policyOf(agent).allowsAsk(node)) return false
+        agent.queueTurn(escalation(TRIGGER_ASKED, node), first = true)
         return true
+    }
+
+    /** Whether [providerId] is the user's own paired node; false when that cannot be told. */
+    private suspend fun isOwned(providerId: String): Boolean = try {
+        owned(providerId)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Throwable) {
+        false
     }
 
     val plugin: Plugin = plugin("local-first-cascade") { ctx ->
@@ -181,7 +200,9 @@ class LocalFirstCascade(
         val entries = agent.log.entries.value
         input.lastOrNull { it.kind == UserMessageKind.CONTEXT && it.contextId == CASCADE_ESCALATION }?.let { marker ->
             val origin = lastLocal(entries)
-            val toNode = origin?.target == TARGET_NODE
+            // It goes to the chat's model now, which need not be the one the phone's answer was
+            // judged for (the user may have switched models since).
+            val toNode = isOwned(agent.config.value.llm.provider)
             val state = TurnState(
                 turn, CascadePolicy.parse(origin?.policy) ?: policyOf(agent), CascadeRoute.NotApplicable, null,
                 CascadeRisk(origin?.risk.orEmpty()), "", trigger = marker.text.ifBlank { TRIGGER_ASKED }, origin = origin, owned = toNode,
@@ -195,7 +216,7 @@ class LocalFirstCascade(
         val policy = policyOf(agent)
         if (!policy.localFirst || config.toolsEnabled) return null
         val prompt = input.lastOrNull { it.kind == UserMessageKind.PROMPT } ?: return null
-        val toNode = runCatching { owned(config.llm.provider) }.getOrDefault(false)
+        val toNode = isOwned(config.llm.provider)
         if (!toNode && !runCatching { cloud(config.llm.provider) }.getOrDefault(true)) return null
         val local = try {
             onDevice()?.takeIf { it.provider.isNotBlank() && it.model.isNotBlank() }
@@ -280,7 +301,7 @@ class LocalFirstCascade(
         }
     }
 
-    private fun finish(agent: Agent, state: TurnState): ReceiptCascade? {
+    private suspend fun finish(agent: Agent, state: TurnState): ReceiptCascade? {
         state.trigger?.let { trigger ->
             val origin = state.origin
             return ReceiptCascade(
@@ -314,10 +335,11 @@ class LocalFirstCascade(
             }
             state.judgeName = JUDGE_HEURISTIC
         }
-        val action = CascadeRoutes.action(state.policy, result.verdict, state.risk, state.owned)
-        if (action == CascadeAction.ESCALATED) {
-            agent.queueTurn(SessionEvent.UserMessage(TRIGGER_AUTO, UserMessageKind.CONTEXT, CASCADE_ESCALATION), first = true)
-        }
+        // The rules, and the target, of the chat's model now: the user may have switched models
+        // while the phone answered.
+        val toNode = isOwned(agent.config.value.llm.provider)
+        val action = CascadeRoutes.action(state.policy, result.verdict, state.risk, toNode)
+        if (action == CascadeAction.ESCALATED) agent.queueTurn(escalation(TRIGGER_AUTO, toNode), first = true)
         return ReceiptCascade(
             role = ROLE_LOCAL,
             policy = state.policy.name,
@@ -327,7 +349,7 @@ class LocalFirstCascade(
             risk = state.risk.reasons,
             judge = state.judgeName,
             judgeMs = state.judgeMs,
-            target = TARGET_NODE.takeIf { state.owned },
+            target = TARGET_NODE.takeIf { toNode },
         )
     }
 
@@ -341,6 +363,24 @@ class LocalFirstCascade(
         const val JUDGE_HEURISTIC = "heuristic"
         const val NOT_JUDGED = "NONE"
         const val TARGET_NODE = "node"
+        const val TARGET_CLOUD = "cloud"
+        private const val META_TARGET = "target"
+
+        /**
+         * The context message that opens a follow-up: [trigger] is its text, and where it goes (the
+         * chat's model when it is queued: [TARGET_NODE] or [TARGET_CLOUD]) is app data the model
+         * never sees, for the notice above the follow-up ([escalationTarget]).
+         */
+        private fun escalation(trigger: String, node: Boolean) = SessionEvent.UserMessage(
+            trigger, UserMessageKind.CONTEXT, CASCADE_ESCALATION,
+            meta = buildJsonObject { put(META_TARGET, if (node) TARGET_NODE else TARGET_CLOUD) },
+        )
+
+        /**
+         * Where the follow-up that [marker] opens goes: [TARGET_NODE] or [TARGET_CLOUD]; null for a
+         * marker written before it said (then the phone's receipt's target stands in).
+         */
+        fun escalationTarget(marker: SessionEvent.UserMessage): String? = (marker.meta?.get(META_TARGET) as? JsonPrimitive)?.contentOrNull
 
         /** The phone's offered answer still waiting for "Ask": the latest turn's, when the judge offered the chat's model. */
         fun pendingOffer(entries: List<LogEntry>): ReceiptCascade? {
