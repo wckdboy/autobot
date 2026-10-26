@@ -384,7 +384,7 @@ class NodeAgent(
             request("GET", "?limit=$limit" + sinceQuery(since), root = AUDIT)
         } catch (e: NodeAgentException) {
             // A node that did not grant this device `audit` answers 404 for it.
-            if (e.status == 404) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName), e.code) else throw e
+            if (e.status == 404) throw NodeAgentException(404, NO_AUDIT, NodeErrors.noAudit(nodeName, capabilities), e.code) else throw e
         }
         return NodeActivityParser.requests(text, node, receiptKey, crypto)
     }

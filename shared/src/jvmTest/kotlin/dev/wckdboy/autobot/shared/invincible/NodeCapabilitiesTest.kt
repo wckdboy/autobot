@@ -132,7 +132,7 @@ class NodeCapabilitiesTest {
         }.exceptionOrNull() as NodeAgentException
         assertEquals("http://invincible/v1/audit?limit=100", transport.urls.single())
         assertEquals(NodeAgent.NO_AUDIT, e.type)
-        assertEquals(NodeErrors.noAudit("studio"), e.message)
+        assertEquals(NodeErrors.noAudit("studio", listOf("shard", "agent")), e.message)
         assertTrue(e.message!!, "`invincible pair --capabilities shard,agent,audit`" in e.message!!)
     }
 
@@ -142,6 +142,17 @@ class NodeCapabilitiesTest {
         // a code that leaves out `shard` takes chat, models and receipts away from the phone.
         val granted = NodeErrors.GRANT.substringAfter("--capabilities ").split(',')
         assertTrue(NodeErrors.GRANT, granted.containsAll(listOf("shard", "agent", "audit")))
+    }
+
+    @Test
+    fun theAdvisedGrantKeepsWhatTheDeviceHolds() = runBlocking {
+        // A phone that also dispatches keeps `dispatch` when it follows the advice.
+        val e = runCatching {
+            NodeAgent(Answering(404, notGranted), "studio · agent", capabilities = listOf("shard", "dispatch")).info()
+        }.exceptionOrNull() as NodeAgentException
+        assertTrue(e.message!!, "`invincible pair --capabilities shard,agent,audit,dispatch`" in e.message!!)
+        assertEquals(NodeErrors.GRANT, NodeErrors.grant(listOf("shard", "agent", "audit")))
+        assertEquals(NodeErrors.GRANT, NodeErrors.grant(null))
     }
 
     @Test

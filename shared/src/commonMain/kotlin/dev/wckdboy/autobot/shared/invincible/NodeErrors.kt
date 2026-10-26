@@ -55,6 +55,18 @@ object NodeErrors {
     const val GRANT = "invincible pair --capabilities shard,agent,audit"
 
     /**
+     * [GRANT] plus whatever else the device holds now ([capabilities], as the node sent them at
+     * pairing), so following the advice takes nothing away (`dispatch`, or one this app does not
+     * know yet).
+     */
+    fun grant(capabilities: List<String>?): String {
+        val kept = capabilities.orEmpty().filter { it.isNotBlank() && it !in BASE }.distinct()
+        return if (kept.isEmpty()) GRANT else GRANT + "," + kept.joinToString(",")
+    }
+
+    private val BASE = GRANT.substringAfter("--capabilities ").split(',')
+
+    /**
      * Why [node] answers 404 for its Autobot Agent. A node with capabilities (spec/pairing.md)
      * answers so to a device it did not grant `agent`, as for a path it does not have. With
      * [capabilities] known (the node sent them at pairing) that is the reason; unknown (null), the
@@ -62,7 +74,7 @@ object NodeErrors {
      * to update it.
      */
     fun noAgent(node: String, capabilities: List<String>?): String {
-        val grant = "On the node, run `$GRANT` and pair this phone again with that code."
+        val grant = "On the node, run `${grant(capabilities)}` and pair this phone again with that code."
         return if (capabilities != null) {
             "$node hasn't given this phone its Autobot Agent. $grant"
         } else {
@@ -76,7 +88,8 @@ object NodeErrors {
      * device it did not grant `audit` (spec/pairing.md, Capabilities); the releases before them
      * (0.0.3 to 0.0.21) give it to every paired device.
      */
-    fun noAudit(node: String): String = "$node hasn't given this phone its request log. On the node, run `$GRANT` and pair this phone again with that code."
+    fun noAudit(node: String, capabilities: List<String>? = null): String =
+        "$node hasn't given this phone its request log. On the node, run `${grant(capabilities)}` and pair this phone again with that code."
 
     /** Why pairing with the node in a code at [addresses] failed. */
     fun pairing(error: Throwable, addresses: List<String>): String = when (error) {
