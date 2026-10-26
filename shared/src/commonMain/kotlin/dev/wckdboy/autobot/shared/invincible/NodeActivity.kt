@@ -70,7 +70,8 @@ data class AgentSkill(val name: String, val description: String)
 
 /**
  * What a paired node and its agent did and know: the node's requests, the agent's actions, its
- * memory and the owner's skills. [agentProblem] says why the agent's part is missing (not running).
+ * memory and the owner's skills. [agentProblem] says why the agent's part is missing (not running,
+ * or not granted to this device).
  */
 data class NodeActivity(
     val requests: List<NodeRequest>,
@@ -129,8 +130,14 @@ object NodeActivityWords {
         return "$mark ${t.id} ${t.agent}: ${t.goal}$after"
     }
 
-    fun summary(a: NodeActivity): String = buildString {
-        append("${a.requests.size} requests · ")
+    /**
+     * "2 requests · 1 sent off the node · 1 not verified", of the requests the node listed for this
+     * phone: from Invincible 0.0.22 its own only, from an older node every caller's. None listed is
+     * "No requests from this phone listed", which is true of both, and of a phone whose requests
+     * were all made before the node recorded whose they were.
+     */
+    fun summary(a: NodeActivity): String = if (a.requests.isEmpty()) "No requests from this phone listed" else buildString {
+        append(if (a.requests.size == 1) "1 request · " else "${a.requests.size} requests · ")
         append(if (a.leftTheNode == 0) "nothing left the node" else "${a.leftTheNode} sent off the node")
         if (a.unverified > 0) append(" · ${a.unverified} not verified")
     }

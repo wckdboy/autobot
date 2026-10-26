@@ -104,7 +104,6 @@ private val format: DateFormat get() = DateFormat.getDateTimeInstance(DateFormat
 @Composable
 private fun Requests(activity: NodeActivity) {
     Text(NodeActivityWords.summary(activity), style = MaterialTheme.typography.bodyMedium)
-    if (activity.requests.isEmpty()) Text("The node has not answered anything yet.", style = MaterialTheme.typography.bodySmall)
     activity.requests.forEach { r ->
         Column {
             Text("${NodeActivityWords.who(r)} · ${NodeActivityWords.where(r)}", style = MaterialTheme.typography.bodyLarge)

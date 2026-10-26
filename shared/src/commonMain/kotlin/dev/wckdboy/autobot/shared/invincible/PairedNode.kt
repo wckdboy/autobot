@@ -20,13 +20,22 @@ class PairedNode(
     /** The node's receipt key (spec/receipts.md), pinned at pairing; null for a node without one. */
     val receiptKey: String?,
     val device: NodeKeyPair,
+    /**
+     * What the node granted this device at pairing (spec/pairing.md, Capabilities: `shard`, `agent`,
+     * `audit`, `dispatch`); null when unknown: a node from before capabilities says nothing, and a
+     * pairing stored before Autobot read them has none. The operator can change the set later
+     * without a new pairing, so it only words a refusal; it never decides what to ask for. The
+     * spec reads a reply without the field as `shard`; here it stays unknown, because such a node
+     * has no `--capabilities` to grant with, and the refusal says to update it.
+     */
+    val capabilities: List<String>? = null,
 ) {
     val fingerprint: String get() = fingerprint(nodeKey)
 
     @OptIn(ExperimentalEncodingApi::class)
     fun toSecret(): String = json.encodeToString(
         Stored.serializer(),
-        Stored(0, name, deviceName, b64.encode(nodeKey), addresses, receiptKey, b64.encode(device.privateKey), b64.encode(device.publicKey)),
+        Stored(0, name, deviceName, b64.encode(nodeKey), addresses, receiptKey, b64.encode(device.privateKey), b64.encode(device.publicKey), capabilities),
     )
 
     /**
@@ -65,6 +74,8 @@ class PairedNode(
         val receipt_key: String?,
         val device_private: String,
         val device_public: String,
+        // Added within version 0: absent from older pairings (unknown), ignored by older apps.
+        val capabilities: List<String>? = null,
     )
 
     companion object {
@@ -81,7 +92,7 @@ class PairedNode(
             val nodeKey = b64.decode(s.node_key).also { require(it.size == 32) }
             val private = b64.decode(s.device_private).also { require(it.size == 32) }
             val public = b64.decode(s.device_public).also { require(it.size == 32) }
-            PairedNode(s.name, s.device_name, nodeKey, s.addresses, s.receipt_key, NodeKeyPair(private, public))
+            PairedNode(s.name, s.device_name, nodeKey, s.addresses, s.receipt_key, NodeKeyPair(private, public), s.capabilities)
         }.getOrNull()
 
         /**
@@ -109,7 +120,7 @@ class PairedNode(
                 throw e
             }
             paired.channel.close()
-            return PairedNode(paired.node, paired.device, code.nodeKey, code.addresses, paired.receiptKey, device)
+            return PairedNode(paired.node, paired.device, code.nodeKey, code.addresses, paired.receiptKey, device, paired.capabilities)
         }
 
         /** Whether [secret] (a stored pairing) is with the node [code] names: pairing again replaces it. */

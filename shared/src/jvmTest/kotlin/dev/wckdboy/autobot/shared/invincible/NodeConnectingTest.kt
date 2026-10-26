@@ -274,11 +274,12 @@ class NodeConnectingTest {
     }
 
     @Test
-    fun anOlderNodeWithoutTheAgentSaysToUpdate() = runBlocking {
-        val body = """{"error":{"message":"not found","type":"not_found"}}"""
+    fun aNodeThatDoesNotLetThisPhoneUseTheAgentSaysHow() = runBlocking {
+        // The node's 404 for a route this device was not granted (or an older node without the agent).
+        val body = """{"error":{"message":"no such endpoint","type":"not_found","code":"not_found"}}"""
         val agent = NodeAgent(transport(answering("HTTP/1.1 404 Not Found\r\ncontent-length: ${body.length}\r\n\r\n$body")), "node-b · agent")
         val failure = runCatching { withTimeout(10_000) { agent.info() } }.exceptionOrNull() as NodeAgentException
         assertEquals(404, failure.status)
-        assertEquals(NodeErrors.noAgent("node-b"), failure.message)
+        assertEquals(NodeErrors.noAgent("node-b", null), failure.message)
     }
 }

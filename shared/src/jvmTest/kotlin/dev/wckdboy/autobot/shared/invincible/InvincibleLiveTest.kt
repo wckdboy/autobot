@@ -86,14 +86,15 @@ class InvincibleLiveTest {
         if (::home.isInitialized) home.deleteRecursively()
     }
 
-    private fun admin(method: String, path: String): JsonObject {
+    private fun admin(method: String, path: String, body: String? = null): JsonObject {
         val token = File(home, "token").readText().trim()
         val request = HttpRequest.newBuilder(URI("http://127.0.0.1:$apiPort$path"))
             .header("Authorization", "Bearer $token")
-            .method(method, HttpRequest.BodyPublishers.noBody())
+            .apply { if (body != null) header("Content-Type", "application/json") }
+            .method(method, body?.let { HttpRequest.BodyPublishers.ofString(it) } ?: HttpRequest.BodyPublishers.noBody())
             .build()
-        val body = http.send(request, HttpResponse.BodyHandlers.ofString()).body()
-        return if (body.isBlank()) JsonObject(emptyMap()) else Json.parseToJsonElement(body).jsonObject
+        val text = http.send(request, HttpResponse.BodyHandlers.ofString()).body()
+        return if (text.isBlank()) JsonObject(emptyMap()) else Json.parseToJsonElement(text).jsonObject
     }
 
     private class HttpAnswer(val status: Int, val headers: Map<String, String>, val body: String)
@@ -245,7 +246,10 @@ class InvincibleLiveTest {
             redirectErrorStream(true)
             redirectOutput(File(home, "agent.log"))
         }.start()
-        val code = PairingCode.parse(admin("POST", "/v1/admin/pairing")["code"]!!.jsonPrimitive.content)!!
+        // The agent and the audit log are granted, not given (Invincible's spec/pairing.md,
+        // Capabilities); a node from before capabilities ignores the body.
+        val granting = admin("POST", "/v1/admin/pairing", """{"capabilities":["shard","agent","audit"]}""")
+        val code = PairingCode.parse(granting["code"]!!.jsonPrimitive.content)!!
         val paired = PairedNode.pair(crypto, code, "phone") { connect() }
         val transport = paired.transport(crypto) { connect() }
         val nodeAgent = NodeAgent(transport)

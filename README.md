@@ -218,15 +218,26 @@ The protocol layer is in `:shared` (`dev.wckdboy.autobot.shared.invincible`):
   on iOS (`SwiftNodeCrypto`): X25519, ChaCha20-Poly1305, SHA-256, HMAC, Ed25519. The Noise state
   machine is common code; no primitive is.
 - **Signed receipts.** `NodeReceipts.verify` checks the node's per-request receipts (what ran where,
-  what left the node) against the receipt key pinned at pairing.
+  what left the node) against the receipt key pinned at pairing, as the node checks them: version 0
+  and version 1 (which also binds the request and answer by hash, the time and the caller), each
+  under its own signing prefix. Any other version, a receipt without one, or a version 1 receipt
+  missing a field it must carry does not verify. The phone does not yet recompute the request and
+  answer hashes a version 1 receipt carries, so it shows nothing it has not checked about them.
 - **Same rules as the node.** `scripts/sync-invincible-spec.sh` copies Invincible's conformance
-  vectors into `shared/src/jvmTest/resources/invincible`. `InvincibleSpecTest` checks Noise
-  byte for byte against the node's snow transcripts, receipts against OpenSSL-made signatures,
-  pairing codes, runs `RedactionVault` on the node's redaction vectors (the phone and the node
-  hide the same things), and the kill switch and network modes on the egress vectors (the same
-  request is blocked, sent direct or proxied on both). `InvincibleLiveTest` pairs with a real `invincible serve` when
-  `INVINCIBLE_BIN` is set. On iOS, `InvincibleNodeTests` runs the same Noise and receipt vectors
-  on CryptoKit (passing on the iOS 26.1 simulator).
+  vectors into `shared/src/jvmTest/resources/invincible` (`SOURCE` names the commit).
+  `InvincibleSpecTest` checks Noise byte for byte against the node's snow transcripts, receipts
+  of both versions against the node's signatures and canonical JSON against RFC 8785's rules
+  (numbers included), pairing codes, runs `RedactionVault` on the node's redaction vectors (the
+  phone and the node hide the same things), and the kill switch and network modes on the egress
+  vectors (the same request is blocked, sent direct or proxied on both).
+  `scripts/check-invincible-spec.sh` says whether the copies are still Invincible's (on `main`, a
+  tag, a commit or a checkout) and exits non-zero when they are not; CI's `invincible-spec` job
+  runs it against `SOURCE` on every push and pull request, and the daily `invincible-spec`
+  workflow against Invincible's `main`, so a rule changed on the node fails here before its
+  release reaches users. Invincible's
+  `routing` and `cluster` vectors are not copied: the app has neither rule. `InvincibleLiveTest`
+  pairs with a real `invincible serve` when `INVINCIBLE_BIN` is set. On iOS,
+  `InvincibleNodeTests` runs the same Noise and receipt vectors on CryptoKit.
 
 **On Android, "My node" works end to end** (checked on an Android 16 emulator against a real node):
 Remote › *Pair a node* (or the welcome screen's *Pair a node*, or Remote › Providers › + › *My node
@@ -248,6 +259,16 @@ BouncyCastle's RFC 8032 verifier, because Android's software provider has no Ed2
 
 **The agent on your machine.** If the machine also runs the Autobot Agent (`autobot serve`,
 installed with the node by Invincible's `install.sh`), REMOTE › *Agents · my node* opens it.
+A node lets a paired phone reach its agent and its request log only when it granted them
+(Invincible's [spec/pairing.md](https://github.com/wckdboy/invincible/blob/main/spec/pairing.md),
+Capabilities): on the node, `invincible pair --capabilities shard,agent,audit`, then pair the
+phone again with that code. Keep `shard` in the list: the new code replaces what the phone held,
+and without `shard` it loses chat and the model list. From Invincible 0.0.22 the operator can
+grant them without pairing again: `invincible devices grant <the phone's name> shard,agent,audit`
+(the list is again the whole set). A pairing keeps what the node granted, and a phone it did not
+grant them is told so, with both commands (the pairing one for a node without `devices grant`); a
+pairing made before this version also says to update Invincible if the node does not know
+`--capabilities`.
 Tasks run on that machine: shell commands and file work, on its models. Every command, every file
 write and every read outside the agent's working directory comes to the phone as a card first:
 Allow, Always (this conversation), or Deny. Answers show the model and tier that ran each turn. It
@@ -281,12 +302,17 @@ web group: the node fetches through its gateway, under its network rules.
 question there, with a field to answer, and the tab counts what is waiting. The answer sends the
 task on, as `/board answer` does in Telegram.
 
-**While you were away.** With a node paired, the Run screen shows a short card when it did
-something since you last looked: how many requests it answered (on the node or in the cloud,
-tokens), the agent's actions (by the rules or approved by you), the recipes that ran, what
-failed, and whether every receipt verified (one that did not is the first line, in red). Questions
-waiting for you are its main button, which opens the agent's board; Details opens the activity.
-Dismissing or opening it marks it seen, per node.
+**While you were away.** With a node paired, the Run screen shows a short card when its agent did
+something since you last looked: the agent's actions (by the rules or approved by you), the
+recipes that ran, what failed, and what waits for you. The card also counts this phone's own
+requests to the node in that time (on the node or in the cloud, tokens) and whether every receipt
+verified; those requests alone bring no card, but a receipt that did not verify does, as its
+first line, in red. It counts no other device's requests: from Invincible 0.0.22 a node gives a
+phone only its own entries of the request log, and with an older node the card leaves the others
+out too. A phone the node did not grant its request log (`audit`) still gets the agent's part, with
+a line that says so and how to grant it. Questions waiting for you are its main button,
+which opens the agent's board; Details opens the activity (both in the activity sheet, which needs
+`audit`). Dismissing or opening it marks it seen, per node.
 
 **Bots.** A node in bots mode runs several named bots, each with its own persona, model, approvals
 mode and channels (Telegram, Discord, Slack, email, Signal, Matrix, the API). Remote › *Agents · my
@@ -318,11 +344,12 @@ this and the page stays as it was.
 **What the node did.** The list button on the agent screen opens the node's activity, from its
 own logs (Invincible's [spec/audit.md](https://github.com/wckdboy/invincible/blob/main/spec/audit.md)):
 *Requests* is every request the node answered (which device or the agent asked, the model and
-tier, tokens, and whether anything left the node), each receipt checked against the key pinned at
-pairing, so an entry that does not verify says so in red. *Actions* is everything the agent asked
-to do and who decided: the rules, an "always" earlier, or you on the app, the CLI or Telegram.
-*Memory* shows what the agent remembered between conversations (forget any of it) and the skills
-on the machine. The requests show even when the agent is not running.
+tier, tokens, and whether anything left the node; from Invincible 0.0.22, this phone's own only),
+each receipt checked against the key pinned at pairing, so an entry that does not verify says so
+in red. *Actions* is everything the agent asked to do and who decided: the rules, an "always"
+earlier, or you on the app, the CLI or Telegram. *Memory* shows what the agent remembered between
+conversations (forget any of it) and the skills on the machine. The requests show even when the
+agent is not running.
 
 **The node's own receipts.** Every answer from a node comes with its request id; when the turn's
 privacy receipt is built, the phone fetches the node's receipt for it (Invincible's

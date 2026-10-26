@@ -19,8 +19,8 @@ import org.junit.Test
 class NodeDigestViewModelTest {
     private class Source(var paired: Pair<String, String>? = "n1" to "studio-mac", var fail: Boolean = false) : NodeDigestSource {
         val asked = mutableListOf<Long>()
-        /** What the node did, as a function of where the window starts. */
-        var answer: (Long) -> NodeDigest = { since -> NodeDigest(since, requests = 3, onNode = 3) }
+        /** What the node did, as a function of where the window starts (this phone's requests alone are no news). */
+        var answer: (Long) -> NodeDigest = { since -> NodeDigest(since, requests = 3, onNode = 3, actions = 1, autoAllowed = 1) }
 
         override suspend fun node() = paired
 
