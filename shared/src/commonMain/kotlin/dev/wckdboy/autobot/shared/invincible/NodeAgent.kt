@@ -496,7 +496,7 @@ class NodeAgent(
     }
 
     companion object {
-        /** [NodeAgentException.type] of [info] on a node that did not grant this device its agent (or has none). */
+        /** [NodeAgentException.type] of [info] and [actions] on a node that did not grant this device its agent (or has none). */
         const val NO_AGENT = "no_agent"
 
         /** [NodeAgentException.type] of [requests] on a node that did not grant this device its audit log. */

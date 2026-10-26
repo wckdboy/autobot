@@ -76,7 +76,10 @@ data class NodeDigest(
     val failedTasks: List<BoardTask> = emptyList(),
     /** Why the agent's part is missing (it is not running, or not granted to this device); null when it answered. */
     val agentProblem: String? = null,
-    /** Why this device's requests are missing (the node did not give it its request log); null when they came. */
+    /**
+     * Why this device's requests are missing: the node did not give it its request log, with how
+     * to grant it ([NodeErrors.noAudit]); null when they came.
+     */
     val auditProblem: String? = null,
     /**
      * Per bot, for a node with more than one (bots mode), the default bot first; empty on a node
@@ -242,8 +245,9 @@ object NodeDigests {
         val requests = try {
             agent.requests(crypto, node, receiptKey, limit = MAX_ENTRIES, since = since)
         } catch (e: NodeAgentException) {
-            // A phone granted the agent without `audit` still gets what the agent did.
-            if (e.status == 0) throw e
+            // A phone granted the agent without `audit` still gets what the agent did. Anything else
+            // (unpaired, the node failing) is the whole digest's, as before.
+            if (e.type != NodeAgent.NO_AUDIT) throw e
             auditProblem = e.message
             emptyList()
         }
@@ -424,7 +428,8 @@ object NodeDigestWords {
             ran(d)?.let { add(NodeDigestLine(it, NodeDigestLine.Tone.PLAIN)) }
             failed(d)?.let { add(NodeDigestLine("$it ✗", NodeDigestLine.Tone.ERROR)) }
             if (d.agentProblem != null) add(NodeDigestLine("The agent was not running there !", NodeDigestLine.Tone.WARNING))
-            if (d.auditProblem != null) add(NodeDigestLine("This phone's requests could not be read there !", NodeDigestLine.Tone.WARNING))
+            // Says how to grant the request log, so the owner can get it back.
+            d.auditProblem?.let { add(NodeDigestLine(it, NodeDigestLine.Tone.WARNING)) }
             if (receipts?.tone == NodeDigestLine.Tone.OK) add(receipts)
         }
     }

@@ -223,9 +223,23 @@ class NodeCapabilitiesTest {
         assertNull(d.agentProblem)
         assertEquals(NodeErrors.noAudit("studio", listOf("shard", "agent"), "My-Phone"), d.auditProblem)
         assertEquals(
-            listOf("1 action, all allowed by the rules", "This phone's requests could not be read there !"),
+            listOf("1 action, all allowed by the rules", NodeErrors.noAudit("studio", listOf("shard", "agent"), "My-Phone")),
             NodeDigestWords.lines(d).map { it.text },
         )
+    }
+
+    @Test
+    fun aRequestLogThatFailsForAnotherReasonIsTheWholeDigestsFailure() = runBlocking {
+        // Only the missing `audit` grant leaves the rest of the card: a node that is failing, or a
+        // phone it no longer knows, fails the digest as it did before the request log was optional.
+        for (status in listOf(403, 503)) {
+            val failing = """{"error":{"message":"not now","type":"server_error"}}"""
+            val agent = NodeAgent(Answering(status, failing), "studio · agent", listOf("shard", "agent", "audit"), "My-Phone")
+            val e = runCatching {
+                NodeDigests.fetch(agent, crypto, "studio", "key", "node-1", since = 100, recipes = emptyList(), device = "My-Phone")
+            }.exceptionOrNull() as? NodeAgentException
+            assertEquals("status $status", status, e?.status)
+        }
     }
 
     @Test
