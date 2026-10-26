@@ -224,7 +224,7 @@ class NodeAgent(
         } catch (e: NodeAgentException) {
             // A node that did not grant this device `agent` answers as for a path it does not have;
             // a 404 of the agent's own (`unknown_bot`: no bot to answer) is the agent's, as it said it.
-            if (notMounted(e)) throw NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities, device), e.code) else throw e
+            if (notMounted(e)) throw noAgent(e) else throw e
         }
         val o = json.parseToJsonElement(body).jsonObject
         return AgentInfo(
@@ -393,8 +393,20 @@ class NodeAgent(
     }
 
     /** The agent's action log, newest first: what it asked to do, whether it ran, who decided. */
-    suspend fun actions(limit: Int = 100, since: Long? = null): List<AgentActionEntry> =
-        NodeActivityParser.actions(request("GET", "/actions?limit=$limit" + sinceQuery(since)))
+    suspend fun actions(limit: Int = 100, since: Long? = null): List<AgentActionEntry> {
+        val text = try {
+            request("GET", "/actions?limit=$limit" + sinceQuery(since))
+        } catch (e: NodeAgentException) {
+            // As in [info]: a node that did not grant this device `agent` answers as for a path it
+            // does not have (every node with an agent has this one, from 0.0.3 on).
+            if (notMounted(e)) throw noAgent(e) else throw e
+        }
+        return NodeActivityParser.actions(text)
+    }
+
+    /** The refusal of a node that did not grant this device `agent` ([e], its 404), with how to grant it. */
+    private fun noAgent(e: NodeAgentException) =
+        NodeAgentException(404, NO_AGENT, NodeErrors.noAgent(nodeName, capabilities, device), e.code)
 
     private fun sinceQuery(since: Long?): String = if (since == null) "" else "&since=$since"
 
@@ -423,7 +435,10 @@ class NodeAgent(
     /** The owner's skills on the node. */
     suspend fun skills(): List<AgentSkill> = NodeActivityParser.skills(request("GET", "/skills"))
 
-    /** All of it at once; the agent's part is empty, with [NodeActivity.agentProblem] set, when it is not running. */
+    /**
+     * All of it at once; the agent's part is empty, with [NodeActivity.agentProblem] set, when it is
+     * not running or the node did not grant this device `agent`.
+     */
     suspend fun activity(crypto: NodeCrypto, node: String, receiptKey: String?): NodeActivity {
         val requests = requests(crypto, node, receiptKey)
         return try {

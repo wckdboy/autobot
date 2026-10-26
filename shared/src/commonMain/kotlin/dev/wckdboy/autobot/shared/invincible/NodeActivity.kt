@@ -70,7 +70,8 @@ data class AgentSkill(val name: String, val description: String)
 
 /**
  * What a paired node and its agent did and know: the node's requests, the agent's actions, its
- * memory and the owner's skills. [agentProblem] says why the agent's part is missing (not running).
+ * memory and the owner's skills. [agentProblem] says why the agent's part is missing (not running,
+ * or not granted to this device).
  */
 data class NodeActivity(
     val requests: List<NodeRequest>,

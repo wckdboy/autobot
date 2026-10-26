@@ -88,6 +88,21 @@ class NodeCapabilitiesTest {
         }
     }
 
+    /** Answers [bodies]' paths with their body, and every other path as a route the device was not granted. */
+    private inner class Granting(private val bodies: Map<String, String>) : HttpTransport {
+        override fun send(request: HttpRequestSpec, sink: HttpSink): Cancellable {
+            val body = bodies[request.url.removePrefix("http://invincible").substringBefore('?')]
+            if (body == null) {
+                sink.onResponse(404, emptyMap(), notGranted)
+            } else {
+                sink.onResponse(200, emptyMap(), null)
+                sink.onLine(body)
+                sink.onComplete()
+            }
+            return Cancellable {}
+        }
+    }
+
     @Test
     fun theSetANodeGrantsIsKeptWithThePairing() {
         val paired = pairWith(reply(listOf("shard", "agent")))
@@ -176,6 +191,22 @@ class NodeCapabilitiesTest {
         assertTrue(unknown, "`invincible update`" in unknown)
         // Without the name, the code alone.
         assertFalse(NodeErrors.noAgent("studio", listOf("shard")), "devices grant" in NodeErrors.noAgent("studio", listOf("shard")))
+    }
+
+    @Test
+    fun theActivityAndTheDigestSayHowToGrantTheAgentToo() = runBlocking {
+        // A phone granted `audit` but not `agent`: the request log answers, and the action log is a
+        // route the node did not grant, worded as info() words it. The optional routes before it
+        // (board, schedules, approvals, bots) still read as absent.
+        val agent = NodeAgent(Granting(mapOf("/v1/audit" to """{"entries":[]}""")), "studio · agent", listOf("shard", "audit"), "My-Phone")
+        val advice = NodeErrors.noAgent("studio", listOf("shard", "audit"), "My-Phone")
+        val e = runCatching { agent.actions() }.exceptionOrNull() as NodeAgentException
+        assertEquals(NodeAgent.NO_AGENT, e.type)
+        assertEquals(advice, e.message)
+        assertEquals(advice, agent.activity(crypto, "studio", "key").agentProblem)
+        val digest = NodeDigests.fetch(agent, crypto, "studio", "key", "node-1", since = 0, recipes = emptyList(), device = "My-Phone")
+        assertEquals(advice, digest.agentProblem)
+        assertNull(digest.approvals)
     }
 
     @Test

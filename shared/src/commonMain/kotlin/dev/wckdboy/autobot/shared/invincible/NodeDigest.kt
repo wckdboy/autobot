@@ -74,7 +74,7 @@ data class NodeDigest(
     val approvals: List<PendingApproval>? = null,
     /** Board tasks that failed since [since]. */
     val failedTasks: List<BoardTask> = emptyList(),
-    /** Why the agent's part is missing (it is not running); null when it answered. */
+    /** Why the agent's part is missing (it is not running, or not granted to this device); null when it answered. */
     val agentProblem: String? = null,
     /**
      * Per bot, for a node with more than one (bots mode), the default bot first; empty on a node
