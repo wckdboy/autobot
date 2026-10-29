@@ -1,0 +1,49 @@
+{
+  "schema": "eng-config/v1",
+  "project": "autobot",
+  "commands": {
+    "fast": [
+      {
+        "name": "jvm-test",
+        "run": "./gradlew :shared:jvmTest :agent:core:jvmTest --no-configuration-cache",
+        "timeout": 1800
+      }
+    ],
+    "full": [
+      {
+        "name": "invincible-spec",
+        "run": "scripts/check-invincible-spec.sh SOURCE",
+        "timeout": 300
+      },
+      {
+        "name": "android-unit",
+        "run": "./gradlew testDebugUnitTest :shared:jvmTest :agent:core:jvmTest --no-configuration-cache --continue",
+        "timeout": 3600
+      }
+    ]
+  },
+  "security": {
+    "required": [
+      "gitleaks",
+      "semgrep"
+    ],
+    "optional": [
+      "osv-scanner",
+      "actionlint"
+    ],
+    "gitleaks_config": ".agents/config/gitleaks.toml",
+    "semgrep_config": ".agents/config/semgrep.yml",
+    "gitleaks_history": false,
+    "timeout": 600
+  },
+  "budgets": {
+    "fast_seconds": 1800,
+    "full_seconds": 5400
+  },
+  "parallel": {
+    "max_worktrees": 4
+  },
+  "impact": {
+    "base": "origin/main"
+  }
+}

@@ -61,3 +61,5 @@ Thumbs.db
 # Harness guest build products (rebuilt by make; ~80 MB)
 ios/Harness/dsh-ios/build/
 ios/Harness/dsh-ios/ish-arm64/build-*/
+.agents/evidence/
+.worktrees/
