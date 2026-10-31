@@ -169,4 +169,20 @@ class NodeHttpTransportTest {
         assertTrue(requests[0], "invincible-private: 1" in requests[0])
         assertTrue(requests[1], "invincible-private" !in requests[1])
     }
+
+    /**
+     * Work outside any turn run under [PrivateWork] (a manual /compact of a chat "phone first"
+     * works in) reaches the node as private, with no [PrivateTurns] wired at all; the same request
+     * without it does not.
+     */
+    @Test
+    fun privateWorkOutsideAnyTurnReachesTheNodeAsPrivate() = runBlocking {
+        val requests = mutableListOf<String>()
+        val answer = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}"
+        val provider = provider(fakeNode(answer, requests = requests))
+        withTimeout(10_000) { kotlinx.coroutines.withContext(PrivateWork()) { provider.streamChat(hello).toList() } }
+        withTimeout(10_000) { provider.streamChat(hello).toList() }
+        assertTrue(requests[0], "invincible-private: 1" in requests[0])
+        assertTrue(requests[1], "invincible-private" !in requests[1])
+    }
 }

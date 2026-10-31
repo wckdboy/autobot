@@ -18,6 +18,7 @@ import dev.wckdboy.autobot.providers.remote.ProviderPreset
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.ProviderSessions
 import dev.wckdboy.autobot.providers.remote.QuotaErrors
+import dev.wckdboy.autobot.shared.invincible.PrivateWork
 import kotlin.coroutines.resume
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -53,10 +54,23 @@ class HttpRequestSpec(
     val maxBytes: Long = Long.MAX_VALUE,
     val trace: TurnTrace? = null,
 ) {
-    /** This request tagged with the calling coroutine's [TurnTrace] (unchanged outside a turn). */
+    /**
+     * Made under [PrivateWork] (set by [traced]): a paired node's transport sends it with
+     * `invincible-private: 1` ([dev.wckdboy.autobot.shared.invincible.NodeHttpTransport]); every
+     * other transport ignores it.
+     */
+    var markedPrivate: Boolean = false
+        private set
+
+    /**
+     * This request tagged with the calling coroutine's [TurnTrace] (unchanged outside a turn), and
+     * [markedPrivate] when that coroutine runs under [PrivateWork].
+     */
     suspend fun traced(): HttpRequestSpec {
-        val current = TurnTrace.current() ?: return this
-        return HttpRequestSpec(method, url, headers, body, tag, route, maxBytes, current)
+        val current = TurnTrace.current()
+        val private = markedPrivate || PrivateWork.active()
+        if (current == null && private == markedPrivate) return this
+        return HttpRequestSpec(method, url, headers, body, tag, route, maxBytes, current ?: trace).also { it.markedPrivate = private }
     }
 }
 

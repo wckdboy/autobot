@@ -22,7 +22,9 @@ import dev.wckdboy.autobot.agent.core.session.InMemorySessionStore
 import dev.wckdboy.autobot.agent.core.session.ReceiptCascade
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.TurnEndReason
+import dev.wckdboy.autobot.shared.HttpRequestSpec
 import dev.wckdboy.autobot.shared.invincible.PrivateTurns
+import dev.wckdboy.autobot.shared.invincible.privateRequest
 import dev.wckdboy.autobot.shared.redaction.RedactionGateway
 import dev.wckdboy.autobot.shared.session.Receipts
 import dev.wckdboy.autobot.shared.session.NoticeKind
@@ -59,6 +61,8 @@ class LocalFirstCascadeTest {
         private val window: Int = 32_768,
         /** Runs inside each call, in its coroutine (to look at the turn it is made for). */
         var onCall: suspend (LlmCall) -> Unit = {},
+        /** Chat requests only think, and never get to an answer (until stopped). */
+        var thinkOnly: Boolean = false,
     ) : LlmAdapter {
         val calls = mutableListOf<LlmCall>()
         val chats get() = calls.filterNot { it.isSelfCheck() }
@@ -74,6 +78,10 @@ class LocalFirstCascadeTest {
                 emit(StreamChunk.TextDelta(grade()))
             } else {
                 if (fail) throw LlmException(LlmFailure(LlmErrorCode.PROTOCOL, "engine crashed"))
+                if (thinkOnly) {
+                    emit(StreamChunk.ReasoningDelta("Let me think"))
+                    awaitCancellation()
+                }
                 emit(StreamChunk.TextDelta(answer(call)))
             }
             emit(StreamChunk.Finish("stop"))
@@ -156,12 +164,20 @@ class LocalFirstCascadeTest {
         return s
     }
 
-    /** Whether each request [adapter] gets is marked private ([PrivateTurns]). */
+    /** Whether each request [adapter] gets would reach the node marked private ([privateNow]). */
     private fun Scripted.recordPrivate(private: PrivateTurns): MutableList<Boolean> {
         val seen = mutableListOf<Boolean>()
-        onCall = { seen += private.isPrivate(TurnTrace.current()!!) }
+        onCall = { seen += privateNow(private) }
         return seen
     }
+
+    /**
+     * Whether a request made now (in a turn or outside one) would reach the node marked private:
+     * the node transport's own rule ([privateRequest]) on a request as [HttpRequestSpec.traced]
+     * tags it.
+     */
+    private suspend fun privateNow(private: PrivateTurns): Boolean =
+        privateRequest(HttpRequestSpec("POST", "http://invincible/v1/chat/completions", emptyMap(), "{}", "node").traced(), private)
 
     @Test
     fun offByDefaultNothingChanges() = runTest {
@@ -900,6 +916,134 @@ class LocalFirstCascadeTest {
                 assertTrue(s.cloud.calls.single().isSummary())
             }
         }
+    }
+
+    /**
+     * A manual /compact is not a turn, yet on a node chat under "phone first" what it sends the node
+     * goes marked private, under every policy: the summary carries what earlier turns sent there
+     * marked. Also when whether the chat's model is the node cannot be told; under "Never" that
+     * summary goes nowhere, and a cloud chat's still does not go to the cloud model.
+     */
+    @Test
+    fun aManualCompactUnderPhoneFirstGoesToTheNodeMarkedPrivate() = runTest {
+        for (policy in listOf(CascadePolicy.ASK, CascadePolicy.AUTO, CascadePolicy.NEVER)) {
+            for (lookupFails in listOf(false, true)) {
+                val private = PrivateTurns()
+                val node = Scripted("node")
+                var failing = false
+                val s = setup(policy = policy, privateTurns = private, myNode = node, ownedFails = { failing })
+                s.agent.switchTo("node", "auto")
+                val seen = mutableListOf<Pair<Boolean, Boolean>>()
+                node.onCall = { seen += it.isSummary() to privateNow(private) }
+                s.phone.answer = { "I don't know." }
+                s.agent.followup("What dose of sertraline should I take?")
+                advanceUntilIdle()
+                // "Ask" offers the node; "Auto" and "Never" sent it there on their own.
+                if (policy == CascadePolicy.ASK) assertTrue(s.cascade.escalate(s.agent))
+                advanceUntilIdle()
+                s.phone.answer = { "The capital of France is Paris, on the Seine." }
+                s.agent.followup("What is the capital of France?")
+                advanceUntilIdle()
+                val label = "$policy, lookup fails: $lookupFails"
+                assertEquals(label, listOf(false to true), seen)
+
+                failing = lookupFails
+                val compacted = s.cascade.compact(s.agent)
+                failing = false
+                if (lookupFails && policy == CascadePolicy.NEVER) {
+                    assertFalse(label, compacted)
+                    assertEquals(label, listOf(false to true), seen)
+                    assertEquals(label, CascadeRoutes.NOT_SENT_UNKNOWN, s.agent.all<SessionEvent.CompactionEnd>().single().error)
+                } else {
+                    assertTrue(label, compacted)
+                    assertEquals(label, listOf(false to true, true to true), seen)
+                    assertTrue(label, node.calls.last().messages.any { "sertraline" in it.text })
+                }
+            }
+        }
+        // A cloud chat under "Never": its manual /compact is still refused, nothing sent.
+        val cloud = setup(policy = CascadePolicy.NEVER, privateTurns = PrivateTurns())
+        cloud.phone.answer = { "The capital of France is Paris." }
+        cloud.agent.followup("What is the capital of France?")
+        advanceUntilIdle()
+        cloud.agent.followup("And of Italy?")
+        advanceUntilIdle()
+        assertFalse(cloud.cascade.compact(cloud.agent))
+        assertTrue(cloud.cloud.calls.isEmpty())
+        assertEquals(CascadeRoutes.NOT_SENT_NEVER, cloud.agent.all<SessionEvent.CompactionEnd>().single().error)
+    }
+
+    /**
+     * Nothing changes for a chat "phone first" never worked in: its turns and its manual /compact go
+     * to the node unmarked. Turned off on a chat it worked in, a manual /compact still goes marked
+     * (privacy fails closed: what went there marked private may be in the summary's input); the
+     * turns after it go as any chat's do.
+     */
+    @Test
+    fun aManualCompactAfterPhoneFirstWasTurnedOffStillGoesMarkedPrivate() = runTest {
+        val plainPrivate = PrivateTurns()
+        val plainNode = Scripted("node")
+        val plain = setup(policy = CascadePolicy.OFF, privateTurns = plainPrivate, myNode = plainNode)
+        plain.agent.switchTo("node", "auto")
+        val plainSeen = mutableListOf<Pair<Boolean, Boolean>>()
+        plainNode.onCall = { plainSeen += it.isSummary() to privateNow(plainPrivate) }
+        plain.agent.followup("What is the capital of France?")
+        advanceUntilIdle()
+        plain.agent.followup("And of Italy?")
+        advanceUntilIdle()
+        assertTrue(plain.cascade.compact(plain.agent))
+        assertEquals(listOf(false to false, false to false, true to false), plainSeen)
+        assertTrue(plain.phone.calls.isEmpty())
+
+        val private = PrivateTurns()
+        val node = Scripted("node")
+        val s = setup(policy = CascadePolicy.AUTO, privateTurns = private, myNode = node)
+        s.agent.switchTo("node", "auto")
+        val seen = mutableListOf<Pair<Boolean, Boolean>>()
+        node.onCall = { seen += it.isSummary() to privateNow(private) }
+        s.phone.answer = { "I don't know." }
+        s.agent.followup("What dose of sertraline should I take?")
+        advanceUntilIdle()
+        s.agent.chooseCascade(s.cascade.override(CascadePolicy.OFF))
+        assertEquals(CascadePolicy.OFF, s.cascade.policyOf(s.agent))
+        s.agent.followup("And of Italy?")
+        advanceUntilIdle()
+        assertTrue(s.cascade.compact(s.agent))
+        assertEquals(listOf(false to true, false to false, true to true), seen)
+    }
+
+    /**
+     * A follow-up stopped while its model was still thinking got no answer (reasoning alone is
+     * none): later requests carry the phone's answer, and nothing of the follow-up's.
+     */
+    @Test
+    fun aFollowUpStoppedWhileThinkingLeavesThePhonesAnswer() = runTest {
+        val s = setup(policy = CascadePolicy.ASK)
+        s.phone.answer = { "I don't know who wrote it." }
+        s.agent.followup("Who wrote the novel Stiller?")
+        advanceUntilIdle()
+        s.cloud.thinkOnly = true
+        assertTrue(s.cascade.escalate(s.agent))
+        advanceUntilIdle()
+        s.agent.cancel()
+        advanceUntilIdle()
+        val thought = s.agent.all<SessionEvent.AssistantMessage>().last()
+        assertEquals(listOf("", "Let me think", "true"), listOf(thought.text, thought.reasoning, "${thought.interrupted}"))
+        assertEquals(TurnEndReason.ABORTED, s.agent.all<SessionEvent.TurnEnd>().last().reason)
+
+        s.phone.answer = { "You're welcome." }
+        s.agent.followup("thanks")
+        advanceUntilIdle()
+        val next = s.phone.chats.last()
+        assertEquals(
+            listOf(
+                ModelRole.USER to "Who wrote the novel Stiller?",
+                ModelRole.ASSISTANT to "I don't know who wrote it.",
+                ModelRole.USER to "thanks",
+            ),
+            next.messages.filter { it.role != ModelRole.SYSTEM }.map { it.role to it.text },
+        )
+        assertTrue(next.messages.none { it.reasoning != null })
     }
 
     /**

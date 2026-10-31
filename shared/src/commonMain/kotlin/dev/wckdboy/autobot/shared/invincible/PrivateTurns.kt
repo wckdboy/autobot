@@ -1,6 +1,10 @@
 package dev.wckdboy.autobot.shared.invincible
 
 import dev.wckdboy.autobot.agent.core.TurnTrace
+import dev.wckdboy.autobot.shared.HttpRequestSpec
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -22,3 +26,23 @@ class PrivateTurns(private val max: Int = 256) {
 
     suspend fun isPrivate(turn: TurnTrace): Boolean = lock.withLock { turn in turns }
 }
+
+/**
+ * Work outside the turns [PrivateTurns] marks whose requests to a paired node must never run on a
+ * cloud model either: a manual `/compact` of a chat "phone first" works in, or worked in
+ * (`LocalFirstCascade.compact`). A request made under it is [HttpRequestSpec.markedPrivate]
+ * ([HttpRequestSpec.traced]), so the node gets it with `invincible-private: 1`.
+ */
+class PrivateWork : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<PrivateWork> {
+        /** Whether the calling coroutine runs under one. */
+        suspend fun active(): Boolean = currentCoroutineContext()[Key] != null
+    }
+}
+
+/**
+ * Whether [request] goes to a paired node with `invincible-private: 1`: it was made under
+ * [PrivateWork], or for a turn [turns] marks.
+ */
+suspend fun privateRequest(request: HttpRequestSpec, turns: PrivateTurns?): Boolean =
+    request.markedPrivate || request.trace?.let { turns?.isPrivate(it) } == true

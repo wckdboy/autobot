@@ -26,6 +26,7 @@ import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.session.visibleEntries
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
+import dev.wckdboy.autobot.shared.invincible.PrivateWork
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
@@ -64,8 +65,9 @@ import kotlinx.serialization.json.put
  * only where "Auto" would send it there on its own), and never to "This phone" or a loopback
  * server. A refused request is not made; a refused follow-up's notice says it was not sent. A
  * stand-in the rules rule out after a failure ("On limit, fall back") is not used: the failure
- * stands. A manual `/compact` ([compact]) is checked the same way. Both turns' receipts say what
- * happened and why ([ReceiptCascade]); never any content.
+ * stands. A manual `/compact` ([compact]) is checked the same way, and on a chat under "phone
+ * first", or one whose log shows it worked there ([keptPrivate]), what it sends goes marked
+ * private. Both turns' receipts say what happened and why ([ReceiptCascade]); never any content.
  *
  * The phone answers first only on a cloud model or the user's node: on "This phone" or a loopback
  * server the chat's model answers as it is (its requests are still checked, in case the chat
@@ -81,6 +83,8 @@ import kotlinx.serialization.json.put
  *   summary written by the chat's model) goes marked private in [privateTurns], so the node never
  *   runs it on a cloud model ("phone → my node"). A request to a provider this cannot be told for
  *   (the lookup fails) goes marked all the same, and the rules treat that provider as a cloud one.
+ *   A manual `/compact` ([compact]) is not a turn: where [keptPrivate] says so, it goes marked by
+ *   [PrivateWork] instead, whatever its model.
  * @param selfCheck whether the judge may ask the on-device model to grade its answer (else rules only).
  */
 class LocalFirstCascade(
@@ -255,7 +259,8 @@ class LocalFirstCascade(
         // Every request of a turn this cascade handles, when it is made (a compaction summary
         // before the first step and after a switch mid-turn included): checked once more, and
         // marked private when it goes to the user's node or to a provider that cannot be told.
-        // Outside a turn, a manual `/compact`'s summary ([compact]) is checked too.
+        // Outside a turn, a manual `/compact`'s summary ([compact]) is checked too; its mark, where
+        // it needs one, is [PrivateWork]'s.
         ctx.intercept(Hooks.LlmStream) { call, next ->
             val trace = TurnTrace.current()
             if (trace == null) {
@@ -357,13 +362,32 @@ class LocalFirstCascade(
      * Manual `/compact` of [agent]'s chat, outside a turn: its summary request is checked when it
      * is made, as a turn's is ([refusal]). On a plain chat (tools off) under "Never" it does not go
      * to a cloud model, or to one that cannot be told: the compaction fails, and its notice says
-     * why. What it sends the user's node is not marked private (that mark belongs to a turn).
-     * Returns whether the chat was compacted.
+     * why. It runs under [PrivateWork] where [keptPrivate] says so, so what it sends the user's node
+     * goes marked private (`invincible-private: 1`), whatever the summary's model. Returns whether
+     * the chat was compacted.
      */
     suspend fun compact(agent: Agent): Boolean {
         val compactor = agent.ctx[Compactor.Key] ?: return false
-        return withContext(ManualCompaction(agent)) { compactor.compact(agent, "manual") }
+        val manual = ManualCompaction(agent)
+        return withContext(if (keptPrivate(agent)) manual + PrivateWork() else manual) { compactor.compact(agent, "manual") }
     }
+
+    /**
+     * Whether a manual compaction of [agent]'s chat goes marked private ([PrivateWork]): while
+     * "phone first" is on for it (any policy but Off, tools on or off), and under Off when the
+     * chat's log has a receipt "phone first" wrote or a follow-up it opened, since what went to the
+     * node marked private may be in what the summary is written from. Privacy fails closed: the mark
+     * is set whatever the summary's model (no lookup of it, which could fail), and only a paired
+     * node's transport acts on it. A chat under Off with neither goes as before.
+     */
+    private fun keptPrivate(agent: Agent): Boolean =
+        policyOf(agent).localFirst || agent.log.entries.value.any { entry ->
+            when (val e = entry.event) {
+                is SessionEvent.TurnReceipt -> e.cascade != null
+                is SessionEvent.UserMessage -> e.kind == UserMessageKind.CONTEXT && e.contextId == CASCADE_ESCALATION
+                else -> false
+            }
+        }
 
     /** Throws [CascadeRefused] when [agent]'s rules rule out its manual compaction's request to [config] ([compact]). */
     private suspend fun checkManual(agent: Agent, config: LlmCallConfig) {

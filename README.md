@@ -117,14 +117,15 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
   models: "Ask" offers it, and "Auto" and "Never" alike send a weak answer's prompt there on
   their own, a personal one included (see [Your own node](#your-own-node-invincible--in-progress)).
   Both answers stay on screen, and the receipt says why; from the follow-up on, the model sees
-  its answer instead of the phone's, or the phone's if the follow-up got no answer. Each request
-  of a plain chat's turn that starts under "phone first" (on any model, "This phone" included)
-  and leaves the phone is checked when it is made, against the chat's policy then and the model
-  it goes to: a follow-up whose chat switched models after it was queued goes on only where the
-  rules allow, else its notice says it was not sent, and under "Never" nothing of such a turn
-  goes to a cloud model, not even a compaction summary (the compaction fails, and the chat stays
-  uncompacted). Under "Never" a manual `/compact` of a plain chat does not go to a cloud model
-  either. Shared code (`dev.wckdboy.autobot.shared.cascade`).
+  its answer instead of the phone's, or the phone's if the follow-up got no answer (unless a
+  compaction summary written meanwhile replaced it). Each request of a plain chat's turn that
+  starts under "phone first" (on any model, "This phone" included) and leaves the phone is
+  checked when it is made, against the chat's policy then and the model it goes to: a follow-up
+  whose chat switched models after it was queued goes on only where the rules allow, else its
+  notice says it was not sent, and under "Never" nothing of such a turn goes to a cloud model,
+  not even a compaction summary (the compaction fails, and the chat stays uncompacted). Under
+  "Never" a manual `/compact` of a plain chat does not go to a cloud model either, and what it
+  sends your node goes marked private. Shared code (`dev.wckdboy.autobot.shared.cascade`).
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,
   secrets and caches. The process is then killed.
@@ -214,7 +215,8 @@ longer. OpenCode Go starts with `glm-5.3-flash`. A used-up plan limit (HTTP 429 
 limit, fall back** (Settings → Agent, off by default), the turn runs once more on the helper
 model, else the on-device model, and the answer says so. A "phone first" follow-up is the
 exception: the on-device model has had its turn at that prompt, so it does not stand in, and
-without a helper model the follow-up ends with the error.
+unless a helper model may (not the model that hit the limit, not one that trains on your prompts,
+and one the chat's rules allow) the follow-up ends with the error.
 
 ## Your own node (Invincible) — in progress
 
@@ -384,9 +386,10 @@ offered ("Ask" offers both). Under "Never" the judge uses its rules only, withou
 so an answer no rule objects to is kept. With no on-device chat model, or a chat too long for it,
 the node answers directly. These turns are sent with `invincible-private: 1`, so the node keeps
 them on its own models and never forwards them to a cloud backend: here "never" means never to a
-cloud model. A manual `/compact` is not a turn: its summary goes to the node without that
-header. The notice reads `phone → my node`, and the receipt says the turn was sent to your node
-and kept there. Nothing is redacted for the node; it redacts what it sends on itself.
+cloud model. A manual `/compact` sends the node its summary with that header too, on a chat
+under "phone first" or on one with a phone-first receipt or follow-up in its history. The notice
+reads `phone → my node`, and the receipt says the turn was sent to your node and kept there.
+Nothing is redacted for the node; it redacts what it sends on itself.
 
 **On iOS too.** Remote › *Pair a node* (or Remote › Providers › + › *My node (Invincible)*) opens
 the same pairing sheet (paste the code, or open an `invincible://pair?…` link: the Camera app's QR

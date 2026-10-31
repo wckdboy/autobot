@@ -162,8 +162,9 @@ models, shared core). Ordered by value.
    threshold. Ask offers "Ask <model>" under the answer; Auto sends a weak answer's prompt on its
    own only when the risk rules find nothing personal, health, money, attachment or memory related;
    Never keeps it on the phone. The follow-up is its own turn: the phone's answer stays on screen
-   but leaves the model surface once the follow-up answers (one that gets no answer leaves it
-   there), the request passes the redaction gateway, and both receipts say what happened and why
+   but leaves the model surface as soon as the follow-up starts, and is back on it if the
+   follow-up ends without an answer (unless a compaction summary written meanwhile replaced it),
+   the request passes the redaction gateway, and both receipts say what happened and why
    (verdict, reason codes, policy, risk, judge time; never content). No on-device model: the cloud
    answers (Never refuses); a chat too long for the phone's window goes straight to the cloud
    (under Never the phone still tries). Each request of a plain chat's turn that starts under

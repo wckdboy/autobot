@@ -33,7 +33,10 @@ class NodeHttpTransport(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     /** Told the node's request id (`invincible-request-id`) of each answer made for an agent turn. */
     private val onRequestId: (suspend (TurnTrace, String) -> Unit)? = null,
-    /** Turns that must never run on a cloud model: their requests carry `invincible-private: 1`. */
+    /**
+     * Turns that must never run on a cloud model: their requests carry `invincible-private: 1`, as
+     * do requests made under [PrivateWork] ([HttpRequestSpec.markedPrivate], with or without these).
+     */
     private val privateTurns: PrivateTurns? = null,
     /** The node's name and addresses, for the words a failure is shown in ([NodeErrors]). */
     private val node: String = "the node",
@@ -55,7 +58,7 @@ class NodeHttpTransport(
                     sink.onResponse(403, emptyMap(), NodeErrors.unpairedBody(node))
                     return@launch
                 }
-                val private = request.trace?.let { privateTurns?.isPrivate(it) } == true
+                val private = privateRequest(request, privateTurns)
                 channel.send(encode(request, private))
                 var requestId: String? = null
                 Http1Reader(channel).deliver(request.maxBytes, object : HttpSink by sink {

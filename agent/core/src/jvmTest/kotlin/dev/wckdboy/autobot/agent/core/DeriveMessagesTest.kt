@@ -155,4 +155,43 @@ class DeriveMessagesTest {
             assertEquals("$end", listOf("who won yesterday?", "I don't know.", "and the day before?"), deriveMessages(after).map { it.text })
         }
     }
+
+    /**
+     * Reasoning alone is no answer: a follow-up stopped while its model was still thinking leaves
+     * the phone's answer in later requests, and its own reasoning-only message is not sent (no
+     * second assistant turn after the phone's). While it runs, its reasoning is the current turn's.
+     */
+    @Test
+    fun aCascadeEscalationStoppedWhileThinkingLeavesThePhonesAnswer() {
+        val running = listOf(
+            SessionEvent.UserMessage("who won yesterday?"),
+            SessionEvent.AssistantMessage(1, 1, "I don't know.", model = "phone-model"),
+            SessionEvent.TurnStart(2),
+            SessionEvent.UserMessage("asked", UserMessageKind.CONTEXT, CASCADE_ESCALATION),
+            SessionEvent.AssistantMessage(2, 1, "", reasoning = "Let me check the scores.", interrupted = true),
+        )
+        val now = deriveMessages(log(*running.map { it.a() }.toTypedArray()))
+        assertEquals(listOf(ModelRole.USER to "who won yesterday?", ModelRole.ASSISTANT to ""), now.map { it.role to it.text })
+        assertEquals("Let me check the scores.", now.last().reasoning)
+
+        val after = deriveMessages(
+            log(*(running + SessionEvent.TurnEnd(2, TurnEndReason.ABORTED) + SessionEvent.UserMessage("and the day before?")).map { it.a() }.toTypedArray()),
+        )
+        assertEquals(
+            listOf(ModelRole.USER to "who won yesterday?", ModelRole.ASSISTANT to "I don't know.", ModelRole.USER to "and the day before?"),
+            after.map { it.role to it.text },
+        )
+        assertTrue(after.none { it.reasoning != null })
+
+        // Text after the reasoning is an answer: the marker stands, the phone's answer stays out.
+        val answered = deriveMessages(
+            log(
+                *(
+                    running + SessionEvent.AssistantMessage(2, 2, "Team A won.", model = "cloud") +
+                        SessionEvent.TurnEnd(2, TurnEndReason.COMPLETED) + SessionEvent.UserMessage("and the day before?")
+                    ).map { it.a() }.toTypedArray(),
+            ),
+        )
+        assertEquals(listOf("who won yesterday?", "", "Team A won.", "and the day before?"), answered.map { it.text })
+    }
 }
