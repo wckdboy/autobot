@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.shared.cascade
 
 import dev.wckdboy.autobot.agent.core.llm.ModelRole
+import dev.wckdboy.autobot.agent.core.session.ReceiptCascade
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -208,6 +209,11 @@ class CascadeRulesTest {
         assertEquals("The phone isn't sure about this answer: this needs fresh information.", CascadeLabels.offer("UNSURE", listOf(CascadeJudge.FRESH)))
         assertEquals("phone → cloud · auto · it said it doesn't know", CascadeLabels.followUp("auto", listOf(CascadeJudge.DONT_KNOW_CODE)))
         assertEquals("phone → cloud · you asked", CascadeLabels.followUp("asked", listOf(CascadeJudge.DONT_KNOW_CODE)))
+        // A follow-up its rules stopped when it started (nothing went), wherever it was queued for.
+        assertEquals("follow-up not sent · auto · it said it doesn't know", CascadeLabels.followUp("auto", listOf(CascadeJudge.DONT_KNOW_CODE), "node", sent = false))
+        val notSent = ReceiptCascade("cloud", "NEVER", "UNSURE", listOf(CascadeJudge.FRESH), "KEPT", trigger = "asked")
+        assertEquals("not sent", CascadeLabels.line(notSent))
+        assertEquals("The follow-up was not sent; the phone's answer stands.", CascadeLabels.summary(notSent))
         assertEquals("phone first · ask", CascadePolicy.ASK.chip)
         assertEquals("phone only", CascadePolicy.NEVER.chip)
     }

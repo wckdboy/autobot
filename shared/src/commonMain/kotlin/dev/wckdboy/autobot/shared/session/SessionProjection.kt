@@ -160,6 +160,9 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
     // The cascade: the pending offer, and the phone's latest judged answer (for the follow-up's notice).
     private var offer: CascadeOffer? = null
     private var localCascade: ReceiptCascade? = null
+    // The current turn's follow-up notice (its index, trigger and reasons), said again once the
+    // follow-up's receipt tells where it went (checked when its requests were made), or that it was not sent.
+    private var followUpNotice: Triple<Int, String, List<String>>? = null
 
     private var consumed = 0
     private var lastSeq = Long.MIN_VALUE
@@ -211,6 +214,7 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
         open.clear()
         offer = null
         localCascade = null
+        followUpNotice = null
         consumed = 0
         lastSeq = Long.MIN_VALUE
         last = null
@@ -224,9 +228,12 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
                 UserMessageKind.SUMMARY -> items += SessionItem.Notice(key, "context compacted · ${e.text.length} chars of summary", NoticeKind.INFO)
                 UserMessageKind.CONTEXT -> if (e.contextId == CASCADE_ESCALATION) {
                     // The marker says where it goes (the chat's model when it was queued), which need
-                    // not be where the phone's answer was judged; older markers don't say.
+                    // not be where the phone's answer was judged; older markers don't say. The
+                    // follow-up's receipt has the last word (see TurnReceipt).
                     val target = LocalFirstCascade.escalationTarget(e) ?: localCascade?.target
-                    items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, localCascade?.reasons.orEmpty(), target), NoticeKind.INFO)
+                    val reasons = localCascade?.reasons.orEmpty()
+                    followUpNotice = Triple(items.size, e.text, reasons)
+                    items += SessionItem.Notice(key, CascadeLabels.followUp(e.text, reasons, target), NoticeKind.INFO)
                 }
             }
             is SessionEvent.AssistantMessage -> {
@@ -297,12 +304,20 @@ class SessionProjector(private val describe: (name: String, arguments: String) -
             }
             is SessionEvent.TurnStart -> {
                 lastAnswer = null
+                followUpNotice = null
                 offer = null
             }
             is SessionEvent.TurnReceipt -> {
                 e.cascade?.takeIf { it.role == "local" }?.let { c ->
                     localCascade = c
                     if (c.action == CascadeAction.OFFERED.name) offer = CascadeOffer(e.turn, CascadeLabels.offer(c.verdict, c.reasons))
+                }
+                // The follow-up's receipt: where it went (the chat may have changed models since it
+                // was queued), or KEPT when the rules refused it before its request was made.
+                e.cascade?.takeIf { it.role == "cloud" && it.trigger != null }?.let { c ->
+                    val (index, trigger, reasons) = followUpNotice ?: return@let
+                    val notice = items.getOrNull(index) as? SessionItem.Notice ?: return@let
+                    items[index] = notice.copy(text = CascadeLabels.followUp(trigger, reasons, c.target, sent = c.action != CascadeAction.KEPT.name))
                 }
                 attachReceipt(e)
             }

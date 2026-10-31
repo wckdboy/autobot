@@ -507,6 +507,8 @@ struct ChatSessionState: Codable, Equatable, Sendable {
     var redaction: String? = nil
     /// The chat's "phone first" policy (OFF, ASK, AUTO, NEVER), NONE for agent runs and on-device routes.
     var cascade: String? = nil
+    /// Whether "Ask" under an offered answer would send it on now (the bridge's `cascadeAsk`).
+    var cascadeAsk: Bool? = nil
 
     init(sessionId: String) { self.sessionId = sessionId }
 

@@ -116,7 +116,11 @@ Both apps make the same guarantees; the rules below are shared code (`:shared`
   through redaction. On your node, the follow-up goes to the node, which keeps it on its own
   models: "Ask" offers it, and "Auto" and "Never" alike send a weak answer's prompt there on
   their own, a personal one included (see [Your own node](#your-own-node-invincible--in-progress)).
-  Both answers stay on screen, and the receipt says why. Shared code
+  Both answers stay on screen, and the receipt says why. Each request that leaves the phone is
+  checked when it is made, against the chat's policy and model then: a follow-up whose chat
+  switched models after it was queued goes on only where the rules allow, else its notice says it
+  was not sent, and under "Never" not even a compaction summary goes to the cloud model (the
+  compaction fails; the phone gets the chat uncompacted). Shared code
   (`dev.wckdboy.autobot.shared.cascade`).
 - **Incognito chats.** These are held in memory only and never touch the database.
 - **Panic wipe.** Type `WIPE` to destroy Keystore keys, wrapped keys, databases, DataStore,

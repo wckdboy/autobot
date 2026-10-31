@@ -49,7 +49,15 @@ import kotlinx.serialization.json.put
  * follow-up to the user's own node is not redacted by the phone; it goes marked private instead.
  * Where a follow-up goes, and by which rules, is the chat's model as it is then, not the one the
  * phone's answer was judged for: the user may switch models in between (an offer outlives that).
- * Both turns' receipts say what happened and why ([ReceiptCascade]); never any content.
+ *
+ * Every request of a turn this cascade handles (the phone's own excepted) is checked when it is
+ * made, against the chat's policy and model as they are then ([refusal]), so no switch between
+ * queueing and sending gets round the rules: under "Never" nothing goes to a cloud model, a
+ * compaction summary included; a follow-up goes to the user's node, or to a cloud model only
+ * where "Ask" may send it ([canAsk]; one sent on its own only where "Auto" would send it there on
+ * its own), and never to "This phone" or a loopback server. A refused request is not made; a
+ * refused follow-up's notice says it was not sent. Both turns' receipts say what happened and why
+ * ([ReceiptCascade]); never any content.
  *
  * Not in play for agent runs (tools on), subagents, chats on "This phone" or a loopback server,
  * and with the policy [CascadePolicy.OFF] (the default).
@@ -58,9 +66,11 @@ import kotlinx.serialization.json.put
  * @param onDevice the on-device chat route (the installed default model), null when none.
  * @param cloud whether a provider is a cloud one (`RedactionGateway.isCloud`: not "This phone", a
  *   loopback server or the user's node).
- * @param owned whether a provider is the user's own paired node: when the chat's model is one as
- *   a follow-up (or a turn the phone cannot take) starts, it goes there marked private in
- *   [privateTurns], so the node never runs it on a cloud model ("phone → my node").
+ * @param owned whether a provider is the user's own paired node. Every request of a turn this
+ *   cascade handles that goes to one (a follow-up, a turn the phone cannot take, a compaction
+ *   summary written by the chat's model) goes marked private in [privateTurns], so the node never
+ *   runs it on a cloud model ("phone → my node"). A request to a provider this cannot be told for
+ *   (the lookup fails) goes marked all the same, and the rules treat that provider as a cloud one.
  * @param selfCheck whether the judge may ask the on-device model to grade its answer (else rules only).
  */
 class LocalFirstCascade(
@@ -89,15 +99,32 @@ class LocalFirstCascade(
         /** A follow-up (to a cloud model or the node): its trigger (`auto` / `asked`) and the phone's judged answer it follows. */
         val trigger: String? = null,
         val origin: ReceiptCascade? = null,
-        /** The follow-up target is the user's own node. */
-        val owned: Boolean = false,
+        /** It goes to the user's own node (known to be; a follow-up's is set again by each request it makes). */
+        @kotlin.concurrent.Volatile var owned: Boolean = false,
+        /** The chat's policy as it is now, against which each request of the turn is checked ([refusal]). */
+        val rules: () -> CascadePolicy = { policy },
     ) {
+        /** A request of the turn was refused ([refusal]): it was not made. */
+        @kotlin.concurrent.Volatile var refused = false
         @kotlin.concurrent.Volatile var judging = false
         @kotlin.concurrent.Volatile var result: CascadeJudge.Result? = null
         @kotlin.concurrent.Volatile var judgeName: String? = null
         @kotlin.concurrent.Volatile var judgeMs: Long? = null
         @kotlin.concurrent.Volatile var failed = false
     }
+
+    /**
+     * The routes (provider, model) of a running turn's checked requests: those refused, and those
+     * made. A refused compaction summary is listed among the turn's models before it is refused
+     * (`Agent.recordModel`); its receipt drops a route that only refused requests had.
+     */
+    private class Routes(val turn: Int) {
+        val refused = HashSet<Pair<String, String>>()
+        val sent = HashSet<Pair<String, String>>()
+    }
+
+    /** [Routes] of the running turn, by session id. */
+    private val routes = HashMap<String, Routes>()
 
     /** The policy [agent]'s chat uses: its own choice, else Settings. */
     fun policyOf(agent: Agent): CascadePolicy = CascadePolicy.resolve(agent.config.value.cascade, defaultPolicy())
@@ -115,33 +142,83 @@ class LocalFirstCascade(
         if (config.toolsEnabled || !(cloudRoute || owned)) NONE else CascadePolicy.resolve(config.cascade, defaultPolicy()).name
 
     /**
+     * Whether "Ask" under an offered answer can send it on now, for a chat with [config] whose
+     * model is the user's own node ([owned]) or a cloud one ([cloudRoute]): the rule [escalate]
+     * applies (the companion's [canAsk], with the chat's policy). The bridge hands it to iOS with
+     * each frame, and Android applies the same rule, so the offer shows only where a tap sends it.
+     */
+    fun canAsk(config: AgentConfig, owned: Boolean, cloudRoute: Boolean): Boolean =
+        canAsk(CascadePolicy.resolve(config.cascade, defaultPolicy()), owned, cloudRoute)
+
+    /**
      * "Ask <model>": sends the prompt of the offered answer ([pendingOffer]) to the chat's model as
      * it is now (a cloud one, or the user's node) as a follow-up turn. False when there is no offer
-     * (another turn started), a turn is running, or the chat's policy is "Never" and its model is
-     * now not the user's node ([CascadePolicy.allowsAsk]).
+     * (another turn started), a turn is running, or [canAsk] says no: the chat's model is "This
+     * phone" or a loopback server, or the chat's policy is "Never" and its model is not the user's
+     * node (or that cannot be told). The follow-up is checked again when it starts and when it
+     * sends ([refusal]).
      */
     suspend fun escalate(agent: Agent): Boolean {
-        val node = isOwned(agent.config.value.llm.provider)
+        val provider = agent.config.value.llm.provider
+        val owned = ownership(provider)
+        val cloudRoute = cloudRoute(provider, owned)
         if (agent.status.value == AgentStatus.RUNNING) return false
         pendingOffer(agent.log.entries.value) ?: return false
-        if (!policyOf(agent).allowsAsk(node)) return false
-        agent.queueTurn(escalation(TRIGGER_ASKED, node), first = true)
+        if (!canAsk(agent.config.value, owned == true, cloudRoute)) return false
+        agent.queueTurn(escalation(TRIGGER_ASKED, owned == true), first = true)
         return true
     }
 
-    /** Whether [providerId] is the user's own paired node; false when that cannot be told. */
-    private suspend fun isOwned(providerId: String): Boolean = try {
+    /** Whether [providerId] is the user's own paired node; null when that cannot be told (the lookup failed). */
+    private suspend fun ownership(providerId: String): Boolean? = try {
         owned(providerId)
     } catch (e: CancellationException) {
         throw e
     } catch (_: Throwable) {
-        false
+        null
     }
 
-    val plugin: Plugin = plugin("local-first-cascade") { ctx ->
-        ctx.on(Hooks.AgentDisposed) { agent -> lock.withLock { turns.remove(agent.id) } }
+    /**
+     * Whether the rules treat [providerId] as a cloud model, given [owned] ([ownership]): not when
+     * it is the user's node, always when that cannot be told, else when [cloud] says so or cannot
+     * tell (not "This phone", not a loopback server).
+     */
+    private suspend fun cloudRoute(providerId: String, owned: Boolean?): Boolean = when (owned) {
+        true -> false
+        null -> true
+        false -> try {
+            cloud(providerId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            true
+        }
+    }
 
-        // Before a turn's first step: route it (phone, the chat's model, or not at all).
+    /** [trace]'s cascade state, if this cascade handles that turn. */
+    private fun stateOf(trace: TurnTrace): TurnState? = lock.withLock { turns[trace.sessionId] }?.takeIf { it.turn == trace.turn }
+
+    val plugin: Plugin = plugin("local-first-cascade") { ctx ->
+        ctx.on(Hooks.AgentDisposed) { agent ->
+            lock.withLock {
+                turns.remove(agent.id)
+                routes.remove(agent.id)
+            }
+        }
+
+        // Ahead of compaction, whose summary request goes to the chat's model before a turn's first
+        // step: refuse a follow-up the rules no longer allow, before that request is made, and
+        // count the turn as this cascade's, so that request is checked and goes marked private on
+        // the node (`llm/stream` below).
+        ctx.intercept(Hooks.PreStep, priority = AHEAD_OF_COMPACTION) { input, next ->
+            if (input.step == 1 && !TaskTool.isSubagent(input.agent.id)) {
+                val refused = prepare(input.agent, input.turn)
+                if (refused != null) return@intercept PreStepDecision.Reject(refused)
+            }
+            next(input)
+        }
+
+        // Before a turn's first step (after compaction): route it (phone, the chat's model, or not at all).
         ctx.intercept(Hooks.PreStep) { input, next ->
             if (input.step == 1 && !TaskTool.isSubagent(input.agent.id)) {
                 val blocked = begin(input.agent, input.turn)
@@ -150,13 +227,31 @@ class LocalFirstCascade(
             next(input)
         }
 
-        // The phone answers the steps of a local-first turn.
+        // The phone answers the steps of a local-first turn. Any other step's request is checked
+        // against the rules for where it goes now, before it is made ([admit]): a switch after the
+        // turn started cannot take it anywhere they rule out.
         ctx.intercept(Hooks.Request) { config, next ->
             val routed = next(config)
             val trace = TurnTrace.current() ?: return@intercept routed
-            val state = lock.withLock { turns[trace.sessionId] }?.takeIf { it.turn == trace.turn } ?: return@intercept routed
+            val state = stateOf(trace) ?: return@intercept routed
             val local = state.local
-            if (state.route == CascadeRoute.Local && local != null) local.copy(maxTokens = routed.maxTokens, temperature = routed.temperature) else routed
+            if (state.trigger == null && state.route == CascadeRoute.Local && local != null) {
+                return@intercept local.copy(maxTokens = routed.maxTokens, temperature = routed.temperature)
+            }
+            admit(trace, state, routed, sending = false)
+            routed
+        }
+
+        // Every request of a turn this cascade handles, when it is made (a compaction summary
+        // before the first step and after a switch mid-turn included): checked once more, and
+        // marked private when it goes to the user's node or to a provider that cannot be told.
+        ctx.intercept(Hooks.LlmStream) { call, next ->
+            val trace = TurnTrace.current()
+            val state = trace?.let { stateOf(it) }
+            if (trace != null && state != null && admit(trace, state, call.config, sending = true) != false) {
+                privateTurns?.mark(trace)
+            }
+            next(call)
         }
 
         // The phone's answer is in: judge it while the turn is still running (cancellable).
@@ -179,9 +274,13 @@ class LocalFirstCascade(
 
         // The receipt says what the cascade did; an escalation queues the follow-up here.
         ctx.intercept(Hooks.TurnReceipt) { input, next ->
-            val receipt = next(input)
+            val base = next(input)
             privateTurns?.clear(TurnTrace(input.agent.id, input.turn))
-            val state = lock.withLock { turns.remove(input.agent.id) }?.takeIf { it.turn == input.turn } ?: return@intercept receipt
+            val (state, used) = lock.withLock { turns.remove(input.agent.id) to routes.remove(input.agent.id) }
+            // A route only refused requests had: nothing went there.
+            val dropped = used?.takeIf { it.turn == input.turn }?.let { r -> r.refused - r.sent }.orEmpty()
+            val receipt = if (dropped.isEmpty()) base else base.copy(models = base.models.filterNot { (it.provider to it.model) in dropped })
+            state?.takeIf { it.turn == input.turn } ?: return@intercept receipt
             val note = try {
                 finish(input.agent, state)
             } catch (e: CancellationException) {
@@ -193,31 +292,85 @@ class LocalFirstCascade(
         }
     }
 
-    /** Sets up [turn]'s cascade state; returns a message when the turn must not run. */
+    /**
+     * Checks a request of [state]'s turn ([trace]) to [config] against the chat's rules as they
+     * are now ([refusal]); throws [CascadeRefused] when they rule it out, so it is not made. Returns
+     * whether it goes to the user's node (null: that cannot be told; false for the phone's own
+     * requests, which are not checked). [sending]: the request is made right after (`llm/stream`).
+     */
+    private suspend fun admit(trace: TurnTrace, state: TurnState, config: LlmCallConfig, sending: Boolean): Boolean? {
+        if (state.local?.provider == config.provider) return false
+        val owned = ownership(config.provider)
+        val why = refusal(state.trigger, state.origin, state.rules(), owned, cloudRoute(config.provider, owned))
+        val route = config.provider to config.model
+        lock.withLock {
+            val r = routes[trace.sessionId]?.takeIf { it.turn == trace.turn } ?: Routes(trace.turn).also { routes[trace.sessionId] = it }
+            if (why != null) r.refused += route else if (sending) r.sent += route
+        }
+        if (why != null) {
+            state.refused = true
+            throw CascadeRefused(why)
+        }
+        // A follow-up's words name the node only where it is known to be the node.
+        if (state.trigger != null) state.owned = owned == true
+        return owned
+    }
+
+    /**
+     * Before compaction (which may send the chat to its model ahead of [turn]'s first step): a
+     * follow-up the chat's rules rule out now is refused, so nothing is sent ([followUp]); a turn
+     * this cascade may handle counts as its own from here (not routed yet), so a summary request is
+     * checked ([admit]) and, to the user's node, goes marked private. [begin] decides again after
+     * compaction. Returns a message when the turn must not run.
+     */
+    private suspend fun prepare(agent: Agent, turn: Int): String? {
+        lock.withLock { turns.remove(agent.id) }
+        val input = agent.turnInput
+        escalationMarker(input)?.let { return followUp(agent, turn, it) }
+        val policy = policyOf(agent)
+        if (!policy.localFirst || agent.config.value.toolsEnabled || input.none { it.kind == UserMessageKind.PROMPT }) return null
+        val state = TurnState(turn, policy, CascadeRoute.NotApplicable, null, CascadeRisk(emptyList()), "", rules = { policyOf(agent) })
+        lock.withLock { turns[agent.id] = state }
+        return null
+    }
+
+    /**
+     * Sets up the follow-up [marker] opens. It goes to the chat's model now, which need not be the
+     * one the phone's answer was judged for: since it was queued the user may have switched models
+     * or changed the chat's policy. Returns why it must not run ([refusal]), or null.
+     */
+    private suspend fun followUp(agent: Agent, turn: Int, marker: SessionEvent.UserMessage): String? {
+        val origin = lastLocal(agent.log.entries.value)
+        val trigger = marker.text.ifBlank { TRIGGER_ASKED }
+        val provider = agent.config.value.llm.provider
+        val owned = ownership(provider)
+        val refused = refusal(trigger, origin, policyOf(agent), owned, cloudRoute(provider, owned))
+        val state = TurnState(
+            turn, CascadePolicy.parse(origin?.policy) ?: policyOf(agent), CascadeRoute.NotApplicable, null,
+            CascadeRisk(origin?.risk.orEmpty()), "", trigger = trigger, origin = origin,
+            owned = owned == true, rules = { policyOf(agent) },
+        )
+        state.refused = refused != null
+        lock.withLock { turns[agent.id] = state }
+        return refused
+    }
+
+    /** Sets up [turn]'s cascade state (after compaction); returns a message when the turn must not run. */
     private suspend fun begin(agent: Agent, turn: Int): String? {
         lock.withLock { turns.remove(agent.id) }
         val input = agent.turnInput
         val entries = agent.log.entries.value
-        input.lastOrNull { it.kind == UserMessageKind.CONTEXT && it.contextId == CASCADE_ESCALATION }?.let { marker ->
-            val origin = lastLocal(entries)
-            // It goes to the chat's model now, which need not be the one the phone's answer was
-            // judged for (the user may have switched models since).
-            val toNode = isOwned(agent.config.value.llm.provider)
-            val state = TurnState(
-                turn, CascadePolicy.parse(origin?.policy) ?: policyOf(agent), CascadeRoute.NotApplicable, null,
-                CascadeRisk(origin?.risk.orEmpty()), "", trigger = marker.text.ifBlank { TRIGGER_ASKED }, origin = origin, owned = toNode,
-            )
-            // The follow-up to the user's own node goes marked private.
-            if (toNode) privateTurns?.mark(TurnTrace(agent.id, turn))
-            lock.withLock { turns[agent.id] = state }
-            return null
-        }
+        // Checked again: the chat may have left the node, or its policy changed, during compaction.
+        escalationMarker(input)?.let { return followUp(agent, turn, it) }
         val config = agent.config.value
         val policy = policyOf(agent)
         if (!policy.localFirst || config.toolsEnabled) return null
         val prompt = input.lastOrNull { it.kind == UserMessageKind.PROMPT } ?: return null
-        val toNode = isOwned(config.llm.provider)
-        if (!toNode && !runCatching { cloud(config.llm.provider) }.getOrDefault(true)) return null
+        // A model that cannot be told follows the rules of a cloud one (stricter); what goes to it
+        // goes marked private all the same (`llm/stream` above).
+        val owned = ownership(config.llm.provider)
+        val toNode = owned == true
+        if (!toNode && !cloudRoute(config.llm.provider, owned)) return null
         val local = try {
             onDevice()?.takeIf { it.provider.isNotBlank() && it.model.isNotBlank() }
         } catch (e: CancellationException) {
@@ -240,9 +393,7 @@ class LocalFirstCascade(
             is CascadeRoute.Blocked -> return route.message
             else -> Unit
         }
-        val state = TurnState(turn, policy, route, local, risk(agent, prompt, entries), prompt.text, owned = toNode)
-        // The phone cannot answer, so the node does: privately.
-        if (toNode && route is CascadeRoute.Direct) privateTurns?.mark(TurnTrace(agent.id, turn))
+        val state = TurnState(turn, policy, route, local, risk(agent, prompt, entries), prompt.text, owned = toNode, rules = { policyOf(agent) })
         lock.withLock { turns[agent.id] = state }
         return null
     }
@@ -302,6 +453,8 @@ class LocalFirstCascade(
     }
 
     private suspend fun finish(agent: Agent, state: TurnState): ReceiptCascade? {
+        // Refused ([refusal]) before it got an answer: its request was not made, the phone's answer stands.
+        val notSent = state.refused && answerOf(agent.log.entries.value, state.turn) == null
         state.trigger?.let { trigger ->
             val origin = state.origin
             return ReceiptCascade(
@@ -309,14 +462,18 @@ class LocalFirstCascade(
                 policy = state.policy.name,
                 verdict = origin?.verdict ?: NOT_JUDGED,
                 reasons = origin?.reasons.orEmpty(),
-                action = CascadeAction.ESCALATED.name,
+                action = if (notSent) CascadeAction.KEPT.name else CascadeAction.ESCALATED.name,
                 risk = origin?.risk.orEmpty(),
                 trigger = trigger,
-                target = TARGET_NODE.takeIf { state.owned },
+                target = TARGET_NODE.takeIf { state.owned && !notSent },
             )
         }
         val route = state.route
+        // Counted from before compaction ([prepare]) but never routed: nothing to say.
+        if (route == CascadeRoute.NotApplicable) return null
         if (route is CascadeRoute.Direct) {
+            // Refused (a switch to a cloud model under "Never"): the turn's notice says why.
+            if (notSent) return null
             return ReceiptCascade(
                 ROLE_CLOUD, state.policy.name, NOT_JUDGED, listOf(route.reason), CascadeAction.DIRECT.name, state.risk.reasons,
                 target = TARGET_NODE.takeIf { state.owned },
@@ -336,9 +493,12 @@ class LocalFirstCascade(
             state.judgeName = JUDGE_HEURISTIC
         }
         // The rules, and the target, of the chat's model now: the user may have switched models
-        // while the phone answered.
-        val toNode = isOwned(agent.config.value.llm.provider)
-        val action = CascadeRoutes.action(state.policy, result.verdict, state.risk, toNode)
+        // while the phone answered. One that cannot be told follows a cloud model's rules (stricter);
+        // on "This phone" or a loopback server there is nothing to ask, so the answer is kept.
+        val provider = agent.config.value.llm.provider
+        val owned = ownership(provider)
+        val toNode = owned == true
+        val action = if (toNode || cloudRoute(provider, owned)) CascadeRoutes.action(state.policy, result.verdict, state.risk, toNode) else CascadeAction.KEPT
         if (action == CascadeAction.ESCALATED) agent.queueTurn(escalation(TRIGGER_AUTO, toNode), first = true)
         return ReceiptCascade(
             role = ROLE_LOCAL,
@@ -365,6 +525,54 @@ class LocalFirstCascade(
         const val TARGET_NODE = "node"
         const val TARGET_CLOUD = "cloud"
         private const val META_TARGET = "target"
+
+        /** Ahead of the compaction plugin's `agent/pre-step` (priority 0): [prepare] runs first. */
+        private const val AHEAD_OF_COMPACTION = 100
+
+        /**
+         * Whether "Ask" may send an offered answer on to the chat's model under the chat's [policy]
+         * (its own, else Settings): to the user's own node ([owned]) always; to a cloud model
+         * ([cloudRoute]; one that cannot be told counts as one) unless "Never"
+         * ([CascadePolicy.allowsAsk]); never to "This phone" or a loopback server, where there is
+         * nothing to ask. One rule for [escalate], an asked follow-up's requests ([refusal]) and
+         * both apps' offer row.
+         */
+        fun canAsk(policy: CascadePolicy, owned: Boolean, cloudRoute: Boolean): Boolean = (owned || cloudRoute) && policy.allowsAsk(owned)
+
+        /**
+         * Why a request of a turn this cascade handles must not go to a model under the chat's
+         * [policy] as it is now, or null when it may. [owned]: that model is the user's node (null:
+         * that cannot be told, and the rules treat it as a cloud one); [cloudRoute]: it is a cloud
+         * one. The node is always allowed: what goes there goes marked private. A follow-up
+         * ([trigger]) goes where [canAsk] allows, and one sent on its own (`auto`) to a cloud model
+         * only where "Auto" sends the answer it follows ([origin]) there on its own. Any other
+         * request of the turn (the turn the phone cannot take, a compaction summary) never goes to a
+         * cloud model under "Never". Whatever happened since a follow-up was queued.
+         */
+        private fun refusal(trigger: String?, origin: ReceiptCascade?, policy: CascadePolicy, owned: Boolean?, cloudRoute: Boolean): String? {
+            if (owned == true) return null
+            val never = if (owned == null) CascadeRoutes.NOT_SENT_UNKNOWN else CascadeRoutes.NOT_SENT_NEVER
+            return when {
+                trigger == null -> never.takeIf { policy == CascadePolicy.NEVER && cloudRoute }
+                !cloudRoute -> CascadeRoutes.NOT_SENT_LOCAL
+                !canAsk(policy, owned = false, cloudRoute = true) -> never
+                trigger == TRIGGER_AUTO && !sendsOnItsOwn(policy, origin) -> CascadeRoutes.NOT_SENT_AUTO
+                else -> null
+            }
+        }
+
+        /** Whether [policy]'s rules for a cloud model send the phone's judged answer [origin] on, on their own. */
+        private fun sendsOnItsOwn(policy: CascadePolicy, origin: ReceiptCascade?): Boolean {
+            val verdict = CascadeVerdict.entries.firstOrNull { it.name == origin?.verdict } ?: return false
+            return CascadeRoutes.action(policy, verdict, CascadeRisk(origin?.risk.orEmpty()), owned = false) == CascadeAction.ESCALATED
+        }
+
+        /** A request stopped by [refusal]: it is not made, and the turn ends with [message] (or a compaction fails). */
+        private class CascadeRefused(message: String) : IllegalStateException(message)
+
+        /** The context message that opens a follow-up, if [input] (a turn's) has one. */
+        private fun escalationMarker(input: List<SessionEvent.UserMessage>): SessionEvent.UserMessage? =
+            input.lastOrNull { it.kind == UserMessageKind.CONTEXT && it.contextId == CASCADE_ESCALATION }
 
         /**
          * The context message that opens a follow-up: [trigger] is its text, and where it goes (the

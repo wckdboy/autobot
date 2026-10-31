@@ -321,7 +321,7 @@ data class ReceiptCascade(
     val judge: String? = null,
     val judgeMs: Long? = null,
     val trigger: String? = null,
-    /** `node` when the follow-up goes to the user's own paired node (kept private there), not a cloud model; null: the cloud. */
+    /** `node` when the follow-up goes to the user's own paired node (kept private there), not a cloud model; null: the cloud, or nowhere (action `KEPT`: not sent). */
     val target: String? = null,
 )
 

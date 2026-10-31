@@ -71,15 +71,18 @@ class AgentBridgeCascadeTest {
         }
     }
 
-    /** The chip of a plain chat (tools off) on [provider]. */
-    private suspend fun AgentBridge.chip(provider: String): String {
+    /** The frame of a plain chat (tools off) on [provider]. */
+    private suspend fun AgentBridge.frame(provider: String): LiveFrame {
         val frames = Frames()
         val handle = openStream(provider, provider, "m", frames)
         withTimeout(5_000) { while (frames.frames.isEmpty()) delay(10) }
         setToolsEnabled(provider, false)
         withTimeout(5_000) { while (frames.frames.last().toolsEnabled) delay(10) }
-        return frames.frames.last().cascade.also { handle.cancel() }
+        return frames.frames.last().also { handle.cancel() }
     }
+
+    /** The chip of a plain chat (tools off) on [provider]. */
+    private suspend fun AgentBridge.chip(provider: String): String = frame(provider).cascade
 
     @Test
     fun aPlainChatOnTheUsersNodeHasThePhoneFirstChip() = withBridge { bridge ->
@@ -90,6 +93,24 @@ class AgentBridgeCascadeTest {
         // On the phone or a loopback server there is nothing to cascade to.
         assertEquals("NONE", bridge.chip("phone"))
         assertEquals("NONE", bridge.chip("loopback"))
+    }
+
+    /**
+     * Whether iOS shows the offer's "Ask": the rule the shared escalate applies (cascadeAsk: the
+     * user's node, or a cloud model unless "Never"), not the chip, whose "NONE" iOS read as "not
+     * Never" and so showed an "Ask" that did nothing.
+     */
+    @Test
+    fun theOfferShowsOnlyWhereAskWouldSendIt() = withBridge { bridge ->
+        bridge.setCascadeDefault("NEVER")
+        val never = listOf("node", "cloud", "phone", "loopback").associateWith { bridge.frame(it) }
+        assertEquals(mapOf("node" to true, "cloud" to false, "phone" to false, "loopback" to false), never.mapValues { it.value.cascadeAsk })
+        assertEquals("NONE", never.getValue("phone").cascade)
+        bridge.setCascadeDefault("ASK")
+        assertEquals(
+            mapOf("node" to true, "cloud" to true, "phone" to false, "loopback" to false),
+            listOf("node", "cloud", "phone", "loopback").associateWith { bridge.frame(it).cascadeAsk },
+        )
     }
 
     @Test

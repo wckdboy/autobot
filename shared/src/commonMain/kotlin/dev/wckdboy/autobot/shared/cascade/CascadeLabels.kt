@@ -74,9 +74,16 @@ object CascadeLabels {
     /** The model id with which the user's node picks a model itself (its preset's default). */
     private const val NODE_AUTO = "auto"
 
-    /** The notice above the follow-up; [target] `node`: it went to the user's own node. */
-    fun followUp(trigger: String?, reasons: List<String>, target: String? = null): String {
-        val to = if (target == "node") "phone → my node" else "phone → cloud"
+    /**
+     * The notice above the follow-up; [target] `node`: it went to the user's own node. Not [sent]:
+     * the rules refused it before its request was made (`LocalFirstCascade`).
+     */
+    fun followUp(trigger: String?, reasons: List<String>, target: String? = null, sent: Boolean = true): String {
+        val to = when {
+            !sent -> "follow-up not sent"
+            target == "node" -> "phone → my node"
+            else -> "phone → cloud"
+        }
         return when (trigger) {
             "auto" -> listOfNotNull("$to · auto", reasons(reasons).ifEmpty { null }).joinToString(" · ")
             else -> "$to · you asked"
@@ -86,6 +93,7 @@ object CascadeLabels {
     /** The word the receipt line ends in: "judge ok", "judge weak", "cascaded". */
     fun line(cascade: ReceiptCascade): String = when {
         cascade.role == "cloud" && cascade.action == CascadeAction.DIRECT.name -> "phone skipped"
+        cascade.role == "cloud" && cascade.action == CascadeAction.KEPT.name -> "not sent"
         cascade.role == "cloud" -> "cascaded"
         else -> "judge ${verdict(cascade.verdict)}"
     }
@@ -95,6 +103,8 @@ object CascadeLabels {
         val why = reasons(c.reasons).ifEmpty { null }
         val weak = if (c.verdict == CascadeVerdict.UNSURE.name) "wasn't sure about it" else "found it weak"
         val sensitive = c.risk.takeIf { it.isNotEmpty() }?.joinToString(", ") { risk(it) }
+        // A follow-up the rules refused before its request was made (`LocalFirstCascade`).
+        if (c.role == "cloud" && c.action == CascadeAction.KEPT.name) return "The follow-up was not sent; the phone's answer stands."
         if (c.target == "node") return nodeSummary(c, why, weak)
         return when {
             c.role == "cloud" && c.action == CascadeAction.DIRECT.name ->

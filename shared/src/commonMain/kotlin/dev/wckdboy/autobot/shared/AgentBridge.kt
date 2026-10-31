@@ -327,6 +327,11 @@ class LiveFrame(
     val redaction: String = "NONE",
     /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
     val cascade: String = "NONE",
+    /**
+     * Whether "Ask" under an offered answer would send it on now (`LocalFirstCascade.canAsk`, the
+     * rule `escalate` applies): show the offer only when it holds, whatever [cascade] says.
+     */
+    val cascadeAsk: Boolean = false,
 )
 
 /** A [SessionState] without its projection, which [AgentBridge.open] encodes only when it changes. */
@@ -350,6 +355,11 @@ internal class SessionFrame(
     val redaction: String = "NONE",
     /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
     val cascade: String = "NONE",
+    /**
+     * Whether "Ask" under an offered answer would send it on now (`LocalFirstCascade.canAsk`, the
+     * rule `escalate` applies): show the offer only when it holds, whatever [cascade] says.
+     */
+    val cascadeAsk: Boolean = false,
 )
 
 /** Everything a chat screen renders, computed by the same code as on Android. */
@@ -374,6 +384,11 @@ class SessionState(
     val redaction: String = "NONE",
     /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
     val cascade: String = "NONE",
+    /**
+     * Whether "Ask" under an offered answer would send it on now (`LocalFirstCascade.canAsk`, the
+     * rule `escalate` applies): show the offer only when it holds, whatever [cascade] says.
+     */
+    val cascadeAsk: Boolean = false,
 )
 
 /**
@@ -1149,6 +1164,7 @@ class AgentBridge(
                     thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                     redaction = redactionState(config),
                     cascade = cascadeState(config),
+                    cascadeAsk = cascadeAsk(config),
                 ),
             )
         }.conflate().collect { json ->
@@ -1229,6 +1245,7 @@ class AgentBridge(
                         thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                         redaction = redactionState(config),
                         cascade = cascadeState(config),
+                        cascadeAsk = cascadeAsk(config),
                     )
                     // Nothing new (e.g. a tick with an empty delta): no frame.
                     val signature = BridgeJson.encodeToString(LiveFrame.serializer(), frame.withFrame(0))
@@ -1243,7 +1260,7 @@ class AgentBridge(
         }
 
     private fun LiveFrame.withFrame(n: Long) =
-        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade)
+        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade, cascadeAsk)
 
     private val resyncs = HashMap<String, MutableStateFlow<Int>>()
 
@@ -1472,6 +1489,18 @@ class AgentBridge(
         val spec = providers.provider(config.llm.provider)
         val cloudRoute = spec == null || RedactionGateway.isCloud(spec.kind, spec.baseUrl)
         return cascade.chipState(config, cloudRoute, owned = spec?.kind == ProviderKind.INVINCIBLE_NODE)
+    }
+
+    /**
+     * Whether "Ask" under an offered answer would send it on now: the rule [escalate] applies
+     * (`LocalFirstCascade.canAsk`: to the user's node, or to a cloud model unless "Never"), not the
+     * chip, which says NONE with tools on whatever the policy. iOS shows the offer only when this
+     * holds, as Android does.
+     */
+    private fun cascadeAsk(config: AgentConfig): Boolean {
+        val spec = providers.provider(config.llm.provider)
+        val cloudRoute = spec == null || RedactionGateway.isCloud(spec.kind, spec.baseUrl)
+        return cascade.canAsk(config, owned = spec?.kind == ProviderKind.INVINCIBLE_NODE, cloudRoute = cloudRoute)
     }
 
     /** ON / OFF for a cloud route, NONE when the route stays on the phone. */

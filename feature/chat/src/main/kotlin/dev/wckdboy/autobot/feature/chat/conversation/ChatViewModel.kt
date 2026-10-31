@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.cascade.LocalFirstCascade
 import dev.wckdboy.autobot.shared.session.CascadeOffer
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -243,7 +244,7 @@ data class ChatUiState(
     val cascade: CascadePolicy? = null,
     /**
      * "Ask <model>" under the phone's latest answer, when the judge offered the chat's model (a cloud
-     * one, or the user's node) and "Ask" may still send it there ([CascadePolicy.allowsAsk]).
+     * one, or the user's node) and "Ask" may still send it there (LocalFirstCascade.canAsk).
      */
     val cascadeOffer: CascadeOffer? = null,
     /** The chat's model is the user's own paired node (Invincible): no redaction, and "phone first" follow-ups go there, marked private. */
@@ -507,9 +508,13 @@ class ChatViewModel @AssistedInject constructor(
             },
             // Plain chats on a cloud model or the user's own node only (agent runs are not cascaded in this version).
             cascade = if (provider == null || isLocal || loopback || snap.toolsEnabled) null else snap.cascade,
-            // "Ask" goes to the chat's model as it is now, and never to a cloud model under "Never"
-            // (an offer made on a node chat outlives a switch; LocalFirstCascade.escalate refuses it).
-            cascadeOffer = snap.projection.cascadeOffer.takeIf { !snap.running && snap.cascade.allowsAsk(provider?.kind == ProviderKind.INVINCIBLE_NODE) },
+            // "Ask" goes to the chat's model as it is now: the user's node, or a cloud model unless
+            // "Never" (an offer made on a node chat outlives a switch), never "This phone" or a
+            // loopback server. Shown only when a tap would send it, by the rule
+            // LocalFirstCascade.escalate applies (the bridge hands iOS the same).
+            cascadeOffer = snap.projection.cascadeOffer.takeIf {
+                !snap.running && LocalFirstCascade.canAsk(snap.cascade, provider?.kind == ProviderKind.INVINCIBLE_NODE, provider == null || !(isLocal || loopback))
+            },
             onNode = provider?.kind == ProviderKind.INVINCIBLE_NODE,
             loaded = true,
         )

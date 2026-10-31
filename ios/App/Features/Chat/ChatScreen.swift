@@ -316,9 +316,11 @@ struct ChatScreen: View {
         }
         if let session { LiveSlot(session: session) }
         // The cascade's offer sits under the phone's answer. "Ask" goes to the chat's model as it is
-        // now, and never to a cloud model under "Never" (an offer made on a node chat outlives a
-        // switch; the shared LocalFirstCascade.escalate refuses it, CascadePolicy.allowsAsk).
-        if let offer = transcript.projection.cascadeOffer, !running, !isLive, settings.cascade != "NEVER" || routing.provider?.kind == .invincibleNode {
+        // now: the user's node, or a cloud model unless "Never" (an offer made on a node chat
+        // outlives a switch), never "This phone" or a loopback server. Shown only when a tap would
+        // send it: the bridge's cascadeAsk is the rule the shared LocalFirstCascade.escalate
+        // applies (canAsk), not the chip, which says NONE with tools on whatever the policy.
+        if let offer = transcript.projection.cascadeOffer, !running, !isLive, settings.cascadeAsk {
             CascadeOfferRow(offer: offer, model: routing.modelLabel ?? routing.selectedModel ?? "", node: routing.provider?.kind == .invincibleNode) {
                 app.agent.escalate(conversationId)
             }

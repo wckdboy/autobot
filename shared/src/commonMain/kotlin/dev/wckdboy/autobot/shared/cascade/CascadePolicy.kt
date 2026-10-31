@@ -42,9 +42,13 @@ enum class CascadePolicy(
     ),
 
     /**
-     * The phone answers and nothing goes to the cloud, even when its answer is weak. With a node it
-     * works exactly as [AUTO] does there (a turn the phone cannot take goes to the node instead of
-     * being refused), only the judge skips the self-check: rules alone decide.
+     * The phone answers and nothing goes to the cloud, even when its answer is weak; with no
+     * on-device model the turn is refused, and a chat too long for the phone is still tried on it.
+     * With a node it works exactly as [AUTO] does there (a turn the phone cannot take, no on-device
+     * model or a chat too long for it, goes to the node), only the judge skips the self-check:
+     * rules alone decide. Each request is checked when it is made (`LocalFirstCascade`): a
+     * follow-up goes to the node only, and no other request of a turn it handles, a compaction
+     * summary included, goes to a cloud model ([CascadeRoutes.NOT_SENT_NEVER]).
      */
     NEVER(
         "phone only", "Never", "This phone answers. Nothing goes to the cloud.",
@@ -109,6 +113,25 @@ object CascadeRoutes {
         "Phone only: no on-device chat model is installed. Download one under Models, or change \"phone first\" for this chat."
 
     /**
+     * A request refused under "Never" (LocalFirstCascade): a follow-up, the turn the phone cannot
+     * take or a compaction summary, to a cloud model.
+     */
+    const val NOT_SENT_NEVER = "Not sent: \"phone first\" is \"Never\" for this chat, and its model is not your node."
+
+    /** [NOT_SENT_NEVER] when whether the chat's model is the user's node cannot be told (the lookup failed). */
+    const val NOT_SENT_UNKNOWN = "Not sent: \"phone first\" is \"Never\" for this chat, and the app couldn't tell whether its model is your node."
+
+    /** A follow-up refused because the chat's model is now one "phone first" does not ask (LocalFirstCascade). */
+    const val NOT_SENT_LOCAL = "Not sent: the chat's model is on this phone or a loopback server now, not a cloud model or your node."
+
+    /**
+     * A follow-up sent on its own ("Auto") refused because the rules of the chat's model and policy
+     * now would not send it on their own (LocalFirstCascade): say, a personal prompt queued for the
+     * user's node, and the chat has switched to a cloud model since.
+     */
+    const val NOT_SENT_AUTO = "Not sent: \"phone first\" doesn't send this prompt to the chat's model on its own."
+
+    /**
      * @param policy the chat's policy ([CascadePolicy.resolve]).
      * @param cloudRoute whether the chat's model is a cloud one (not "This phone", not loopback, not the user's node).
      * @param toolsEnabled agent runs (tools on) never cascade in this version: plain chat only.
@@ -157,5 +180,9 @@ object CascadeRoutes {
     }
 }
 
-/** What the cascade did with the phone's answer (stored in receipts by name). */
+/**
+ * What the cascade did with the phone's answer (stored in receipts by name). On a follow-up's
+ * receipt (role `cloud`), KEPT means the rules refused it before its request was made
+ * (`LocalFirstCascade`): the phone's answer stands.
+ */
 enum class CascadeAction { KEPT, OFFERED, ESCALATED, DIRECT }
