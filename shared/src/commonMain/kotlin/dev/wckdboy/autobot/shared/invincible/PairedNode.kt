@@ -41,7 +41,7 @@ class PairedNode(
     /**
      * An [NodeHttpTransport] to this node; [connect] opens connections under the network policy.
      * With [receipts], the node's receipts for agent turns are kept for those turns' privacy receipts;
-     * [privateTurns] are sent as private (the node keeps them on its own models).
+     * [privateTurns] are sent as private (the node never runs them on a cloud model).
      */
     fun transport(
         crypto: NodeCrypto,

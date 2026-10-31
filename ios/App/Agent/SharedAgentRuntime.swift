@@ -646,7 +646,7 @@ final class SharedAgentRuntime: AgentRuntime {
         bridge.setRedaction(sessionId: id, enabled: enabled)
     }
 
-    /// Settings → "Phone first" (OFF by default): plain cloud chats without their own choice follow it.
+    /// Settings → "Phone first" (OFF by default): plain chats on a cloud model or the user's node without their own choice follow it.
     func setCascadeDefault(_ policy: String) {
         bridge.setCascadeDefault(policy: policy)
     }
@@ -743,8 +743,9 @@ final class SessionStreamDecoder {
         var thinkingSupport = "NONE"
         var redaction = "NONE"
         var cascade = "NONE"
+        var cascadeAsk = false
 
-        private enum K: String, CodingKey { case live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade }
+        private enum K: String, CodingKey { case live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade, cascadeAsk }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: K.self)
@@ -761,6 +762,7 @@ final class SessionStreamDecoder {
             thinkingSupport = try c.decodeIfPresent(String.self, forKey: .thinkingSupport) ?? "NONE"
             redaction = try c.decodeIfPresent(String.self, forKey: .redaction) ?? "NONE"
             cascade = try c.decodeIfPresent(String.self, forKey: .cascade) ?? "NONE"
+            cascadeAsk = try c.decodeIfPresent(Bool.self, forKey: .cascadeAsk) ?? false
         }
     }
 
@@ -800,7 +802,7 @@ final class SessionStreamDecoder {
             settings: SessionSettings(
                 toolsEnabled: frame.toolsEnabled, permission: frame.permission, provider: frame.provider, model: frame.model,
                 thinking: ThinkingChoice(mode: frame.thinking, budget: frame.thinkingBudget), thinkingSupport: frame.thinkingSupport,
-                redaction: frame.redaction, cascade: frame.cascade,
+                redaction: frame.redaction, cascade: frame.cascade, cascadeAsk: frame.cascadeAsk,
             ),
         )
         return (update, resync)

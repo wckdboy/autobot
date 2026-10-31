@@ -18,7 +18,6 @@ import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.loop.chooseThinking
 import dev.wckdboy.autobot.agent.core.loop.restoreThinking
-import dev.wckdboy.autobot.agent.core.policy.Compactor
 import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
@@ -227,7 +226,7 @@ class AgentHost @Inject constructor(
         enabled = { redactionDefault.value },
     )
 
-    /** Settings → "Phone first" (off by default): what plain chats on a cloud model without their own choice do. */
+    /** Settings → "Phone first" (off by default): what plain chats on a cloud model or the user's node without their own choice do. */
     val cascadeDefault: StateFlow<CascadePolicy> = settings.settings.map { it.cascade }
         .stateIn(scope, SharingStarted.Eagerly, AppSettings().cascade)
 
@@ -236,7 +235,7 @@ class AgentHost @Inject constructor(
         onDevice = { onDeviceRoute() },
         // An unknown provider counts as cloud, as for redaction.
         cloud = { id -> providers.getProvider(id)?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
-        // "Phone first" on the user's own node: follow-ups go there and stay there (private).
+        // "Phone first" on the user's own node: follow-ups go there, marked private (never to a cloud model).
         owned = { id -> providers.getProvider(id)?.kind == ProviderKind.INVINCIBLE_NODE },
         privateTurns = nodes.privateTurns,
     )
@@ -528,16 +527,16 @@ class AgentHost @Inject constructor(
     /** This chat's cascade policy; choosing what Settings says makes the chat follow Settings again. */
     suspend fun setCascade(conversationId: String, policy: CascadePolicy) = agent(conversationId).chooseCascade(cascade.override(policy))
 
-    /** "Ask <cloud model>" under the phone's answer: that prompt goes to the chat's cloud model as a follow-up. */
+    /** "Ask <model>" under the phone's answer: that prompt goes to the chat's model (a cloud one, or the user's node) as a follow-up. */
     suspend fun escalate(conversationId: String): Boolean = cascade.escalate(agent(conversationId))
 
-    /** Manual `/compact`. */
+    /** Manual `/compact`: its summary request is checked as a "phone first" turn's is (`LocalFirstCascade.compact`). */
     fun compact(conversationId: String, onError: (Throwable) -> Unit = {}) {
         scope.launch {
             try {
                 val agent = agent(conversationId)
                 agent.log.append(SessionEvent.CommandRun("compact"))
-                agent.ctx[Compactor.Key]?.compact(agent, "manual")
+                cascade.compact(agent)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

@@ -47,7 +47,6 @@ import dev.wckdboy.autobot.agent.core.loop.AgentConfig
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.loop.LiveStream
 import dev.wckdboy.autobot.agent.core.monotonicNanos
-import dev.wckdboy.autobot.agent.core.policy.Compactor
 import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.LogEntry
@@ -327,6 +326,11 @@ class LiveFrame(
     val redaction: String = "NONE",
     /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
     val cascade: String = "NONE",
+    /**
+     * Whether "Ask" under an offered answer would send it on now (`LocalFirstCascade.canAsk`, the
+     * rule `escalate` applies): show the offer only when it holds, whatever [cascade] says.
+     */
+    val cascadeAsk: Boolean = false,
 )
 
 /** A [SessionState] without its projection, which [AgentBridge.open] encodes only when it changes. */
@@ -350,6 +354,11 @@ internal class SessionFrame(
     val redaction: String = "NONE",
     /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
     val cascade: String = "NONE",
+    /**
+     * Whether "Ask" under an offered answer would send it on now (`LocalFirstCascade.canAsk`, the
+     * rule `escalate` applies): show the offer only when it holds, whatever [cascade] says.
+     */
+    val cascadeAsk: Boolean = false,
 )
 
 /** Everything a chat screen renders, computed by the same code as on Android. */
@@ -374,6 +383,11 @@ class SessionState(
     val redaction: String = "NONE",
     /** The local-first cascade policy of this chat (OFF, ASK, AUTO, NEVER), or NONE where it cannot apply (agent runs, on-device routes). */
     val cascade: String = "NONE",
+    /**
+     * Whether "Ask" under an offered answer would send it on now (`LocalFirstCascade.canAsk`, the
+     * rule `escalate` applies): show the offer only when it holds, whatever [cascade] says.
+     */
+    val cascadeAsk: Boolean = false,
 )
 
 /**
@@ -475,7 +489,7 @@ class AgentBridge(
         onDevice = { quotaFallback.onDevice },
         // An unknown provider counts as cloud, as for redaction.
         cloud = { id -> withContext(IoDispatcher) { providers.provider(id) }?.let { RedactionGateway.isCloud(it.kind, it.baseUrl) } ?: true },
-        // "Phone first" on the user's own node: follow-ups go there and stay there (private).
+        // "Phone first" on the user's own node: follow-ups go there, marked private (never to a cloud model).
         owned = { id -> withContext(IoDispatcher) { providers.provider(id) }?.kind == ProviderKind.INVINCIBLE_NODE },
         privateTurns = privateTurns,
     )
@@ -1149,6 +1163,7 @@ class AgentBridge(
                     thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                     redaction = redactionState(config),
                     cascade = cascadeState(config),
+                    cascadeAsk = cascadeAsk(config),
                 ),
             )
         }.conflate().collect { json ->
@@ -1229,6 +1244,7 @@ class AgentBridge(
                         thinkingSupport = thinkingSupport(config.llm.provider, config.llm.model).name,
                         redaction = redactionState(config),
                         cascade = cascadeState(config),
+                        cascadeAsk = cascadeAsk(config),
                     )
                     // Nothing new (e.g. a tick with an empty delta): no frame.
                     val signature = BridgeJson.encodeToString(LiveFrame.serializer(), frame.withFrame(0))
@@ -1243,7 +1259,7 @@ class AgentBridge(
         }
 
     private fun LiveFrame.withFrame(n: Long) =
-        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade)
+        LiveFrame(sessionId, revision, n, live, running, approvals, question, toolsEnabled, permission, provider, model, thinking, thinkingBudget, thinkingSupport, redaction, cascade, cascadeAsk)
 
     private val resyncs = HashMap<String, MutableStateFlow<Int>>()
 
@@ -1461,14 +1477,29 @@ class AgentBridge(
         a.chooseCascade(cascade.override(chosen))
     }
 
-    /** "Ask <cloud model>" under the phone's answer: sends that prompt to the chat's cloud model as a follow-up. */
+    /** "Ask <model>" under the phone's answer: sends that prompt to the chat's model (a cloud one, or the user's node) as a follow-up. */
     fun escalate(sessionId: String) = withAgent(sessionId) { a -> cascade.escalate(a) }
 
-    /** The chip: the chat's effective cascade policy, NONE for agent runs and on-device or loopback routes. */
+    /**
+     * The chip: the chat's effective cascade policy, NONE for agent runs and on-device or loopback
+     * routes. A chat on the user's own node has it too, as on Android.
+     */
     private fun cascadeState(config: AgentConfig): String {
         val spec = providers.provider(config.llm.provider)
         val cloudRoute = spec == null || RedactionGateway.isCloud(spec.kind, spec.baseUrl)
-        return cascade.chipState(config, cloudRoute)
+        return cascade.chipState(config, cloudRoute, owned = spec?.kind == ProviderKind.INVINCIBLE_NODE)
+    }
+
+    /**
+     * Whether "Ask" under an offered answer would send it on now: the rule [escalate] applies
+     * (`LocalFirstCascade.canAsk`: to the user's node, or to a cloud model unless "Never"), not the
+     * chip, which says NONE with tools on whatever the policy. iOS shows the offer only when this
+     * holds, as Android does.
+     */
+    private fun cascadeAsk(config: AgentConfig): Boolean {
+        val spec = providers.provider(config.llm.provider)
+        val cloudRoute = spec == null || RedactionGateway.isCloud(spec.kind, spec.baseUrl)
+        return cascade.canAsk(config, owned = spec?.kind == ProviderKind.INVINCIBLE_NODE, cloudRoute = cloudRoute)
     }
 
     /** ON / OFF for a cloud route, NONE when the route stays on the phone. */
@@ -1478,10 +1509,10 @@ class AgentBridge(
         return if (config.redaction ?: redactionDefault) "ON" else "OFF"
     }
 
-    /** Manual `/compact`. */
+    /** Manual `/compact`: its summary request is checked as a "phone first" turn's is (`LocalFirstCascade.compact`). */
     fun compact(sessionId: String) = withAgent(sessionId) { a ->
         a.log.append(SessionEvent.CommandRun("compact"))
-        a.ctx[Compactor.Key]?.compact(a, "manual")
+        cascade.compact(a)
     }
 
     /** Undoes one file step (and later changes to the same files); only while the session is idle. */

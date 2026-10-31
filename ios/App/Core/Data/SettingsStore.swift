@@ -32,7 +32,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     var quotaFallback = false
     /// Redaction gateway: personal data becomes placeholders before a cloud request (on by default).
     var redactCloud = true
-    /// Local-first cascade ("Phone first"): OFF (default), ASK, AUTO or NEVER, for plain chats on a cloud model.
+    /// Local-first cascade ("Phone first"): OFF (default), ASK, AUTO or NEVER, for plain chats on a cloud model or the user's own node.
     var cascade = "OFF"
     /// Speculative decoding for on-device chat (`SpeculativeMode` id): "auto" (default), "on" or "off".
     var speculativeMode = "auto"

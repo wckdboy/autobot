@@ -505,9 +505,9 @@ object ProviderPresets {
             requiresApiKey = false,
             docsUrl = "https://github.com/wckdboy/invincible",
             includeUsage = true,
-            note = "Your own computer or GPU box running Invincible: paired by its QR code, end-to-end encrypted, no account. " +
+            note = "Your own computer, GPU box or rented server running Invincible: paired by its QR code, end-to-end encrypted, no account. " +
                 "\"auto\" lets the node choose a model.",
-            privacyNote = "Runs on hardware you own; the node's own rules decide whether anything goes further, redacted.",
+            privacyNote = "Runs on your node (hardware you own or a server you rent); the node's own rules decide whether anything goes further, redacted.",
         ),
 
         // ---- This phone (added automatically when a chat model is installed) ---------------------

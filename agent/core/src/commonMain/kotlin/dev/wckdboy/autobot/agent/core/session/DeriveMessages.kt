@@ -9,10 +9,15 @@ const val ABORTED_BEFORE_DISPATCH = "Error: tool call aborted before dispatch."
 
 /**
  * The [SessionEvent.UserMessage.contextId] of a local-first cascade escalation: a
- * [UserMessageKind.CONTEXT] message that opens the cloud follow-up turn. It never reaches the
- * model; instead the answers since the user's last prompt (the phone's) leave the model surface,
- * so the cloud model answers that prompt afresh and later requests carry only its answer. Its
- * text is the trigger (`auto` or `asked`).
+ * [UserMessageKind.CONTEXT] message that opens the follow-up turn. It never reaches the model;
+ * instead the answers since the user's last prompt (the phone's) leave the model surface, so the
+ * chat's model (a cloud one, or the user's node) answers that prompt afresh and later requests
+ * carry only its answer. A follow-up whose turn ends without an answer (refused before its
+ * request was made, failed, or stopped before any text: reasoning alone is no answer) takes
+ * nothing away and adds nothing: the phone's answer stays, and what the follow-up logged without
+ * text (its reasoning) is not sent.
+ * Its text is the trigger (`auto` or `asked`); its [SessionEvent.UserMessage.meta] says where the
+ * follow-up goes (`target`: `node` or `cloud`).
  */
 const val CASCADE_ESCALATION = "cascade/escalate"
 
@@ -27,14 +32,18 @@ const val CASCADE_ESCALATION = "cascade/escalate"
  * - every assistant tool call is answered: a missing result becomes [TOOL_OUTCOME_UNKNOWN] so the
  *   history stays valid for providers that require call/result pairing.
  *
- * - a cascade escalation ([CASCADE_ESCALATION]) drops the answers since the last prompt and is
- *   itself not sent.
+ * - a cascade escalation ([CASCADE_ESCALATION]) is itself not sent; it drops the answers since the
+ *   last prompt while its follow-up turn runs and once that turn has answered, not when the turn
+ *   ended without an answer ([unanswered]): then that turn's own assistant messages (no visible
+ *   text: reasoning at most) are left out instead.
  *
  * Each assistant message is tagged with [ModelMessage.inCurrentTurn] when it comes after the last
  * user prompt, which adapters use to decide whether reasoning must be echoed back.
  */
 fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
     val (activeRanges, summaryAt) = activeReplacements(entries)
+    val void = unanswered(entries)
+    var unansweredTurn = false // inside a follow-up turn that got no answer, after its marker
 
     val system = entries.asReversed().firstNotNullOfOrNull { it.event as? SessionEvent.SystemMessage }
     val out = mutableListOf<ModelMessage>()
@@ -61,9 +70,13 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
             is SessionEvent.UserMessage -> {
                 closeOpenCalls()
                 if (event.kind == UserMessageKind.CONTEXT && event.contextId == CASCADE_ESCALATION) {
-                    val kept = out.filterIndexed { i, m -> i <= lastPrompt || (m.role != ModelRole.ASSISTANT && m.role != ModelRole.TOOL) }
-                    out.clear()
-                    out += kept
+                    if (entry.seq in void) {
+                        unansweredTurn = true
+                    } else {
+                        val kept = out.filterIndexed { i, m -> i <= lastPrompt || (m.role != ModelRole.ASSISTANT && m.role != ModelRole.TOOL) }
+                        out.clear()
+                        out += kept
+                    }
                     continue
                 }
                 if (event.kind != UserMessageKind.CONTEXT) lastPrompt = out.size
@@ -80,6 +93,8 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
             is SessionEvent.AssistantMessage -> {
                 closeOpenCalls()
                 if (event.text.isEmpty() && event.toolCalls.isEmpty() && event.reasoning.isNullOrEmpty()) continue
+                // Not an answer ([unanswered]): the phone's answer stands in its place.
+                if (unansweredTurn) continue
                 out += ModelMessage(
                     ModelRole.ASSISTANT,
                     event.text,
@@ -97,6 +112,7 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
                 closeOpenCalls()
                 out += ModelMessage(ModelRole.USER, "<system-reminder>\n${revertText(event)}\n</system-reminder>")
             }
+            is SessionEvent.TurnEnd, is SessionEvent.TurnStart -> unansweredTurn = false
             else -> Unit
         }
     }
@@ -106,6 +122,34 @@ fun deriveMessages(entries: List<LogEntry>): List<ModelMessage> {
     return out.mapIndexed { index, message ->
         if (message.role == ModelRole.ASSISTANT && index > lastUser) message.copy(inCurrentTurn = true) else message
     }
+}
+
+/**
+ * The seqs of [CASCADE_ESCALATION] markers whose follow-up turn ended (its [SessionEvent.TurnEnd],
+ * or a later [SessionEvent.TurnStart]) with no answer after the marker: no assistant message with
+ * visible text or tool calls. The follow-up was refused before its request was made, failed, or
+ * was stopped before any text (while it was still reasoning, say). While the turn runs, or once it
+ * has answered, the marker stands.
+ */
+private fun unanswered(entries: List<LogEntry>): Set<Long> {
+    val void = HashSet<Long>()
+    var pending: Long? = null // the running turn's marker, while no answer has followed it
+    for (entry in entries) {
+        when (val e = entry.event) {
+            is SessionEvent.UserMessage ->
+                if (e.kind == UserMessageKind.CONTEXT && e.contextId == CASCADE_ESCALATION) pending = entry.seq
+            // An answer: visible text or tool calls. Reasoning alone (a follow-up stopped while
+            // thinking) is none.
+            is SessionEvent.AssistantMessage ->
+                if (e.text.isNotBlank() || e.toolCalls.isNotEmpty()) pending = null
+            is SessionEvent.TurnEnd, is SessionEvent.TurnStart -> {
+                pending?.let { void += it }
+                pending = null
+            }
+            else -> Unit
+        }
+    }
+    return void
 }
 
 /** Compaction state: hidden seq ranges, and the active summary entry keyed by its range start. */

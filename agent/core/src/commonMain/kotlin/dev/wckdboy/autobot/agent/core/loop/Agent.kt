@@ -213,7 +213,7 @@ class Agent(
 
     /**
      * Queues [message] as a turn of its own, ahead of queued prompts when [first]: a turn the
-     * runtime starts itself (the local-first cascade's cloud follow-up) rather than the user.
+     * runtime starts itself (the local-first cascade's follow-up) rather than the user.
      */
     fun queueTurn(message: SessionEvent.UserMessage, first: Boolean = false) {
         inboxLock.withLock { if (first) nextTurn.addFirst(message) else nextTurn.addLast(message) }

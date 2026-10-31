@@ -84,7 +84,8 @@ sealed interface SessionEvent {
         /**
          * App data kept with the turn and never sent to the model: a generated-UI action stores
          * which surface it came from and the user's input there (`a2ui`), so the chat can lock
-         * that form and show what was entered after a restart.
+         * that form and show what was entered after a restart; a cascade escalation
+         * ([CASCADE_ESCALATION]) stores where its follow-up goes (`target`).
          */
         val meta: JsonObject? = null,
     ) : SessionEvent
@@ -295,13 +296,13 @@ data class ReceiptModel(
  * The local-first cascade in a turn's receipt: codes only, never content.
  *
  * @property role `local` when this phone answered first, `cloud` for the follow-up the cascade
- *   sent to the chat's cloud model.
+ *   sent to the chat's model (a cloud one, or the user's node: see [target]).
  * @property policy the chat's policy then (`ASK`, `AUTO`, `NEVER`).
  * @property verdict the judge's verdict on the phone's answer (`GOOD`, `UNSURE`, `WEAK`), or
  *   `NONE` when it never judged (no on-device model, a prompt too long for it).
  * @property reasons why, as codes (`refusal`, `unsure`, `fresh`, `truncated`, `self-check`, …).
- * @property action `KEPT` (the phone's answer stands), `OFFERED` (the user may ask the cloud),
- *   `ESCALATED` (sent to the cloud), `DIRECT` (the cloud answered, the phone could not).
+ * @property action `KEPT` (the phone's answer stands), `OFFERED` (the user may ask the chat's
+ *   model), `ESCALATED` (sent to it), `DIRECT` (it answered, the phone could not).
  * @property risk why the prompt counts as sensitive (`personal`, `health`, `finance`,
  *   `attachment`, `memory`); empty when it is low-risk.
  * @property judge `self-check` (the on-device model graded its own answer) or `heuristic`.
@@ -320,7 +321,7 @@ data class ReceiptCascade(
     val judge: String? = null,
     val judgeMs: Long? = null,
     val trigger: String? = null,
-    /** `node` when the follow-up goes to the user's own paired node (kept private there), not a cloud model; null: the cloud. */
+    /** `node` when the follow-up goes to the user's own paired node (kept private there), not a cloud model; null: the cloud, or nowhere (action `KEPT`: not sent). */
     val target: String? = null,
 )
 

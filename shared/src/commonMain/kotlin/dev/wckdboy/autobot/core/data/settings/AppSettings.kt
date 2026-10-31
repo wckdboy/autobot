@@ -46,10 +46,11 @@ data class AppSettings(
      */
     val redactCloud: Boolean = true,
     /**
-     * Local-first cascade ("Phone first"): in plain chats on a cloud model, this phone answers
-     * first and a judge decides whether to offer (ASK) or send (AUTO) the prompt to the cloud;
-     * NEVER keeps every answer on the phone. OFF by default: chats behave as before. Chats can
-     * choose their own.
+     * Local-first cascade ("Phone first"): in plain chats on a cloud model or the user's own
+     * node, this phone answers first and a judge decides whether to offer (ASK) or send (AUTO) the
+     * prompt to the chat's model. With a cloud model NEVER keeps every answer on the phone; with
+     * the node it works as AUTO, without the self-check. OFF by default: chats behave as before.
+     * Chats can choose their own.
      */
     val cascade: CascadePolicy = CascadePolicy.DEFAULT,
     /**

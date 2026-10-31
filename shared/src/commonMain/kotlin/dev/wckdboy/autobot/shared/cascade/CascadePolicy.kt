@@ -2,8 +2,11 @@ package dev.wckdboy.autobot.shared.cascade
 
 /**
  * The local-first cascade policy of a chat (ROADMAP Phase 2.5, item 3): whether "This phone"
- * answers before the chat's cloud model, and what happens when the judge finds the phone's
- * answer wanting.
+ * answers before the chat's model (a cloud one, or the user's own node), and what happens when the
+ * judge finds the phone's answer wanting.
+ *
+ * On a chat whose model is the user's own node, the node takes the cloud model's place and the
+ * rules differ ([CascadeRoutes]), so the chip and the line are [nodeChip] and [nodeDetail] there.
  */
 enum class CascadePolicy(
     /** The chip on the chat bar (micro label, upper-cased by the platforms). */
@@ -12,22 +15,58 @@ enum class CascadePolicy(
     val title: String,
     /** One line under the option. */
     val detail: String,
+    /** [chip] on a chat with the user's own node. */
+    val nodeChip: String = chip,
+    /** [detail] on a chat with the user's own node. */
+    val nodeDetail: String = detail,
 ) {
     /** No cascade: the chat's own model answers, as before. The default. */
     OFF("phone first off", "Off", "The chat's model answers, as before."),
 
-    /** The phone answers; when the judge is unsure, an "Ask" button offers the cloud model. */
-    ASK("phone first · ask", "Ask", "This phone answers first. When its answer looks weak, you can ask the cloud model."),
+    /** The phone answers; when the judge is not convinced, an "Ask" button offers the chat's model (cloud or node). */
+    ASK(
+        "phone first · ask", "Ask", "This phone answers first. When its answer looks weak, you can ask the cloud model.",
+        nodeDetail = "This phone answers first. When its answer looks weak, you can ask your node.",
+    ),
 
-    /** The phone answers; a weak answer to a low-risk prompt goes to the cloud model on its own. */
-    AUTO("phone first · auto", "Auto", "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks."),
+    /**
+     * The phone answers; a weak answer to a low-risk prompt goes to the cloud model on its own.
+     * With a node, a weak answer goes there on its own, a sensitive prompt included; an answer the
+     * judge is unsure about is offered; a turn the phone cannot take (no on-device model, a chat
+     * too long for it) goes to the node directly. All of these go marked private.
+     */
+    AUTO(
+        "phone first · auto", "Auto", "This phone answers first. A weak answer goes to the cloud on its own, unless the prompt is personal: then it asks.",
+        nodeDetail = "This phone answers first. A weak answer goes to your node on its own, personal prompts included. " +
+            "If the phone isn't sure, you can ask your node; if it can't answer, your node does. All of it goes marked private.",
+    ),
 
-    /** The phone answers and nothing goes to the cloud, even when its answer is weak. */
-    NEVER("phone only", "Never", "This phone answers. Nothing goes to the cloud."),
+    /**
+     * The phone answers and nothing goes to the cloud, even when its answer is weak; with no
+     * on-device model the turn is refused, and a chat too long for the phone is still tried on it.
+     * With a node it works exactly as [AUTO] does there (a turn the phone cannot take, no on-device
+     * model or a chat too long for it, goes to the node), only the judge skips the self-check:
+     * rules alone decide. Each request is checked when it is made (`LocalFirstCascade`): a
+     * follow-up goes to the node only, and no other request of a turn it handles (on "This phone"
+     * too, should the chat switch), a compaction summary included, goes to a cloud model, nor does
+     * a manual `/compact` of a plain chat ([CascadeRoutes.NOT_SENT_NEVER]).
+     */
+    NEVER(
+        "phone only", "Never", "This phone answers. Nothing goes to the cloud.",
+        nodeChip = "phone · my node",
+        nodeDetail = "Same as Auto, but the phone's answer is judged by rules alone, without a self-check.",
+    ),
     ;
 
     /** Whether the phone answers first under this policy. */
     val localFirst: Boolean get() = this != OFF
+
+    /**
+     * Whether "Ask" under an offered answer may send its prompt to the chat's model under this
+     * policy: to the user's own node ([node]) always, to any other model unless "Never" (nothing
+     * goes to the cloud). An offer made on a node chat outlives a switch to a cloud model.
+     */
+    fun allowsAsk(node: Boolean): Boolean = node || this != NEVER
 
     companion object {
         /** Settings and chats start with the cascade off: nothing changes until the user opts in. */
@@ -55,10 +94,10 @@ sealed interface CascadeRoute {
     /** The phone answers first. */
     data object Local : CascadeRoute
 
-    /** The cloud model answers directly, because the phone cannot ([reason]: `no-local-model`, `too-long`). */
+    /** The chat's model (a cloud one, or the user's node) answers directly, because the phone cannot ([reason]: `no-local-model`, `too-long`). */
     data class Direct(val reason: String) : CascadeRoute
 
-    /** The turn does not run: "Never" with no on-device model ([message] says so). */
+    /** The turn does not run: "Never" on a cloud chat with no on-device model ([message] says so). */
     data class Blocked(val message: String) : CascadeRoute
 }
 
@@ -75,11 +114,33 @@ object CascadeRoutes {
         "Phone only: no on-device chat model is installed. Download one under Models, or change \"phone first\" for this chat."
 
     /**
+     * A request refused under "Never" (LocalFirstCascade): a follow-up, any other request of a turn
+     * it handles (the turn the phone cannot take, a step after a switch, a compaction summary) or a
+     * manual `/compact`'s summary, to a cloud model.
+     */
+    const val NOT_SENT_NEVER = "Not sent: \"phone first\" is \"Never\" for this chat, and its model is not your node."
+
+    /** [NOT_SENT_NEVER] when whether the chat's model is the user's node cannot be told (the lookup failed). */
+    const val NOT_SENT_UNKNOWN = "Not sent: \"phone first\" is \"Never\" for this chat, and the app couldn't tell whether its model is your node."
+
+    /** A follow-up refused because the chat's model is now one "phone first" does not ask (LocalFirstCascade). */
+    const val NOT_SENT_LOCAL = "Not sent: the chat's model is on this phone or a loopback server now, not a cloud model or your node."
+
+    /**
+     * A follow-up sent on its own ("Auto") refused because the rules of the chat's model and policy
+     * now would not send it on their own (LocalFirstCascade): say, a personal prompt queued for the
+     * user's node, and the chat has switched to a cloud model since.
+     */
+    const val NOT_SENT_AUTO = "Not sent: \"phone first\" doesn't send this prompt to the chat's model on its own."
+
+    /**
      * @param policy the chat's policy ([CascadePolicy.resolve]).
-     * @param cloudRoute whether the chat's model is a cloud one (not "This phone", not loopback).
+     * @param cloudRoute whether the chat's model is a cloud one (not "This phone", not loopback, not the user's node).
      * @param toolsEnabled agent runs (tools on) never cascade in this version: plain chat only.
      * @param hasLocalModel whether an on-device chat model is installed.
      * @param promptTokens the request's estimated size; [localWindow] the on-device model's window (null: unknown).
+     * @param owned whether the chat's model is the user's own paired node: the cascade applies there
+     *   too, and "Never" does not keep a turn from it.
      */
     fun route(
         policy: CascadePolicy,
@@ -90,8 +151,9 @@ object CascadeRoutes {
         localWindow: Int? = null,
         owned: Boolean = false,
     ): CascadeRoute {
-        // The user's own node is hardware they own: "Never" (nothing to the cloud) does not keep a
-        // turn from it, so with a node the phone only steps aside when it cannot answer.
+        // The user's own node is not the cloud: "Never" (nothing to the cloud) does not keep a turn
+        // from it, so with a node the phone steps aside when it cannot answer. Such a turn goes to
+        // the node marked private (LocalFirstCascade), so the node keeps it off cloud models.
         val cloudRuledOut = policy == CascadePolicy.NEVER && !owned
         return when {
             !policy.localFirst || !(cloudRoute || owned) || toolsEnabled -> CascadeRoute.NotApplicable
@@ -103,16 +165,16 @@ object CascadeRoutes {
     }
 
     /**
-     * What follows a judged answer: keep it, offer the cloud, or escalate. "Auto" escalates only
-     * a [CascadeVerdict.WEAK] answer to a prompt the risk classifier calls low-risk; a sensitive
-     * prompt, or an answer the judge is merely unsure about, is offered instead. With the user's
-     * own node as the chat's model ([owned]), see below.
+     * What follows a judged answer: keep it, offer the chat's model, or escalate to it. To a cloud
+     * model, "Auto" escalates only a [CascadeVerdict.WEAK] answer to a prompt the risk classifier
+     * calls low-risk; a sensitive prompt, or an answer the judge is merely unsure about, is offered
+     * instead. With the user's own node as the chat's model ([owned]), see below.
      */
     fun action(policy: CascadePolicy, verdict: CascadeVerdict, risk: CascadeRisk, owned: Boolean = false): CascadeAction = when {
         verdict == CascadeVerdict.GOOD -> CascadeAction.KEPT
         policy == CascadePolicy.OFF -> CascadeAction.KEPT
-        // To the user's own node (kept private there): "Never" and "Auto" send a weak answer on, a
-        // sensitive prompt included, since it stays on hardware they own; "Ask" offers.
+        // To the user's own node (marked private, so it keeps the prompt off cloud models): "Never"
+        // and "Auto" send a weak answer on, a sensitive prompt included; "Ask" offers.
         owned -> if (policy != CascadePolicy.ASK && verdict == CascadeVerdict.WEAK) CascadeAction.ESCALATED else CascadeAction.OFFERED
         policy == CascadePolicy.NEVER -> CascadeAction.KEPT
         policy == CascadePolicy.AUTO && verdict == CascadeVerdict.WEAK && !risk.sensitive -> CascadeAction.ESCALATED
@@ -120,5 +182,9 @@ object CascadeRoutes {
     }
 }
 
-/** What the cascade did with the phone's answer (stored in receipts by name). */
+/**
+ * What the cascade did with the phone's answer (stored in receipts by name). On a follow-up's
+ * receipt (role `cloud`), KEPT means the rules refused it before its request was made
+ * (`LocalFirstCascade`): the phone's answer stands.
+ */
 enum class CascadeAction { KEPT, OFFERED, ESCALATED, DIRECT }

@@ -13,8 +13,10 @@ struct SessionSettings: Equatable, Sendable {
     var thinkingSupport = "NONE"
     /// The redaction gateway for the chat's route: ON, OFF, or NONE (on-device or loopback: nothing to hide).
     var redaction = "NONE"
-    /// The local-first cascade policy of a plain cloud chat (OFF, ASK, AUTO, NEVER), NONE where it cannot apply.
+    /// The local-first cascade policy of a plain chat on a cloud model or the user's own node (OFF, ASK, AUTO, NEVER), NONE where it cannot apply.
     var cascade = "NONE"
+    /// Whether "Ask" under an offered answer would send it on now (the bridge's `cascadeAsk`: the rule the shared `escalate` applies).
+    var cascadeAsk = false
 
     var permissionPreset: PermissionPreset { PermissionPreset.fromLabel(permission) ?? .workspace }
 }
@@ -87,7 +89,7 @@ struct SessionUpdate: Sendable {
             settings: SessionSettings(
                 toolsEnabled: state.toolsEnabled, permission: state.permission, provider: state.provider, model: state.model,
                 thinking: ThinkingChoice(mode: state.thinking ?? "AUTO", budget: state.thinkingBudget), thinkingSupport: state.thinkingSupport ?? "NONE",
-                redaction: state.redaction ?? "NONE", cascade: state.cascade ?? "NONE",
+                redaction: state.redaction ?? "NONE", cascade: state.cascade ?? "NONE", cascadeAsk: state.cascadeAsk ?? false,
             ),
         )
     }
@@ -138,7 +140,7 @@ final class AgentSession {
                 settings: SessionSettings(
                     toolsEnabled: newValue.toolsEnabled, permission: newValue.permission, provider: newValue.provider, model: newValue.model,
                     thinking: ThinkingChoice(mode: newValue.thinking ?? "AUTO", budget: newValue.thinkingBudget), thinkingSupport: newValue.thinkingSupport ?? "NONE",
-                    redaction: newValue.redaction ?? "NONE", cascade: newValue.cascade ?? "NONE",
+                    redaction: newValue.redaction ?? "NONE", cascade: newValue.cascade ?? "NONE", cascadeAsk: newValue.cascadeAsk ?? false,
                 ),
             )
             if projectionChanged { update.transcript = SessionTranscript(newValue.projection) }
@@ -222,7 +224,7 @@ protocol AgentRuntime: AnyObject {
     func setRedaction(_ conversationId: String, _ enabled: Bool)
     /// This chat's "phone first" policy (OFF, ASK, AUTO, NEVER; what Settings says makes it follow Settings again).
     func setCascade(_ conversationId: String, _ policy: String)
-    /// "Ask <cloud model>": sends the prompt of the phone's offered answer to the chat's cloud model.
+    /// "Ask <model>": sends the prompt of the phone's offered answer to the chat's model (a cloud one, or the user's node).
     func escalate(_ conversationId: String)
     /// A tap on a generated UI (`show_ui`, A2UI): a `.send` action becomes the chat's next user
     /// turn (queued behind a running one), shown in the transcript as its label. False when it

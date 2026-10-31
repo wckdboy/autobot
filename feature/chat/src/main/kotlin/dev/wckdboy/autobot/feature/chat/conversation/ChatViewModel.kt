@@ -1,6 +1,7 @@
 package dev.wckdboy.autobot.feature.chat.conversation
 
 import dev.wckdboy.autobot.shared.cascade.CascadePolicy
+import dev.wckdboy.autobot.shared.cascade.LocalFirstCascade
 import dev.wckdboy.autobot.shared.session.CascadeOffer
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -241,9 +242,12 @@ data class ChatUiState(
     val redaction: RedactionUi = RedactionUi.NONE,
     /** The chat's local-first cascade policy; null where it cannot apply (agent runs, on-device or loopback routes). */
     val cascade: CascadePolicy? = null,
-    /** "Ask <cloud model>" under the phone's latest answer, when the judge offered the cloud. */
+    /**
+     * "Ask <model>" under the phone's latest answer, when the judge offered the chat's model (a cloud
+     * one, or the user's node) and "Ask" may still send it there (LocalFirstCascade.canAsk).
+     */
     val cascadeOffer: CascadeOffer? = null,
-    /** The chat's model is the user's own paired node (Invincible): no redaction, and "phone first" follow-ups stay there. */
+    /** The chat's model is the user's own paired node (Invincible): no redaction, and "phone first" follow-ups go there, marked private. */
     val onNode: Boolean = false,
 )
 
@@ -496,15 +500,21 @@ class ChatViewModel @AssistedInject constructor(
             voice = v.mode,
             changes = snap.projection.changes,
             thinking = snap.thinking,
-            // The node redacts what it sends on itself; the phone has nothing to hide from hardware the user owns.
+            // The node redacts what it sends on itself; the phone has nothing to hide from the user's own node.
             redaction = when {
                 provider == null || isLocal || loopback || provider.kind == ProviderKind.INVINCIBLE_NODE -> RedactionUi.NONE
                 snap.redacting -> RedactionUi.ON
                 else -> RedactionUi.OFF
             },
-            // Plain chats on a cloud model only (agent runs are not cascaded in this version).
+            // Plain chats on a cloud model or the user's own node only (agent runs are not cascaded in this version).
             cascade = if (provider == null || isLocal || loopback || snap.toolsEnabled) null else snap.cascade,
-            cascadeOffer = snap.projection.cascadeOffer.takeIf { !snap.running },
+            // "Ask" goes to the chat's model as it is now: the user's node, or a cloud model unless
+            // "Never" (an offer made on a node chat outlives a switch), never "This phone" or a
+            // loopback server. Shown only when a tap would send it, by the rule
+            // LocalFirstCascade.escalate applies (the bridge hands iOS the same).
+            cascadeOffer = snap.projection.cascadeOffer.takeIf {
+                !snap.running && LocalFirstCascade.canAsk(snap.cascade, provider?.kind == ProviderKind.INVINCIBLE_NODE, provider == null || !(isLocal || loopback))
+            },
             onNode = provider?.kind == ProviderKind.INVINCIBLE_NODE,
             loaded = true,
         )

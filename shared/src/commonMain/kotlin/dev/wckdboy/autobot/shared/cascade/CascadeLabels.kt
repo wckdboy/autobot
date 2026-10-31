@@ -48,22 +48,42 @@ object CascadeLabels {
         return if (why != null) "$lead: $why." else "$lead."
     }
 
-    /** The button of the offer: "Ask DeepSeek V3". */
-    fun ask(model: String): String = "Ask ${model.ifBlank { "the cloud" }}"
+    /**
+     * The button of the offer: "Ask DeepSeek V3"; [node]: the chat's model is the user's own node,
+     * named as such ("Ask my node"), whatever model it runs ("auto" lets the node choose).
+     */
+    fun ask(model: String, node: Boolean): String = if (node) "Ask my node" else "Ask ${model.ifBlank { "the cloud" }}"
 
-    /** The small print of the chat's "phone first" choice; [node]: the chat's model is the user's own node. */
+    /**
+     * The small print of the chat's "phone first" choice; [node]: the chat's model is the user's own
+     * node. What the cascade sends there goes with `invincible-private: 1` ([LocalFirstCascade]),
+     * and the node's router never runs such a request on a cloud model (Invincible's spec/routing.md).
+     */
     fun sheetNote(model: String, node: Boolean = false): String =
         if (node) {
-            "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "your node" }} answers below it, " +
-                "on hardware you own: it never sends these on to a cloud model. The receipt says why."
+            "Plain chats only, not agent runs. The phone's answer stays; ${nodeModel(model)} answers below it. " +
+                "Anything \"phone first\" sends your node is marked private, so it never runs on a cloud model. The receipt says why."
         } else {
             "Plain chats only, not agent runs. The phone's answer stays; ${model.ifBlank { "the cloud model" }} answers below it, " +
                 "through redaction when it is on. The receipt says why."
         }
 
-    /** The notice above the follow-up; [target] `node`: it went to the user's own node. */
-    fun followUp(trigger: String?, reasons: List<String>, target: String? = null): String {
-        val to = if (target == "node") "phone → my node" else "phone → cloud"
+    /** A node chat's model in words: "your node" when blank or `auto` (the node chooses). */
+    private fun nodeModel(model: String): String = model.takeUnless { it.isBlank() || it.equals(NODE_AUTO, ignoreCase = true) } ?: "your node"
+
+    /** The model id with which the user's node picks a model itself (its preset's default). */
+    private const val NODE_AUTO = "auto"
+
+    /**
+     * The notice above the follow-up; [target] `node`: it went to the user's own node. Not [sent]:
+     * the rules refused it before its request was made (`LocalFirstCascade`).
+     */
+    fun followUp(trigger: String?, reasons: List<String>, target: String? = null, sent: Boolean = true): String {
+        val to = when {
+            !sent -> "follow-up not sent"
+            target == "node" -> "phone → my node"
+            else -> "phone → cloud"
+        }
         return when (trigger) {
             "auto" -> listOfNotNull("$to · auto", reasons(reasons).ifEmpty { null }).joinToString(" · ")
             else -> "$to · you asked"
@@ -73,6 +93,7 @@ object CascadeLabels {
     /** The word the receipt line ends in: "judge ok", "judge weak", "cascaded". */
     fun line(cascade: ReceiptCascade): String = when {
         cascade.role == "cloud" && cascade.action == CascadeAction.DIRECT.name -> "phone skipped"
+        cascade.role == "cloud" && cascade.action == CascadeAction.KEPT.name -> "not sent"
         cascade.role == "cloud" -> "cascaded"
         else -> "judge ${verdict(cascade.verdict)}"
     }
@@ -82,6 +103,8 @@ object CascadeLabels {
         val why = reasons(c.reasons).ifEmpty { null }
         val weak = if (c.verdict == CascadeVerdict.UNSURE.name) "wasn't sure about it" else "found it weak"
         val sensitive = c.risk.takeIf { it.isNotEmpty() }?.joinToString(", ") { risk(it) }
+        // A follow-up the rules refused before its request was made (`LocalFirstCascade`).
+        if (c.role == "cloud" && c.action == CascadeAction.KEPT.name) return "The follow-up was not sent; the phone's answer stands."
         if (c.target == "node") return nodeSummary(c, why, weak)
         return when {
             c.role == "cloud" && c.action == CascadeAction.DIRECT.name ->
