@@ -8,6 +8,7 @@ import dev.wckdboy.autobot.agent.core.session.SurfaceOp
 import dev.wckdboy.autobot.agent.core.session.CASCADE_ESCALATION
 import dev.wckdboy.autobot.agent.core.session.TOOL_OUTCOME_UNKNOWN
 import dev.wckdboy.autobot.agent.core.session.ToolCallRecord
+import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.session.deriveMessages
 import org.junit.Assert.assertEquals
@@ -130,5 +131,28 @@ class DeriveMessagesTest {
         val after = deriveMessages(entries + LogEntry(8, 0, SessionEvent.AssistantMessage(3, 1, "Team A won.", model = "cloud"), SurfaceOp.Append) +
             LogEntry(9, 0, SessionEvent.UserMessage("thanks"), SurfaceOp.Append))
         assertEquals(listOf("earlier", "earlier answer", "who won yesterday?", "<system-reminder>\nrecall: none\n</system-reminder>", "Team A won.", "thanks"), after.map { it.text })
+    }
+
+    /**
+     * A follow-up whose turn ends without an answer (refused before its request, failed, stopped
+     * first) takes nothing away: later requests carry the phone's answer. While that turn runs,
+     * its own requests leave the phone's answer out.
+     */
+    @Test
+    fun aCascadeEscalationThatGotNoAnswerLeavesThePhonesAnswer() {
+        val running = listOf(
+            SessionEvent.UserMessage("who won yesterday?"),
+            SessionEvent.AssistantMessage(1, 1, "I don't know.", model = "phone-model"),
+            SessionEvent.TurnStart(2),
+            SessionEvent.UserMessage("asked", UserMessageKind.CONTEXT, CASCADE_ESCALATION),
+            // An empty one (stopped before any output) is no answer.
+            SessionEvent.AssistantMessage(2, 1, "", interrupted = true),
+        )
+        assertEquals(listOf("who won yesterday?"), deriveMessages(log(*running.map { it.a() }.toTypedArray())).map { it.text })
+
+        for (end in listOf<SessionEvent>(SessionEvent.TurnEnd(2, TurnEndReason.ERROR, "refused"), SessionEvent.TurnStart(3))) {
+            val after = log(*(running + end + SessionEvent.UserMessage("and the day before?")).map { it.a() }.toTypedArray())
+            assertEquals("$end", listOf("who won yesterday?", "I don't know.", "and the day before?"), deriveMessages(after).map { it.text })
+        }
     }
 }

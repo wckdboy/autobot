@@ -26,7 +26,11 @@ import dev.wckdboy.autobot.agent.core.session.SessionEvent
 import dev.wckdboy.autobot.agent.core.session.UserMessageKind
 import dev.wckdboy.autobot.agent.core.session.visibleEntries
 import dev.wckdboy.autobot.agent.core.tools.TaskTool
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -44,23 +48,29 @@ import kotlinx.serialization.json.put
  *
  * The follow-up is a turn of its own, opened by a [CASCADE_ESCALATION] context message: the
  * phone's answer stays on screen, the chat's model answers the user's prompt afresh (the phone's
- * answer leaves the model surface, see `deriveMessages`), and the request goes through
- * `llm/stream` like any other, so the redaction gateway hides personal data from a cloud model. A
- * follow-up to the user's own node is not redacted by the phone; it goes marked private instead.
+ * answer leaves the model surface, unless the follow-up ends without an answer: see
+ * `deriveMessages`), and the request goes through `llm/stream` like any other, so the redaction
+ * gateway hides personal data from a cloud model. A follow-up to the user's own node is not
+ * redacted by the phone; it goes marked private instead.
  * Where a follow-up goes, and by which rules, is the chat's model as it is then, not the one the
  * phone's answer was judged for: the user may switch models in between (an offer outlives that).
  *
- * Every request of a turn this cascade handles (the phone's own excepted) is checked when it is
- * made, against the chat's policy and model as they are then ([refusal]), so no switch between
- * queueing and sending gets round the rules: under "Never" nothing goes to a cloud model, a
- * compaction summary included; a follow-up goes to the user's node, or to a cloud model only
- * where "Ask" may send it ([canAsk]; one sent on its own only where "Auto" would send it there on
- * its own), and never to "This phone" or a loopback server. A refused request is not made; a
- * refused follow-up's notice says it was not sent. Both turns' receipts say what happened and why
- * ([ReceiptCascade]); never any content.
+ * The turns this cascade handles are a plain chat's (tools off) that start under "phone first"
+ * with a prompt, on whatever model, and the follow-ups. Every request of such a turn (the phone's
+ * own excepted) is checked when it is made, against the chat's policy as it is then and the model
+ * it goes to ([refusal]), so no switch between queueing and sending gets round the rules: under
+ * "Never" nothing goes to a cloud model, a compaction summary included; a follow-up goes to the
+ * user's node, or to a cloud model only where "Ask" may send it ([canAsk]; one sent on its own
+ * only where "Auto" would send it there on its own), and never to "This phone" or a loopback
+ * server. A refused request is not made; a refused follow-up's notice says it was not sent. A
+ * stand-in the rules rule out after a failure ("On limit, fall back") is not used: the failure
+ * stands. A manual `/compact` ([compact]) is checked the same way. Both turns' receipts say what
+ * happened and why ([ReceiptCascade]); never any content.
  *
- * Not in play for agent runs (tools on), subagents, chats on "This phone" or a loopback server,
- * and with the policy [CascadePolicy.OFF] (the default).
+ * The phone answers first only on a cloud model or the user's node: on "This phone" or a loopback
+ * server the chat's model answers as it is (its requests are still checked, in case the chat
+ * switches). Not in play for agent runs (tools on), subagents, and with the policy
+ * [CascadePolicy.OFF] (the default).
  *
  * @param defaultPolicy Settings → "Phone first", for chats without their own choice.
  * @param onDevice the on-device chat route (the installed default model), null when none.
@@ -245,10 +255,15 @@ class LocalFirstCascade(
         // Every request of a turn this cascade handles, when it is made (a compaction summary
         // before the first step and after a switch mid-turn included): checked once more, and
         // marked private when it goes to the user's node or to a provider that cannot be told.
+        // Outside a turn, a manual `/compact`'s summary ([compact]) is checked too.
         ctx.intercept(Hooks.LlmStream) { call, next ->
             val trace = TurnTrace.current()
-            val state = trace?.let { stateOf(it) }
-            if (trace != null && state != null && admit(trace, state, call.config, sending = true) != false) {
+            if (trace == null) {
+                currentCoroutineContext()[ManualCompaction]?.let { checkManual(it.agent, call.config) }
+                return@intercept next(call)
+            }
+            val state = stateOf(trace)
+            if (state != null && admit(trace, state, call.config, sending = true) != false) {
                 privateTurns?.mark(trace)
             }
             next(call)
@@ -259,6 +274,18 @@ class LocalFirstCascade(
             val state = lock.withLock { turns[input.agent.id] }?.takeIf { it.turn == input.turn }
             if (state != null && state.route == CascadeRoute.Local && state.result == null) judgeAnswer(input.agent, state)
             next(input)
+        }
+
+        // Around "On limit, fall back" (`quotaFallbackPlugin`): a stand-in the rules rule out now
+        // (for a follow-up, the on-device model, which has had its turn at that prompt) is not
+        // used. The failure stands, so the turn ends with it, not with a refusal that would say
+        // the follow-up was not sent: it was, and its model failed.
+        ctx.intercept(Hooks.RequestError, priority = AROUND_FALLBACK) { input, next ->
+            val decision = next(input)
+            if (decision !is RequestErrorDecision.Fallback) return@intercept decision
+            val trace = TurnTrace.current() ?: return@intercept decision
+            val state = stateOf(trace) ?: return@intercept decision
+            if (refusal(state, decision.config).second != null) RequestErrorDecision.Fail else decision
         }
 
         ctx.intercept(Hooks.RequestError) { input, next ->
@@ -300,8 +327,7 @@ class LocalFirstCascade(
      */
     private suspend fun admit(trace: TurnTrace, state: TurnState, config: LlmCallConfig, sending: Boolean): Boolean? {
         if (state.local?.provider == config.provider) return false
-        val owned = ownership(config.provider)
-        val why = refusal(state.trigger, state.origin, state.rules(), owned, cloudRoute(config.provider, owned))
+        val (owned, why) = refusal(state, config)
         val route = config.provider to config.model
         lock.withLock {
             val r = routes[trace.sessionId]?.takeIf { it.turn == trace.turn } ?: Routes(trace.turn).also { routes[trace.sessionId] = it }
@@ -317,11 +343,46 @@ class LocalFirstCascade(
     }
 
     /**
+     * Whether a request of [state]'s turn to [config] goes to the user's node (null: that cannot be
+     * told), and why the chat's rules as they are now rule it out ([refusal]; null: they don't).
+     * The phone's own route is never ruled out.
+     */
+    private suspend fun refusal(state: TurnState, config: LlmCallConfig): Pair<Boolean?, String?> {
+        if (state.local?.provider == config.provider) return false to null
+        val owned = ownership(config.provider)
+        return owned to refusal(state.trigger, state.origin, state.rules(), owned, cloudRoute(config.provider, owned))
+    }
+
+    /**
+     * Manual `/compact` of [agent]'s chat, outside a turn: its summary request is checked when it
+     * is made, as a turn's is ([refusal]). On a plain chat (tools off) under "Never" it does not go
+     * to a cloud model, or to one that cannot be told: the compaction fails, and its notice says
+     * why. What it sends the user's node is not marked private (that mark belongs to a turn).
+     * Returns whether the chat was compacted.
+     */
+    suspend fun compact(agent: Agent): Boolean {
+        val compactor = agent.ctx[Compactor.Key] ?: return false
+        return withContext(ManualCompaction(agent)) { compactor.compact(agent, "manual") }
+    }
+
+    /** Throws [CascadeRefused] when [agent]'s rules rule out its manual compaction's request to [config] ([compact]). */
+    private suspend fun checkManual(agent: Agent, config: LlmCallConfig) {
+        if (agent.config.value.toolsEnabled) return
+        val owned = ownership(config.provider)
+        refusal(null, null, policyOf(agent), owned, cloudRoute(config.provider, owned))?.let { throw CascadeRefused(it) }
+    }
+
+    /** The coroutine of a manual compaction ([compact]), so `llm/stream` checks its request. */
+    private class ManualCompaction(val agent: Agent) : AbstractCoroutineContextElement(ManualCompaction) {
+        companion object Key : CoroutineContext.Key<ManualCompaction>
+    }
+
+    /**
      * Before compaction (which may send the chat to its model ahead of [turn]'s first step): a
      * follow-up the chat's rules rule out now is refused, so nothing is sent ([followUp]); a turn
      * this cascade may handle counts as its own from here (not routed yet), so a summary request is
-     * checked ([admit]) and, to the user's node, goes marked private. [begin] decides again after
-     * compaction. Returns a message when the turn must not run.
+     * checked ([admit]) and, to the user's node, goes marked private. [begin] routes it after
+     * compaction, or leaves this in place. Returns a message when the turn must not run.
      */
     private suspend fun prepare(agent: Agent, turn: Int): String? {
         lock.withLock { turns.remove(agent.id) }
@@ -355,13 +416,19 @@ class LocalFirstCascade(
         return refused
     }
 
-    /** Sets up [turn]'s cascade state (after compaction); returns a message when the turn must not run. */
+    /**
+     * Routes [turn] (after compaction); returns a message when the turn must not run. A turn it
+     * does not route (the chat's model is "This phone" or a loopback server, or the chat is no
+     * longer a plain one under "phone first") keeps what [prepare] set up, if anything: its
+     * requests are still checked ([admit]), so a switch to a cloud model later in the turn cannot
+     * take it there under "Never".
+     */
     private suspend fun begin(agent: Agent, turn: Int): String? {
-        lock.withLock { turns.remove(agent.id) }
         val input = agent.turnInput
         val entries = agent.log.entries.value
         // Checked again: the chat may have left the node, or its policy changed, during compaction.
         escalationMarker(input)?.let { return followUp(agent, turn, it) }
+        // [prepare]'s state for this turn, if any, stands until a route replaces it.
         val config = agent.config.value
         val policy = policyOf(agent)
         if (!policy.localFirst || config.toolsEnabled) return null
@@ -528,6 +595,9 @@ class LocalFirstCascade(
 
         /** Ahead of the compaction plugin's `agent/pre-step` (priority 0): [prepare] runs first. */
         private const val AHEAD_OF_COMPACTION = 100
+
+        /** Around `quotaFallbackPlugin`'s `agent/request-error` (priority 0): its decision is checked here. */
+        private const val AROUND_FALLBACK = 100
 
         /**
          * Whether "Ask" may send an offered answer on to the chat's model under the chat's [policy]

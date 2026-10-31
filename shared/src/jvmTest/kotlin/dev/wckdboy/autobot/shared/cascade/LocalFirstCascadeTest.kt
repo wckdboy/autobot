@@ -16,6 +16,7 @@ import dev.wckdboy.autobot.agent.core.loop.Agent
 import dev.wckdboy.autobot.agent.core.loop.AgentConfig
 import dev.wckdboy.autobot.agent.core.loop.chooseCascade
 import dev.wckdboy.autobot.agent.core.policy.Compactor
+import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.CASCADE_ESCALATION
 import dev.wckdboy.autobot.agent.core.session.InMemorySessionStore
 import dev.wckdboy.autobot.agent.core.session.ReceiptCascade
@@ -98,6 +99,8 @@ class LocalFirstCascadeTest {
         myNode: Scripted? = null,
         /** While true, telling whether a provider is the user's node fails (a broken provider store). */
         ownedFails: () -> Boolean = { false },
+        /** "On limit, fall back" on, to the on-device model, registered ahead of the cascade as both apps do. */
+        quotaFallback: Boolean = false,
     ): Setup {
         val harness = Harness()
         harness.llm.register(phone)
@@ -116,6 +119,7 @@ class LocalFirstCascadeTest {
             selfCheckTimeoutMs = selfCheckTimeoutMs,
             millis = { now.also { now += 120 } },
         )
+        if (quotaFallback) harness.root.plugin(quotaFallbackPlugin(enabled = { true }, onDevice = { LlmCallConfig("phone", "qwen3-1.7b") }))
         if (redact) harness.root.plugin(RedactionGateway(cloud = { it == "cloud" }, enabled = { true }).plugin)
         harness.root.plugin(cascade.plugin)
         val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + Job())
@@ -789,6 +793,157 @@ class LocalFirstCascadeTest {
         val follow = s.agent.cascades().last()!!
         assertEquals(listOf("KEPT", null), listOf(follow.action, follow.target))
         assertEquals(listOf("follow-up not sent · you asked", CascadeRoutes.NOT_SENT_LOCAL), s.agent.notices().map { it.text })
+    }
+
+    /**
+     * A follow-up refused before its request was made takes nothing from the chat's history, as its
+     * receipt says ("the phone's answer stands"): the next turn's request, and a summary of the
+     * chat, still carry the phone's answer, with no two prompts in a row.
+     */
+    @Test
+    fun aRefusedFollowUpLeavesThePhonesAnswerInTheChatsHistory() = runTest {
+        val node = Scripted("node")
+        val s = nodeOffer(CascadePolicy.NEVER, node = node)
+        assertTrue(s.cascade.escalate(s.agent))
+        s.agent.switchTo("cloud", "deepseek-chat")
+        advanceUntilIdle()
+        assertEquals("The follow-up was not sent; the phone's answer stands.", CascadeLabels.summary(s.agent.cascades().last()!!))
+
+        s.agent.switchTo("node", "auto")
+        s.phone.answer = { "It was a little lower." }
+        s.agent.followup("And yesterday?")
+        advanceUntilIdle()
+        val next = s.phone.chats.last()
+        assertEquals(ModelRole.SYSTEM, next.messages.first().role)
+        assertEquals(
+            listOf(
+                ModelRole.USER to "What's the bitcoin price right now?",
+                ModelRole.ASSISTANT to "Sounds good.",
+                ModelRole.USER to "And yesterday?",
+            ),
+            next.messages.drop(1).map { it.role to it.text },
+        )
+
+        // A manual /compact on the node (allowed under "Never") summarizes it too.
+        assertTrue(s.cascade.compact(s.agent))
+        val summary = node.calls.single { it.isSummary() }
+        assertTrue(summary.messages.any { it.role == ModelRole.ASSISTANT && it.text == "Sounds good." })
+    }
+
+    /**
+     * "On limit, fall back" and a follow-up: when the chat's model hits its usage limit, the
+     * on-device model, which has answered already, does not stand in. The failure stands; the
+     * notice and receipt say the follow-up went to the cloud (it did), and the phone's answer stays
+     * in the history. A turn the cloud answers directly still falls back to the phone.
+     */
+    @Test
+    fun aFollowUpWhoseModelHitsItsLimitEndsWithThatAndThePhonesAnswerStays() = runTest {
+        val s = setup(policy = CascadePolicy.ASK, quotaFallback = true)
+        s.phone.answer = { "I don't know who wrote it." }
+        s.agent.followup("Who wrote the novel Stiller?")
+        advanceUntilIdle()
+        s.cloud.onCall = { throw LlmException(LlmFailure(LlmErrorCode.QUOTA, "credit used up")) }
+        assertTrue(s.cascade.escalate(s.agent))
+        advanceUntilIdle()
+
+        assertEquals("no stand-in: the phone answered once", 1, s.phone.chats.size)
+        assertEquals(1, s.cloud.chats.size)
+        val end = s.agent.all<SessionEvent.TurnEnd>().last()
+        assertEquals(TurnEndReason.ERROR, end.reason)
+        assertEquals("QUOTA: credit used up", end.detail)
+        val follow = s.agent.cascades().last()!!
+        assertEquals(listOf("cloud", "ESCALATED", "asked"), listOf(follow.role, follow.action, follow.trigger))
+        val notices = s.agent.notices().map { it.text }
+        assertEquals("phone → cloud · you asked", notices.first())
+        assertTrue("$notices", notices.none { "not sent" in it || "Not sent" in it })
+
+        s.cloud.onCall = {}
+        s.phone.answer = { "You're welcome." }
+        s.agent.followup("thanks")
+        advanceUntilIdle()
+        assertEquals(listOf("I don't know who wrote it."), s.phone.chats.last().messages.filter { it.role == ModelRole.ASSISTANT }.map { it.text })
+
+        // Too long for the phone: the cloud answers directly, and at its limit the phone stands in.
+        val direct = setup(policy = CascadePolicy.ASK, phone = Scripted("phone", window = 64), quotaFallback = true)
+        direct.cloud.onCall = { throw LlmException(LlmFailure(LlmErrorCode.QUOTA, "credit used up")) }
+        direct.agent.followup("x".repeat(400))
+        advanceUntilIdle()
+        assertEquals(TurnEndReason.COMPLETED, direct.agent.all<SessionEvent.TurnEnd>().single().reason)
+        assertEquals(1, direct.phone.chats.size)
+        assertNotNull(direct.agent.all<SessionEvent.AssistantMessage>().single().fallback)
+        assertEquals("DIRECT", direct.agent.cascades().single()!!.action)
+    }
+
+    /**
+     * A manual /compact (outside a turn) is checked as a turn's summary is: under "Never" on a cloud
+     * chat it does not go to the cloud model (the compaction fails and says why); under "Ask" it does.
+     */
+    @Test
+    fun underNeverAManualCompactDoesNotGoToTheCloudModel() = runTest {
+        for (policy in listOf(CascadePolicy.NEVER, CascadePolicy.ASK)) {
+            val s = setup(policy = policy)
+            s.phone.answer = { "The capital of France is Paris." }
+            s.agent.followup("What is the capital of France?")
+            advanceUntilIdle()
+            s.agent.followup("And of Italy?")
+            advanceUntilIdle()
+            assertTrue(policy.name, s.cloud.calls.isEmpty())
+
+            val compacted = s.cascade.compact(s.agent)
+            if (policy == CascadePolicy.NEVER) {
+                assertFalse(compacted)
+                assertTrue("nothing went to the cloud model", s.cloud.calls.isEmpty())
+                assertEquals(CascadeRoutes.NOT_SENT_NEVER, s.agent.all<SessionEvent.CompactionEnd>().single().error)
+                assertEquals("compaction failed: ${CascadeRoutes.NOT_SENT_NEVER}", s.agent.notices().last().text)
+            } else {
+                assertTrue(compacted)
+                assertTrue(s.cloud.calls.single().isSummary())
+            }
+        }
+    }
+
+    /**
+     * "Never" on a chat whose model is "This phone": the phone answers as the chat's model, and a
+     * switch to a cloud model after the turn started takes nothing there: neither the step's request
+     * nor the summary an overflow then asks for.
+     */
+    @Test
+    fun underNeverAChatOnThisPhoneSendsNothingToACloudModelAfterASwitch() = runTest {
+        val s = setup(policy = CascadePolicy.NEVER)
+        s.agent.switchTo("phone", "qwen3-1.7b")
+        // After the cascade routed the turn (it does not: the chat is on the phone), before its request.
+        s.harness.root.intercept(Hooks.PreStep, priority = -1) { input, next ->
+            s.agent.switchTo("cloud", "deepseek-chat")
+            next(input)
+        }
+        s.agent.followup("My card is 4111 1111 1111 1111, is it still valid?")
+        advanceUntilIdle()
+        assertTrue(s.cloud.calls.isEmpty())
+        assertTrue(s.phone.calls.isEmpty())
+        val end = s.agent.all<SessionEvent.TurnEnd>().single()
+        assertEquals(TurnEndReason.ERROR, end.reason)
+        assertEquals(CascadeRoutes.NOT_SENT_NEVER, end.detail)
+        assertTrue(s.agent.all<SessionEvent.TurnReceipt>().single().models.isEmpty())
+
+        // The phone's request overflows just after the user picked a cloud model: no summary goes there.
+        val o = setup(policy = CascadePolicy.NEVER)
+        o.agent.switchTo("phone", "qwen3-1.7b")
+        o.phone.answer = { "The capital of France is Paris, on the Seine." }
+        o.agent.followup("What is the capital of France?")
+        advanceUntilIdle()
+        var overflow = true
+        o.phone.onCall = {
+            if (overflow) {
+                overflow = false
+                o.agent.switchTo("cloud", "deepseek-chat")
+                throw LlmException(LlmFailure(LlmErrorCode.CONTEXT_WINDOW_EXCEEDED, "too long"))
+            }
+        }
+        o.agent.followup("And of Italy?")
+        advanceUntilIdle()
+        assertTrue(o.cloud.calls.isEmpty())
+        assertEquals(CascadeRoutes.NOT_SENT_NEVER, o.agent.all<SessionEvent.CompactionEnd>().single().error)
+        assertTrue(o.agent.all<SessionEvent.TurnReceipt>().flatMap { it.models }.none { it.provider == "cloud" })
     }
 
     /** A switch to "This phone" while the phone answers: there is nothing further to ask, so the answer is kept and nothing queued. */

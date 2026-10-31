@@ -18,7 +18,6 @@ import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.llm.ThinkingSetting
 import dev.wckdboy.autobot.agent.core.loop.chooseThinking
 import dev.wckdboy.autobot.agent.core.loop.restoreThinking
-import dev.wckdboy.autobot.agent.core.policy.Compactor
 import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.SessionEvent
@@ -531,13 +530,13 @@ class AgentHost @Inject constructor(
     /** "Ask <model>" under the phone's answer: that prompt goes to the chat's model (a cloud one, or the user's node) as a follow-up. */
     suspend fun escalate(conversationId: String): Boolean = cascade.escalate(agent(conversationId))
 
-    /** Manual `/compact`. */
+    /** Manual `/compact`: its summary request is checked as a "phone first" turn's is (`LocalFirstCascade.compact`). */
     fun compact(conversationId: String, onError: (Throwable) -> Unit = {}) {
         scope.launch {
             try {
                 val agent = agent(conversationId)
                 agent.log.append(SessionEvent.CommandRun("compact"))
-                agent.ctx[Compactor.Key]?.compact(agent, "manual")
+                cascade.compact(agent)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

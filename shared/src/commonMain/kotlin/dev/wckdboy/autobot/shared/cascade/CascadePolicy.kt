@@ -47,8 +47,9 @@ enum class CascadePolicy(
      * With a node it works exactly as [AUTO] does there (a turn the phone cannot take, no on-device
      * model or a chat too long for it, goes to the node), only the judge skips the self-check:
      * rules alone decide. Each request is checked when it is made (`LocalFirstCascade`): a
-     * follow-up goes to the node only, and no other request of a turn it handles, a compaction
-     * summary included, goes to a cloud model ([CascadeRoutes.NOT_SENT_NEVER]).
+     * follow-up goes to the node only, and no other request of a turn it handles (on "This phone"
+     * too, should the chat switch), a compaction summary included, goes to a cloud model, nor does
+     * a manual `/compact` of a plain chat ([CascadeRoutes.NOT_SENT_NEVER]).
      */
     NEVER(
         "phone only", "Never", "This phone answers. Nothing goes to the cloud.",
@@ -113,8 +114,9 @@ object CascadeRoutes {
         "Phone only: no on-device chat model is installed. Download one under Models, or change \"phone first\" for this chat."
 
     /**
-     * A request refused under "Never" (LocalFirstCascade): a follow-up, the turn the phone cannot
-     * take or a compaction summary, to a cloud model.
+     * A request refused under "Never" (LocalFirstCascade): a follow-up, any other request of a turn
+     * it handles (the turn the phone cannot take, a step after a switch, a compaction summary) or a
+     * manual `/compact`'s summary, to a cloud model.
      */
     const val NOT_SENT_NEVER = "Not sent: \"phone first\" is \"Never\" for this chat, and its model is not your node."
 

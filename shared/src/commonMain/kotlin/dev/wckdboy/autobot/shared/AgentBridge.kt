@@ -47,7 +47,6 @@ import dev.wckdboy.autobot.agent.core.loop.AgentConfig
 import dev.wckdboy.autobot.agent.core.loop.AgentStatus
 import dev.wckdboy.autobot.agent.core.loop.LiveStream
 import dev.wckdboy.autobot.agent.core.monotonicNanos
-import dev.wckdboy.autobot.agent.core.policy.Compactor
 import dev.wckdboy.autobot.agent.core.policy.quotaFallbackPlugin
 import dev.wckdboy.autobot.agent.core.session.ApprovalOutcome
 import dev.wckdboy.autobot.agent.core.session.LogEntry
@@ -1510,10 +1509,10 @@ class AgentBridge(
         return if (config.redaction ?: redactionDefault) "ON" else "OFF"
     }
 
-    /** Manual `/compact`. */
+    /** Manual `/compact`: its summary request is checked as a "phone first" turn's is (`LocalFirstCascade.compact`). */
     fun compact(sessionId: String) = withAgent(sessionId) { a ->
         a.log.append(SessionEvent.CommandRun("compact"))
-        a.ctx[Compactor.Key]?.compact(a, "manual")
+        cascade.compact(a)
     }
 
     /** Undoes one file step (and later changes to the same files); only while the session is idle. */

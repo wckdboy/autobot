@@ -162,16 +162,20 @@ models, shared core). Ordered by value.
    threshold. Ask offers "Ask <model>" under the answer; Auto sends a weak answer's prompt on its
    own only when the risk rules find nothing personal, health, money, attachment or memory related;
    Never keeps it on the phone. The follow-up is its own turn: the phone's answer stays on screen
-   but leaves the model surface, the request passes the redaction gateway, and both receipts say
-   what happened and why (verdict, reason codes, policy, risk, judge time; never content). No
-   on-device model: the cloud answers (Never refuses); a chat too long for the phone's window goes
-   straight to the cloud (under Never the phone still tries). Each request of such a turn that
-   leaves the phone is checked when it is made, against the chat's policy and model then: a
-   follow-up whose chat switched models after it was queued goes on only where the rules allow
-   (else its notice says it was not sent), and under Never a compaction summary does not go to the
-   cloud model either (the compaction fails; the phone gets the chat uncompacted). Judge rules
-   cost a few milliseconds per turn on the simulator. Not yet: agent runs (tools on) and
-   subagents; the self-check's latency on real hardware; a separate small judge model.)*
+   but leaves the model surface once the follow-up answers (one that gets no answer leaves it
+   there), the request passes the redaction gateway, and both receipts say what happened and why
+   (verdict, reason codes, policy, risk, judge time; never content). No on-device model: the cloud
+   answers (Never refuses); a chat too long for the phone's window goes straight to the cloud
+   (under Never the phone still tries). Each request of a plain chat's turn that starts under
+   phone first (on This phone too) and leaves the phone is checked when it is made, against the
+   chat's policy then and the model it goes to: a follow-up whose chat switched models after it
+   was queued goes on only where the rules allow (else its notice says it was not sent), and under
+   Never nothing of such a turn goes to a cloud model, a compaction summary included (the
+   compaction fails, and the chat stays uncompacted), nor does a manual /compact of a plain chat.
+   At its model's usage limit a follow-up does not fall back to the on-device model, which has had
+   its turn at that prompt. Judge rules cost a few milliseconds per turn on the simulator. Not
+   yet: agent runs (tools on) and subagents; the self-check's latency on real hardware; a separate
+   small judge model.)*
 4. **Taint tracking for tools.** Data that came from memory, attachments or private files is
    tagged; when the agent tries to put tainted data into a network tool (web_fetch, web_search,
    MCP), the approval card highlights exactly which private fragment would leave. Defends against

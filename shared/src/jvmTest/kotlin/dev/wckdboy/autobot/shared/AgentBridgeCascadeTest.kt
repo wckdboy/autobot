@@ -1,6 +1,11 @@
 package dev.wckdboy.autobot.shared
 
+import dev.wckdboy.autobot.agent.core.session.LogEntry
+import dev.wckdboy.autobot.agent.core.session.SessionEvent
+import dev.wckdboy.autobot.agent.core.session.SessionJson
+import dev.wckdboy.autobot.agent.core.session.TurnEndReason
 import dev.wckdboy.autobot.core.data.model.ProviderKind
+import dev.wckdboy.autobot.shared.cascade.CascadeRoutes
 import dev.wckdboy.autobot.providers.remote.LocalModelState
 import dev.wckdboy.autobot.providers.remote.ProviderPresets
 import dev.wckdboy.autobot.providers.remote.SystemModelStatus
@@ -58,9 +63,9 @@ class AgentBridgeCascadeTest {
     }
 
     /** A bridge on a workspace of its own; both are gone after [block]. */
-    private fun withBridge(block: suspend (AgentBridge) -> Unit) = runBlocking {
+    private fun withBridge(store: MemoryStore = MemoryStore(), block: suspend (AgentBridge) -> Unit) = runBlocking {
         val workspace = Files.createTempDirectory("ws").toFile()
-        val bridge = AgentBridge(workspace.path, Providers, NoTransport, NoLocal, MemoryStore(), null, { null })
+        val bridge = AgentBridge(workspace.path, Providers, NoTransport, NoLocal, store, null, { null })
         try {
             block(bridge)
         } finally {
@@ -111,6 +116,40 @@ class AgentBridgeCascadeTest {
             mapOf("node" to true, "cloud" to true, "phone" to false, "loopback" to false),
             listOf("node", "cloud", "phone", "loopback").associateWith { bridge.frame(it).cascadeAsk },
         )
+    }
+
+    /**
+     * The bridge's manual `/compact` goes through the cascade's check: under "Never" a plain cloud
+     * chat's summary is not sent (NoTransport would fail it with another error if it were).
+     */
+    @Test
+    fun underNeverAManualCompactOfACloudChatSendsNothing() {
+        val store = MemoryStore()
+        val history = listOf(
+            SessionEvent.TurnStart(1),
+            SessionEvent.UserMessage("What is the capital of France?"),
+            SessionEvent.AssistantMessage(1, 1, "Paris."),
+            SessionEvent.TurnEnd(1, TurnEndReason.COMPLETED),
+            SessionEvent.TurnStart(2),
+            SessionEvent.UserMessage("And of Italy?"),
+            SessionEvent.AssistantMessage(2, 1, "Rome."),
+            SessionEvent.TurnEnd(2, TurnEndReason.COMPLETED),
+        )
+        store.append("cloud", history.mapIndexed { i, e -> SessionJson.encodeToString(LogEntry.serializer(), LogEntry(i + 1L, 0L, e)) })
+        withBridge(store) { bridge ->
+            bridge.setCascadeDefault("NEVER")
+            assertEquals("NEVER", bridge.chip("cloud"))
+            bridge.compact("cloud")
+            val end = withTimeout(5_000) {
+                var found: SessionEvent.CompactionEnd? = null
+                while (found == null) {
+                    found = store.load("cloud").map { SessionJson.decodeFromString(LogEntry.serializer(), it).event }.filterIsInstance<SessionEvent.CompactionEnd>().firstOrNull()
+                    if (found == null) delay(10)
+                }
+                found
+            }
+            assertEquals(CascadeRoutes.NOT_SENT_NEVER, end.error)
+        }
     }
 
     @Test
